@@ -32,12 +32,19 @@
             "actions": [
                 { "name": "Command", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e02", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
                 { "name": "PointerPosition", "type": "Value", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e03", "expectedControlType": "Vector2", "processors": "", "interactions": "", "initialStateCheck": true },
-                { "name": "TogglePause", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e04", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+                { "name": "TogglePause", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e04", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "Modifier", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e05", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "Stop", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e06", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ClearSelection", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e07", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
             ],
             "bindings": [
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e11", "path": "<Mouse>/leftButton", "interactions": "", "processors": "", "groups": "", "action": "Command", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e12", "path": "<Pointer>/position", "interactions": "", "processors": "", "groups": "", "action": "PointerPosition", "isComposite": false, "isPartOfComposite": false },
-                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e13", "path": "<Keyboard>/space", "interactions": "", "processors": "", "groups": "", "action": "TogglePause", "isComposite": false, "isPartOfComposite": false }
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e13", "path": "<Keyboard>/space", "interactions": "", "processors": "", "groups": "", "action": "TogglePause", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e14", "path": "<Keyboard>/leftShift", "interactions": "", "processors": "", "groups": "", "action": "Modifier", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e15", "path": "<Keyboard>/rightShift", "interactions": "", "processors": "", "groups": "", "action": "Modifier", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e16", "path": "<Keyboard>/x", "interactions": "", "processors": "", "groups": "", "action": "Stop", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e17", "path": "<Keyboard>/escape", "interactions": "", "processors": "", "groups": "", "action": "ClearSelection", "isComposite": false, "isPartOfComposite": false }
             ]
         }
     ],

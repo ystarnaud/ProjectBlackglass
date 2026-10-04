@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System.Collections;
+using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -10,9 +11,12 @@ namespace Blackglass.Tests
 {
     public class PrototypeSceneTests : InputTestFixture
     {
+        static readonly string[] FriendlyNames = { "FriendlyUnit_1", "FriendlyUnit_2", "FriendlyUnit_3" };
+
         CommandableUnit unit;
         Health dummy;
         TacticalPause pause;
+        UnitSelection selection;
 
         // Loaded from each test rather than [UnitySetUp]: the scene must load after InputTestFixture has isolated the
         // input system, otherwise the scene's actions (shared InputActionAsset) leak into later fixtures.
@@ -20,10 +24,14 @@ namespace Blackglass.Tests
         {
             yield return SceneManager.LoadSceneAsync("Prototype", LoadSceneMode.Single);
             yield return null;
-            unit = Object.FindFirstObjectByType<CommandableUnit>();
+            unit = GameObject.Find(FriendlyNames[0]).GetComponent<CommandableUnit>();
             dummy = Object.FindFirstObjectByType<Health>();
             pause = Object.FindFirstObjectByType<TacticalPause>();
+            selection = Object.FindFirstObjectByType<UnitSelection>();
         }
+
+        internal static CommandableUnit[] FindSquad() =>
+            FriendlyNames.Select(n => GameObject.Find(n).GetComponent<CommandableUnit>()).ToArray();
 
         public override void TearDown()
         {
@@ -41,11 +49,21 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator Scene_ContainsWiredPrototypeObjects_AndRunsWithoutErrors()
+        public IEnumerator Scene_ContainsWiredSquad_AndRunsWithoutErrors()
         {
             yield return LoadScene();
-            Assert.That(unit, Is.Not.Null, "PlayerUnit missing");
-            Assert.That(unit.name, Is.EqualTo("PlayerUnit"));
+            var friendlies = Object.FindObjectsByType<SelectableUnit>(FindObjectsSortMode.None);
+            Assert.That(friendlies.Select(f => f.name), Is.EquivalentTo(FriendlyNames));
+            Assert.That(selection, Is.Not.Null, "UnitSelection missing");
+            Assert.That(selection.Roster, Is.EquivalentTo(friendlies));
+            Assert.That(selection.Selected, Is.Empty, "Nothing should be selected at start");
+            foreach (var friendly in friendlies)
+            {
+                Assert.That(friendly.GetComponent<SelectionIndicator>(), Is.Not.Null, friendly.name);
+                Assert.That(friendly.GetComponent<CommandQueueView>(), Is.Not.Null, friendly.name);
+                Assert.That(friendly.GetComponentsInChildren<Collider>(true), Has.Length.EqualTo(1),
+                    $"{friendly.name}: only the capsule may have a collider, so debug visuals never block clicks");
+            }
             Assert.That(dummy, Is.Not.Null, "TrainingDummy missing");
             Assert.That(dummy.name, Is.EqualTo("TrainingDummy"));
             Assert.That(pause, Is.Not.Null, "TacticalPause missing");
@@ -98,6 +116,22 @@ namespace Blackglass.Tests
             yield return TestWorld.WaitUntil(() => TestWorld.HorizontalDistance(unit.transform.position, start) > 1f, 5f);
             Assert.That(TestWorld.HorizontalDistance(unit.transform.position, start), Is.GreaterThan(1f));
         }
+
+        [UnityTest]
+        public IEnumerator GroupMove_TheSquadArrivesAtDistinctPoints()
+        {
+            yield return LoadScene();
+            var squad = FindSquad();
+            var destination = new Vector3(-6f, 0f, 0f);
+            Assert.That(GroupOrders.Issue(squad, new MoveCommand(destination), IssueMode.Replace), Is.EqualTo(3));
+
+            yield return TestWorld.WaitUntil(() => squad.All(u => u.CurrentCommand == null), 15f);
+
+            Assert.That(squad.All(u => u.CurrentCommand == null), Is.True, "Group move did not finish in time");
+            for (var i = 0; i < squad.Length; i++)
+            for (var j = i + 1; j < squad.Length; j++)
+                Assert.That(TestWorld.HorizontalDistance(squad[i].transform.position, squad[j].transform.position), Is.GreaterThan(1f));
+        }
     }
 
     public class PrototypeSceneInputTests : InputTestFixture
@@ -108,32 +142,72 @@ namespace Blackglass.Tests
             base.TearDown();
         }
 
-        [UnityTest]
-        public IEnumerator LeftClickOnDummy_InScene_IssuesAttack()
+        static IEnumerator LoadScene()
         {
-            var mouse = InputSystem.AddDevice<Mouse>();
-            InputSystem.AddDevice<Keyboard>();
             yield return SceneManager.LoadSceneAsync("Prototype", LoadSceneMode.Single);
             yield return null;
-            var unit = Object.FindFirstObjectByType<CommandableUnit>();
-            var dummy = Object.FindFirstObjectByType<Health>();
+        }
 
-            Set(mouse.position, (Vector2)Camera.main.WorldToScreenPoint(dummy.transform.position));
+        IEnumerator LeftClickAt(Mouse mouse, Vector2 screenPoint)
+        {
+            Set(mouse.position, screenPoint);
             yield return null;
             Press(mouse.leftButton);
             yield return null;
             Release(mouse.leftButton);
             yield return null;
+        }
 
-            Assert.That(unit.CurrentCommand, Is.TypeOf<AttackCommand>());
+        [UnityTest]
+        public IEnumerator ClickUnitThenDummy_InScene_OnlyThatUnitAttacks()
+        {
+            var mouse = InputSystem.AddDevice<Mouse>();
+            InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var squad = PrototypeSceneTests.FindSquad();
+            var dummy = Object.FindFirstObjectByType<Health>();
+
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(squad[0].transform.position));
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(dummy.transform.position));
+
+            Assert.That(squad[0].CurrentCommand, Is.TypeOf<AttackCommand>());
+            Assert.That(squad[1].CurrentCommand, Is.Null);
+            Assert.That(squad[2].CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator BoxSelectSquadThenClickGround_InScene_AllThreeMove()
+        {
+            var mouse = InputSystem.AddDevice<Mouse>();
+            InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var squad = PrototypeSceneTests.FindSquad();
+            var screenPoints = squad.Select(u => (Vector2)Camera.main.WorldToScreenPoint(u.transform.position)).ToArray();
+            var margin = new Vector2(25f, 25f);
+            var from = screenPoints.Aggregate(Vector2.Min) - margin;
+            var to = screenPoints.Aggregate(Vector2.Max) + margin;
+
+            Set(mouse.position, from);
+            yield return null;
+            Press(mouse.leftButton);
+            yield return null;
+            Set(mouse.position, to);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            Assert.That(Object.FindFirstObjectByType<UnitSelection>().Selected, Has.Count.EqualTo(3));
+
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, 0f)));
+
+            foreach (var member in squad)
+                Assert.That(member.CurrentCommand, Is.TypeOf<MoveCommand>(), member.name);
         }
 
         [UnityTest]
         public IEnumerator HoldingW_InScene_PansTheCameraRig()
         {
             var keyboard = InputSystem.AddDevice<Keyboard>();
-            yield return SceneManager.LoadSceneAsync("Prototype", LoadSceneMode.Single);
-            yield return null;
+            yield return LoadScene();
             var rig = Object.FindFirstObjectByType<TacticalCameraController>();
             var start = rig.transform.position;
 

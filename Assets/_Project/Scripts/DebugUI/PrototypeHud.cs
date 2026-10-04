@@ -7,7 +7,8 @@ namespace Blackglass
     {
         const string ControlHints =
             "WASD: pan   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom\n" +
-            "Left-click ground: move   Left-click dummy: attack\n" +
+            "Left-click unit: select (Shift: add/remove)   Left-drag: box select   Esc: clear selection\n" +
+            "Left-click ground: move   Left-click dummy: attack   Shift: queue the order   X: stop\n" +
             "Space: tactical pause";
         // Order labels float this far above a unit's centre (the capsule is 2 m tall).
         const float UnitLabelHeight = 1.5f;
@@ -17,6 +18,7 @@ namespace Blackglass
         [SerializeField] string targetLabel = "Training Dummy";
         [SerializeField] Camera viewCamera;
         [SerializeField] UnitSelection selection;
+        [SerializeField] PlayerCommandInput commandInput;
 
         GUIStyle pausedStyle;
         GUIStyle unitLabelStyle;
@@ -46,6 +48,9 @@ namespace Blackglass
                 GUI.Label(new Rect(10f, 115f, 320f, 22f), $"Selected: {selection.Selected.Count}");
 
             DrawUnitLabels();
+
+            if (commandInput != null && commandInput.IsDragging)
+                GUI.Box(ScreenBox.ToGuiRect(commandInput.DragRect, Screen.height), GUIContent.none);
 
             if (tacticalPause != null && tacticalPause.IsPaused)
             {

@@ -3,19 +3,27 @@ using System.Collections;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using UnityEngine.TestTools;
 
 namespace Blackglass.Tests
 {
     public class PlayerCommandInputTests : InputTestFixture
     {
+        static readonly Vector3 GroundPoint = new Vector3(2f, 0f, 2f);
+        static readonly Vector3 OtherGroundPoint = new Vector3(-2f, 0f, 2f);
+
         Keyboard keyboard;
         Mouse mouse;
         TestWorld world;
         Camera viewCamera;
-        CommandableUnit unit;
+        SelectableUnit unitA;
+        SelectableUnit unitB;
+        SelectableUnit unitC;
         Health dummy;
         TacticalPause pause;
+        UnitSelection selection;
+        PlayerCommandInput input;
 
         public override void Setup()
         {
@@ -25,7 +33,9 @@ namespace Blackglass.Tests
             world = new TestWorld();
 
             world.CreateEnvironment();
-            unit = world.CreateUnit(new Vector3(-6f, 0f, -6f));
+            unitA = world.CreateFriendly(new Vector3(-8f, 0f, -6f));
+            unitB = world.CreateFriendly(new Vector3(-4f, 0f, -6f));
+            unitC = world.CreateFriendly(new Vector3(4f, 0f, -6f));
             dummy = world.CreateDummy(new Vector3(6f, 0f, 6f));
 
             var cameraObject = world.Track(new GameObject("Camera"));
@@ -35,11 +45,17 @@ namespace Blackglass.Tests
             var systems = world.Track(new GameObject("Systems"));
             systems.SetActive(false);
             pause = systems.AddComponent<TacticalPause>();
+            selection = systems.AddComponent<UnitSelection>();
+            selection.Initialize(unitA, unitB, unitC);
             var actions = TestControls.Load();
-            systems.AddComponent<PlayerCommandInput>().Initialize(viewCamera, unit, pause,
+            input = systems.AddComponent<PlayerCommandInput>();
+            input.Initialize(viewCamera, selection, pause,
                 TestControls.Ref(actions, "Commands/Command"),
                 TestControls.Ref(actions, "Commands/PointerPosition"),
-                TestControls.Ref(actions, "Commands/TogglePause"));
+                TestControls.Ref(actions, "Commands/TogglePause"),
+                TestControls.Ref(actions, "Commands/Modifier"),
+                TestControls.Ref(actions, "Commands/Stop"),
+                TestControls.Ref(actions, "Commands/ClearSelection"));
             systems.SetActive(true);
         }
 
@@ -49,6 +65,9 @@ namespace Blackglass.Tests
             Time.timeScale = 1f;
             base.TearDown();
         }
+
+        Vector2 ScreenPointOf(Vector3 worldPoint) => viewCamera.WorldToScreenPoint(worldPoint);
+        Vector2 ScreenPointOf(Component component) => ScreenPointOf(component.transform.position);
 
         IEnumerator LeftClickAt(Vector2 screenPoint)
         {
@@ -60,100 +79,277 @@ namespace Blackglass.Tests
             yield return null;
         }
 
-        Vector2 ScreenPointOf(Vector3 world) => viewCamera.WorldToScreenPoint(world);
-
-        [UnityTest]
-        public IEnumerator LeftClickOnDummy_IssuesAttackOnIt()
+        IEnumerator ShiftLeftClickAt(Vector2 screenPoint)
         {
+            Press(keyboard.leftShiftKey);
             yield return null;
-            yield return LeftClickAt(ScreenPointOf(dummy.transform.position));
+            yield return LeftClickAt(screenPoint);
+            Release(keyboard.leftShiftKey);
+            yield return null;
+        }
 
-            Assert.That(unit.CurrentCommand, Is.TypeOf<AttackCommand>());
-            Assert.That(((AttackCommand)unit.CurrentCommand).Target, Is.SameAs(dummy));
+        IEnumerator LeftDrag(Vector2 from, Vector2 to, bool shift = false)
+        {
+            if (shift)
+                Press(keyboard.leftShiftKey);
+            Set(mouse.position, from);
+            yield return null;
+            Press(mouse.leftButton);
+            yield return null;
+            Set(mouse.position, to);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            if (shift)
+                Release(keyboard.leftShiftKey);
+            yield return null;
+        }
+
+        IEnumerator Tap(KeyControl key)
+        {
+            Press(key);
+            yield return null;
+            Release(key);
+            yield return null;
+        }
+
+        // Screen box around two units, with a margin.
+        (Vector2 from, Vector2 to) BoxAround(Component first, Component second)
+        {
+            var a = ScreenPointOf(first);
+            var b = ScreenPointOf(second);
+            var margin = new Vector2(20f, 20f);
+            return (Vector2.Min(a, b) - margin, Vector2.Max(a, b) + margin);
         }
 
         [UnityTest]
-        public IEnumerator LeftClickOnGround_IssuesMoveToClickedPoint()
+        public IEnumerator ClickFriendly_SelectsOnlyThatUnit()
         {
             yield return null;
-            var groundPoint = new Vector3(4f, 0f, -4f);
-            yield return LeftClickAt(ScreenPointOf(groundPoint));
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitA }));
 
-            Assert.That(unit.CurrentCommand, Is.TypeOf<MoveCommand>());
-            var destination = ((MoveCommand)unit.CurrentCommand).Destination;
-            Assert.That(TestWorld.HorizontalDistance(destination, groundPoint), Is.LessThan(0.1f));
+            yield return LeftClickAt(ScreenPointOf(unitB));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitB }));
+            Assert.That(unitA.IsSelected, Is.False);
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null, "Selecting must not issue orders");
+        }
+
+        [UnityTest]
+        public IEnumerator ShiftClickFriendly_AddsThenRemoves()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return ShiftLeftClickAt(ScreenPointOf(unitB));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitA, unitB }));
+
+            yield return ShiftLeftClickAt(ScreenPointOf(unitA));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitB }));
+        }
+
+        [UnityTest]
+        public IEnumerator BoxDrag_SelectsTheUnitsInsideTheBox()
+        {
+            yield return null;
+            var (from, to) = BoxAround(unitA, unitB);
+            Set(mouse.position, from);
+            yield return null;
+            Press(mouse.leftButton);
+            yield return null;
+            Set(mouse.position, to);
+            yield return null;
+            Assert.That(input.IsDragging, Is.True);
+            Assert.That(input.DragRect, Is.EqualTo(ScreenBox.FromCorners(from, to)));
+            Release(mouse.leftButton);
+            yield return null;
+
+            Assert.That(input.IsDragging, Is.False);
+            Assert.That(selection.Selected, Is.EquivalentTo(new[] { unitA, unitB }));
+        }
+
+        [UnityTest]
+        public IEnumerator ShiftBoxDrag_AddsToTheSelection()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitC));
+            var (from, to) = BoxAround(unitA, unitB);
+            yield return LeftDrag(from, to, shift: true);
+
+            Assert.That(selection.Selected, Is.EquivalentTo(new[] { unitA, unitB, unitC }));
+        }
+
+        [UnityTest]
+        public IEnumerator EmptyBoxDrag_ClearsSelectionAndIssuesNoOrder()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            var start = ScreenPointOf(GroundPoint);
+            yield return LeftDrag(start, start + new Vector2(40f, 0f));
+
+            Assert.That(selection.Selected, Is.Empty);
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator Escape_ClearsSelection()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return Tap(keyboard.escapeKey);
+            Assert.That(selection.Selected, Is.Empty);
+        }
+
+        [UnityTest]
+        public IEnumerator ClickGround_MovesOnlyTheSelectedUnits()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
+            var destination = ((MoveCommand)unitA.Unit.CurrentCommand).Destination;
+            Assert.That(TestWorld.HorizontalDistance(destination, GroundPoint), Is.LessThan(0.1f));
+            Assert.That(unitB.Unit.CurrentCommand, Is.Null);
+            Assert.That(unitC.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator ClickGround_WithNothingSelected_IssuesNothing()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null);
+            Assert.That(unitB.Unit.CurrentCommand, Is.Null);
+            Assert.That(unitC.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator ClickDummy_SelectedUnitsAttackIt()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return ShiftLeftClickAt(ScreenPointOf(unitB));
+            yield return LeftClickAt(ScreenPointOf(dummy));
+
+            foreach (var selected in new[] { unitA, unitB })
+            {
+                Assert.That(selected.Unit.CurrentCommand, Is.TypeOf<AttackCommand>(), selected.name);
+                Assert.That(((AttackCommand)selected.Unit.CurrentCommand).Target, Is.SameAs(dummy));
+            }
+            Assert.That(unitC.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator ShiftClickGround_AppendsTheOrder()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+            yield return ShiftLeftClickAt(ScreenPointOf(OtherGroundPoint));
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
+            Assert.That(unitA.Unit.PendingCommands, Has.Count.EqualTo(1));
+            var queued = (MoveCommand)unitA.Unit.PendingCommands[0];
+            Assert.That(TestWorld.HorizontalDistance(queued.Destination, OtherGroundPoint), Is.LessThan(0.1f));
+        }
+
+        [UnityTest]
+        public IEnumerator X_StopsTheSelectedUnitsOnly()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitC));
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+            yield return ShiftLeftClickAt(ScreenPointOf(OtherGroundPoint));
+
+            yield return Tap(keyboard.xKey);
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null);
+            Assert.That(unitA.Unit.PendingCommands, Is.Empty);
+            Assert.That(unitC.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "An unselected unit was stopped");
+        }
+
+        [UnityTest]
+        public IEnumerator X_WithNothingSelected_DoesNothing()
+        {
+            yield return null;
+            yield return Tap(keyboard.xKey);
+            Assert.That(selection.Selected, Is.Empty);
+        }
+
+        [UnityTest]
+        public IEnumerator ShiftClickFriendly_WithUnitsSelected_NeverIssuesOrders()
+        {
+            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+            var orderBefore = unitA.Unit.CurrentCommand;
+
+            yield return ShiftLeftClickAt(ScreenPointOf(unitB));
+
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitA, unitB }));
+            Assert.That(unitA.Unit.CurrentCommand, Is.SameAs(orderBefore));
+            Assert.That(unitA.Unit.PendingCommands, Is.Empty);
+            Assert.That(unitB.Unit.CurrentCommand, Is.Null);
         }
 
         [UnityTest]
         public IEnumerator RightClickOnDummy_IssuesNothing()
         {
             yield return null;
-            Set(mouse.position, ScreenPointOf(dummy.transform.position));
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            Set(mouse.position, ScreenPointOf(dummy));
             yield return null;
             Press(mouse.rightButton);
             yield return null;
             Release(mouse.rightButton);
             yield return null;
 
-            Assert.That(unit.CurrentCommand, Is.Null);
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null);
         }
 
         [UnityTest]
-        public IEnumerator LeftDrag_IssuesNoCommand()
+        public IEnumerator LeftClickOnSky_ChangesNothing()
         {
             yield return null;
-            var start = ScreenPointOf(new Vector3(4f, 0f, -4f));
-            Set(mouse.position, start);
-            yield return null;
-            Press(mouse.leftButton);
-            yield return null;
-            Set(mouse.position, start + new Vector2(40f, 0f));
-            yield return null;
-            Release(mouse.leftButton);
-            yield return null;
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return LeftClickAt(ScreenPointOf(new Vector3(0f, 500f, 2000f)));
 
-            Assert.That(unit.CurrentCommand, Is.Null);
-        }
-
-        [UnityTest]
-        public IEnumerator LeftClickOnSky_IssuesNothing()
-        {
-            yield return null;
-            var skyPoint = ScreenPointOf(new Vector3(0f, 500f, 2000f));
-            yield return LeftClickAt(skyPoint);
-
-            Assert.That(unit.CurrentCommand, Is.Null);
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null);
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitA }));
         }
 
         [UnityTest]
         public IEnumerator Space_TogglesTacticalPause()
         {
             yield return null;
-            Press(keyboard.spaceKey);
-            yield return null;
-            Release(keyboard.spaceKey);
-            yield return null;
+            yield return Tap(keyboard.spaceKey);
             Assert.That(pause.IsPaused, Is.True);
-
-            Press(keyboard.spaceKey);
-            yield return null;
-            Release(keyboard.spaceKey);
-            yield return null;
+            yield return Tap(keyboard.spaceKey);
             Assert.That(pause.IsPaused, Is.False);
         }
 
         [UnityTest]
-        public IEnumerator LeftClickWhilePaused_IssuesCommandButUnitWaits()
+        public IEnumerator OrdersClickedWhilePaused_WaitUntilResume()
         {
             yield return null;
             pause.Pause();
-            var start = unit.transform.position;
+            var start = unitA.transform.position;
 
-            yield return LeftClickAt(ScreenPointOf(new Vector3(4f, 0f, -4f)));
-            Assert.That(unit.CurrentCommand, Is.TypeOf<MoveCommand>());
-
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+            yield return ShiftLeftClickAt(ScreenPointOf(OtherGroundPoint));
             yield return new WaitForSecondsRealtime(0.5f);
-            Assert.That(TestWorld.HorizontalDistance(unit.transform.position, start), Is.LessThan(0.01f));
+
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitA }), "Selection must work while paused");
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
+            Assert.That(unitA.Unit.PendingCommands, Has.Count.EqualTo(1));
+            Assert.That(TestWorld.HorizontalDistance(unitA.transform.position, start), Is.LessThan(0.01f), "Unit moved while paused");
+
+            pause.Resume();
+            yield return TestWorld.WaitUntil(() => TestWorld.HorizontalDistance(unitA.transform.position, start) > 1f, 5f);
+            Assert.That(TestWorld.HorizontalDistance(unitA.transform.position, start), Is.GreaterThan(1f));
         }
     }
 }
