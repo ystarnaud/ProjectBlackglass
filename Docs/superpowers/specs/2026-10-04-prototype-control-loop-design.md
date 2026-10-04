@@ -1,6 +1,6 @@
 # Prototype Control Loop — Design
 
-Date: 2026-10-04 · Branch: `prototype/control-loop` · Status: approved in chat, awaiting spec review
+Date: 2026-10-04 · Branch: `prototype/control-loop` · Status: approved; implemented on branch `prototype/control-loop`
 
 ## 1. Goal
 
@@ -38,7 +38,7 @@ Success means all of the following work in `Prototype.unity`:
 
 ## 4. Architecture
 
-All runtime code lives in `Assets/_Project/Scripts/` (assembly `Blackglass`, namespace `Blackglass`). The assembly references `Unity.InputSystem` and `Unity.AI.Navigation`.
+All runtime code lives in `Assets/_Project/Scripts/` (assembly `Blackglass`, namespace `Blackglass`). The assembly references only `Unity.InputSystem`; `NavMeshAgent` is part of the engine's AI module. `Unity.AI.Navigation` (`NavMeshSurface`) is referenced by the PlayMode test assembly.
 
 ### 4.1 Commands — `Commands/UnitCommands.cs`
 
@@ -53,12 +53,12 @@ Future `StopCommand` and `InteractCommand` will be added as new subclasses. AI, 
 ### 4.2 Unit — `Units/`
 
 - **`CommandableUnit`** is the only entry point for gameplay commands.
-  - `bool Issue(UnitCommand command)`: throws `ArgumentNullException` for null, `ArgumentException` for unknown types. If accepted, it replaces the current order. If the command can't be carried out (unreachable destination, dead target), it returns false and **the current order continues**.
+  - `bool Issue(UnitCommand command)`: throws `ArgumentNullException` for null, `ArgumentException` for unknown types. If accepted, it replaces the current order. If the command can't be carried out, it returns false and **the current order continues**. That happens when a move destination has no walkable NavMesh point within 2 m, or an attack target is dead or inactive. A destination that is only partially reachable is accepted, and the unit moves as close as it can.
   - Orders only advance while simulation time advances (`Time.deltaTime > 0`). Commands are accepted while paused.
   - `UnitCommand CurrentCommand { get; }`: null when idle.
   - **Move order:** calls `mover.MoveTo(destination)` once. The order completes when `mover.HasArrived`.
   - **Attack order**, evaluated each `Update`:
-    1. If the target is null or dead, stop and complete the order.
+    1. If the target is null, dead or inactive, stop and complete the order.
     2. Otherwise, if it's out of range, call `mover.MoveTo(target.position)`. The path is only refreshed when the target has moved more than 0.5 m since the last refresh.
     3. Otherwise, stop, turn toward the target, and call `attacker.TryAttack(target)`.
   - All per-frame logic runs in `Update` on scaled time, so it naturally halts while paused.
@@ -187,7 +187,7 @@ Components enable their referenced actions in `OnEnable` and disable them in `On
 ## 8. Files
 
 - **Created:**
-  - `Assets/_Project/Scripts/**` (asmdef + 12 scripts)
+  - `Assets/_Project/Scripts/**` (asmdef + 14 scripts)
   - `Assets/_Project/Tests/EditMode/**`
   - `Assets/_Project/Tests/PlayMode/**`
   - `Assets/_Project/Input/BlackglassControls.inputactions` (moved)
@@ -210,3 +210,4 @@ Components enable their referenced actions in `OnEnable` and disable them in `On
 - No factions. A unit with `Health` could be told to attack itself or a friendly unit later.
 - The dummy is excluded from the NavMesh bake, so paths may route through its position. The unit stops at attack range before reaching it.
 - The IMGUI HUD is debug-only.
+- A move to a point the NavMesh reaches only partially is accepted and the unit stops as close as it can; whether the order then clears depends on the agent abandoning its path. This must be settled before command queues are built.
