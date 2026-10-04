@@ -14,6 +14,7 @@ namespace Blackglass.Tests
         TestWorld world;
         TacticalCameraController controller;
         TacticalPause pause;
+        PrimaryCharacter primaryCharacter;
 
         public override void Setup()
         {
@@ -23,6 +24,8 @@ namespace Blackglass.Tests
             world = new TestWorld();
 
             var actions = TestControls.Load();
+            // No unit yet: the camera behaves as before until a test gives the primary character a unit.
+            primaryCharacter = world.Track(new GameObject("Player")).AddComponent<PrimaryCharacter>();
             var rig = world.Track(new GameObject("CameraRig"));
             rig.SetActive(false);
             var cameraObject = new GameObject("Camera");
@@ -34,7 +37,8 @@ namespace Blackglass.Tests
                 TestControls.Ref(actions, "Camera/Rotate"),
                 TestControls.Ref(actions, "Camera/RotateDrag"),
                 TestControls.Ref(actions, "Camera/PointerPosition"),
-                TestControls.Ref(actions, "Camera/Zoom"));
+                TestControls.Ref(actions, "Camera/Zoom"),
+                primaryCharacter);
             rig.SetActive(true);
 
             pause = world.Track(new GameObject("Pause")).AddComponent<TacticalPause>();
@@ -194,6 +198,95 @@ namespace Blackglass.Tests
             yield return null;
 
             Assert.That(controller.Yaw, Is.EqualTo(startYaw).Within(0.001f));
+        }
+
+        // --- Following the primary character (Phase 3).
+
+        // A unit standing at (8, 0, 6), made the primary character with takeover on.
+        CommandableUnit CreateDrivenUnit()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(8f, 0f, 6f));
+            primaryCharacter.Initialize(unit, pause);
+            primaryCharacter.SetTakeover(true);
+            return unit;
+        }
+
+        float DistanceToRig(Component unit) =>
+            TestWorld.HorizontalDistance(controller.transform.position, unit.transform.position);
+
+        [UnityTest]
+        public IEnumerator Driving_FollowsThePrimaryCharacter()
+        {
+            var unit = CreateDrivenUnit();
+            yield return new WaitForSecondsRealtime(0.6f);
+
+            Assert.That(DistanceToRig(unit), Is.LessThan(0.2f), "The camera did not follow the primary character");
+            Assert.That(controller.transform.position.y, Is.EqualTo(0f).Within(0.001f), "Following must not lift the pivot");
+        }
+
+        [UnityTest]
+        public IEnumerator Driving_IgnoresPan()
+        {
+            var unit = CreateDrivenUnit();
+            yield return new WaitForSecondsRealtime(0.6f);
+
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.3f);
+            Release(keyboard.wKey);
+            yield return null;
+
+            Assert.That(DistanceToRig(unit), Is.LessThan(0.2f), "W panned the camera away while driving");
+        }
+
+        [UnityTest]
+        public IEnumerator PausedWithTakeoverOn_PansFreely()
+        {
+            CreateDrivenUnit();
+            yield return new WaitForSecondsRealtime(0.6f);
+            pause.Pause();
+            var start = controller.transform.position;
+
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.2f);
+            Release(keyboard.wKey);
+            yield return null;
+
+            Assert.That(controller.transform.position.z, Is.GreaterThan(start.z + 0.5f));
+        }
+
+        [UnityTest]
+        public IEnumerator TakeoverOff_PansFreely_AndDoesNotFollow()
+        {
+            CreateDrivenUnit();
+            primaryCharacter.SetTakeover(false);
+            var start = controller.transform.position;
+
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.2f);
+            Release(keyboard.wKey);
+            yield return null;
+
+            Assert.That(controller.transform.position.z, Is.GreaterThan(start.z + 0.5f));
+            Assert.That(controller.transform.position.x, Is.EqualTo(start.x).Within(0.01f), "The camera drifted toward the unit");
+        }
+
+        [UnityTest]
+        public IEnumerator Resume_EasesBackToThePrimaryCharacter()
+        {
+            var unit = CreateDrivenUnit();
+            yield return new WaitForSecondsRealtime(0.6f);
+            pause.Pause();
+            Press(keyboard.sKey);
+            yield return new WaitForSecondsRealtime(0.3f);
+            Release(keyboard.sKey);
+            yield return null;
+            Assert.That(DistanceToRig(unit), Is.GreaterThan(1f), "Precondition: the camera panned away while paused");
+
+            pause.Resume();
+            yield return new WaitForSecondsRealtime(0.6f);
+
+            Assert.That(DistanceToRig(unit), Is.LessThan(0.2f), "The camera did not return to the primary character");
         }
     }
 }
