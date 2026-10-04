@@ -96,7 +96,7 @@ namespace Blackglass
         void Update()
         {
             // Orders and steering only advance while simulation time advances (tactical pause sets timeScale to 0).
-            if (Time.deltaTime <= 0f)
+            if (!SimulationTime.IsRunning)
                 return;
 
             if (moveIntent != Vector3.zero)

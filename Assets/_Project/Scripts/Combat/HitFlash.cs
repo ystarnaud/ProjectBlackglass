@@ -35,7 +35,7 @@ namespace Blackglass
 
         void Update()
         {
-            if (remaining <= 0f)
+            if (remaining <= 0f || !SimulationTime.IsRunning)
                 return;
             remaining -= Time.deltaTime;
             if (remaining <= 0f)
