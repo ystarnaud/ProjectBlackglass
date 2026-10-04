@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.Serialization;
 
 namespace Blackglass
 {
@@ -6,9 +7,9 @@ namespace Blackglass
     public sealed class PrototypeHud : MonoBehaviour
     {
         const string ControlHints =
-            "WASD: pan camera   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom   V: takeover (WASD drives primary)\n" +
+            "WASD: pan camera   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom   V: takeover (WASD moves character)\n" +
             "Left-click unit: select (Shift: add/remove)   Left-drag: box select   Esc: clear selection\n" +
-            "Left-click ground/dummy: primary moves/attacks (paused: selected units)   Shift: queue   X: stop selected\n" +
+            "Left-click ground/dummy: controlled character moves/attacks (paused: selected units)   Shift: queue   X: stop selected\n" +
             "Space: tactical pause";
         // Order labels float this far above a unit's centre (the capsule is 2 m tall).
         const float UnitLabelHeight = 1.5f;
@@ -19,7 +20,7 @@ namespace Blackglass
         [SerializeField] Camera viewCamera;
         [SerializeField] UnitSelection selection;
         [SerializeField] PlayerCommandInput commandInput;
-        [SerializeField] PrimaryCharacter primary;
+        [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
 
         GUIStyle pausedStyle;
         GUIStyle unitLabelStyle;
@@ -35,12 +36,12 @@ namespace Blackglass
             return pendingCount > 0 ? $"{orderName} +{pendingCount}" : orderName;
         }
 
-        /// <summary>One status line for the primary character, such as "Primary: Ana | Takeover ON (V) | Manual control".</summary>
-        internal static string DescribePrimary(string unitName, bool takeoverOn, bool isPaused, bool hasOrders)
+        /// <summary>One status line for the active character, such as "Controlled: Ana | Takeover ON (V) | Manual control".</summary>
+        internal static string DescribeActive(string unitName, bool takeoverOn, bool isPaused, bool hasOrders)
         {
             var mode = !takeoverOn ? "Takeover OFF (V)" : isPaused ? "Takeover ON (after pause)" : "Takeover ON (V)";
             var activity = hasOrders ? "Following orders" : takeoverOn && !isPaused ? "Manual control" : "Idle";
-            return $"Primary: {unitName} | {mode} | {activity}";
+            return $"Controlled: {unitName} | {mode} | {activity}";
         }
 
         void OnGUI()
@@ -56,11 +57,11 @@ namespace Blackglass
             if (selection != null)
                 GUI.Label(new Rect(10f, 115f, 320f, 22f), $"Selected: {selection.Selected.Count}");
 
-            if (primary != null && primary.HasUnit)
+            if (activeCharacter != null && activeCharacter.HasUnit)
             {
-                var unit = primary.Unit;
+                var unit = activeCharacter.Unit;
                 GUI.Label(new Rect(10f, 135f, 640f, 22f),
-                    DescribePrimary(unit.name, primary.IsTakeoverOn, primary.IsPaused, unit.CurrentCommand != null));
+                    DescribeActive(unit.name, activeCharacter.IsTakeoverOn, activeCharacter.IsPaused, unit.CurrentCommand != null));
             }
 
             DrawUnitLabels();

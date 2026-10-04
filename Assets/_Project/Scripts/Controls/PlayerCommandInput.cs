@@ -1,13 +1,14 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
 namespace Blackglass
 {
     /// <summary>
     /// Translates the player's input into requests. Left button: a click on a friendly unit selects it, a click
     /// anywhere else gives an order (attack the clicked target, or move to the clicked point), and a drag box-selects.
-    /// In real time the order goes to the primary character; while paused (or without a primary character) it goes to
+    /// In real time the order goes to the active character; while paused (or without an active character) it goes to
     /// the selected units. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
     /// selection, Space toggles tactical pause. Contains no movement or combat rules.
     /// </summary>
@@ -16,7 +17,7 @@ namespace Blackglass
         [SerializeField] Camera viewCamera;
         [SerializeField] UnitSelection selection;
         [SerializeField] TacticalPause tacticalPause;
-        [SerializeField] PrimaryCharacter primary;
+        [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
 
         [Header("Input")]
         [SerializeField] InputActionReference commandAction;
@@ -47,7 +48,7 @@ namespace Blackglass
         internal void Initialize(Camera camera, UnitSelection unitSelection, TacticalPause pause,
             InputActionReference command, InputActionReference pointerPosition, InputActionReference togglePause,
             InputActionReference modifier, InputActionReference stop, InputActionReference clearSelection,
-            PrimaryCharacter primaryCharacter = null)
+            ActiveCharacter active = null)
         {
             viewCamera = camera;
             selection = unitSelection;
@@ -58,7 +59,7 @@ namespace Blackglass
             modifierAction = modifier;
             stopAction = stop;
             clearSelectionAction = clearSelection;
-            primary = primaryCharacter;
+            activeCharacter = active;
         }
 
         void Awake() => clickDetector = new ClickDragDetector(dragThresholdPixels);
@@ -181,15 +182,15 @@ namespace Blackglass
                 selection.SetSelection(boxedUnits);
         }
 
-        // Who a ground or enemy click orders: the primary character in real time; the selection while paused or
-        // when there is no active primary character.
+        // Who a ground or enemy click orders: the active character in real time; the selection while paused or
+        // when there is no active character that can act.
         List<CommandableUnit> OrderedUnits()
         {
             var paused = tacticalPause != null && tacticalPause.IsPaused;
-            if (paused || primary == null || !primary.HasUnit)
+            if (paused || activeCharacter == null || !activeCharacter.HasUnit)
                 return SelectedUnits();
             orderedUnits.Clear();
-            orderedUnits.Add(primary.Unit);
+            orderedUnits.Add(activeCharacter.Unit);
             return orderedUnits;
         }
 

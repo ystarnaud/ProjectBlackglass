@@ -1,11 +1,12 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Serialization;
 
 namespace Blackglass
 {
     /// <summary>
-    /// Takeover-mode input for the primary character. V toggles takeover. While the primary character is being driven
-    /// (PrimaryCharacter.IsDriving), WASD becomes a camera-relative move intent on its CommandableUnit; otherwise the
+    /// Takeover-mode input for the active character. V toggles takeover. While the active character is being driven
+    /// (ActiveCharacter.IsDriving), WASD becomes a camera-relative move intent on its CommandableUnit; otherwise the
     /// intent is zero. Contains no movement rules: the unit decides what the intent means.
     /// Release gate: whenever driving starts (resume, or takeover turned on), keys already held are ignored until Move
     /// reads zero, so a key held from panning the camera cannot wipe orders just queued.
@@ -13,7 +14,7 @@ namespace Blackglass
     [DefaultExecutionOrder(-100)] // set the intent before units update in the same frame
     public sealed class DirectControlInput : MonoBehaviour
     {
-        [SerializeField] PrimaryCharacter primary;
+        [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
         [SerializeField] Camera viewCamera;
 
         [Header("Input")]
@@ -23,10 +24,10 @@ namespace Blackglass
         bool wasDriving;
         bool waitingForRelease;
 
-        internal void Initialize(PrimaryCharacter primaryCharacter, Camera camera, InputActionReference move,
+        internal void Initialize(ActiveCharacter active, Camera camera, InputActionReference move,
             InputActionReference takeover)
         {
-            primary = primaryCharacter;
+            activeCharacter = active;
             viewCamera = camera;
             moveAction = move;
             takeoverAction = takeover;
@@ -54,10 +55,10 @@ namespace Blackglass
 
         void Update()
         {
-            if (primary == null)
+            if (activeCharacter == null)
                 return;
 
-            var driving = primary.IsDriving;
+            var driving = activeCharacter.IsDriving;
             var input = InputActionUtility.Read<Vector2>(moveAction);
             if (driving && !wasDriving)
                 waitingForRelease = true;
@@ -71,14 +72,14 @@ namespace Blackglass
 
         void SetIntent(Vector3 direction)
         {
-            if (primary != null && primary.Unit != null)
-                primary.Unit.SetMoveIntent(direction);
+            if (activeCharacter != null && activeCharacter.Unit != null)
+                activeCharacter.Unit.SetMoveIntent(direction);
         }
 
         void OnTakeover(InputAction.CallbackContext context)
         {
-            if (primary != null)
-                primary.ToggleTakeover();
+            if (activeCharacter != null)
+                activeCharacter.ToggleTakeover();
         }
     }
 }

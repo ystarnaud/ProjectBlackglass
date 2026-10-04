@@ -14,7 +14,7 @@ namespace Blackglass.Tests
         TestWorld world;
         TacticalCameraController controller;
         TacticalPause pause;
-        PrimaryCharacter primaryCharacter;
+        ActiveCharacter activeCharacter;
 
         public override void Setup()
         {
@@ -25,7 +25,7 @@ namespace Blackglass.Tests
 
             var actions = TestControls.Load();
             // No unit yet: the camera behaves as before until a test gives the primary character a unit.
-            primaryCharacter = world.Track(new GameObject("Player")).AddComponent<PrimaryCharacter>();
+            activeCharacter = world.Track(new GameObject("Player")).AddComponent<ActiveCharacter>();
             var rig = world.Track(new GameObject("CameraRig"));
             rig.SetActive(false);
             var cameraObject = new GameObject("Camera");
@@ -38,7 +38,7 @@ namespace Blackglass.Tests
                 TestControls.Ref(actions, "Camera/RotateDrag"),
                 TestControls.Ref(actions, "Camera/PointerPosition"),
                 TestControls.Ref(actions, "Camera/Zoom"),
-                primaryCharacter);
+                activeCharacter);
             rig.SetActive(true);
 
             pause = world.Track(new GameObject("Pause")).AddComponent<TacticalPause>();
@@ -207,8 +207,8 @@ namespace Blackglass.Tests
         {
             world.CreateEnvironment();
             var unit = world.CreateUnit(new Vector3(8f, 0f, 6f));
-            primaryCharacter.Initialize(unit, pause);
-            primaryCharacter.SetTakeover(true);
+            activeCharacter.Initialize(unit, pause);
+            activeCharacter.SetTakeover(true);
             return unit;
         }
 
@@ -216,7 +216,7 @@ namespace Blackglass.Tests
             TestWorld.HorizontalDistance(controller.transform.position, unit.transform.position);
 
         [UnityTest]
-        public IEnumerator Driving_FollowsThePrimaryCharacter()
+        public IEnumerator Driving_FollowsTheActiveCharacter()
         {
             var unit = CreateDrivenUnit();
             yield return new WaitForSecondsRealtime(0.6f);
@@ -259,7 +259,7 @@ namespace Blackglass.Tests
         public IEnumerator TakeoverOff_PansFreely_AndDoesNotFollow()
         {
             CreateDrivenUnit();
-            primaryCharacter.SetTakeover(false);
+            activeCharacter.SetTakeover(false);
             var start = controller.transform.position;
 
             Press(keyboard.wKey);
@@ -272,7 +272,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator Resume_EasesBackToThePrimaryCharacter()
+        public IEnumerator Resume_EasesBackToTheActiveCharacter()
         {
             var unit = CreateDrivenUnit();
             yield return new WaitForSecondsRealtime(0.6f);

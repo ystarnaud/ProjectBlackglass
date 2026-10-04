@@ -16,7 +16,7 @@ namespace Blackglass.Tests
         CommandableUnit primaryUnit;
         CommandableUnit companion;
         TacticalPause pause;
-        PrimaryCharacter primary;
+        ActiveCharacter active;
         DirectControlInput input;
 
         public override void Setup()
@@ -36,11 +36,11 @@ namespace Blackglass.Tests
             var systems = world.Track(new GameObject("Systems"));
             systems.SetActive(false);
             pause = systems.AddComponent<TacticalPause>();
-            primary = systems.AddComponent<PrimaryCharacter>();
-            primary.Initialize(primaryUnit, pause);
+            active = systems.AddComponent<ActiveCharacter>();
+            active.Initialize(primaryUnit, pause);
             var actions = TestControls.Load();
             input = systems.AddComponent<DirectControlInput>();
-            input.Initialize(primary, viewCamera,
+            input.Initialize(active, viewCamera,
                 TestControls.Ref(actions, "Character/Move"),
                 TestControls.Ref(actions, "Character/Takeover"));
             systems.SetActive(true);
@@ -69,7 +69,7 @@ namespace Blackglass.Tests
             yield return null;
         }
 
-        // Two orders each for the primary character and the companion, on paths that never cross.
+        // Two orders each for the active character and the companion, on paths that never cross.
         (MoveCommand primaryFirst, MoveCommand primarySecond, MoveCommand companionFirst, MoveCommand companionSecond) QueueOrdersForBoth()
         {
             var orders = (new MoveCommand(new Vector3(-6f, 0f, 2f)), new MoveCommand(new Vector3(-12f, 0f, 2f)),
@@ -104,10 +104,10 @@ namespace Blackglass.Tests
         void AssertRanInOrder(Vector3[] positionsWhenFirstFinished, MoveCommand primaryFirst, MoveCommand primarySecond,
             MoveCommand companionFirst, MoveCommand companionSecond)
         {
-            Assert.That(primaryUnit.CurrentCommand, Is.Null, "The primary character's orders never finished");
+            Assert.That(primaryUnit.CurrentCommand, Is.Null, "The active character's orders never finished");
             Assert.That(companion.CurrentCommand, Is.Null, "The companion's orders never finished");
             Assert.That(TestWorld.HorizontalDistance(positionsWhenFirstFinished[0], primaryFirst.Destination), Is.LessThan(0.6f),
-                "The primary character's second order started before it reached the first destination");
+                "The active character's second order started before it reached the first destination");
             Assert.That(TestWorld.HorizontalDistance(positionsWhenFirstFinished[1], companionFirst.Destination), Is.LessThan(0.6f),
                 "The companion's second order started before it reached the first destination");
             Assert.That(TestWorld.HorizontalDistance(primaryUnit.transform.position, primarySecond.Destination), Is.LessThan(0.3f));
@@ -118,11 +118,11 @@ namespace Blackglass.Tests
         public IEnumerator V_TogglesTakeover()
         {
             yield return null;
-            Assert.That(primary.IsTakeoverOn, Is.False);
+            Assert.That(active.IsTakeoverOn, Is.False);
             yield return Tap(keyboard.vKey);
-            Assert.That(primary.IsTakeoverOn, Is.True);
+            Assert.That(active.IsTakeoverOn, Is.True);
             yield return Tap(keyboard.vKey);
-            Assert.That(primary.IsTakeoverOn, Is.False);
+            Assert.That(active.IsTakeoverOn, Is.False);
         }
 
         [UnityTest]
@@ -131,11 +131,11 @@ namespace Blackglass.Tests
             yield return null;
             pause.Pause();
             yield return Tap(keyboard.vKey);
-            Assert.That(primary.IsTakeoverOn, Is.True);
-            Assert.That(primary.IsDriving, Is.False);
+            Assert.That(active.IsTakeoverOn, Is.True);
+            Assert.That(active.IsDriving, Is.False);
 
             pause.Resume();
-            Assert.That(primary.IsDriving, Is.True);
+            Assert.That(active.IsDriving, Is.True);
         }
 
         [UnityTest]
@@ -146,14 +146,14 @@ namespace Blackglass.Tests
             var second = new MoveCommand(new Vector3(0f, 0f, 8f));
             companion.Issue(first);
             companion.Issue(second, IssueMode.Append);
-            primary.SetTakeover(true);
+            active.SetTakeover(true);
             yield return null;
             var start = primaryUnit.transform.position;
 
             yield return Hold(keyboard.wKey, 0.5f);
 
             var travelled = primaryUnit.transform.position - start;
-            Assert.That(travelled.z, Is.GreaterThan(1f), "W did not move the primary character forward");
+            Assert.That(travelled.z, Is.GreaterThan(1f), "W did not move the active character forward");
             Assert.That(Mathf.Abs(travelled.x), Is.LessThan(0.3f));
             Assert.That(companion.CurrentCommand, Is.SameAs(first), "Takeover cancelled the companion's order");
             Assert.That(companion.PendingCommands, Is.EqualTo(new UnitCommand[] { second }));
@@ -165,7 +165,7 @@ namespace Blackglass.Tests
             yield return null;
             primaryUnit.Issue(new MoveCommand(new Vector3(-14f, 0f, -6f)));
             primaryUnit.Issue(new MoveCommand(new Vector3(-14f, 0f, 6f)), IssueMode.Append);
-            primary.SetTakeover(true);
+            active.SetTakeover(true);
             yield return null;
 
             yield return Hold(keyboard.wKey, 0.2f);
@@ -193,7 +193,7 @@ namespace Blackglass.Tests
         {
             yield return null;
             viewCamera.transform.rotation = Quaternion.Euler(50f, 90f, 0f);
-            primary.SetTakeover(true);
+            active.SetTakeover(true);
             yield return null;
             var start = primaryUnit.transform.position;
 
@@ -208,7 +208,7 @@ namespace Blackglass.Tests
         public IEnumerator KeysHeldAcrossResume_DoNotClearOrdersUntilPressedAgain()
         {
             yield return null;
-            primary.SetTakeover(true);
+            active.SetTakeover(true);
             pause.Pause();
             var first = new MoveCommand(new Vector3(-6f, 0f, 8f));
             var second = new MoveCommand(new Vector3(6f, 0f, 8f));
@@ -237,7 +237,7 @@ namespace Blackglass.Tests
             Press(keyboard.wKey);   // panning the camera in free mode
             yield return null;
             yield return Tap(keyboard.vKey);
-            Assert.That(primary.IsDriving, Is.True);
+            Assert.That(active.IsDriving, Is.True);
             var start = primaryUnit.transform.position;
             yield return new WaitForSecondsRealtime(0.3f);
             Assert.That(TestWorld.HorizontalDistance(primaryUnit.transform.position, start), Is.LessThan(0.01f),
@@ -253,7 +253,7 @@ namespace Blackglass.Tests
         public IEnumerator Pausing_ZeroesTheIntent()
         {
             yield return null;
-            primary.SetTakeover(true);
+            active.SetTakeover(true);
             yield return null;
             Press(keyboard.wKey);
             yield return new WaitForSecondsRealtime(0.1f);
@@ -270,7 +270,7 @@ namespace Blackglass.Tests
         public IEnumerator DisablingTheInput_WhileWIsHeld_ZeroesTheIntent()
         {
             yield return null;
-            primary.SetTakeover(true);
+            active.SetTakeover(true);
             yield return null;
             Press(keyboard.wKey);
             yield return new WaitForSecondsRealtime(0.1f);
@@ -290,7 +290,7 @@ namespace Blackglass.Tests
         public IEnumerator PrimaryUnitDeactivated_WhileDriving_StopsDrivingWithoutErrors()
         {
             yield return null;
-            primary.SetTakeover(true);
+            active.SetTakeover(true);
             yield return null;
             Press(keyboard.wKey);
             yield return new WaitForSecondsRealtime(0.1f);
@@ -298,7 +298,7 @@ namespace Blackglass.Tests
             primaryUnit.gameObject.SetActive(false);
             yield return new WaitForSecondsRealtime(0.2f);
 
-            Assert.That(primary.IsDriving, Is.False);
+            Assert.That(active.IsDriving, Is.False);
             Assert.That(primaryUnit.MoveIntent, Is.EqualTo(Vector3.zero));
             Release(keyboard.wKey);
             yield return null;
@@ -309,7 +309,7 @@ namespace Blackglass.Tests
         public IEnumerator PauseCycling_KeepsBothQueues_AndRunsThemInOrder()
         {
             yield return null;
-            primary.SetTakeover(true);   // takeover on, but no keys: resuming must never clear orders
+            active.SetTakeover(true);   // takeover on, but no keys: resuming must never clear orders
             pause.Pause();
             var (primaryFirst, primarySecond, companionFirst, companionSecond) = QueueOrdersForBoth();
 
@@ -320,7 +320,7 @@ namespace Blackglass.Tests
                 pause.Pause();
                 yield return new WaitForSecondsRealtime(0.02f);
             }
-            Assert.That(primaryUnit.CurrentCommand, Is.Not.Null, "Pause cycling dropped the primary character's orders");
+            Assert.That(primaryUnit.CurrentCommand, Is.Not.Null, "Pause cycling dropped the active character's orders");
             Assert.That(companion.CurrentCommand, Is.Not.Null, "Pause cycling dropped the companion's orders");
             pause.Resume();
 

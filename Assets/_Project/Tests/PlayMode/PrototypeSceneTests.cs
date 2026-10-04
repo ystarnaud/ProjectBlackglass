@@ -71,9 +71,9 @@ namespace Blackglass.Tests
             Assert.That(Object.FindFirstObjectByType<PlayerCommandInput>(), Is.Not.Null);
             Assert.That(Object.FindFirstObjectByType<TacticalCameraController>(), Is.Not.Null);
             Assert.That(Object.FindFirstObjectByType<PrototypeHud>(), Is.Not.Null);
-            var primary = Object.FindFirstObjectByType<PrimaryCharacter>();
-            Assert.That(primary, Is.Not.Null, "PrimaryCharacter missing");
-            Assert.That(primary.Unit, Is.Not.Null, "PrimaryCharacter has no unit");
+            var primary = Object.FindFirstObjectByType<ActiveCharacter>();
+            Assert.That(primary, Is.Not.Null, "ActiveCharacter missing");
+            Assert.That(primary.Unit, Is.Not.Null, "ActiveCharacter has no unit");
             Assert.That(primary.Unit.name, Is.EqualTo(FriendlyNames[0]));
             Assert.That(primary.HasUnit, Is.True);
             Assert.That(primary.IsTakeoverOn, Is.False, "The game starts in free mode");
