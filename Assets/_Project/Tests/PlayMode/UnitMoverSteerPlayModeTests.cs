@@ -118,5 +118,33 @@ namespace Blackglass.Tests
             Assert.That(travelled.x, Is.GreaterThan(1f));
             Assert.That(Mathf.Abs(travelled.z), Is.LessThan(0.3f), "Kept drifting along the old path");
         }
+
+        [UnityTest]
+        public IEnumerator Steer_RightAfterAFinishedMove_LeavesNoPathOrDrift()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(0f, 0f, -6f));
+            var mover = unit.GetComponent<UnitMover>();
+            var agent = unit.GetComponent<NavMeshAgent>();
+            yield return null;
+            mover.MoveTo(new Vector3(0f, 0f, -2f));
+            yield return TestWorld.WaitUntil(() => mover.HasArrived, 5f);
+            Assert.That(mover.HasArrived, Is.True, "Precondition: the move should have finished");
+            var start = unit.transform.position;
+
+            var steeredTime = 0f;
+            while (steeredTime < 0.4f)
+            {
+                mover.Steer(Vector3.right);
+                steeredTime += Time.deltaTime;
+                yield return null;
+            }
+
+            Assert.That(agent.hasPath, Is.False, "The old path is still active");
+            Assert.That(agent.velocity.magnitude, Is.LessThan(0.01f), "Leftover velocity is still applied");
+            var travelled = unit.transform.position - start;
+            Assert.That(travelled.x, Is.GreaterThan(1f));
+            Assert.That(Mathf.Abs(travelled.z), Is.LessThan(0.3f), "Kept drifting along the old path");
+        }
     }
 }

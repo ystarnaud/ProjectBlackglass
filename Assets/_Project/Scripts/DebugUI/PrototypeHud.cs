@@ -56,7 +56,7 @@ namespace Blackglass
             if (selection != null)
                 GUI.Label(new Rect(10f, 115f, 320f, 22f), $"Selected: {selection.Selected.Count}");
 
-            if (primary != null && primary.Unit != null)
+            if (primary != null && primary.HasUnit)
             {
                 var unit = primary.Unit;
                 GUI.Label(new Rect(10f, 135f, 640f, 22f),
