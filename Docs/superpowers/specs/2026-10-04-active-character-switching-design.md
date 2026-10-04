@@ -93,9 +93,9 @@ New serialized fields: `selection` (`UnitSelection`), `cycleAction` (`Character/
 
 - Field `primary` → `activeCharacter` (`[FormerlySerializedAs("primary")]`).
 - Keeps `lastSeenUnit`, set in `OnEnable` and `Initialize` to the current active unit so loading a scene does not trigger a glide.
-- Each `Update`: if the active unit (null when `!HasUnit`) differs from `lastSeenUnit`, record it and, if non-null, start a **focus glide**.
+- Each `Update`: if the active unit (null when `!HasUnit`) differs from `lastSeenUnit`, record it and, if non-null, start a **focus glide** toward the unit's position at that moment (after the bounds clamp).
 - Driving: follow exactly as in Phase 3 (ends any glide).
-- Not driving and gliding: if pan input is non-zero, end the glide and pan as usual; otherwise ease toward the unit with the same `followSharpness` easing on unscaled time. The glide ends once the rig is within 0.05 m of the unit's position after the bounds clamp.
+- Not driving and gliding: if pan input is non-zero, end the glide and pan as usual; otherwise ease toward that captured point with the same `followSharpness` easing on unscaled time. The glide ends once the rig is within 0.05 m of it. *Final-review amendment:* the point is captured at the switch instead of re-read each frame, so a glide to a walking character ends (no follow in free mode) and a destroyed target cannot break the camera.
 - Zoom, Q/E and right-drag rotate/tilt are unchanged and keep working during a glide and while paused.
 
 ### 4.5 `PlayerCommandInput` (changed — rename only)

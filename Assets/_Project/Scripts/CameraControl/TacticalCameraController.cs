@@ -8,7 +8,7 @@ namespace Blackglass
     /// Simple strategy camera orbiting a pivot on the ground. Runs entirely on unscaled time so it keeps working during
     /// tactical pause. Lives on the pivot; the camera is a child. While the active character is being driven
     /// (takeover, not paused) the pivot follows it and pan input is ignored; otherwise WASD pans freely. When the active
-    /// character changes, the pivot glides to the new one once; any pan input ends the glide.
+    /// character changes, the pivot glides once to where the new one stands; any pan input ends the glide.
     /// </summary>
     public sealed class TacticalCameraController : MonoBehaviour
     {
@@ -49,6 +49,9 @@ namespace Blackglass
         int pendingZoomSteps;
         CommandableUnit lastSeenUnit;
         bool isFocusing;
+        // Where the active character stood when it became active. The glide eases here and never reads the unit again,
+        // so it ends even if the unit walks on (no follow in free mode) or is destroyed.
+        Vector3 focusPoint;
 
         public float Distance => distance;
         public float Yaw => transform.eulerAngles.y;
@@ -132,6 +135,8 @@ namespace Blackglass
             {
                 lastSeenUnit = unit;
                 isFocusing = unit != null;
+                if (isFocusing)
+                    focusPoint = ClampToBounds(GroundTarget(unit));
             }
 
             var rotation = Quaternion.Euler(0f, yaw, 0f);
@@ -150,9 +155,8 @@ namespace Blackglass
                     isFocusing = false;
                 if (isFocusing)
                 {
-                    var target = ClampToBounds(GroundTarget(unit));
-                    position = EaseTowards(target, deltaTime);
-                    if ((position - target).sqrMagnitude < FocusArrivalDistance * FocusArrivalDistance)
+                    position = EaseTowards(focusPoint, deltaTime);
+                    if ((position - focusPoint).sqrMagnitude < FocusArrivalDistance * FocusArrivalDistance)
                         isFocusing = false;
                 }
                 else

@@ -389,6 +389,45 @@ namespace Blackglass.Tests
             Assert.That(position.x, Is.EqualTo(5f).Within(0.05f));
             Assert.That(position.z, Is.EqualTo(5f).Within(0.05f));
         }
+
+        [UnityTest]
+        public IEnumerator DestroyingTheGlideTarget_LogsNoErrors_AndKeepsTheCameraWorking()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(8f, 0f, 6f));
+            pause.Pause();
+            activeCharacter.Initialize(unit, pause);
+            yield return null;   // the glide starts
+            var startYaw = controller.Yaw;
+
+            Object.Destroy(unit.gameObject);
+            Press(keyboard.eKey);
+            yield return new WaitForSecondsRealtime(0.3f);
+            Release(keyboard.eKey);
+            yield return null;
+
+            Assert.That(Mathf.DeltaAngle(startYaw, controller.Yaw), Is.GreaterThan(5f), "Q/E stopped working after the glide target was destroyed");
+            // Any error or exception logged meanwhile fails the test.
+        }
+
+        [UnityTest]
+        public IEnumerator GlideToAWalkingCharacter_SettlesOnce_AndDoesNotFollowIt()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(8f, 0f, 6f));
+            Assert.That(unit.Issue(new MoveCommand(new Vector3(-12f, 0f, 6f))), Is.True);
+            yield return new WaitForSecondsRealtime(0.2f);   // walking by the time it becomes active
+
+            activeCharacter.Initialize(unit, pause);   // free mode: takeover off
+            yield return new WaitForSecondsRealtime(1f);
+            var settled = controller.transform.position;
+            var unitAtSettle = unit.transform.position;
+            yield return new WaitForSecondsRealtime(0.6f);
+
+            Assert.That(TestWorld.HorizontalDistance(unit.transform.position, unitAtSettle), Is.GreaterThan(1f), "Precondition: the character is still walking");
+            Assert.That(TestWorld.HorizontalDistance(controller.transform.position, settled), Is.LessThan(0.01f),
+                "In free mode the camera kept following the character after its one glide");
+        }
     }
 }
 #endif
