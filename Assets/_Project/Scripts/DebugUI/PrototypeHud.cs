@@ -6,9 +6,9 @@ namespace Blackglass
     public sealed class PrototypeHud : MonoBehaviour
     {
         const string ControlHints =
-            "WASD: pan   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom\n" +
+            "WASD: pan camera   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom   V: takeover (WASD drives primary)\n" +
             "Left-click unit: select (Shift: add/remove)   Left-drag: box select   Esc: clear selection\n" +
-            "Left-click ground: move   Left-click dummy: attack   Shift: queue the order   X: stop\n" +
+            "Left-click ground/dummy: primary moves/attacks (paused: selected units)   Shift: queue   X: stop selected\n" +
             "Space: tactical pause";
         // Order labels float this far above a unit's centre (the capsule is 2 m tall).
         const float UnitLabelHeight = 1.5f;
@@ -19,6 +19,7 @@ namespace Blackglass
         [SerializeField] Camera viewCamera;
         [SerializeField] UnitSelection selection;
         [SerializeField] PlayerCommandInput commandInput;
+        [SerializeField] PrimaryCharacter primary;
 
         GUIStyle pausedStyle;
         GUIStyle unitLabelStyle;
@@ -34,9 +35,17 @@ namespace Blackglass
             return pendingCount > 0 ? $"{orderName} +{pendingCount}" : orderName;
         }
 
+        /// <summary>One status line for the primary character, such as "Primary: Ana | Takeover ON (V) | Manual control".</summary>
+        internal static string DescribePrimary(string unitName, bool takeoverOn, bool isPaused, bool hasOrders)
+        {
+            var mode = !takeoverOn ? "Takeover OFF (V)" : isPaused ? "Takeover ON (after pause)" : "Takeover ON (V)";
+            var activity = hasOrders ? "Following orders" : takeoverOn && !isPaused ? "Manual control" : "Idle";
+            return $"Primary: {unitName} | {mode} | {activity}";
+        }
+
         void OnGUI()
         {
-            GUI.Label(new Rect(10f, 10f, 640f, 80f), ControlHints);
+            GUI.Label(new Rect(10f, 10f, 820f, 80f), ControlHints);
 
             if (target != null)
             {
@@ -46,6 +55,13 @@ namespace Blackglass
 
             if (selection != null)
                 GUI.Label(new Rect(10f, 115f, 320f, 22f), $"Selected: {selection.Selected.Count}");
+
+            if (primary != null && primary.Unit != null)
+            {
+                var unit = primary.Unit;
+                GUI.Label(new Rect(10f, 135f, 640f, 22f),
+                    DescribePrimary(unit.name, primary.IsTakeoverOn, primary.IsPaused, unit.CurrentCommand != null));
+            }
 
             DrawUnitLabels();
 
@@ -60,7 +76,7 @@ namespace Blackglass
                     fontSize = 22,
                     fontStyle = FontStyle.Bold,
                 };
-                GUI.Label(new Rect(0f, 140f, Screen.width, 40f), "TACTICAL PAUSE - Space to resume", pausedStyle);
+                GUI.Label(new Rect(0f, 165f, Screen.width, 40f), "TACTICAL PAUSE - Space to resume", pausedStyle);
             }
         }
 
