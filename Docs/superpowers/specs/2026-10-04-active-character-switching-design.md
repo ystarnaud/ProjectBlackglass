@@ -36,7 +36,7 @@ Clicks ─► PlayerCommandInput ─► Issue(command) ─► CommandableUnit (u
 |---|---|
 | Naming | Rename the class `PrimaryCharacter` → **`ActiveCharacter`** (file renamed with its `.meta`, so the script GUID and scene wiring survive). Serialized fields named `primary` become `activeCharacter` with `[FormerlySerializedAs("primary")]`. |
 | Eligible characters | Units in `UnitSelection.Roster` (the friendlies) whose `SelectableUnit` and `CommandableUnit` are enabled, whose GameObject is active in the hierarchy, and which have no `Health` or a living one. No separate "controllable" flag yet (YAGNI). |
-| Shift+Tab | One new action **`Character/CycleCharacter`** bound to Tab. Direction comes from the existing **`Commands/Modifier`** action (Shift): held → previous, otherwise next. Same pattern as Shift-to-queue (decision 008). Rejected: separate Next/Previous actions with a Shift+Tab composite, which needs the project-wide "shortcut keys consume input" setting so Shift+Tab does not also fire Tab. |
+| Shift+Tab | New action **`Character/CycleCharacter`** bound to Tab. Direction comes from a Shift modifier action: held → previous, otherwise next. Same pattern as Shift-to-queue (decision 008). Rejected: separate Next/Previous actions with a Shift+Tab composite, which needs the project-wide "shortcut keys consume input" setting so Shift+Tab does not also fire Tab. *Planning refinement:* the modifier is a new **`Character/CycleReverse`** action (Shift) rather than `Commands/Modifier`, because two components enabling and disabling one shared action would let either one switch the other's Shift off; each map owns its actions, as `PointerPosition` already does. |
 | Held keys on switch | **Hybrid.** A held move key carries over to the new character only if it has no orders; if it has orders, the release gate re-arms so a held key cannot wipe them. |
 | Selection | Tab/Shift+Tab **selects the new active character, replacing the selection**, so paused Tab-then-click orders the character just tabbed to. Queued orders are untouched. |
 | Camera | On a switch the camera **glides once** to the new character, also while paused or in free mode. Any pan input cancels the glide. While driving it follows as in Phase 3. |
@@ -78,9 +78,9 @@ No change event: consumers that care (input, camera) compare `Unit` with the uni
 
 ### 4.3 `DirectControlInput` (changed)
 
-New serialized fields: `selection` (`UnitSelection`), `cycleAction` (`Character/CycleCharacter`), `modifierAction` (`Commands/Modifier`). `Initialize` gains matching optional parameters.
+New serialized fields: `selection` (`UnitSelection`), `cycleAction` (`Character/CycleCharacter`), `reverseAction` (`Character/CycleReverse`). `Initialize` gains matching optional parameters.
 
-- **Tab:** on `cycleAction.performed`: `direction = modifier held ? -1 : +1`; `activeCharacter.Cycle(direction)`; then, if there is an active unit with a `SelectableUnit` and a selection, `selection.Select(it)`. Selecting happens even when the active unit did not change (one eligible unit), so after Tab the selection is always the active character.
+- **Tab:** on `cycleAction.performed`: `direction = reverseAction held ? -1 : +1`; `activeCharacter.Cycle(direction)`; then, if the active unit has a `SelectableUnit` that is eligible and there is a selection, `selection.Select(it)`. Selecting happens even when the active unit did not change (one eligible unit), so after Tab the selection is always the active character.
 - **Handover**, in `Update` (still `[DefaultExecutionOrder(-100)]`, so before units update):
   1. Keep `steeredUnit`, the unit this component last wrote an intent to.
   2. If `activeCharacter.Unit != steeredUnit`: zero `steeredUnit`'s intent (if it still exists), then apply the hybrid rule — if Move reads non-zero and the new unit has orders (`CurrentCommand != null`), set `waitingForRelease = true`; otherwise leave the gate as it was (an idle new unit takes over a held key; a gated key stays gated). Set `steeredUnit` to the new unit.
@@ -134,14 +134,15 @@ Debug feedback on a scene-level `ActiveMarker` object.
 | Action | Type | Binding |
 |---|---|---|
 | `CycleCharacter` | Button | `<Keyboard>/tab` |
+| `CycleReverse` | Button | `<Keyboard>/leftShift`, `<Keyboard>/rightShift` |
 
-Shift is the existing `Commands/Modifier` (left/right Shift). No other bindings change. Right mouse button remains camera-only (`Camera/RotateDrag`); the camera's `ClickDragDetector` already distinguishes a right-drag from a right-click, which keeps a future right-click context action possible without changing this design.
+Shift is now bound to both `Commands/Modifier` and `Character/CycleReverse`, as WASD is bound to both `Camera/Pan` and `Character/Move`. No other bindings change. Right mouse button remains camera-only (`Camera/RotateDrag`); the camera's `ClickDragDetector` already distinguishes a right-drag from a right-click, which keeps a future right-click context action possible without changing this design.
 
 ## 7. Scene and assets
 
 Generated by a temporary editor script (created and deleted within the task, never committed), as in Phase 3:
 
-- `Systems`: `ActiveCharacter` (was `PrimaryCharacter`, same component) gets `selection` wired; `DirectControlInput` gets `selection`, `cycleAction`, `modifierAction`.
+- `Systems`: `ActiveCharacter` (was `PrimaryCharacter`, same component) gets `selection` wired; `DirectControlInput` gets `selection`, `cycleAction`, `reverseAction`.
 - `PrimaryMarker` (child of `FriendlyUnit_1`) is replaced by a root `ActiveMarker` with `ActiveCharacterMarker` and a collider-free child `Visual` using the existing marker material.
 - `Materials/PrimaryMarker.mat` is renamed `ActiveMarker.mat` with its `.meta` (GUID kept).
 - Every `primary` reference is re-saved under its new field name.
@@ -177,7 +178,7 @@ Generated by a temporary editor script (created and deleted within the task, nev
 
 ```
 Assets/_Project/
-├── Input/BlackglassControls.inputactions          Character/CycleCharacter
+├── Input/BlackglassControls.inputactions          Character/CycleCharacter, Character/CycleReverse
 ├── Materials/ActiveMarker.mat                     renamed from PrimaryMarker.mat
 ├── Scenes/Prototype.unity                         rewired (generated)
 ├── Scripts/Controls/ActiveCharacter.cs            renamed from PrimaryCharacter.cs; SetUnit, Cycle, IsEligible
@@ -201,6 +202,6 @@ Docs/Decisions.md                                  012 added; 008 and 011 amende
 
 ## 11. Decision records (`Docs/Decisions.md`)
 
-- **012 — Active character switching** (new): the rename and why (no fixed protagonist in the control code), eligibility, Tab + Modifier binding and the rejected composite/consumption alternative, the hybrid held-key rule, selection follows the switch, camera glide, polling instead of a change event.
+- **012 — Active character switching** (new): the rename and why (no fixed protagonist in the control code), eligibility, Tab + CycleReverse binding and the rejected composite/consumption and shared-`Modifier` alternatives, the hybrid held-key rule, selection follows the switch, camera glide, polling instead of a change event.
 - **011** amended: "primary character" now means the active character; "switching at runtime is not designed yet" points to 012.
-- **008** amended: `Character` map lists `CycleCharacter` (Tab; Shift via `Modifier` reverses).
+- **008** amended: `Character` map lists `CycleCharacter` (Tab) and `CycleReverse` (Shift).
