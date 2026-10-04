@@ -16,21 +16,32 @@ namespace Blackglass
         [SerializeField, Min(0f)] float stoppingDistance = 0.1f;
 
         NavMeshAgent agent;
+        int moveRequestFrame = -1;
 
         NavMeshAgent Agent => agent != null ? agent : agent = GetComponent<NavMeshAgent>();
 
-        /// <summary>True when the unit is at its destination, or its path has ended (nothing left to walk).</summary>
+        /// <summary>
+        /// True when the unit is at the end of its path, or has no path left to walk. The path ends at the closest
+        /// reachable point, so a destination the NavMesh only partly reaches still counts as arrived there.
+        /// Never true on the frame a move was requested, while the agent's path data is still the old one.
+        /// </summary>
         public bool HasArrived
         {
             get
             {
-                if (!Agent.isOnNavMesh || Agent.pathPending)
+                if (!Agent.isOnNavMesh || Agent.pathPending || Time.frameCount == moveRequestFrame)
                     return false;
-                var offset = Agent.destination - transform.position;
+                if (!Agent.hasPath)
+                    return true;
+                var offset = Agent.pathEndPosition - transform.position;
                 offset.y = 0f;
-                return offset.magnitude <= Agent.stoppingDistance + ArrivalTolerance || !Agent.hasPath;
+                return offset.magnitude <= Agent.stoppingDistance + ArrivalTolerance;
             }
         }
+
+        /// <summary>True if MoveTo(point) would be accepted: on a NavMesh, with a walkable point within 2 m. No side effects.</summary>
+        public bool CanMoveTo(Vector3 point) =>
+            Agent.isOnNavMesh && NavMesh.SamplePosition(point, out _, SnapRadius, NavMesh.AllAreas);
 
         void Awake()
         {
@@ -54,6 +65,7 @@ namespace Blackglass
                 return false;
             }
             Agent.isStopped = false;
+            moveRequestFrame = Time.frameCount;
             return Agent.SetDestination(hit.position);
         }
 

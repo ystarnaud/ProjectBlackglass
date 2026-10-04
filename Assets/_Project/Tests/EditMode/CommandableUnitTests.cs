@@ -11,8 +11,10 @@ namespace Blackglass.Tests
 
         GameObject unitHost;
         GameObject targetHost;
+        GameObject otherTargetHost;
         CommandableUnit unit;
         Health target;
+        Health otherTarget;
 
         [SetUp]
         public void SetUp()
@@ -21,6 +23,8 @@ namespace Blackglass.Tests
             unit = unitHost.AddComponent<CommandableUnit>();
             targetHost = new GameObject("Target");
             target = targetHost.AddComponent<Health>();
+            otherTargetHost = new GameObject("OtherTarget");
+            otherTarget = otherTargetHost.AddComponent<Health>();
         }
 
         [TearDown]
@@ -28,6 +32,7 @@ namespace Blackglass.Tests
         {
             Object.DestroyImmediate(unitHost);
             Object.DestroyImmediate(targetHost);
+            Object.DestroyImmediate(otherTargetHost);
         }
 
         [Test]
@@ -95,6 +100,101 @@ namespace Blackglass.Tests
             Assert.That(attacker.IsInRange(target), Is.True);
             targetHost.transform.position = new Vector3(0f, 0f, 2.1f);
             Assert.That(attacker.IsInRange(target), Is.False);
+        }
+
+        [Test]
+        public void Issue_UnknownMode_Throws()
+        {
+            Assert.Throws<ArgumentOutOfRangeException>(() => unit.Issue(new AttackCommand(target), (IssueMode)99));
+            Assert.That(unit.CurrentCommand, Is.Null);
+        }
+
+        [Test]
+        public void Append_WhileIdle_BecomesCurrent()
+        {
+            var attack = new AttackCommand(target);
+            Assert.That(unit.Issue(attack, IssueMode.Append), Is.True);
+            Assert.That(unit.CurrentCommand, Is.SameAs(attack));
+            Assert.That(unit.PendingCommands, Is.Empty);
+        }
+
+        [Test]
+        public void Append_WhileBusy_QueuesBehindCurrent()
+        {
+            var first = new AttackCommand(target);
+            var second = new AttackCommand(otherTarget);
+            unit.Issue(first);
+            Assert.That(unit.Issue(second, IssueMode.Append), Is.True);
+            Assert.That(unit.CurrentCommand, Is.SameAs(first));
+            Assert.That(unit.PendingCommands, Is.EqualTo(new UnitCommand[] { second }));
+        }
+
+        [Test]
+        public void Append_DeadTarget_IsRejectedAndQueueUnchanged()
+        {
+            var first = new AttackCommand(target);
+            unit.Issue(first);
+            otherTarget.TakeDamage(otherTarget.Max);
+            Assert.That(unit.Issue(new AttackCommand(otherTarget), IssueMode.Append), Is.False);
+            Assert.That(unit.CurrentCommand, Is.SameAs(first));
+            Assert.That(unit.PendingCommands, Is.Empty);
+        }
+
+        [Test]
+        public void Replace_DropsPendingOrders()
+        {
+            unit.Issue(new AttackCommand(target));
+            unit.Issue(new AttackCommand(otherTarget), IssueMode.Append);
+            var replacement = new AttackCommand(otherTarget);
+            Assert.That(unit.Issue(replacement), Is.True);
+            Assert.That(unit.CurrentCommand, Is.SameAs(replacement));
+            Assert.That(unit.PendingCommands, Is.Empty);
+        }
+
+        [Test]
+        public void Replace_AttackOnCurrentTarget_KeepsItAndDropsPending()
+        {
+            unit.Issue(new AttackCommand(target));
+            unit.Issue(new AttackCommand(otherTarget), IssueMode.Append);
+            var again = new AttackCommand(target);
+            Assert.That(unit.Issue(again), Is.True);
+            Assert.That(unit.CurrentCommand, Is.SameAs(again));
+            Assert.That(unit.PendingCommands, Is.Empty);
+        }
+
+        [Test]
+        public void Replace_RejectedCommand_KeepsCurrentAndPending()
+        {
+            var first = new AttackCommand(target);
+            var second = new AttackCommand(otherTarget);
+            unit.Issue(first);
+            unit.Issue(second, IssueMode.Append);
+            var deadHost = new GameObject("Dead");
+            var dead = deadHost.AddComponent<Health>();
+            dead.TakeDamage(dead.Max);
+
+            Assert.That(unit.Issue(new AttackCommand(dead)), Is.False);
+            Assert.That(unit.CurrentCommand, Is.SameAs(first));
+            Assert.That(unit.PendingCommands, Is.EqualTo(new UnitCommand[] { second }));
+            Object.DestroyImmediate(deadHost);
+        }
+
+        [TestCase(IssueMode.Replace)]
+        [TestCase(IssueMode.Append)]
+        public void Stop_ClearsCurrentAndPending(IssueMode mode)
+        {
+            unit.Issue(new AttackCommand(target));
+            unit.Issue(new AttackCommand(otherTarget), IssueMode.Append);
+            Assert.That(unit.Issue(new StopCommand(), mode), Is.True);
+            Assert.That(unit.CurrentCommand, Is.Null);
+            Assert.That(unit.PendingCommands, Is.Empty);
+        }
+
+        [Test]
+        public void Stop_WhileIdle_IsAccepted()
+        {
+            Assert.That(unit.Issue(new StopCommand()), Is.True);
+            Assert.That(unit.CurrentCommand, Is.Null);
         }
     }
 }
