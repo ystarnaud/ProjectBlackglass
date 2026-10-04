@@ -64,16 +64,16 @@ Short record of decisions that are likely to matter later. Newest last.
 - **Decided:** Project-wide actions live in `Assets/_Project/Input/BlackglassControls.inputactions`, with three maps:
   - **Camera:** Pan (WASD), Rotate (Q/E), RotateDrag (right button), PointerPosition, Zoom (wheel).
   - **Commands:** Command (left button), PointerPosition, TogglePause (Space), Modifier (Shift), Stop (X), ClearSelection (Esc).
-  - **Character** (Phase 3, 2026-10-04): Move (WASD), Takeover (V).
-- **WASD is shared** by `Camera/Pan` and `Character/Move`. The mode decides which one acts: while the primary character is being driven (takeover on, not paused) the camera ignores Pan, and otherwise `DirectControlInput` ignores Move.
+  - **Character** (Phase 3, 2026-10-04): Move (WASD), Takeover (V), CycleCharacter (Tab) and CycleReverse (Shift; held with Tab it cycles backward, see 012).
+- **WASD is shared** by `Camera/Pan` and `Character/Move`. The mode decides which one acts: while the active character is being driven (takeover on, not paused) the camera ignores Pan, and otherwise `DirectControlInput` ignores Move. **Shift is shared** by `Commands/Modifier` and `Character/CycleReverse`: each map owns its own action so no component enables or disables another's.
 - **Left button** (Phase 2, 2026-10-04): a quick click (≤ 6 px of movement) acts on what is under the cursor:
   - a friendly unit (`SelectableUnit`) is selected; with Shift it is added or removed;
-  - anything else is an order: Attack on a living `Health`, otherwise Move. Shift queues it instead of replacing. **In real time the order goes to the primary character; while paused (or with no active primary character) it goes to the selected units** (Phase 3, 2026-10-04).
+  - anything else is an order: Attack on a living `Health`, otherwise Move. Shift queues it instead of replacing. **In real time the order goes to the active character; while paused (or with no active character that can act) it goes to the selected units** (Phase 3, 2026-10-04).
   - A left-drag box-selects the roster units inside the box (Shift adds; an empty box clears).
 - **Right button** is camera-only: right-drag rotates (horizontal) and tilts (vertical, 25°–85°). `ClickDragDetector` holds the click-versus-drag rule for both buttons.
 - **Why:** The owner chose left-click commands (2026-10-04), then chose to keep them when selection arrived: one button for "act on what I click", the other for the camera. This is also the convention of party-based tactical-pause games.
 - **Consequences:** Clicking the ground is Move, so it can't clear the selection; Esc does. Clicking a friendly always selects it, so a move can't be ordered onto a spot where a friendly stands.
-- **Implications:** Input components only create commands, change the selection, call `TacticalPause`, set the primary character's move intent through `CommandableUnit.SetMoveIntent`, or toggle `PrimaryCharacter` takeover. They never touch `UnitMover`, `UnitAttacker`, the NavMeshAgent or `Health`. Rebinding means editing the actions asset. The keys 1–9 are still free; they may be wanted for both weapon choice and control groups later.
+- **Implications:** Input components only create commands, change the selection, call `TacticalPause`, set the active character's move intent through `CommandableUnit.SetMoveIntent`, toggle `ActiveCharacter` takeover, or ask `ActiveCharacter` to cycle. They never touch `UnitMover`, `UnitAttacker`, the NavMeshAgent or `Health`. Rebinding means editing the actions asset. The keys 1–9 are still free; they may be wanted for both weapon choice and control groups later.
 
 ## 009 — Code assemblies and tests
 
@@ -91,6 +91,7 @@ Short record of decisions that are likely to matter later. Newest last.
 
 ## 011 — Primary character and takeover mode
 
+- **Renamed (2026-10-04, see 012):** `PrimaryCharacter` is now `ActiveCharacter`, and Tab/Shift+Tab can change which friendly it holds. Below, "primary character" means the active character.
 - **Decided (Phase 3, 2026-10-04):** One friendly unit is the **primary character** (`FriendlyUnit_1` in `Prototype.unity`). `PrimaryCharacter` (on `Systems`) holds which unit it is and whether **takeover mode** is on. Like `UnitSelection`, it holds state only.
   - **Free mode** (default): WASD pans the camera.
   - **Takeover mode** (V toggles): WASD drives the primary character (camera-relative, through `DirectControlInput` → `CommandableUnit.SetMoveIntent`), and the camera follows it on unscaled time. V works while paused and takes effect on resume.
@@ -110,5 +111,24 @@ Short record of decisions that are likely to matter later. Newest last.
   - Cancelling only the current order on takeover: the next queued move would start and fight the keys.
 - **Implications:**
   - AI or scripts can use the same move intent later.
-  - Switching the primary character at runtime, and what happens when it dies, are not designed yet; friendly units have no `Health`.
+  - Switching the active character at runtime is designed in 012. What happens when it dies is not designed yet; friendly units have no `Health`.
   - If "keys win while held" feels wrong in play, the alternative is that a click suspends the keys until they are released.
+
+## 012 — Active character switching
+
+- **Decided (2026-10-04):** The directly controlled character is no longer fixed. `PrimaryCharacter` was renamed `ActiveCharacter` (file renamed with its `.meta`, so the script GUID and scene wiring survived; renamed fields kept their data through `[FormerlySerializedAs("primary")]`). Any **eligible** roster unit can be the active character:
+  - eligible = in `UnitSelection.Roster`, `SelectableUnit` and `CommandableUnit` enabled, GameObject active in the hierarchy, and no `Health` or a living one (`ActiveCharacter.IsEligible`);
+  - **Tab** makes the next eligible unit active and **Shift+Tab** the previous one, in roster order, wrapping (`ActiveCharacter.Cycle` → `ControlCycle.NextIndex`). With one eligible unit it stays active; with none nothing changes;
+  - Tab works in every mode, paused or not. It changes state only: no orders are issued or cleared and no simulation runs.
+- **Handover:** `DirectControlInput` zeroes the old unit's move intent in the same frame. A held move key carries over to the new unit only if it has no orders; otherwise the release gate re-arms, so tabbing onto a unit cannot wipe its plan. The old unit keeps whatever orders it had.
+- **Selection follows:** Tab replaces the selection with the new active character, so paused Tab-then-click orders the character just chosen.
+- **Camera:** when the active unit changes, the camera glides to it once (same easing as follow, unscaled time); any pan input ends the glide. While driving it follows as before.
+- **Feedback:** one `ActiveMarker` (`ActiveCharacterMarker`) floats above whoever is active, distinct from the selection ring at the feet. The HUD line names the controlled character.
+- **Input:** `Character/CycleCharacter` (Tab) and `Character/CycleReverse` (Shift), both read only by `DirectControlInput`.
+- **Why:** the control code should not assume a fixed protagonist; squad members are interchangeable for control. Consumers (input, camera, marker) compare `ActiveCharacter.Unit` with the unit they last saw each frame instead of subscribing to a change event, which catches every source of change and keeps `ActiveCharacter` state-only (as in 006).
+- **Rejected:**
+  - Separate `NextCharacter`/`PreviousCharacter` actions with a Shift+Tab composite: needs the project-wide "shortcut keys consume input" setting so Shift+Tab does not also fire Tab.
+  - Reading `Commands/Modifier` from `DirectControlInput`: two components enabling and disabling one shared action, so disabling either would switch the other's Shift off.
+  - Carrying a held key over unconditionally (wipes the new unit's orders) or never (a hitch on every mid-run switch).
+  - Leaving the selection unchanged on Tab: paused clicks would order someone other than the character just tabbed to.
+- **Implications:** No automatic switch when the active character dies. Cycling order is roster order. A per-unit "cannot be directly controlled" flag waits for a design need. Right-click stays camera-only; `ClickDragDetector` already separates a right-click from a right-drag, so a future context action can use the click without changing camera control.
