@@ -483,6 +483,19 @@ namespace Blackglass.Tests
             Assert.That(unitB.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "Without an active primary, clicks must order the selection");
             Assert.That(unitA.Unit.CurrentCommand, Is.Null);
         }
+
+        [UnityTest]
+        public IEnumerator RealTimeClickDummy_AfterSwitchingTheActiveCharacter_TheNewOneAttacks()
+        {
+            yield return null;
+            MakeActive(unitA);
+            activeCharacter.SetUnit(unitC.Unit);
+            yield return LeftClickAt(ScreenPointOf(dummy));
+
+            Assert.That(unitC.Unit.CurrentCommand, Is.TypeOf<AttackCommand>(), "The attack must come from the new active character");
+            Assert.That(((AttackCommand)unitC.Unit.CurrentCommand).Target, Is.SameAs(dummy));
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null, "The previous active character must not attack");
+        }
     }
 }
 #endif
