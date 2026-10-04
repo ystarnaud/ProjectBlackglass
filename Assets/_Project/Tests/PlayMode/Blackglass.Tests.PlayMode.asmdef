@@ -5,7 +5,9 @@
         "Blackglass",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
-        "Unity.AI.Navigation"
+        "Unity.AI.Navigation",
+        "Unity.InputSystem",
+        "Unity.InputSystem.TestFramework"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

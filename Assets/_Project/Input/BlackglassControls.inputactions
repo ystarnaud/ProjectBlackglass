@@ -1,0 +1,45 @@
+{
+    "version": 1,
+    "name": "BlackglassControls",
+    "maps": [
+        {
+            "name": "Camera",
+            "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d01",
+            "actions": [
+                { "name": "Pan", "type": "Value", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d02", "expectedControlType": "Vector2", "processors": "", "interactions": "", "initialStateCheck": true },
+                { "name": "Rotate", "type": "Value", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d03", "expectedControlType": "Axis", "processors": "", "interactions": "", "initialStateCheck": true },
+                { "name": "RotateDrag", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d04", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "PointerPosition", "type": "Value", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d05", "expectedControlType": "Vector2", "processors": "", "interactions": "", "initialStateCheck": true },
+                { "name": "Zoom", "type": "Value", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d06", "expectedControlType": "Axis", "processors": "", "interactions": "", "initialStateCheck": false }
+            ],
+            "bindings": [
+                { "name": "WASD", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d11", "path": "2DVector", "interactions": "", "processors": "", "groups": "", "action": "Pan", "isComposite": true, "isPartOfComposite": false },
+                { "name": "up", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d12", "path": "<Keyboard>/w", "interactions": "", "processors": "", "groups": "", "action": "Pan", "isComposite": false, "isPartOfComposite": true },
+                { "name": "down", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d13", "path": "<Keyboard>/s", "interactions": "", "processors": "", "groups": "", "action": "Pan", "isComposite": false, "isPartOfComposite": true },
+                { "name": "left", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d14", "path": "<Keyboard>/a", "interactions": "", "processors": "", "groups": "", "action": "Pan", "isComposite": false, "isPartOfComposite": true },
+                { "name": "right", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d15", "path": "<Keyboard>/d", "interactions": "", "processors": "", "groups": "", "action": "Pan", "isComposite": false, "isPartOfComposite": true },
+                { "name": "QE", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d16", "path": "1DAxis", "interactions": "", "processors": "", "groups": "", "action": "Rotate", "isComposite": true, "isPartOfComposite": false },
+                { "name": "negative", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d17", "path": "<Keyboard>/q", "interactions": "", "processors": "", "groups": "", "action": "Rotate", "isComposite": false, "isPartOfComposite": true },
+                { "name": "positive", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d18", "path": "<Keyboard>/e", "interactions": "", "processors": "", "groups": "", "action": "Rotate", "isComposite": false, "isPartOfComposite": true },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d19", "path": "<Mouse>/rightButton", "interactions": "", "processors": "", "groups": "", "action": "RotateDrag", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d1a", "path": "<Pointer>/position", "interactions": "", "processors": "", "groups": "", "action": "PointerPosition", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9d1b", "path": "<Mouse>/scroll/y", "interactions": "", "processors": "", "groups": "", "action": "Zoom", "isComposite": false, "isPartOfComposite": false }
+            ]
+        },
+        {
+            "name": "Commands",
+            "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e01",
+            "actions": [
+                { "name": "Command", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e02", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "PointerPosition", "type": "Value", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e03", "expectedControlType": "Vector2", "processors": "", "interactions": "", "initialStateCheck": true },
+                { "name": "TogglePause", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e04", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+            ],
+            "bindings": [
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e11", "path": "<Mouse>/rightButton", "interactions": "", "processors": "", "groups": "", "action": "Command", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e12", "path": "<Pointer>/position", "interactions": "", "processors": "", "groups": "", "action": "PointerPosition", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e13", "path": "<Keyboard>/space", "interactions": "", "processors": "", "groups": "", "action": "TogglePause", "isComposite": false, "isPartOfComposite": false }
+            ]
+        }
+    ],
+    "controlSchemes": []
+}

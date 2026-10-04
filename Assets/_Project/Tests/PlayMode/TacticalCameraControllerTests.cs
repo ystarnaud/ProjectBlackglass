@@ -1,0 +1,154 @@
+#if UNITY_EDITOR
+using System.Collections;
+using NUnit.Framework;
+using UnityEngine;
+using UnityEngine.InputSystem;
+using UnityEngine.TestTools;
+
+namespace Blackglass.Tests
+{
+    public class TacticalCameraControllerTests : InputTestFixture
+    {
+        Keyboard keyboard;
+        Mouse mouse;
+        TestWorld world;
+        TacticalCameraController controller;
+        TacticalPause pause;
+
+        public override void Setup()
+        {
+            base.Setup();
+            keyboard = InputSystem.AddDevice<Keyboard>();
+            mouse = InputSystem.AddDevice<Mouse>();
+            world = new TestWorld();
+
+            var actions = TestControls.Load();
+            var rig = world.Track(new GameObject("CameraRig"));
+            rig.SetActive(false);
+            var cameraObject = new GameObject("Camera");
+            cameraObject.transform.SetParent(rig.transform, false);
+            var viewCamera = cameraObject.AddComponent<Camera>();
+            controller = rig.AddComponent<TacticalCameraController>();
+            controller.Initialize(viewCamera,
+                TestControls.Ref(actions, "Camera/Pan"),
+                TestControls.Ref(actions, "Camera/Rotate"),
+                TestControls.Ref(actions, "Camera/RotateDrag"),
+                TestControls.Ref(actions, "Camera/PointerPosition"),
+                TestControls.Ref(actions, "Camera/Zoom"));
+            rig.SetActive(true);
+
+            pause = world.Track(new GameObject("Pause")).AddComponent<TacticalPause>();
+        }
+
+        public override void TearDown()
+        {
+            world.Dispose();
+            Time.timeScale = 1f;
+            base.TearDown();
+        }
+
+        [UnityTest]
+        public IEnumerator HoldingW_PansForward()
+        {
+            var start = controller.transform.position;
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.2f);
+            Release(keyboard.wKey);
+            yield return null;
+
+            Assert.That(controller.transform.position.z, Is.GreaterThan(start.z + 0.5f));
+            Assert.That(controller.transform.position.x, Is.EqualTo(start.x).Within(0.01f));
+        }
+
+        [UnityTest]
+        public IEnumerator HoldingW_PansWhilePaused()
+        {
+            pause.Pause();
+            var start = controller.transform.position;
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.2f);
+            Release(keyboard.wKey);
+            yield return null;
+
+            Assert.That(controller.transform.position.z, Is.GreaterThan(start.z + 0.5f));
+        }
+
+        [UnityTest]
+        public IEnumerator ScrollUp_ZoomsInOneStepWhilePaused()
+        {
+            pause.Pause();
+            yield return null;
+            var start = controller.Distance;
+
+            Set(mouse.scroll, new Vector2(0f, 120f));
+            yield return null;
+            yield return null;
+
+            Assert.That(controller.Distance, Is.EqualTo(start - 2f).Within(0.001f));
+        }
+
+        [UnityTest]
+        public IEnumerator Zoom_IsClampedToRange()
+        {
+            for (var i = 0; i < 30; i++)
+            {
+                Set(mouse.scroll, new Vector2(0f, 120f));
+                yield return null;
+                Set(mouse.scroll, Vector2.zero);
+                yield return null;
+            }
+            Assert.That(controller.Distance, Is.EqualTo(5f).Within(0.001f));
+        }
+
+        [UnityTest]
+        public IEnumerator HoldingE_RotatesWhilePaused()
+        {
+            pause.Pause();
+            var startYaw = controller.Yaw;
+            Press(keyboard.eKey);
+            yield return new WaitForSecondsRealtime(0.2f);
+            Release(keyboard.eKey);
+            yield return null;
+
+            Assert.That(Mathf.DeltaAngle(startYaw, controller.Yaw), Is.GreaterThan(5f));
+        }
+
+        [UnityTest]
+        public IEnumerator RightDrag_RotatesByPixelsTravelledAfterThreshold_WhilePaused()
+        {
+            pause.Pause();
+            Set(mouse.position, new Vector2(100f, 100f));
+            yield return null;
+            var startYaw = controller.Yaw;
+
+            Press(mouse.rightButton);
+            yield return null;
+            Set(mouse.position, new Vector2(110f, 100f));   // crosses the 6 px threshold, no rotation yet
+            yield return null;
+            Set(mouse.position, new Vector2(210f, 100f));   // +100 px of drag
+            yield return null;
+            Release(mouse.rightButton);
+            yield return null;
+
+            Assert.That(Mathf.DeltaAngle(startYaw, controller.Yaw), Is.EqualTo(25f).Within(0.5f));
+        }
+
+        [UnityTest]
+        public IEnumerator SmallRightClick_DoesNotRotate()
+        {
+            Set(mouse.position, new Vector2(100f, 100f));
+            yield return null;
+            var startYaw = controller.Yaw;
+
+            Press(mouse.rightButton);
+            yield return null;
+            Set(mouse.position, new Vector2(104f, 100f));
+            yield return null;
+            Release(mouse.rightButton);
+            yield return null;
+
+            Assert.That(controller.Yaw, Is.EqualTo(startYaw).Within(0.001f));
+        }
+    }
+}
+#endif
