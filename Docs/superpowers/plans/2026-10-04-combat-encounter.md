@@ -46,17 +46,17 @@ The script prints `error CS` lines, a summary (`result= total= passed= failed=`)
 | After task | EditMode | PlayMode |
 |---|---|---|
 | 1 | 162 | 135 |
-| 2 | 167 | 137 |
-| 3 | 169 | 138 |
-| 4 | 169 | 145 |
-| 5 | 169 | 148 |
-| 6 | 169 | 151 |
-| 7 | 182 | 151 |
-| 8 | 186 | 165 |
-| 9 | 196 | 170 |
-| 10 | 207 | 170 |
-| 11 | 207 | 172 |
-| 12 | 207 | 172 |
+| 2 | 168 | 137 |
+| 3 | 170 | 138 |
+| 4 | 170 | 145 |
+| 5 | 170 | 148 |
+| 6 | 170 | 151 |
+| 7 | 183 | 151 |
+| 8 | 187 | 165 |
+| 9 | 197 | 170 |
+| 10 | 208 | 170 |
+| 11 | 208 | 172 |
+| 12 | 208 | 172 |
 
 These totals assume each task adds exactly the tests listed. If a task's count differs, correct this table in that task's commit; the sequence must stay green either way.
 
@@ -351,6 +351,19 @@ Append inside the `HealthTests` class in `Assets/_Project/Tests/EditMode/HealthT
         }
 
         [Test]
+        public void TakeDamage_KillingBlow_IsAlreadyDeadInsideAttackedBy()
+        {
+            var attacker = CreateAttacker(out var attackerHost);
+            bool? aliveDuringCallback = null;
+            health.AttackedBy += _ => aliveDuringCallback = health.IsAlive;
+
+            health.TakeDamage(health.Max, attacker);
+
+            Assert.That(aliveDuringCallback, Is.False, "Handlers of the killing blow must see a dead target");
+            Object.DestroyImmediate(attackerHost);
+        }
+
+        [Test]
         public void Initialize_SetsTheMaximum_AndRestoresFullHealth()
         {
             health.TakeDamage(30);
@@ -361,7 +374,7 @@ Append inside the `HealthTests` class in `Assets/_Project/Tests/EditMode/HealthT
         }
 ```
 
-(5 new tests. The file already has `using System.Collections.Generic;`.)
+(6 new tests. The file already has `using System.Collections.Generic;`.)
 
 - [ ] **Step 2: Write the failing PlayMode tests**
 
@@ -424,7 +437,8 @@ namespace Blackglass.Tests
             unit.Issue(new AttackCommand(dummy));
             yield return TestWorld.WaitUntil(() => dummy.Current < dummy.Max, 2f);
             var justAfterHit = attacker.CooldownRemaining;
-            Assert.That(justAfterHit, Is.GreaterThan(0.8f).And.LessThanOrEqualTo(1f));
+            // (t + 1f) - t is 1 up to float rounding, so allow a tolerance.
+            Assert.That(justAfterHit, Is.EqualTo(1f).Within(0.01f), "A fresh hit must leave about a full cooldown");
 
             yield return new WaitForSeconds(0.4f);
             Assert.That(attacker.CooldownRemaining, Is.LessThan(justAfterHit - 0.3f));
@@ -469,7 +483,8 @@ namespace Blackglass
         public event Action<int> Damaged;
         /// <summary>
         /// Raised with the attacker, after Damaged, whenever a living target takes damage from a known attacker.
-        /// Also raised for the killing blow (before Died), so handlers check IsAlive.
+        /// Also raised for the killing blow (before Died); IsAlive is already false by then, so handlers that must not
+        /// act on a corpse check it.
         /// </summary>
         public event Action<Health> AttackedBy;
         /// <summary>Raised exactly once, when hit points reach zero.</summary>
@@ -493,13 +508,18 @@ namespace Blackglass
                 return;
 
             damageTaken = (int)Math.Min((long)max, (long)damageTaken + amount);
+            // Death is decided before any handler runs, so IsAlive is already false inside Damaged and AttackedBy for
+            // the killing blow. A handler that re-enters TakeDamage then returns at the hasDied guard above.
+            var dies = damageTaken >= max;
+            if (dies)
+                hasDied = true;
+
             Damaged?.Invoke(amount);
             if (attacker != null)
                 AttackedBy?.Invoke(attacker);
 
-            if (hasDied || Current > 0)
+            if (!dies)
                 return;
-            hasDied = true;
             Died?.Invoke();
             if (disableOnDeath)
                 gameObject.SetActive(false);
@@ -575,7 +595,7 @@ namespace Blackglass
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `Tools/run-tests.sh EditMode` → expected `total="167" passed="167"`, `EXIT=0`. (162 + 5.)
+Run: `Tools/run-tests.sh EditMode` → expected `total="168" passed="168"`, `EXIT=0`. (162 + 6.)
 Run: `Tools/run-tests.sh PlayMode` → expected `total="137" passed="137"`, `EXIT=0`.
 
 - [ ] **Step 6: Commit**
@@ -738,7 +758,7 @@ Update the summary of `Issue`: change "Returns false if the order cannot be carr
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `Tools/run-tests.sh EditMode` → expected `total="169" passed="169"`, `EXIT=0`.
+Run: `Tools/run-tests.sh EditMode` → expected `total="170" passed="170"`, `EXIT=0`.
 Run: `Tools/run-tests.sh PlayMode` → expected `total="138" passed="138"`, `EXIT=0`.
 
 - [ ] **Step 6: Commit**
@@ -1621,7 +1641,7 @@ namespace Blackglass
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `Tools/run-tests.sh EditMode` → expected `total="182" passed="182"`, `EXIT=0`. (169 + 13.)
+Run: `Tools/run-tests.sh EditMode` → expected `total="183" passed="183"`, `EXIT=0`. (170 + 13.)
 Run: `Tools/run-tests.sh PlayMode` → expected `total="151" passed="151"`, `EXIT=0` (compiles `CreateEncounter`).
 
 - [ ] **Step 5: Commit**
@@ -1799,8 +1819,8 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator FriendlyBehindAWall_IsNotSeen_UntilItStepsOut()
         {
-            // A 2 m high wall between them: the eye (1.5 m) cannot see over it.
-            world.CreateEnvironment((new Vector3(0f, 1f, 0f), new Vector3(10f, 2f, 1f)));
+            // A 2 m high, 6 m wide wall (x -3..3) between them: the eye (1.5 m) cannot see over it.
+            world.CreateEnvironment((new Vector3(0f, 1f, 0f), new Vector3(6f, 2f, 1f)));
             var friendly = world.CreateFighter(new Vector3(0f, 0f, -4f));
             var hostile = world.CreateHostile(new Vector3(0f, 0f, 4f), encounter);
             Arm(new[] { hostile }, friendly);
@@ -1808,7 +1828,9 @@ namespace Blackglass.Tests
             yield return new WaitForSeconds(0.8f);
             Assert.That(hostile.State, Is.EqualTo(EnemyState.Idle), "A wall must block line of sight");
 
-            friendly.Issue(new MoveCommand(new Vector3(7f, 0f, -4f)));   // past the wall's end: now visible
+            // The sight line from the eye (0, 1.5, 4) to the friendly's centre (8, 1, -3) crosses the wall's slab at
+            // x 4.0..5.1, clear of its x = 3 end, and the horizontal distance (10.6 m) stays inside the 12 m radius.
+            friendly.Issue(new MoveCommand(new Vector3(8f, 0f, -3f)));
             yield return WaitForState(hostile, EnemyState.Chase, 6f);
             Assert.That(hostile.State, Is.Not.EqualTo(EnemyState.Idle), "The hostile must see the friendly once it clears the wall");
             Assert.That(hostile.Target, Is.SameAs(HealthOf(friendly)));
@@ -1878,18 +1900,23 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator HostileHitThroughAWall_RetaliatesAtOnce()
         {
-            // 1 m thick wall; the units stand 1.8 m apart (inside melee range) with no line of sight.
-            world.CreateEnvironment((new Vector3(0f, 1f, 0f), new Vector3(10f, 2f, 1f)));
+            // A thin (0.2 m), 2 m tall wall: it blocks sight (the ray crosses it at y 1.25), and the NavMesh, eroded
+            // 0.5 m for the agent radius, still reaches to 0.6 m of it, so the agents stay at +-0.9: 1.8 m apart,
+            // inside melee range. A thicker wall would push them out of range when they snap onto the NavMesh.
+            world.CreateEnvironment((new Vector3(0f, 1f, 0f), new Vector3(10f, 2f, 0.2f)));
             var friendly = world.CreateFighter(new Vector3(0f, 0f, -0.9f));
             var hostile = world.CreateHostile(new Vector3(0f, 0f, 0.9f), encounter);
             Arm(new[] { hostile }, friendly);
             yield return new WaitForSeconds(0.6f);
+            Assert.That(TestWorld.HorizontalDistance(friendly.transform.position, hostile.transform.position), Is.LessThan(2f),
+                "Precondition: the NavMesh must not have pushed the units out of melee range");
             Assert.That(hostile.State, Is.EqualTo(EnemyState.Idle), "Precondition: no line of sight through the wall");
 
             friendly.Issue(new AttackCommand(HealthOf(hostile)));
             yield return TestWorld.WaitUntil(() => HealthOf(hostile).Current < HealthOf(hostile).Max, 2f);
             yield return null;
 
+            Assert.That(HealthOf(hostile).Current, Is.LessThan(HealthOf(hostile).Max), "Precondition: the friendly hit the hostile through the wall");
             Assert.That(hostile.Target, Is.SameAs(HealthOf(friendly)), "A hostile hit from a blind spot must fight back");
         }
 
@@ -2213,7 +2240,7 @@ namespace Blackglass
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `Tools/run-tests.sh EditMode` → expected `total="186" passed="186"`, `EXIT=0`. (182 + 4.)
+Run: `Tools/run-tests.sh EditMode` → expected `total="187" passed="187"`, `EXIT=0`. (183 + 4.)
 Run: `Tools/run-tests.sh PlayMode "Blackglass.Tests.EnemyAIPlayModeTests|Blackglass.Tests.CombatPausePlayModeTests"` → expected `total="14" passed="14"`.
 Run: `Tools/run-tests.sh PlayMode` → expected `total="165" passed="165"`, `EXIT=0`. (151 + 14.)
 
@@ -2246,18 +2273,22 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `CommandableUnit.IsAlive`, `ActiveCharacter.Cycle`, `ActiveCharacter.SetUnit`.
-- Produces: `public static bool ActiveCharacter.IsEligible(CommandableUnit candidate)` (new overload; the `SelectableUnit` overload delegates to it); `internal void ActiveCharacter.RefreshEligibility()` (called from `Update`): when the unit is no longer eligible, `Cycle(1)`, else `SetUnit(null)`. `TestWorld.CreateFriendlyFighter(Vector3 groundPosition, int maxHealth = 100)` returns the `SelectableUnit` of a fighter.
+- Produces: `public static bool ActiveCharacter.IsEligible(CommandableUnit candidate)` (new overload; the `SelectableUnit` overload delegates to it); `internal void ActiveCharacter.RefreshEligibility()` (called from `Update`): when the unit is no longer eligible, `Cycle(1)`, else `SetUnit(null)`. `ActiveCharacter` gets `[DefaultExecutionOrder(-200)]` so it runs before `DirectControlInput` (-100). `TestWorld.CreateFriendlyFighter(Vector3 groundPosition, int maxHealth = 100)` returns the `SelectableUnit` of a fighter.
 
 - [ ] **Step 1: Write the failing EditMode tests**
 
-Append inside the `ActiveCharacterTests` class in `Assets/_Project/Tests/EditMode/ActiveCharacterTests.cs` (it already has `CreateSquad`, `CreateFriendly`, `KillWithoutDeactivating`, `squad`, `selection`):
+First, in `Assets/_Project/Tests/EditMode/ActiveCharacterTests.cs`, change the body of the existing `IsEligible_NullIsFalse` test from `Assert.That(ActiveCharacter.IsEligible(null), Is.False);` to `Assert.That(ActiveCharacter.IsEligible((SelectableUnit)null), Is.False);` (a bare `null` becomes ambiguous once the `CommandableUnit` overload exists).
+
+Then append inside the `ActiveCharacterTests` class (it already has `CreateSquad`, `CreateFriendly`, `KillWithoutDeactivating`, `squad`, `selection`):
 
 ```csharp
         // --- Hand-over when the active unit stops being eligible.
 
+        // TryGetComponent, not GetComponent with ??: in the Editor a missing component is a placeholder, not a C# null.
         static void Kill(GameObject host)
         {
-            var health = host.GetComponent<Health>() ?? host.AddComponent<Health>();
+            if (!host.TryGetComponent<Health>(out var health))
+                health = host.AddComponent<Health>();
             health.TakeDamage(health.Max);
         }
 
@@ -2696,14 +2727,25 @@ In `Assets/_Project/Scripts/Controls/ActiveCharacter.cs`:
         }
 ```
 
-Update the class summary's first sentence to end with "...the marker and the HUD read it. When the active character stops being eligible (it dies), control moves to the next eligible roster unit, or to nobody."
+(c) Put the component ahead of `DirectControlInput` in the frame. Replace the class declaration line `public sealed class ActiveCharacter : MonoBehaviour` with:
+
+```csharp
+    // Hands over before DirectControlInput (-100) reads Unit, so a death never shows as a one-frame HasUnit dip that
+    // would re-arm its release gate.
+    [DefaultExecutionOrder(-200)]
+    public sealed class ActiveCharacter : MonoBehaviour
+```
+
+(`using UnityEngine;` is already present.) On the frame after a death, `ActiveCharacter.Update` switches first; `DirectControlInput.Update` then sees the new unit, zeroes the dead unit's intent in `HandOver` and arms the release gate only if a key is held and the new unit has orders (decision 012). `IsDriving` never reads false between two living units.
+
+(d) Update the class summary's first sentence to end with "...the marker and the HUD read it. When the active character stops being eligible (it dies), control moves to the next eligible roster unit, or to nobody."
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `Tools/run-tests.sh EditMode` → expected `total="196" passed="196"`, `EXIT=0`. (186 + 10.)
+Run: `Tools/run-tests.sh EditMode` → expected `total="197" passed="197"`, `EXIT=0`. (187 + 10.)
 Run: `Tools/run-tests.sh PlayMode` → expected `total="170" passed="170"`, `EXIT=0`. (165 + 5.)
 
-If `ControlledCharacterDies_WhileDriving_...` fails on the carry-over distance, the release gate re-armed because `second` had an order: check nothing issued one; otherwise add one more `yield return null` after the kill before reading `secondStart`.
+If `ControlledCharacterDies_WhileDriving_...` fails on the carry-over distance, check that `ActiveCharacter` carries `[DefaultExecutionOrder(-200)]`: without it `DirectControlInput` (-100) sees `IsDriving` false for one frame while the dead unit is still assigned, and `driving && !wasDriving` re-arms the release gate on the next frame.
 
 - [ ] **Step 6: Commit**
 
@@ -2962,7 +3004,7 @@ namespace Blackglass
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `Tools/run-tests.sh EditMode` → expected `total="207" passed="207"`, `EXIT=0`. (196 + 11.)
+Run: `Tools/run-tests.sh EditMode` → expected `total="208" passed="208"`, `EXIT=0`. (197 + 11.)
 Run: `Tools/run-tests.sh PlayMode` → expected `total="170" passed="170"`, `EXIT=0`. The scene test `Scene_ContainsWiredSquad_AndRunsWithoutErrors` still passes: the HUD's stale `target` data is ignored until the scene is re-saved in Task 11.
 
 - [ ] **Step 5: Commit**
@@ -3733,7 +3775,7 @@ rm -r Assets/_Project/Editor Assets/_Project/Editor.meta
 - [ ] **Step 5: Run all tests to verify they pass**
 
 Run: `Tools/run-tests.sh PlayMode` → expected `total="172" passed="172"`, `EXIT=0`. This run also recompiles without the deleted builder.
-Run: `Tools/run-tests.sh EditMode` → expected `total="207" passed="207"`, `EXIT=0`.
+Run: `Tools/run-tests.sh EditMode` → expected `total="208" passed="208"`, `EXIT=0`.
 
 Troubleshooting:
 - `Squad_AttacksEveryHostile_AndWins` times out → check the hostiles can be reached (NavMesh rebaked: `NavMesh-Environment.asset` changed) and that `HostileUnit_n` have `Health` 60.
@@ -3818,7 +3860,7 @@ In `Docs/superpowers/specs/2026-10-04-combat-encounter-design.md`, change the `S
 git status --short                 # only the two docs
 ls Assets/_Project/Editor 2>/dev/null && echo "BUILDER STILL PRESENT" || echo "builder gone"
 grep -rn "TrainingDummy\|Dummy.mat" Assets/_Project/Scenes Assets/_Project/Prefabs | grep -v "\.meta" ; echo "(expect no matches)"
-Tools/run-tests.sh EditMode        # expected total="207" passed="207" EXIT=0
+Tools/run-tests.sh EditMode        # expected total="208" passed="208" EXIT=0
 Tools/run-tests.sh PlayMode        # expected total="172" passed="172" EXIT=0
 ```
 
