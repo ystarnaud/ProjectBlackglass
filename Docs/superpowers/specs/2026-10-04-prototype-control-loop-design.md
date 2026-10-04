@@ -2,6 +2,8 @@
 
 Date: 2026-10-04 · Branch: `prototype/control-loop` · Status: approved; implemented on branch `prototype/control-loop`
 
+> **Superseded control mapping (2026-10-04):** unit commands later moved from right-click to **left-click**, and right-drag now also **tilts** the camera (25°–85°). See decision 008 in `Docs/Decisions.md`. The rest of this spec is unchanged.
+
 ## 1. Goal
 
 Prove the core control architecture in one small playable scene:
