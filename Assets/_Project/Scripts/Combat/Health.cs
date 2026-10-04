@@ -31,7 +31,7 @@ namespace Blackglass
             damageTaken = (int)Math.Min((long)max, (long)damageTaken + amount);
             Damaged?.Invoke(amount);
 
-            if (Current > 0)
+            if (hasDied || Current > 0)
                 return;
             hasDied = true;
             Died?.Invoke();

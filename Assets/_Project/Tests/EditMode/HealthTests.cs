@@ -80,6 +80,25 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Damaged_HandlerThatKillsTheTarget_RaisesDiedOnce()
+        {
+            var reentered = false;
+            health.Damaged += _ =>
+            {
+                if (reentered)
+                    return;
+                reentered = true;
+                health.TakeDamage(1000);
+            };
+
+            health.TakeDamage(10);
+
+            Assert.That(deaths, Is.EqualTo(1));
+            Assert.That(health.Current, Is.EqualTo(0));
+            Assert.That(health.IsAlive, Is.False);
+        }
+
+        [Test]
         public void Death_DeactivatesTheGameObject()
         {
             health.TakeDamage(100);
