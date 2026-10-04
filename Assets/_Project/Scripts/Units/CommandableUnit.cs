@@ -21,6 +21,7 @@ namespace Blackglass
         bool chasing;
         Vector3 lastChaseTarget;
         Vector3 moveIntent;
+        Health ownHealth;
 
         /// <summary>The order being carried out, or null when idle.</summary>
         public UnitCommand CurrentCommand => queue.Current;
@@ -31,14 +32,20 @@ namespace Blackglass
         /// <summary>The direction direct control is steering the unit in, or zero. See SetMoveIntent.</summary>
         public Vector3 MoveIntent => moveIntent;
 
+        /// <summary>False once this unit's Health (if it has one) has died. A dead unit takes and runs no orders.</summary>
+        public bool IsAlive => OwnHealth == null || OwnHealth.IsAlive;
+
         UnitMover Mover => mover != null ? mover : mover = GetComponent<UnitMover>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
+
+        // Looked up lazily so a Health added after this component is still found.
+        Health OwnHealth => ownHealth != null ? ownHealth : ownHealth = GetComponent<Health>();
 
         /// <summary>
         /// Gives the unit an order. Replace drops the current and pending orders and starts this one now; Append runs
         /// it after the pending ones (now, if the unit is idle). A Stop always halts the unit and clears every order.
-        /// Returns false if the order cannot be carried out (no walkable point within 2 m of the destination, dead or
-        /// inactive target); the unit's orders are then unchanged.
+        /// Returns false if the order cannot be carried out (this unit is dead, no walkable point within 2 m of the
+        /// destination, dead or inactive target); the unit's orders are then unchanged.
         /// Re-issuing an attack on the current target keeps the unit moving instead of restarting its chase.
         /// </summary>
         public bool Issue(UnitCommand command, IssueMode mode = IssueMode.Replace)
@@ -47,6 +54,8 @@ namespace Blackglass
                 throw new ArgumentNullException(nameof(command));
             if (mode != IssueMode.Replace && mode != IssueMode.Append)
                 throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown issue mode.");
+            if (!IsAlive)
+                return false;
 
             switch (command)
             {
@@ -92,6 +101,21 @@ namespace Blackglass
             direction.y = 0f;
             moveIntent = Vector3.ClampMagnitude(direction, 1f);
         }
+
+        void OnEnable()
+        {
+            if (OwnHealth != null)
+                OwnHealth.Died += OnDied;
+        }
+
+        void OnDisable()
+        {
+            if (OwnHealth != null)
+                OwnHealth.Died -= OnDied;
+        }
+
+        // A corpse keeps no plan: whatever it was doing ends here, before Health deactivates the GameObject.
+        void OnDied() => StopAll();
 
         void Update()
         {

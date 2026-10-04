@@ -64,5 +64,29 @@ namespace Blackglass.Tests
             yield return new WaitForSeconds(0.7f);
             Assert.That(attacker.CooldownRemaining, Is.EqualTo(0f));
         }
+
+        [UnityTest]
+        public IEnumerator UnitKilled_DropsItsOrders_StopsMoving_AndRefusesNewOnes()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateFighter(new Vector3(-8f, 0f, 0f));
+            var dummy = world.CreateDummy(new Vector3(8f, 0f, 0f));
+            yield return null;
+            unit.Issue(new MoveCommand(new Vector3(8f, 0f, 4f)));
+            unit.Issue(new AttackCommand(dummy), IssueMode.Append);
+            yield return new WaitForSeconds(0.3f);
+            Assert.That(unit.PendingCommands, Has.Count.EqualTo(1), "Precondition: a pending order exists");
+
+            var health = unit.GetComponent<Health>();
+            health.TakeDamage(health.Max);
+            yield return null;
+
+            Assert.That(unit.IsAlive, Is.False);
+            Assert.That(unit.CurrentCommand, Is.Null, "Death must clear the current order");
+            Assert.That(unit.PendingCommands, Is.Empty, "Death must clear pending orders");
+            Assert.That(unit.gameObject.activeSelf, Is.False);
+            Assert.That(unit.Issue(new MoveCommand(Vector3.zero)), Is.False);
+            Assert.That(unit.CurrentCommand, Is.Null);
+        }
     }
 }

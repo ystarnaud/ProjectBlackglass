@@ -63,6 +63,25 @@ namespace Blackglass.Tests
             return unit.gameObject.AddComponent<SelectableUnit>();
         }
 
+        /// <summary>
+        /// A unit with Health that can fight and die. Assembled while inactive so every component's OnEnable sees
+        /// the others (CommandableUnit subscribes to its Health there).
+        /// </summary>
+        public CommandableUnit CreateFighter(Vector3 groundPosition, int maxHealth = 100, int damage = 25, float cooldown = 1f)
+        {
+            var host = Track(GameObject.CreatePrimitive(PrimitiveType.Capsule));
+            host.name = "TestFighter";
+            host.SetActive(false);
+            host.transform.position = groundPosition + Vector3.up;
+            host.AddComponent<UnitMover>();
+            host.GetComponent<NavMeshAgent>().baseOffset = 1f;
+            host.AddComponent<UnitAttacker>().Initialize(2f, damage, cooldown);
+            host.AddComponent<Health>().Initialize(maxHealth);
+            var unit = host.AddComponent<CommandableUnit>();
+            host.SetActive(true);
+            return unit;
+        }
+
         public Health CreateDummy(Vector3 groundPosition)
         {
             var dummy = Track(GameObject.CreatePrimitive(PrimitiveType.Cylinder));
