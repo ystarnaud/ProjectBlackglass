@@ -116,7 +116,7 @@ internal void Initialize(CommandableUnit unit, TacticalPause pause)
 
 - New serialized reference: `PrimaryCharacter primary`. `Initialize` gains a matching trailing parameter.
 - **Who a ground or enemy click orders:**
-  - Not paused and `primary.HasUnit`: the primary character only. `GroupOrders.Issue` with a one-unit list (offset zero), Shift → Append, otherwise Replace.
+  - Not paused (read from `PlayerCommandInput`'s own `TacticalPause` reference, the same component as the primary character's) and `primary.HasUnit`: the primary character only. `GroupOrders.Issue` with a one-unit list (offset zero), Shift → Append, otherwise Replace.
   - Paused, or no primary character wired, or its unit missing, disabled or inactive (`HasUnit` false): the selection, exactly as in Phase 2. Existing Phase 2 tests and scenes without a primary character keep their behaviour.
 - Unchanged: clicking a friendly selects it, box selection, X stops the **selection**, Esc clears the selection, Space toggles pause.
 
@@ -137,9 +137,9 @@ internal void Initialize(CommandableUnit unit, TacticalPause pause)
 - New serialized reference: `PrimaryCharacter primary`.
 - New control hints:
   ```
-  WASD: pan camera   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom   V: takeover (WASD moves primary, camera follows)
+  WASD: pan camera   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom   V: takeover (WASD drives primary)
   Left-click unit: select (Shift: add/remove)   Left-drag: box select   Esc: clear selection
-  Real time - left-click ground/dummy: primary moves/attacks   Paused - orders go to selected units   Shift: queue   X: stop selected
+  Left-click ground/dummy: primary moves/attacks (paused: selected units)   Shift: queue   X: stop selected
   Space: tactical pause
   ```
 - New status line, for example `Primary: FriendlyUnit_1 | Takeover ON (V) | Following orders`.
