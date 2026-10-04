@@ -15,6 +15,8 @@ namespace Blackglass.Tests
         Camera viewCamera;
         CommandableUnit primaryUnit;
         CommandableUnit companion;
+        CommandableUnit third;
+        UnitSelection selection;
         TacticalPause pause;
         ActiveCharacter active;
         DirectControlInput input;
@@ -26,8 +28,9 @@ namespace Blackglass.Tests
             world = new TestWorld();
 
             world.CreateEnvironment();
-            primaryUnit = world.CreateUnit(new Vector3(-6f, 0f, -6f));
-            companion = world.CreateUnit(new Vector3(6f, 0f, -6f));
+            primaryUnit = world.CreateFriendly(new Vector3(-6f, 0f, -6f)).Unit;
+            companion = world.CreateFriendly(new Vector3(6f, 0f, -6f)).Unit;
+            third = world.CreateFriendly(new Vector3(0f, 0f, -12f)).Unit;
 
             var cameraObject = world.Track(new GameObject("Camera"));
             cameraObject.transform.SetPositionAndRotation(new Vector3(0f, 25f, -20f), Quaternion.Euler(50f, 0f, 0f));
@@ -36,15 +39,22 @@ namespace Blackglass.Tests
             var systems = world.Track(new GameObject("Systems"));
             systems.SetActive(false);
             pause = systems.AddComponent<TacticalPause>();
+            selection = systems.AddComponent<UnitSelection>();
+            selection.Initialize(SelectableOf(primaryUnit), SelectableOf(companion), SelectableOf(third));
             active = systems.AddComponent<ActiveCharacter>();
-            active.Initialize(primaryUnit, pause);
+            active.Initialize(primaryUnit, pause, selection);
             var actions = TestControls.Load();
             input = systems.AddComponent<DirectControlInput>();
             input.Initialize(active, viewCamera,
                 TestControls.Ref(actions, "Character/Move"),
-                TestControls.Ref(actions, "Character/Takeover"));
+                TestControls.Ref(actions, "Character/Takeover"),
+                selection,
+                TestControls.Ref(actions, "Character/CycleCharacter"),
+                TestControls.Ref(actions, "Character/CycleReverse"));
             systems.SetActive(true);
         }
+
+        static SelectableUnit SelectableOf(CommandableUnit unit) => unit.GetComponent<SelectableUnit>();
 
         public override void TearDown()
         {
@@ -68,6 +78,17 @@ namespace Blackglass.Tests
             Release(key);
             yield return null;
         }
+
+        IEnumerator ShiftTab()
+        {
+            Press(keyboard.leftShiftKey);
+            yield return null;
+            yield return Tap(keyboard.tabKey);
+            Release(keyboard.leftShiftKey);
+            yield return null;
+        }
+
+        static float Moved(CommandableUnit unit, Vector3 from) => TestWorld.HorizontalDistance(unit.transform.position, from);
 
         // Two orders each for the active character and the companion, on paths that never cross.
         (MoveCommand primaryFirst, MoveCommand primarySecond, MoveCommand companionFirst, MoveCommand companionSecond) QueueOrdersForBoth()
@@ -356,6 +377,233 @@ namespace Blackglass.Tests
             var positions = new Vector3[2];
             yield return RunBothQueuesToTheEnd(positions);
             AssertRanInOrder(positions, primaryFirst, primarySecond, companionFirst, companionSecond);
+        }
+
+        // --- Switching the active character (Tab / Shift+Tab).
+
+        [UnityTest]
+        public IEnumerator Tab_MakesTheNextFriendlyActive_SelectsIt_AndWraps()
+        {
+            yield return null;
+            selection.SetSelection(new[] { SelectableOf(primaryUnit), SelectableOf(companion), SelectableOf(third) });
+
+            yield return Tap(keyboard.tabKey);
+            Assert.That(active.Unit, Is.SameAs(companion));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { SelectableOf(companion) }), "Tab must select only the new active character");
+            yield return Tap(keyboard.tabKey);
+            Assert.That(active.Unit, Is.SameAs(third));
+            yield return Tap(keyboard.tabKey);
+            Assert.That(active.Unit, Is.SameAs(primaryUnit), "Tab did not wrap to the first friendly");
+            Assert.That(selection.Selected, Is.EqualTo(new[] { SelectableOf(primaryUnit) }));
+        }
+
+        [UnityTest]
+        public IEnumerator ShiftTab_GoesBackward_AndWraps()
+        {
+            yield return null;
+            yield return ShiftTab();
+            Assert.That(active.Unit, Is.SameAs(third), "Shift+Tab did not wrap to the last friendly");
+            yield return ShiftTab();
+            Assert.That(active.Unit, Is.SameAs(companion));
+            yield return ShiftTab();
+            Assert.That(active.Unit, Is.SameAs(primaryUnit));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { SelectableOf(primaryUnit) }));
+        }
+
+        [UnityTest]
+        public IEnumerator Tab_SkipsInactiveAndDisabledFriendlies_AndKeepsTheLastEligibleOne()
+        {
+            yield return null;
+            companion.gameObject.SetActive(false);
+            yield return Tap(keyboard.tabKey);
+            Assert.That(active.Unit, Is.SameAs(third), "Tab did not skip the inactive friendly");
+
+            third.enabled = false;
+            yield return Tap(keyboard.tabKey);
+            Assert.That(active.Unit, Is.SameAs(primaryUnit), "Tab did not skip the disabled friendly");
+            yield return Tap(keyboard.tabKey);
+            Assert.That(active.Unit, Is.SameAs(primaryUnit), "With one eligible friendly, Tab must keep it");
+            Assert.That(selection.Selected, Is.EqualTo(new[] { SelectableOf(primaryUnit) }));
+        }
+
+        [UnityTest]
+        public IEnumerator TabWhileDriving_StopsTheOldCharacter_AndTheHeldKeyDrivesAnIdleNewOne()
+        {
+            yield return null;
+            active.SetTakeover(true);
+            yield return null;
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.2f);
+            Assert.That(primaryUnit.MoveIntent, Is.Not.EqualTo(Vector3.zero), "Precondition: W drives the first friendly");
+
+            yield return Tap(keyboard.tabKey);   // W stays held
+            Assert.That(active.Unit, Is.SameAs(companion));
+            Assert.That(primaryUnit.MoveIntent, Is.EqualTo(Vector3.zero), "The old character kept a stale move intent");
+            var oldStoppedAt = primaryUnit.transform.position;
+            var newStart = companion.transform.position;
+            yield return new WaitForSecondsRealtime(0.4f);
+
+            Assert.That(Moved(primaryUnit, oldStoppedAt), Is.LessThan(0.05f), "The old character kept moving");
+            Assert.That(Moved(companion, newStart), Is.GreaterThan(0.5f), "The held key did not carry over to the idle new character");
+            Release(keyboard.wKey);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator TabWhileWHeld_DoesNotWipeTheNewCharactersOrders_UntilPressedAgain()
+        {
+            yield return null;
+            var first = new MoveCommand(new Vector3(6f, 0f, 8f));
+            var second = new MoveCommand(new Vector3(0f, 0f, 8f));
+            Assert.That(companion.Issue(first), Is.True);
+            Assert.That(companion.Issue(second, IssueMode.Append), Is.True);
+            active.SetTakeover(true);
+            yield return null;
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.2f);
+
+            yield return Tap(keyboard.tabKey);   // W stays held
+            yield return new WaitForSecondsRealtime(0.3f);
+            Assert.That(active.Unit, Is.SameAs(companion));
+            Assert.That(companion.MoveIntent, Is.EqualTo(Vector3.zero), "A held key steered a character that had orders");
+            Assert.That(companion.CurrentCommand, Is.SameAs(first), "A held key wiped the new character's orders");
+            Assert.That(companion.PendingCommands, Is.EqualTo(new UnitCommand[] { second }));
+
+            Release(keyboard.wKey);
+            yield return null;
+            yield return Hold(keyboard.wKey, 0.2f);
+            Assert.That(companion.CurrentCommand, Is.Null, "A fresh press must take over the new character");
+            Assert.That(companion.PendingCommands, Is.Empty);
+        }
+
+        [UnityTest]
+        public IEnumerator Switching_KeepsTheOldCharactersOrders()
+        {
+            yield return null;
+            var first = new MoveCommand(new Vector3(-6f, 0f, 8f));
+            var second = new MoveCommand(new Vector3(-12f, 0f, 8f));
+            Assert.That(primaryUnit.Issue(first), Is.True);
+            Assert.That(primaryUnit.Issue(second, IssueMode.Append), Is.True);
+            active.SetTakeover(true);
+            yield return null;
+            var start = primaryUnit.transform.position;
+
+            yield return Tap(keyboard.tabKey);
+            yield return new WaitForSecondsRealtime(0.3f);
+
+            Assert.That(active.Unit, Is.SameAs(companion));
+            Assert.That(primaryUnit.CurrentCommand, Is.SameAs(first), "Switching away cleared the old character's order");
+            Assert.That(primaryUnit.PendingCommands, Is.EqualTo(new UnitCommand[] { second }));
+            Assert.That(Moved(primaryUnit, start), Is.GreaterThan(0.5f), "The old character stopped following its orders");
+        }
+
+        [UnityTest]
+        public IEnumerator TabWhilePaused_MovesNothing_KeepsEveryQueue_AndTheNewCharacterDrivesAfterResume()
+        {
+            yield return null;
+            active.SetTakeover(true);
+            pause.Pause();
+            var (primaryFirst, primarySecond, companionFirst, companionSecond) = QueueOrdersForBoth();
+            var units = new[] { primaryUnit, companion, third };
+            var starts = new[] { primaryUnit.transform.position, companion.transform.position, third.transform.position };
+
+            yield return Tap(keyboard.tabKey);
+            yield return Tap(keyboard.tabKey);
+            yield return new WaitForSecondsRealtime(0.3f);
+
+            Assert.That(active.Unit, Is.SameAs(third));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { SelectableOf(third) }));
+            for (var i = 0; i < units.Length; i++)
+                Assert.That(Moved(units[i], starts[i]), Is.LessThan(0.01f), $"Friendly {i} moved while paused");
+            Assert.That(primaryUnit.CurrentCommand, Is.SameAs(primaryFirst));
+            Assert.That(primaryUnit.PendingCommands, Is.EqualTo(new UnitCommand[] { primarySecond }));
+            Assert.That(companion.CurrentCommand, Is.SameAs(companionFirst));
+            Assert.That(companion.PendingCommands, Is.EqualTo(new UnitCommand[] { companionSecond }));
+
+            pause.Resume();
+            yield return null;
+            var thirdStart = third.transform.position;
+            yield return Hold(keyboard.wKey, 0.3f);
+
+            Assert.That(Moved(third, thirdStart), Is.GreaterThan(0.5f), "After resume, W must drive the character chosen while paused");
+            Assert.That(primaryUnit.CurrentCommand, Is.Not.Null, "Driving the new character cancelled the first friendly's orders");
+            Assert.That(companion.CurrentCommand, Is.Not.Null, "Driving the new character cancelled the companion's orders");
+        }
+
+        [UnityTest]
+        public IEnumerator TabInFreeMode_SwitchesTheActiveCharacter_ButWMovesNobody()
+        {
+            yield return null;
+            yield return Tap(keyboard.tabKey);
+            Assert.That(active.Unit, Is.SameAs(companion));
+            var units = new[] { primaryUnit, companion, third };
+            var starts = new[] { primaryUnit.transform.position, companion.transform.position, third.transform.position };
+
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.3f);
+            for (var i = 0; i < units.Length; i++)
+            {
+                Assert.That(units[i].MoveIntent, Is.EqualTo(Vector3.zero), $"Friendly {i} got a move intent in free mode");
+                Assert.That(Moved(units[i], starts[i]), Is.LessThan(0.01f), $"Friendly {i} moved in free mode");
+            }
+            Release(keyboard.wKey);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator RapidTabbing_EndsInAConsistentState_WithoutErrors()
+        {
+            yield return null;
+            active.SetTakeover(true);
+            yield return null;
+            Press(keyboard.wKey);
+            yield return null;
+
+            for (var i = 0; i < 50; i++)
+            {
+                var reverse = i % 3 == 0;
+                if (reverse)
+                {
+                    Press(keyboard.leftShiftKey);
+                    yield return null;
+                }
+                yield return Tap(keyboard.tabKey);
+                if (reverse)
+                {
+                    Release(keyboard.leftShiftKey);
+                    yield return null;
+                }
+            }
+
+            // 33 steps forward and 17 back: net +16 over three friendlies, one step forward from the first.
+            Assert.That(active.Unit, Is.SameAs(companion));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { SelectableOf(companion) }));
+            Assert.That(primaryUnit.MoveIntent, Is.EqualTo(Vector3.zero), "A character switched away from kept its intent");
+            Assert.That(third.MoveIntent, Is.EqualTo(Vector3.zero), "A character switched away from kept its intent");
+            Release(keyboard.wKey);
+            yield return null;
+            Assert.That(companion.MoveIntent, Is.EqualTo(Vector3.zero));
+            // Any error or exception logged meanwhile fails the test.
+        }
+
+        [UnityTest]
+        public IEnumerator ActiveUnitDestroyed_WhileDriving_ThenTab_MovesOnWithoutErrors()
+        {
+            yield return null;
+            active.SetTakeover(true);
+            yield return null;
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.1f);
+
+            Object.Destroy(primaryUnit.gameObject);
+            yield return new WaitForSecondsRealtime(0.1f);
+            Release(keyboard.wKey);
+            yield return null;
+            yield return Tap(keyboard.tabKey);
+
+            Assert.That(active.Unit, Is.SameAs(companion));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { SelectableOf(companion) }));
+            // Any error or exception logged meanwhile fails the test.
         }
     }
 }
