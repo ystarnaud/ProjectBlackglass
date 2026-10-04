@@ -32,6 +32,8 @@ namespace Blackglass.Tests
             var destination = new Vector3(4f, 0f, 4f);
 
             Assert.That(GroupOrders.Issue(units, new MoveCommand(destination), IssueMode.Replace), Is.EqualTo(3));
+            for (var i = 0; i < units.Length; i++)
+                Assert.That(((MoveCommand)units[i].CurrentCommand).Destination, Is.EqualTo(destination + GroupMoveOffsets.Compute(3, GroupOrders.DefaultSpacing)[i]), $"unit {i}");
             Assert.That(outsider.CurrentCommand, Is.Null);
 
             yield return TestWorld.WaitUntil(() => units.All(u => u.CurrentCommand == null), 15f);
