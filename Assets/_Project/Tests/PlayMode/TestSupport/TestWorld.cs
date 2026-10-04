@@ -78,6 +78,7 @@ namespace Blackglass.Tests
             host.AddComponent<UnitAttacker>().Initialize(2f, damage, cooldown);
             host.AddComponent<Health>().Initialize(maxHealth);
             var unit = host.AddComponent<CommandableUnit>();
+            host.AddComponent<AutoRetaliate>();
             host.SetActive(true);
             return unit;
         }
