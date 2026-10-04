@@ -53,7 +53,8 @@ Future `StopCommand` and `InteractCommand` will be added as new subclasses. AI, 
 ### 4.2 Unit — `Units/`
 
 - **`CommandableUnit`** is the only entry point for gameplay commands.
-  - `void Issue(UnitCommand command)`: throws `ArgumentNullException` for null, `ArgumentException` for unknown types. Replaces the current order.
+  - `bool Issue(UnitCommand command)`: throws `ArgumentNullException` for null, `ArgumentException` for unknown types. If accepted, it replaces the current order. If the command can't be carried out (unreachable destination, dead target), it returns false and **the current order continues**.
+  - Orders only advance while simulation time advances (`Time.deltaTime > 0`). Commands are accepted while paused.
   - `UnitCommand CurrentCommand { get; }`: null when idle.
   - **Move order:** calls `mover.MoveTo(destination)` once. The order completes when `mover.HasArrived`.
   - **Attack order**, evaluated each `Update`:
@@ -63,8 +64,8 @@ Future `StopCommand` and `InteractCommand` will be added as new subclasses. AI, 
   - All per-frame logic runs in `Update` on scaled time, so it naturally halts while paused.
 - **`UnitMover`** (requires `NavMeshAgent`):
   - `MoveTo(Vector3)` snaps the point onto the NavMesh with `NavMesh.SamplePosition`, within 2 m. If no NavMesh point is found, the order is ignored and a warning is logged.
-  - `Stop()` clears the path.
-  - `bool HasArrived` is true when there's no pending path and the remaining distance is at most the stopping distance + 0.05.
+  - `Stop()` clears the path and zeroes velocity, so the unit stops on the spot.
+  - `bool HasArrived` is true when the path isn't pending and either the horizontal distance to the destination is at most the stopping distance + 0.1, or the agent has no path left.
   - Agent settings: speed 5, angular speed 720, acceleration 20, stopping distance 0.1.
 - **`UnitAttacker`**:
   - `float Range = 2`, `int Damage = 25`, `float Cooldown = 1` (seconds of scaled `Time.time`).
@@ -90,7 +91,7 @@ Future `StopCommand` and `InteractCommand` will be added as new subclasses. AI, 
 ### 4.5 Input — `Controls/`
 
 - **`ClickDragDetector`** (pure C#):
-  - `Press(Vector2)`, `Track(Vector2)`, `Release() → bool wasClick`, `bool IsDragging`, threshold in pixels (default 6).
+  - `Press(Vector2)`, `Track(Vector2)`, `Release(Vector2) → bool wasClick` (the release position counts too), `bool IsPressed`, `bool IsDragging`, threshold in pixels (default 6).
   - Pointer movement since the press, measured as the furthest distance seen, decides click or drag.
 - **`CommandResolver`** (pure, static): `UnitCommand Resolve(Health clicked, Vector3 point)`. Returns an `AttackCommand` if `clicked` is non-null and alive, otherwise a `MoveCommand(point)`.
 - **`PlayerCommandInput`** holds serialized references to the `Camera`, the `CommandableUnit`, `TacticalPause`, and the `InputActionReference`s `Command`, `PointerPosition` and `TogglePause`.
@@ -128,7 +129,7 @@ It references `TacticalPause` and the dummy's `Health`.
 | Camera | Pan | Value Vector2 | WASD composite |
 | Camera | Rotate | Value Axis | Q (−) / E (+) |
 | Camera | RotateDrag | Button | `<Mouse>/rightButton` |
-| Camera | PointerDelta | Value Vector2 | `<Pointer>/delta` |
+| Camera | PointerPosition | Value Vector2 | `<Pointer>/position` (drag rotation uses the change in position) |
 | Camera | Zoom | Value Axis | `<Mouse>/scroll/y` |
 | Commands | Command | Button | `<Mouse>/rightButton` |
 | Commands | PointerPosition | Value Vector2 | `<Pointer>/position` |
