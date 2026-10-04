@@ -73,7 +73,7 @@ Short record of decisions that are likely to matter later. Newest last.
 - **Right button** is camera-only: right-drag rotates (horizontal) and tilts (vertical, 25°–85°). `ClickDragDetector` holds the click-versus-drag rule for both buttons.
 - **Why:** The owner chose left-click commands (2026-10-04), then chose to keep them when selection arrived: one button for "act on what I click", the other for the camera. This is also the convention of party-based tactical-pause games.
 - **Consequences:** Clicking the ground is Move, so it can't clear the selection; Esc does. Clicking a friendly always selects it, so a move can't be ordered onto a spot where a friendly stands.
-- **Implications:** Input components only create commands, change the selection or call `TacticalPause`. They never touch movement or combat. Rebinding means editing the actions asset. The keys 1–9 are still free; they may be wanted for both weapon choice and control groups later.
+- **Implications:** Input components only create commands, change the selection, call `TacticalPause`, set the primary character's move intent through `CommandableUnit.SetMoveIntent`, or toggle `PrimaryCharacter` takeover. They never touch `UnitMover`, `UnitAttacker`, the NavMeshAgent or `Health`. Rebinding means editing the actions asset. The keys 1–9 are still free; they may be wanted for both weapon choice and control groups later.
 
 ## 009 — Code assemblies and tests
 
@@ -84,7 +84,7 @@ Short record of decisions that are likely to matter later. Newest last.
 
 ## 010 — Unit selection
 
-- **Decided:** `UnitSelection` (a component on `Systems`, wired through the Inspector) holds the selected units and the **roster** of units the player controls. `SelectableUnit` marks a unit the player may select and carries its `IsSelected` state; `SelectionIndicator` shows a ring. Selection holds state only: `PlayerCommandInput` decides what to select, and orders go to the selected units through `GroupOrders`. Disabled or destroyed units drop out of the selection.
+- **Decided:** `UnitSelection` (a component on `Systems`, wired through the Inspector) holds the selected units and the **roster** of units the player controls. `SelectableUnit` marks a unit the player may select and carries its `IsSelected` state; `SelectionIndicator` shows a ring. Selection holds state only: `PlayerCommandInput` decides what to select, and while paused, orders go to the selected units through `GroupOrders` (in real time, ground and enemy clicks order the primary character; see 011). Disabled or destroyed units drop out of the selection.
 - **Why:** The roster gives box selection its candidate list without `Find*` lookups, singletons or a static registry. Keeping selection separate from commands lets AI and scripts order units without any selection.
 - **Rejected:** Finding units with `FindObjectsByType` at drag time (global lookup, against 007/009 wiring rules). A static registry of selectable units (global mutable state). Storing selection on the input component (the HUD and later systems need to read it).
 - **Implications:** Units spawned at runtime call `UnitSelection.AddToRoster`. Enemies and AI units are `CommandableUnit`s without `SelectableUnit`. Control groups, if wanted, would be saved lists of roster units.
@@ -92,8 +92,9 @@ Short record of decisions that are likely to matter later. Newest last.
 ## 011 — Primary character and takeover mode
 
 - **Decided (Phase 3, 2026-10-04):** One friendly unit is the **primary character** (`FriendlyUnit_1` in `Prototype.unity`). `PrimaryCharacter` (on `Systems`) holds which unit it is and whether **takeover mode** is on. Like `UnitSelection`, it holds state only.
-  - **Free mode** (default): WASD pans the camera. Real-time ground and enemy clicks order the primary character; Shift queues.
+  - **Free mode** (default): WASD pans the camera.
   - **Takeover mode** (V toggles): WASD drives the primary character (camera-relative, through `DirectControlInput` → `CommandableUnit.SetMoveIntent`), and the camera follows it on unscaled time. V works while paused and takes effect on resume.
+  - **Real-time clicks** (both modes): ground and enemy clicks order the primary character; Shift queues.
   - **Tactical pause:** the camera is free (WASD pans) and clicks order the selection, which may include the primary character (unchanged from Phase 2).
 - **Precedence (primary character only):**
   1. Orders run through the queue as in Phase 2.
