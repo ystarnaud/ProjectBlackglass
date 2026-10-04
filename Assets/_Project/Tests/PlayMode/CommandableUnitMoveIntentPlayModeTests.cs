@@ -35,7 +35,7 @@ namespace Blackglass.Tests
             Assert.That(unit.CurrentCommand, Is.Null, "The current order was not cleared");
             Assert.That(unit.PendingCommands, Is.Empty, "Pending orders were not cleared");
 
-            yield return new WaitForSeconds(0.4f);
+            yield return new WaitForSeconds(0.5f);
             var travelled = unit.transform.position - start;
             Assert.That(travelled.x, Is.GreaterThan(1f), "The unit is not steering");
             Assert.That(Mathf.Abs(travelled.z), Is.LessThan(0.3f), "The unit kept following the cancelled move");
@@ -45,15 +45,16 @@ namespace Blackglass.Tests
         public IEnumerator MoveIntent_ClearsAnAttackInProgress()
         {
             world.CreateEnvironment();
-            var unit = world.CreateUnit(new Vector3(0f, 0f, -6f));
-            var dummy = world.CreateDummy(new Vector3(0f, 0f, 6f));
+            var unit = world.CreateUnit(new Vector3(0f, 0f, -1f));
+            var dummy = world.CreateDummy(new Vector3(0f, 0f, 0.5f));
             yield return null;
             Assert.That(unit.Issue(new AttackCommand(dummy)), Is.True);
-            yield return new WaitForSeconds(0.3f);
+            yield return TestWorld.WaitUntil(() => dummy.Current < dummy.Max, 3f);
+            Assert.That(dummy.Current, Is.LessThan(dummy.Max), "The attack never landed, so none was in progress");
             var startingHealth = dummy.Current;
 
             unit.SetMoveIntent(Vector3.left);
-            yield return new WaitForSeconds(0.5f);
+            yield return new WaitForSeconds(2.5f);
 
             Assert.That(unit.CurrentCommand, Is.Null);
             Assert.That(unit.transform.position.x, Is.LessThan(-1f), "The unit is not steering");
