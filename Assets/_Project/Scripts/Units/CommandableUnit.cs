@@ -24,7 +24,8 @@ namespace Blackglass
 
         /// <summary>
         /// Gives the unit a new order. Returns false if the order cannot be carried out
-        /// (unreachable destination, dead target); the current order then continues.
+        /// (no walkable point within 2 m of the destination, dead or inactive target); the current order then continues.
+        /// Re-issuing an attack on the current target keeps the unit moving instead of restarting its chase.
         /// </summary>
         public bool Issue(UnitCommand command)
         {
@@ -41,8 +42,13 @@ namespace Blackglass
                     return true;
 
                 case AttackCommand attack:
-                    if (!attack.Target.IsAlive)
+                    if (attack.Target == null || !IsAttackable(attack.Target))
                         return false;
+                    if (CurrentCommand is AttackCommand current && current.Target == attack.Target)
+                    {
+                        CurrentCommand = attack;
+                        return true;
+                    }
                     Mover.Stop();
                     chasing = false;
                     CurrentCommand = attack;
@@ -73,7 +79,7 @@ namespace Blackglass
 
         void UpdateAttack(Health target)
         {
-            if (target == null || !target.IsAlive)
+            if (target == null || !IsAttackable(target))
             {
                 FinishAttack();
                 return;
@@ -105,6 +111,9 @@ namespace Blackglass
             if (!target.IsAlive)
                 FinishAttack();
         }
+
+        // A target that is dead, or deactivated while still alive, can no longer be attacked.
+        static bool IsAttackable(Health target) => target.IsAlive && target.gameObject.activeInHierarchy;
 
         void FinishAttack()
         {

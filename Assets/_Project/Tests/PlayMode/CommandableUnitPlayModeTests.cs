@@ -112,6 +112,66 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Attack_ReissuedOnSameTargetMidChase_KeepsClosingDistance()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(0f, 0f, -10f));
+            var dummy = world.CreateDummy(new Vector3(0f, 0f, 10f));
+            yield return null;
+            unit.Issue(new AttackCommand(dummy));
+            yield return new WaitForSeconds(0.5f);
+            var before = TestWorld.HorizontalDistance(unit.transform.position, dummy.transform.position);
+
+            var deadline = Time.time + 0.5f;
+            while (Time.time < deadline)
+            {
+                Assert.That(unit.Issue(new AttackCommand(dummy)), Is.True);
+                yield return null;
+            }
+
+            var after = TestWorld.HorizontalDistance(unit.transform.position, dummy.transform.position);
+            Assert.That(after, Is.LessThan(before - 2f), "Unit stuttered while the same attack was re-issued");
+            Assert.That(unit.CurrentCommand, Is.TypeOf<AttackCommand>());
+        }
+
+        [UnityTest]
+        public IEnumerator Issue_AttackOnDeactivatedTarget_IsRejectedAndPreviousOrderKept()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(0f, 0f, -10f));
+            var dummy = world.CreateDummy(new Vector3(0f, 0f, 10f));
+            yield return null;
+            var first = new MoveCommand(new Vector3(5f, 0f, -5f));
+            unit.Issue(first);
+            dummy.gameObject.SetActive(false);
+
+            Assert.That(unit.Issue(new AttackCommand(dummy)), Is.False);
+
+            Assert.That(unit.CurrentCommand, Is.SameAs(first));
+        }
+
+        [UnityTest]
+        public IEnumerator Attack_TargetDeactivatedWhileAlive_UnitStopsAndClearsOrder()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(0f, 0f, -10f));
+            var dummy = world.CreateDummy(new Vector3(0f, 0f, 10f));
+            yield return null;
+            unit.Issue(new AttackCommand(dummy));
+            yield return new WaitForSeconds(0.3f);
+
+            dummy.gameObject.SetActive(false);
+            yield return null;
+            yield return null;
+
+            Assert.That(dummy.IsAlive, Is.True);
+            Assert.That(unit.CurrentCommand, Is.Null);
+            var stoppedAt = unit.transform.position;
+            yield return new WaitForSeconds(0.5f);
+            Assert.That(TestWorld.HorizontalDistance(unit.transform.position, stoppedAt), Is.LessThan(0.5f));
+        }
+
+        [UnityTest]
         public IEnumerator Paused_MoveIsAcceptedButWaitsUntilResume()
         {
             world.CreateEnvironment();
