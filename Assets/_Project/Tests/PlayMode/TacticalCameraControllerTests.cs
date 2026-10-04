@@ -288,6 +288,107 @@ namespace Blackglass.Tests
 
             Assert.That(DistanceToRig(unit), Is.LessThan(0.2f), "The camera did not return to the primary character");
         }
+
+        // --- Focusing a newly active character.
+
+        [UnityTest]
+        public IEnumerator SwitchingWhilePaused_GlidesToTheNewCharacter()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(8f, 0f, 6f));
+            pause.Pause();
+            activeCharacter.Initialize(unit, pause);
+            yield return new WaitForSecondsRealtime(1f);
+
+            Assert.That(DistanceToRig(unit), Is.LessThan(0.1f), "The camera did not focus the new active character");
+        }
+
+        [UnityTest]
+        public IEnumerator PanInput_CancelsTheGlide()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(8f, 0f, 6f));
+            pause.Pause();
+            activeCharacter.Initialize(unit, pause);
+            yield return null;   // the glide starts
+            Press(keyboard.sKey);
+            yield return new WaitForSecondsRealtime(0.2f);
+            Release(keyboard.sKey);
+            yield return null;
+            var afterPan = controller.transform.position;
+
+            yield return new WaitForSecondsRealtime(0.6f);
+            Assert.That(TestWorld.HorizontalDistance(controller.transform.position, afterPan), Is.LessThan(0.01f),
+                "The glide carried on after the player panned");
+            Assert.That(DistanceToRig(unit), Is.GreaterThan(1f));
+        }
+
+        [UnityTest]
+        public IEnumerator EnablingTheCamera_DoesNotGlideToTheCurrentCharacter()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(8f, 0f, 6f));
+            controller.gameObject.SetActive(false);
+            activeCharacter.Initialize(unit, pause);
+            controller.gameObject.SetActive(true);
+            var start = controller.transform.position;
+
+            yield return new WaitForSecondsRealtime(0.5f);
+            Assert.That(TestWorld.HorizontalDistance(controller.transform.position, start), Is.LessThan(0.01f),
+                "The camera moved to the character that was already active when it started");
+        }
+
+        [UnityTest]
+        public IEnumerator SwitchWhileDriving_FollowsTheNewCharacter()
+        {
+            CreateDrivenUnit();
+            var second = world.CreateUnit(new Vector3(-8f, 0f, -6f));
+            yield return new WaitForSecondsRealtime(0.6f);
+
+            activeCharacter.SetUnit(second);
+            yield return new WaitForSecondsRealtime(0.8f);
+            Assert.That(DistanceToRig(second), Is.LessThan(0.2f), "The camera did not follow the new active character");
+        }
+
+        [UnityTest]
+        public IEnumerator RightDragDuringAGlide_StillRotates()
+        {
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(8f, 0f, 6f));
+            pause.Pause();
+            Set(mouse.position, new Vector2(100f, 100f));
+            yield return null;
+            var startYaw = controller.Yaw;
+
+            activeCharacter.Initialize(unit, pause);
+            Press(mouse.rightButton);
+            yield return null;
+            Set(mouse.position, new Vector2(110f, 100f));   // crosses the 6 px threshold, no rotation yet
+            yield return null;
+            Set(mouse.position, new Vector2(210f, 100f));   // +100 px of drag
+            yield return null;
+            Release(mouse.rightButton);
+            yield return new WaitForSecondsRealtime(1f);
+
+            Assert.That(Mathf.DeltaAngle(startYaw, controller.Yaw), Is.EqualTo(25f).Within(0.5f), "Right-drag did not rotate during the glide");
+            Assert.That(DistanceToRig(unit), Is.LessThan(0.1f), "Rotating stopped the glide");
+        }
+
+        [UnityTest]
+        public IEnumerator GlideToAUnitOutsideTheBounds_StopsAtTheEdge()
+        {
+            var settings = new UnityEditor.SerializedObject(controller);
+            settings.FindProperty("boundsHalfSize").floatValue = 5f;
+            settings.ApplyModifiedPropertiesWithoutUndo();
+            world.CreateEnvironment();
+            var unit = world.CreateUnit(new Vector3(8f, 0f, 6f));
+            activeCharacter.Initialize(unit, pause);
+
+            yield return new WaitForSecondsRealtime(1f);
+            var position = controller.transform.position;
+            Assert.That(position.x, Is.EqualTo(5f).Within(0.05f));
+            Assert.That(position.z, Is.EqualTo(5f).Within(0.05f));
+        }
     }
 }
 #endif

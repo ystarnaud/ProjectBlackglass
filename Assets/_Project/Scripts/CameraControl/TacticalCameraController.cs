@@ -7,10 +7,14 @@ namespace Blackglass
     /// <summary>
     /// Simple strategy camera orbiting a pivot on the ground. Runs entirely on unscaled time so it keeps working during
     /// tactical pause. Lives on the pivot; the camera is a child. While the active character is being driven
-    /// (takeover, not paused) the pivot follows it and pan input is ignored; otherwise WASD pans freely.
+    /// (takeover, not paused) the pivot follows it and pan input is ignored; otherwise WASD pans freely. When the active
+    /// character changes, the pivot glides to the new one once; any pan input ends the glide.
     /// </summary>
     public sealed class TacticalCameraController : MonoBehaviour
     {
+        // A focus glide ends once the pivot is this close to its target.
+        const float FocusArrivalDistance = 0.05f;
+
         [SerializeField] Camera viewCamera;
         [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
 
@@ -37,12 +41,14 @@ namespace Blackglass
         [SerializeField, Range(10f, 89f)] float minPitch = 25f;
         [SerializeField, Range(10f, 89f)] float maxPitch = 85f;
         [SerializeField, Min(0f)] float boundsHalfSize = 25f;
-        // How quickly the pivot catches up with the active character while following (higher is tighter).
+        // How quickly the pivot catches up with the active character while following or focusing (higher is tighter).
         [SerializeField, Min(0f)] float followSharpness = 10f;
 
         ClickDragDetector dragDetector;
         Vector2 lastPointerPosition;
         int pendingZoomSteps;
+        CommandableUnit lastSeenUnit;
+        bool isFocusing;
 
         public float Distance => distance;
         public float Yaw => transform.eulerAngles.y;
@@ -59,7 +65,11 @@ namespace Blackglass
             pointerPositionAction = pointerPosition;
             zoomAction = zoom;
             activeCharacter = active;
+            lastSeenUnit = CurrentUnit;
         }
+
+        // The active character's unit, or null when there is none that can act.
+        CommandableUnit CurrentUnit => activeCharacter != null && activeCharacter.HasUnit ? activeCharacter.Unit : null;
 
         void Awake() => dragDetector = new ClickDragDetector(dragThresholdPixels);
 
@@ -73,6 +83,9 @@ namespace Blackglass
                 rotateDragAction.action.started += OnRotateDragStarted;
                 rotateDragAction.action.canceled += OnRotateDragEnded;
             }
+            // The character already active when the camera starts is not a switch: no glide.
+            lastSeenUnit = CurrentUnit;
+            isFocusing = false;
             ApplyCameraPose();
         }
 
@@ -114,27 +127,62 @@ namespace Blackglass
                 lastPointerPosition = pointer;
             }
 
+            var unit = CurrentUnit;
+            if (unit != lastSeenUnit)
+            {
+                lastSeenUnit = unit;
+                isFocusing = unit != null;
+            }
+
             var rotation = Quaternion.Euler(0f, yaw, 0f);
             Vector3 position;
             if (activeCharacter != null && activeCharacter.IsDriving)
             {
-                // Takeover: follow the active character and ignore pan. Always eased, so after a pause the camera
-                // glides back from wherever it was panned.
-                var target = activeCharacter.Unit.transform.position;
-                target.y = transform.position.y;
-                position = Vector3.Lerp(transform.position, target, 1f - Mathf.Exp(-followSharpness * deltaTime));
+                // Takeover: follow the active character and ignore pan. Always eased, so after a pause or a switch the
+                // camera glides over from wherever it was.
+                isFocusing = false;
+                position = EaseTowards(GroundTarget(activeCharacter.Unit), deltaTime);
             }
             else
             {
                 var pan = InputActionUtility.Read<Vector2>(panAction);
-                var speed = panSpeed * (distance / panReferenceDistance);
-                position = transform.position + rotation * new Vector3(pan.x, 0f, pan.y) * (speed * deltaTime);
+                if (pan != Vector2.zero)
+                    isFocusing = false;
+                if (isFocusing)
+                {
+                    var target = ClampToBounds(GroundTarget(unit));
+                    position = EaseTowards(target, deltaTime);
+                    if ((position - target).sqrMagnitude < FocusArrivalDistance * FocusArrivalDistance)
+                        isFocusing = false;
+                }
+                else
+                {
+                    var speed = panSpeed * (distance / panReferenceDistance);
+                    position = transform.position + rotation * new Vector3(pan.x, 0f, pan.y) * (speed * deltaTime);
+                }
             }
-            position.x = Mathf.Clamp(position.x, -boundsHalfSize, boundsHalfSize);
-            position.z = Mathf.Clamp(position.z, -boundsHalfSize, boundsHalfSize);
+            position = ClampToBounds(position);
 
             transform.SetPositionAndRotation(position, rotation);
             ApplyCameraPose();
+        }
+
+        // A unit's position at the pivot's height.
+        Vector3 GroundTarget(Component unit)
+        {
+            var target = unit.transform.position;
+            target.y = transform.position.y;
+            return target;
+        }
+
+        Vector3 EaseTowards(Vector3 target, float deltaTime) =>
+            Vector3.Lerp(transform.position, target, 1f - Mathf.Exp(-followSharpness * deltaTime));
+
+        Vector3 ClampToBounds(Vector3 position)
+        {
+            position.x = Mathf.Clamp(position.x, -boundsHalfSize, boundsHalfSize);
+            position.z = Mathf.Clamp(position.z, -boundsHalfSize, boundsHalfSize);
+            return position;
         }
 
         void OnZoom(InputAction.CallbackContext context)
