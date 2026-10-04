@@ -4,12 +4,14 @@ using UnityEngine.InputSystem;
 namespace Blackglass
 {
     /// <summary>
-    /// Simple strategy camera orbiting a pivot on the ground. Runs entirely on unscaled time
-    /// so it keeps working during tactical pause. Lives on the pivot; the camera is a child.
+    /// Simple strategy camera orbiting a pivot on the ground. Runs entirely on unscaled time so it keeps working during
+    /// tactical pause. Lives on the pivot; the camera is a child. While the primary character is being driven
+    /// (takeover, not paused) the pivot follows it and pan input is ignored; otherwise WASD pans freely.
     /// </summary>
     public sealed class TacticalCameraController : MonoBehaviour
     {
         [SerializeField] Camera viewCamera;
+        [SerializeField] PrimaryCharacter primary;
 
         [Header("Input")]
         [SerializeField] InputActionReference panAction;
@@ -34,6 +36,8 @@ namespace Blackglass
         [SerializeField, Range(10f, 89f)] float minPitch = 25f;
         [SerializeField, Range(10f, 89f)] float maxPitch = 85f;
         [SerializeField, Min(0f)] float boundsHalfSize = 25f;
+        // How quickly the pivot catches up with the primary character while following (higher is tighter).
+        [SerializeField, Min(0f)] float followSharpness = 10f;
 
         ClickDragDetector dragDetector;
         Vector2 lastPointerPosition;
@@ -44,7 +48,8 @@ namespace Blackglass
         public float Pitch => pitch;
 
         internal void Initialize(Camera camera, InputActionReference pan, InputActionReference rotate,
-            InputActionReference rotateDrag, InputActionReference pointerPosition, InputActionReference zoom)
+            InputActionReference rotateDrag, InputActionReference pointerPosition, InputActionReference zoom,
+            PrimaryCharacter primaryCharacter = null)
         {
             viewCamera = camera;
             panAction = pan;
@@ -52,6 +57,7 @@ namespace Blackglass
             rotateDragAction = rotateDrag;
             pointerPositionAction = pointerPosition;
             zoomAction = zoom;
+            primary = primaryCharacter;
         }
 
         void Awake() => dragDetector = new ClickDragDetector(dragThresholdPixels);
@@ -108,9 +114,21 @@ namespace Blackglass
             }
 
             var rotation = Quaternion.Euler(0f, yaw, 0f);
-            var pan = InputActionUtility.Read<Vector2>(panAction);
-            var speed = panSpeed * (distance / panReferenceDistance);
-            var position = transform.position + rotation * new Vector3(pan.x, 0f, pan.y) * (speed * deltaTime);
+            Vector3 position;
+            if (primary != null && primary.IsDriving)
+            {
+                // Takeover: follow the primary character and ignore pan. Always eased, so after a pause the camera
+                // glides back from wherever it was panned.
+                var target = primary.Unit.transform.position;
+                target.y = transform.position.y;
+                position = Vector3.Lerp(transform.position, target, 1f - Mathf.Exp(-followSharpness * deltaTime));
+            }
+            else
+            {
+                var pan = InputActionUtility.Read<Vector2>(panAction);
+                var speed = panSpeed * (distance / panReferenceDistance);
+                position = transform.position + rotation * new Vector3(pan.x, 0f, pan.y) * (speed * deltaTime);
+            }
             position.x = Mathf.Clamp(position.x, -boundsHalfSize, boundsHalfSize);
             position.z = Mathf.Clamp(position.z, -boundsHalfSize, boundsHalfSize);
 

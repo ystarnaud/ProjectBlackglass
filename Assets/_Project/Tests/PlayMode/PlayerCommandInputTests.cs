@@ -24,6 +24,7 @@ namespace Blackglass.Tests
         TacticalPause pause;
         UnitSelection selection;
         PlayerCommandInput input;
+        PrimaryCharacter primaryCharacter;
 
         public override void Setup()
         {
@@ -47,6 +48,9 @@ namespace Blackglass.Tests
             pause = systems.AddComponent<TacticalPause>();
             selection = systems.AddComponent<UnitSelection>();
             selection.Initialize(unitA, unitB, unitC);
+            // No unit yet: Phase 2 behaviour (orders go to the selection) until a test picks a primary character.
+            primaryCharacter = systems.AddComponent<PrimaryCharacter>();
+            primaryCharacter.Initialize(null, pause);
             var actions = TestControls.Load();
             input = systems.AddComponent<PlayerCommandInput>();
             input.Initialize(viewCamera, selection, pause,
@@ -55,7 +59,8 @@ namespace Blackglass.Tests
                 TestControls.Ref(actions, "Commands/TogglePause"),
                 TestControls.Ref(actions, "Commands/Modifier"),
                 TestControls.Ref(actions, "Commands/Stop"),
-                TestControls.Ref(actions, "Commands/ClearSelection"));
+                TestControls.Ref(actions, "Commands/ClearSelection"),
+                primaryCharacter);
             systems.SetActive(true);
         }
 
@@ -350,6 +355,133 @@ namespace Blackglass.Tests
             pause.Resume();
             yield return TestWorld.WaitUntil(() => TestWorld.HorizontalDistance(unitA.transform.position, start) > 1f, 5f);
             Assert.That(TestWorld.HorizontalDistance(unitA.transform.position, start), Is.GreaterThan(1f));
+        }
+
+        // --- With a primary character (Phase 3). These tests give the fixture's PrimaryCharacter a unit.
+
+        void MakePrimary(SelectableUnit unit) => primaryCharacter.Initialize(unit.Unit, pause);
+
+        [UnityTest]
+        public IEnumerator RealTimeClickGround_WithAPrimary_OrdersOnlyThePrimary()
+        {
+            yield return null;
+            MakePrimary(unitA);
+            yield return LeftClickAt(ScreenPointOf(unitB));
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
+            var destination = ((MoveCommand)unitA.Unit.CurrentCommand).Destination;
+            Assert.That(TestWorld.HorizontalDistance(destination, GroundPoint), Is.LessThan(0.1f));
+            Assert.That(unitB.Unit.CurrentCommand, Is.Null, "The selection must not be ordered in real time");
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitB }), "Ordering the primary must not change the selection");
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeClickDummy_WithAPrimary_ThePrimaryAttacks()
+        {
+            yield return null;
+            MakePrimary(unitA);
+            yield return LeftClickAt(ScreenPointOf(unitB));
+            yield return LeftClickAt(ScreenPointOf(dummy));
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<AttackCommand>());
+            Assert.That(((AttackCommand)unitA.Unit.CurrentCommand).Target, Is.SameAs(dummy));
+            Assert.That(unitB.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeShiftClick_WithAPrimary_QueuesForThePrimary()
+        {
+            yield return null;
+            MakePrimary(unitA);
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+            yield return ShiftLeftClickAt(ScreenPointOf(OtherGroundPoint));
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
+            Assert.That(unitA.Unit.PendingCommands, Has.Count.EqualTo(1));
+            var queued = (MoveCommand)unitA.Unit.PendingCommands[0];
+            Assert.That(TestWorld.HorizontalDistance(queued.Destination, OtherGroundPoint), Is.LessThan(0.1f));
+        }
+
+        [UnityTest]
+        public IEnumerator PausedClickGround_WithAPrimary_OrdersTheSelection()
+        {
+            yield return null;
+            MakePrimary(unitA);
+            pause.Pause();
+            yield return LeftClickAt(ScreenPointOf(unitB));
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+
+            Assert.That(unitB.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null, "Paused clicks must order the selection, not the primary");
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeClickFriendly_WithAPrimary_SelectsItAndOrdersNobody()
+        {
+            yield return null;
+            MakePrimary(unitA);
+            yield return LeftClickAt(ScreenPointOf(unitB));
+
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitB }));
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null);
+            Assert.That(unitB.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeClickOnThePrimary_SelectsIt()
+        {
+            yield return null;
+            MakePrimary(unitA);
+            yield return LeftClickAt(ScreenPointOf(unitA));
+
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitA }));
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null, "Clicking the primary character must not order it onto itself");
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeBoxDrag_WithAPrimary_StillSelects()
+        {
+            yield return null;
+            MakePrimary(unitA);
+            var (from, to) = BoxAround(unitA, unitB);
+            yield return LeftDrag(from, to);
+
+            Assert.That(selection.Selected, Is.EquivalentTo(new[] { unitA, unitB }));
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null);
+            Assert.That(unitB.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeX_WithAPrimary_StopsTheSelectionNotThePrimary()
+        {
+            yield return null;
+            MakePrimary(unitA);
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));          // the primary character walks
+            pause.Pause();
+            yield return LeftClickAt(ScreenPointOf(unitC));
+            yield return LeftClickAt(ScreenPointOf(OtherGroundPoint));     // the selected companion walks
+            pause.Resume();
+            yield return null;
+            Assert.That(unitC.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "Precondition: the companion has an order");
+
+            yield return Tap(keyboard.xKey);
+
+            Assert.That(unitC.Unit.CurrentCommand, Is.Null, "X did not stop the selected companion");
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "X stopped the unselected primary character");
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeClick_WithThePrimaryUnitDisabled_OrdersTheSelection()
+        {
+            yield return null;
+            MakePrimary(unitA);
+            unitA.Unit.enabled = false;
+            yield return LeftClickAt(ScreenPointOf(unitB));
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+
+            Assert.That(unitB.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "Without an active primary, clicks must order the selection");
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null);
         }
     }
 }

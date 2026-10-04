@@ -46,6 +46,22 @@
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e16", "path": "<Keyboard>/x", "interactions": "", "processors": "", "groups": "", "action": "Stop", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e17", "path": "<Keyboard>/escape", "interactions": "", "processors": "", "groups": "", "action": "ClearSelection", "isComposite": false, "isPartOfComposite": false }
             ]
+        },
+        {
+            "name": "Character",
+            "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f01",
+            "actions": [
+                { "name": "Move", "type": "Value", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f02", "expectedControlType": "Vector2", "processors": "", "interactions": "", "initialStateCheck": true },
+                { "name": "Takeover", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f03", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+            ],
+            "bindings": [
+                { "name": "WASD", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f11", "path": "2DVector", "interactions": "", "processors": "", "groups": "", "action": "Move", "isComposite": true, "isPartOfComposite": false },
+                { "name": "up", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f12", "path": "<Keyboard>/w", "interactions": "", "processors": "", "groups": "", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "down", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f13", "path": "<Keyboard>/s", "interactions": "", "processors": "", "groups": "", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "left", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f14", "path": "<Keyboard>/a", "interactions": "", "processors": "", "groups": "", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "right", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f15", "path": "<Keyboard>/d", "interactions": "", "processors": "", "groups": "", "action": "Move", "isComposite": false, "isPartOfComposite": true },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f16", "path": "<Keyboard>/v", "interactions": "", "processors": "", "groups": "", "action": "Takeover", "isComposite": false, "isPartOfComposite": false }
+            ]
         }
     ],
     "controlSchemes": []

@@ -47,6 +47,7 @@ Short record of decisions that are likely to matter later. Newest last.
   - When the current order finishes, the next pending one starts in the same frame. A pending order that can no longer start (its target already died) is skipped.
   - Tactical pause needs no special handling: orders issued while paused are queued normally and run once simulation time moves.
 - **Groups:** `GroupOrders.Issue(units, command, mode)` gives one order to several units. Moves are spread over a hexagonal lattice 1.5 m apart (`GroupMoveOffsets`); a slot off the NavMesh falls back to the clicked point.
+- **Direct control (Phase 3, 2026-10-04):** `CommandableUnit` also takes a held **move intent** (`SetMoveIntent(direction)`), which is not a command. While it is non-zero and simulation time runs, the unit clears all of its orders (current and pending, as Stop does) and steers with `UnitMover.Steer`. Orders and direct control share `UnitMover` and `UnitAttacker`; nothing else drives them. An order issued while the intent is held is accepted, then dropped on the next simulation frame (keys win while held).
 - **Why:** Player input, groups, AI and scripts all produce the same objects without knowing movement or combat rules. Commands stay testable and loggable. Keeping the queue inside `CommandableUnit` keeps one entry point for orders.
 - **Rejected:** Classic `Execute(unit)` / `Begin/Tick/Cancel` commands, which would put long-running chase/attack logic into command classes. Direct methods on the unit (`MoveTo`, `Attack`), which leave no command value to queue or send from AI. A separate queue component feeding `Issue`, which would mean two entry points coordinating by polling.
 - **Implications:** Interact will be a new `UnitCommand` subclass with cases in `CommandableUnit`. Weapon choice (a later phase) would be data on `AttackCommand`. There is no change event; debug views read `CurrentCommand`/`PendingCommands` each frame.
@@ -56,20 +57,23 @@ Short record of decisions that are likely to matter later. Newest last.
 - **Decided:** `TacticalPause` is the only code that writes `Time.timeScale` (0 when paused, the previous value on resume). Simulation code (unit orders, NavMesh movement, attack cooldowns, hit flash) uses scaled time and stops. Camera, input and debug UI use unscaled time or input callbacks and keep working. Unit orders don't advance while simulation time is frozen, but commands are accepted while paused.
 - **Why:** A single owner keeps pause behaviour predictable and lets it evolve, for example into slow motion or per-system clocks, without hunting down scattered `timeScale` calls.
 - **Implications:** Any new system must choose scaled or unscaled time deliberately. Systems reference `TacticalPause` through the Inspector; it's not a singleton.
+- **Pause frame (Phase 3, 2026-10-04):** `Time.deltaTime` still holds the previous frame's value on the frame `Pause()` is called, so a scaled-time check alone lets one more frame of simulation through. `UnitMover.Steer` therefore also returns while `Time.timeScale <= 0` (it only reads the time scale). `CommandableUnit.Update`'s order processing still checks only `deltaTime`, so orders can advance one frame on the pause frame; a shared "is simulation running" check is the fix if that ever matters.
 
 ## 008 — Input mapping and click vs drag
 
-- **Decided:** Project-wide actions live in `Assets/_Project/Input/BlackglassControls.inputactions`, with two maps:
+- **Decided:** Project-wide actions live in `Assets/_Project/Input/BlackglassControls.inputactions`, with three maps:
   - **Camera:** Pan (WASD), Rotate (Q/E), RotateDrag (right button), PointerPosition, Zoom (wheel).
   - **Commands:** Command (left button), PointerPosition, TogglePause (Space), Modifier (Shift), Stop (X), ClearSelection (Esc).
+  - **Character** (Phase 3, 2026-10-04): Move (WASD), Takeover (V).
+- **WASD is shared** by `Camera/Pan` and `Character/Move`. The mode decides which one acts: while the primary character is being driven (takeover on, not paused) the camera ignores Pan, and otherwise `DirectControlInput` ignores Move.
 - **Left button** (Phase 2, 2026-10-04): a quick click (≤ 6 px of movement) acts on what is under the cursor:
   - a friendly unit (`SelectableUnit`) is selected; with Shift it is added or removed;
-  - anything else orders the selected units: Attack on a living `Health`, otherwise Move. Shift queues the order instead of replacing.
+  - anything else is an order: Attack on a living `Health`, otherwise Move. Shift queues it instead of replacing. **In real time the order goes to the primary character; while paused (or with no active primary character) it goes to the selected units** (Phase 3, 2026-10-04).
   - A left-drag box-selects the roster units inside the box (Shift adds; an empty box clears).
 - **Right button** is camera-only: right-drag rotates (horizontal) and tilts (vertical, 25°–85°). `ClickDragDetector` holds the click-versus-drag rule for both buttons.
 - **Why:** The owner chose left-click commands (2026-10-04), then chose to keep them when selection arrived: one button for "act on what I click", the other for the camera. This is also the convention of party-based tactical-pause games.
 - **Consequences:** Clicking the ground is Move, so it can't clear the selection; Esc does. Clicking a friendly always selects it, so a move can't be ordered onto a spot where a friendly stands.
-- **Implications:** Input components only create commands, change the selection or call `TacticalPause`. They never touch movement or combat. Rebinding means editing the actions asset. The keys 1–9 are still free; they may be wanted for both weapon choice and control groups later.
+- **Implications:** Input components only create commands, change the selection, call `TacticalPause`, set the primary character's move intent through `CommandableUnit.SetMoveIntent`, or toggle `PrimaryCharacter` takeover. They never touch `UnitMover`, `UnitAttacker`, the NavMeshAgent or `Health`. Rebinding means editing the actions asset. The keys 1–9 are still free; they may be wanted for both weapon choice and control groups later.
 
 ## 009 — Code assemblies and tests
 
@@ -80,7 +84,31 @@ Short record of decisions that are likely to matter later. Newest last.
 
 ## 010 — Unit selection
 
-- **Decided:** `UnitSelection` (a component on `Systems`, wired through the Inspector) holds the selected units and the **roster** of units the player controls. `SelectableUnit` marks a unit the player may select and carries its `IsSelected` state; `SelectionIndicator` shows a ring. Selection holds state only: `PlayerCommandInput` decides what to select, and orders go to the selected units through `GroupOrders`. Disabled or destroyed units drop out of the selection.
+- **Decided:** `UnitSelection` (a component on `Systems`, wired through the Inspector) holds the selected units and the **roster** of units the player controls. `SelectableUnit` marks a unit the player may select and carries its `IsSelected` state; `SelectionIndicator` shows a ring. Selection holds state only: `PlayerCommandInput` decides what to select, and while paused, orders go to the selected units through `GroupOrders` (in real time, ground and enemy clicks order the primary character; see 011). Disabled or destroyed units drop out of the selection.
 - **Why:** The roster gives box selection its candidate list without `Find*` lookups, singletons or a static registry. Keeping selection separate from commands lets AI and scripts order units without any selection.
 - **Rejected:** Finding units with `FindObjectsByType` at drag time (global lookup, against 007/009 wiring rules). A static registry of selectable units (global mutable state). Storing selection on the input component (the HUD and later systems need to read it).
 - **Implications:** Units spawned at runtime call `UnitSelection.AddToRoster`. Enemies and AI units are `CommandableUnit`s without `SelectableUnit`. Control groups, if wanted, would be saved lists of roster units.
+
+## 011 — Primary character and takeover mode
+
+- **Decided (Phase 3, 2026-10-04):** One friendly unit is the **primary character** (`FriendlyUnit_1` in `Prototype.unity`). `PrimaryCharacter` (on `Systems`) holds which unit it is and whether **takeover mode** is on. Like `UnitSelection`, it holds state only.
+  - **Free mode** (default): WASD pans the camera.
+  - **Takeover mode** (V toggles): WASD drives the primary character (camera-relative, through `DirectControlInput` → `CommandableUnit.SetMoveIntent`), and the camera follows it on unscaled time. V works while paused and takes effect on resume.
+  - **Real-time clicks** (both modes): ground and enemy clicks order the primary character; Shift queues.
+  - **Tactical pause:** the camera is free (WASD pans) and clicks order the selection, which may include the primary character (unchanged from Phase 2).
+- **Precedence (primary character only):**
+  1. Orders run through the queue as in Phase 2.
+  2. Any WASD input while driving clears all of its orders, moves and attacks alike.
+  3. Keys win while held.
+  4. Releasing them leaves the character idle.
+  5. Companions are never affected.
+  6. After resume, or after takeover is turned on, keys already held are ignored until Move reads zero (the release gate), so a key held from panning cannot wipe a plan.
+- **Why:** One owner (`CommandableUnit`) decides who moves a unit, so direct control and queued orders cannot fight over the NavMeshAgent. The two modes keep WASD for the camera during planning without a separate RTS mode.
+- **Rejected:**
+  - A separate `ManualControl` component that also drives the mover: two writers to the agent, and precedence split across files.
+  - Repeatedly issuing short `MoveCommand`s while keys are held: pathfinding lag, and a command stream the brief ruled out.
+  - Cancelling only the current order on takeover: the next queued move would start and fight the keys.
+- **Implications:**
+  - AI or scripts can use the same move intent later.
+  - Switching the primary character at runtime, and what happens when it dies, are not designed yet; friendly units have no `Health`.
+  - If "keys win while held" feels wrong in play, the alternative is that a click suspends the keys until they are released.

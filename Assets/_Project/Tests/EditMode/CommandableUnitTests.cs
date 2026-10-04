@@ -196,5 +196,29 @@ namespace Blackglass.Tests
             Assert.That(unit.Issue(new StopCommand()), Is.True);
             Assert.That(unit.CurrentCommand, Is.Null);
         }
+
+        [Test]
+        public void StartsWithNoMoveIntent()
+        {
+            Assert.That(unit.MoveIntent, Is.EqualTo(Vector3.zero));
+        }
+
+        [Test]
+        public void SetMoveIntent_FlattensAndClampsToLengthOne()
+        {
+            unit.SetMoveIntent(new Vector3(3f, 5f, 4f));
+            Assert.That(unit.MoveIntent.x, Is.EqualTo(0.6f).Within(1e-5f));
+            Assert.That(unit.MoveIntent.y, Is.EqualTo(0f));
+            Assert.That(unit.MoveIntent.z, Is.EqualTo(0.8f).Within(1e-5f));
+        }
+
+        [Test]
+        public void SetMoveIntent_KeepsShortDirections_AndZeroClearsIt()
+        {
+            unit.SetMoveIntent(new Vector3(0.3f, 0f, 0.4f));
+            Assert.That(unit.MoveIntent.magnitude, Is.EqualTo(0.5f).Within(1e-5f));
+            unit.SetMoveIntent(Vector3.zero);
+            Assert.That(unit.MoveIntent, Is.EqualTo(Vector3.zero));
+        }
     }
 }

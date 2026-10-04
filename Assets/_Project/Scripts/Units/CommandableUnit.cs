@@ -5,8 +5,10 @@ using UnityEngine;
 namespace Blackglass
 {
     /// <summary>
-    /// The single entry point for gameplay orders. Keeps the unit's orders in a CommandQueue (the current order
-    /// plus pending ones) and carries out the current order each simulation frame using UnitMover and UnitAttacker.
+    /// The single entry point for gameplay orders and direct control. Keeps the unit's orders in a CommandQueue (the
+    /// current order plus pending ones) and carries out the current order each simulation frame using UnitMover and
+    /// UnitAttacker. A held move intent (direct control) takes precedence: while it is non-zero the unit drops its
+    /// orders and steers instead.
     /// </summary>
     [RequireComponent(typeof(UnitMover), typeof(UnitAttacker))]
     public sealed class CommandableUnit : MonoBehaviour
@@ -18,12 +20,16 @@ namespace Blackglass
         UnitAttacker attacker;
         bool chasing;
         Vector3 lastChaseTarget;
+        Vector3 moveIntent;
 
         /// <summary>The order being carried out, or null when idle.</summary>
         public UnitCommand CurrentCommand => queue.Current;
 
         /// <summary>Orders waiting behind the current one, in the order they will run.</summary>
         public IReadOnlyList<UnitCommand> PendingCommands => queue.Pending;
+
+        /// <summary>The direction direct control is steering the unit in, or zero. See SetMoveIntent.</summary>
+        public Vector3 MoveIntent => moveIntent;
 
         UnitMover Mover => mover != null ? mover : mover = GetComponent<UnitMover>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
@@ -75,11 +81,31 @@ namespace Blackglass
             return true;
         }
 
+        /// <summary>
+        /// Sets the direction direct control steers the unit in: flattened, length clamped to 1, zero for none. Held
+        /// until set again. While it is non-zero and simulation time runs, the unit drops all of its orders (as Stop
+        /// does) and steers instead, so manual control always wins over queued orders. Orders issued meanwhile are
+        /// accepted and then dropped on the next simulation frame.
+        /// </summary>
+        public void SetMoveIntent(Vector3 direction)
+        {
+            direction.y = 0f;
+            moveIntent = Vector3.ClampMagnitude(direction, 1f);
+        }
+
         void Update()
         {
-            // Orders only advance while simulation time advances (tactical pause sets timeScale to 0).
+            // Orders and steering only advance while simulation time advances (tactical pause sets timeScale to 0).
             if (Time.deltaTime <= 0f)
                 return;
+
+            if (moveIntent != Vector3.zero)
+            {
+                if (queue.Current != null)
+                    StopAll();
+                Mover.Steer(moveIntent);
+                return;
+            }
 
             switch (queue.Current)
             {

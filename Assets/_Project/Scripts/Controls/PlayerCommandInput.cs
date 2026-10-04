@@ -6,8 +6,9 @@ namespace Blackglass
 {
     /// <summary>
     /// Translates the player's input into requests. Left button: a click on a friendly unit selects it, a click
-    /// anywhere else orders the selected units (attack the clicked target, or move to the clicked point), and a drag
-    /// box-selects. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
+    /// anywhere else gives an order (attack the clicked target, or move to the clicked point), and a drag box-selects.
+    /// In real time the order goes to the primary character; while paused (or without a primary character) it goes to
+    /// the selected units. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
     /// selection, Space toggles tactical pause. Contains no movement or combat rules.
     /// </summary>
     public sealed class PlayerCommandInput : MonoBehaviour
@@ -15,6 +16,7 @@ namespace Blackglass
         [SerializeField] Camera viewCamera;
         [SerializeField] UnitSelection selection;
         [SerializeField] TacticalPause tacticalPause;
+        [SerializeField] PrimaryCharacter primary;
 
         [Header("Input")]
         [SerializeField] InputActionReference commandAction;
@@ -31,7 +33,7 @@ namespace Blackglass
         [SerializeField] LayerMask clickableLayers = ~0;
         [SerializeField, Min(0.5f)] float groupSpacing = GroupOrders.DefaultSpacing;
 
-        readonly List<CommandableUnit> selectedUnits = new List<CommandableUnit>();
+        readonly List<CommandableUnit> orderedUnits = new List<CommandableUnit>();
         readonly List<SelectableUnit> boxedUnits = new List<SelectableUnit>();
         ClickDragDetector clickDetector;
         Vector2 pressPosition;
@@ -44,7 +46,8 @@ namespace Blackglass
 
         internal void Initialize(Camera camera, UnitSelection unitSelection, TacticalPause pause,
             InputActionReference command, InputActionReference pointerPosition, InputActionReference togglePause,
-            InputActionReference modifier, InputActionReference stop, InputActionReference clearSelection)
+            InputActionReference modifier, InputActionReference stop, InputActionReference clearSelection,
+            PrimaryCharacter primaryCharacter = null)
         {
             viewCamera = camera;
             selection = unitSelection;
@@ -55,6 +58,7 @@ namespace Blackglass
             modifierAction = modifier;
             stopAction = stop;
             clearSelectionAction = clearSelection;
+            primary = primaryCharacter;
         }
 
         void Awake() => clickDetector = new ClickDragDetector(dragThresholdPixels);
@@ -157,7 +161,7 @@ namespace Blackglass
             }
 
             var command = CommandResolver.Resolve(hit.collider.GetComponentInParent<Health>(), hit.point);
-            GroupOrders.Issue(SelectedUnits(), command, ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
+            GroupOrders.Issue(OrderedUnits(), command, ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
         }
 
         void SelectInBox(Rect box)
@@ -177,15 +181,27 @@ namespace Blackglass
                 selection.SetSelection(boxedUnits);
         }
 
+        // Who a ground or enemy click orders: the primary character in real time; the selection while paused or
+        // when there is no active primary character.
+        List<CommandableUnit> OrderedUnits()
+        {
+            var paused = tacticalPause != null && tacticalPause.IsPaused;
+            if (paused || primary == null || !primary.HasUnit)
+                return SelectedUnits();
+            orderedUnits.Clear();
+            orderedUnits.Add(primary.Unit);
+            return orderedUnits;
+        }
+
         List<CommandableUnit> SelectedUnits()
         {
-            selectedUnits.Clear();
+            orderedUnits.Clear();
             if (selection != null)
             {
                 foreach (var selectable in selection.Selected)
-                    selectedUnits.Add(selectable.Unit);
+                    orderedUnits.Add(selectable.Unit);
             }
-            return selectedUnits;
+            return orderedUnits;
         }
     }
 }
