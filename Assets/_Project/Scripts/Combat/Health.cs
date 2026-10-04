@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Blackglass
 {
-    /// <summary>Hit points for anything that can be attacked. Dies once, at zero.</summary>
+    /// <summary>Hit points for anything that can be attacked. Dies once, at zero, and by default deactivates then.</summary>
     public sealed class Health : MonoBehaviour
     {
         [SerializeField, Min(1)] int max = 100;
@@ -18,10 +18,26 @@ namespace Blackglass
 
         /// <summary>Raised with the damage amount whenever a living target takes damage.</summary>
         public event Action<int> Damaged;
+        /// <summary>
+        /// Raised with the attacker, after Damaged, whenever a living target takes damage from a known attacker.
+        /// Also raised for the killing blow (before Died); IsAlive is already false by then, so handlers that must not
+        /// act on a corpse check it.
+        /// </summary>
+        public event Action<Health> AttackedBy;
         /// <summary>Raised exactly once, when hit points reach zero.</summary>
         public event Action Died;
 
-        public void TakeDamage(int amount)
+        internal void Initialize(int maximum)
+        {
+            if (maximum < 1)
+                throw new ArgumentOutOfRangeException(nameof(maximum), maximum, "Maximum health must be at least 1.");
+            max = maximum;
+            damageTaken = 0;
+            hasDied = false;
+        }
+
+        /// <summary>Applies damage. The attacker, when given, is reported through AttackedBy so the target can respond.</summary>
+        public void TakeDamage(int amount, Health attacker = null)
         {
             if (amount < 0)
                 throw new ArgumentOutOfRangeException(nameof(amount), amount, "Damage cannot be negative.");
@@ -29,11 +45,18 @@ namespace Blackglass
                 return;
 
             damageTaken = (int)Math.Min((long)max, (long)damageTaken + amount);
-            Damaged?.Invoke(amount);
+            // Death is decided before any handler runs, so IsAlive is already false inside Damaged and AttackedBy for
+            // the killing blow. A handler that re-enters TakeDamage then returns at the hasDied guard above.
+            var dies = damageTaken >= max;
+            if (dies)
+                hasDied = true;
 
-            if (hasDied || Current > 0)
+            Damaged?.Invoke(amount);
+            if (attacker != null)
+                AttackedBy?.Invoke(attacker);
+
+            if (!dies)
                 return;
-            hasDied = true;
             Died?.Invoke();
             if (disableOnDeath)
                 gameObject.SetActive(false);
