@@ -32,7 +32,33 @@ Short record of decisions that are likely to matter later. Newest last.
 
 ## 005 — Package baseline
 
-- **Decided:** Keep the URP template's packages that serve the prototype: URP, Input System, Test Framework, uGUI, and the Rider/Visual Studio integrations. Remove the template extras: Timeline, Visual Scripting, Unity Version Control (`collab-proxy`), Multiplayer Center, AI Navigation. Built-in engine modules stay at Unity's defaults. Versions match what Unity 6.3 recommends.
+- **Decided:** Keep the URP template's packages that serve the prototype: URP, Input System, Test Framework, uGUI, and the Rider/Visual Studio integrations. Remove the template extras: Timeline, Visual Scripting, Unity Version Control (`collab-proxy`), Multiplayer Center. Built-in engine modules stay at Unity's defaults. Versions match what Unity 6.3 recommends.
 - **Why:** `CLAUDE.md` asks for no unnecessary packages. Each removed package can be added back with one line in `Packages/manifest.json`. Pruning built-in modules would save little and cause confusing missing-type errors later.
-- **Implications:** The unit-movement task should decide explicitly whether to use NavMesh. If it does, re-add `com.unity.ai.navigation`.
+- **Implications:** `com.unity.ai.navigation` 2.0.14 was re-added on 2026-10-04 for prototype unit movement (NavMeshAgent + a baked NavMeshSurface). `Packages/manifest.json` also lists `com.unity.inputsystem` under `testables`, which is test-only and exposes `InputTestFixture`. Test runs must therefore filter to our assemblies (`Tools/run-tests.sh` does this).
 - **Input:** The project uses the Input System package only. The legacy Input Manager is disabled (Player Settings → Active Input Handling). `Assets/InputSystem_Actions.inputactions` is Unity's generic template action map, registered as the project-wide actions asset. It should be replaced by our own tactical action map when input work starts.
+
+## 006 — Unit commands are data; units execute them
+
+- **Decided:** Gameplay orders are small immutable objects (`MoveCommand`, `AttackCommand`, base `UnitCommand`) passed to `CommandableUnit.Issue`. The unit and its components (`UnitMover`, `UnitAttacker`) decide how to carry them out. A new command replaces the current one. `Issue` returns false and keeps the current order when a command can't be carried out.
+- **Why:** Player input, a future command queue, RTS selection and AI can all produce the same objects without knowing movement or combat rules. Commands stay testable and loggable.
+- **Rejected:** Classic `Execute(unit)` commands, which would put long-running chase/attack logic into command classes. Direct methods on the unit (`MoveTo`, `Attack`), which leave no command value to queue or send from AI.
+- **Implications:** Stop and Interact will be new `UnitCommand` subclasses with a case in `CommandableUnit.Issue`. A queue would store `UnitCommand`s and feed them to `Issue`.
+
+## 007 — Tactical pause owns time scale
+
+- **Decided:** `TacticalPause` is the only code that writes `Time.timeScale` (0 when paused, the previous value on resume). Simulation code (unit orders, NavMesh movement, attack cooldowns, hit flash) uses scaled time and stops. Camera, input and debug UI use unscaled time or input callbacks and keep working. Unit orders don't advance while simulation time is frozen, but commands are accepted while paused.
+- **Why:** A single owner keeps pause behaviour predictable and lets it evolve, for example into slow motion or per-system clocks, without hunting down scattered `timeScale` calls.
+- **Implications:** Any new system must choose scaled or unscaled time deliberately. Systems reference `TacticalPause` through the Inspector; it's not a singleton.
+
+## 008 — Input mapping and click vs drag
+
+- **Decided:** Project-wide actions live in `Assets/_Project/Input/BlackglassControls.inputactions`, with two maps: **Camera** (Pan WASD, Rotate Q/E, RotateDrag right button, PointerPosition, Zoom wheel) and **Commands** (Command right button, PointerPosition, TogglePause Space). A quick right-click (≤ 6 px of movement) issues the context command on release: Attack on a living `Health`, otherwise Move. A right-drag rotates the camera instead. `ClickDragDetector` holds that rule. Left-click is unused, reserved for selection.
+- **Why:** RTS convention, and one shared rule keeps the camera and command input consistent without coupling them.
+- **Implications:** Input components only create commands or call `TacticalPause`. They never touch movement or combat. Rebinding means editing the actions asset.
+
+## 009 — Code assemblies and tests
+
+- **Decided:** Runtime code lives in the `Blackglass` assembly (`Assets/_Project/Scripts`). Tests are in `Blackglass.Tests.EditMode` (pure logic) and `Blackglass.Tests.PlayMode` (runtime behaviour, plus simulated input via `InputTestFixture`). Components expose `internal Initialize(...)` for test wiring. Scenes wire them through serialized fields. Tests run in batch mode via `Tools/run-tests.sh`, with the Unity Editor closed.
+- **Why:** Separate assemblies keep compile times short and dependencies explicit. Automated tests cover the control loop so later changes can't silently break it.
+- **Implications:** New gameplay code gets EditMode tests for pure rules and PlayMode tests for runtime behaviour.
+- **Gotcha:** PlayMode tests that load a scene containing input components must derive from `InputTestFixture`, load the scene inside the test (not in `[UnitySetUp]`), and destroy the scene's objects before `base.TearDown()`. Otherwise their input-action state leaks into later fixtures (see `PrototypeSceneTests`).
