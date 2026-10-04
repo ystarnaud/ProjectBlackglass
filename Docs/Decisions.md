@@ -22,7 +22,7 @@ Short record of decisions that are likely to matter later. Newest last.
 - **Decided:** The Unity project sits at the repository root. All of our own assets go under `Assets/_Project/`. Folders are created only when something goes in them.
 - **Why:** The root layout is the Unity convention and matches the standard Unity `.gitignore`. One project folder keeps our content separate from Unity-generated and third-party folders (`Settings/`, `Plugins/`, imported packages). Empty folders cause churn: Git doesn't track them, and Unity deletes their orphaned `.meta` files.
 - **Rejected:** A `UnityProject/` subfolder (only useful if the repo will hold non-Unity code). A large pre-made folder tree (speculative).
-- **Implications:** New top-level categories (for example `Scripts/`, `Prefabs/`, `Materials/`) are added under `Assets/_Project/` when the first real asset needs them.
+- **Implications:** New top-level categories (for example `Scripts/`, `Prefabs/`, `Materials/`) are added under `Assets/_Project/` when the first real asset needs them. `Prefabs/` was added on 2026-10-04 for the first prefab (`FriendlyUnit`).
 
 ## 004 — Line endings
 
@@ -39,10 +39,17 @@ Short record of decisions that are likely to matter later. Newest last.
 
 ## 006 — Unit commands are data; units execute them
 
-- **Decided:** Gameplay orders are small immutable objects (`MoveCommand`, `AttackCommand`, base `UnitCommand`) passed to `CommandableUnit.Issue`. The unit and its components (`UnitMover`, `UnitAttacker`) decide how to carry them out. A new command replaces the current one. `Issue` returns false and keeps the current order when a command can't be carried out: there is no walkable point within 2 m of a move destination, or an attack target is dead or inactive.
-- **Why:** Player input, a future command queue, RTS selection and AI can all produce the same objects without knowing movement or combat rules. Commands stay testable and loggable.
-- **Rejected:** Classic `Execute(unit)` commands, which would put long-running chase/attack logic into command classes. Direct methods on the unit (`MoveTo`, `Attack`), which leave no command value to queue or send from AI.
-- **Implications:** Stop and Interact will be new `UnitCommand` subclasses with a case in `CommandableUnit.Issue`. A queue would store `UnitCommand`s and feed them to `Issue`.
+- **Decided:** Gameplay orders are small immutable objects (`MoveCommand`, `AttackCommand`, `StopCommand`, base `UnitCommand`) passed to `CommandableUnit.Issue(command, mode)`. The unit and its components (`UnitMover`, `UnitAttacker`) decide how to carry them out.
+- **Queue (Phase 2, 2026-10-04):** each unit keeps a `CommandQueue`: the current order plus pending ones.
+  - `IssueMode.Replace` (the default) drops all orders and starts the new one now. `IssueMode.Append` runs it after the pending ones, or now if the unit is idle.
+  - `StopCommand` halts the unit and clears every order, whatever the mode.
+  - `Issue` checks first and returns false without changing anything when an order can't be carried out: no walkable point within 2 m of a move destination, or a dead or inactive attack target.
+  - When the current order finishes, the next pending one starts in the same frame. A pending order that can no longer start (its target already died) is skipped.
+  - Tactical pause needs no special handling: orders issued while paused are queued normally and run once simulation time moves.
+- **Groups:** `GroupOrders.Issue(units, command, mode)` gives one order to several units. Moves are spread over a hexagonal lattice 1.5 m apart (`GroupMoveOffsets`); a slot off the NavMesh falls back to the clicked point.
+- **Why:** Player input, groups, AI and scripts all produce the same objects without knowing movement or combat rules. Commands stay testable and loggable. Keeping the queue inside `CommandableUnit` keeps one entry point for orders.
+- **Rejected:** Classic `Execute(unit)` / `Begin/Tick/Cancel` commands, which would put long-running chase/attack logic into command classes. Direct methods on the unit (`MoveTo`, `Attack`), which leave no command value to queue or send from AI. A separate queue component feeding `Issue`, which would mean two entry points coordinating by polling.
+- **Implications:** Interact will be a new `UnitCommand` subclass with cases in `CommandableUnit`. Weapon choice (a later phase) would be data on `AttackCommand`. There is no change event; debug views read `CurrentCommand`/`PendingCommands` each frame.
 
 ## 007 — Tactical pause owns time scale
 
@@ -52,9 +59,17 @@ Short record of decisions that are likely to matter later. Newest last.
 
 ## 008 — Input mapping and click vs drag
 
-- **Decided:** Project-wide actions live in `Assets/_Project/Input/BlackglassControls.inputactions`, with two maps: **Camera** (Pan WASD, Rotate Q/E, RotateDrag right button, PointerPosition, Zoom wheel) and **Commands** (Command left button, PointerPosition, TogglePause Space). A quick left-click (≤ 6 px of movement) issues the context command on release: Attack on a living `Health`, otherwise Move. A left-drag issues nothing, which leaves it free for box selection later. The right button is camera-only: right-drag rotates (horizontal) and tilts (vertical, 25°–85°). `ClickDragDetector` holds the click-versus-drag rule for both buttons.
-- **Why:** The owner chose left-click commands (2026-10-04). It changed from the first prototype's right-click commands. Giving each button one job removes the shared-button click-versus-drag coupling between camera and commands.
-- **Implications:** Input components only create commands or call `TacticalPause`. They never touch movement or combat. Rebinding means editing the actions asset. A future selection system must share the left button with commands, for example click on a friendly unit = select, or box-drag = select.
+- **Decided:** Project-wide actions live in `Assets/_Project/Input/BlackglassControls.inputactions`, with two maps:
+  - **Camera:** Pan (WASD), Rotate (Q/E), RotateDrag (right button), PointerPosition, Zoom (wheel).
+  - **Commands:** Command (left button), PointerPosition, TogglePause (Space), Modifier (Shift), Stop (X), ClearSelection (Esc).
+- **Left button** (Phase 2, 2026-10-04): a quick click (≤ 6 px of movement) acts on what is under the cursor:
+  - a friendly unit (`SelectableUnit`) is selected; with Shift it is added or removed;
+  - anything else orders the selected units: Attack on a living `Health`, otherwise Move. Shift queues the order instead of replacing.
+  - A left-drag box-selects the roster units inside the box (Shift adds; an empty box clears).
+- **Right button** is camera-only: right-drag rotates (horizontal) and tilts (vertical, 25°–85°). `ClickDragDetector` holds the click-versus-drag rule for both buttons.
+- **Why:** The owner chose left-click commands (2026-10-04), then chose to keep them when selection arrived: one button for "act on what I click", the other for the camera. This is also the convention of party-based tactical-pause games.
+- **Consequences:** Clicking the ground is Move, so it can't clear the selection; Esc does. Clicking a friendly always selects it, so a move can't be ordered onto a spot where a friendly stands.
+- **Implications:** Input components only create commands, change the selection or call `TacticalPause`. They never touch movement or combat. Rebinding means editing the actions asset. The keys 1–9 are still free; they may be wanted for both weapon choice and control groups later.
 
 ## 009 — Code assemblies and tests
 
@@ -62,3 +77,10 @@ Short record of decisions that are likely to matter later. Newest last.
 - **Why:** Separate assemblies keep compile times short and dependencies explicit. Automated tests cover the control loop so later changes can't silently break it.
 - **Implications:** New gameplay code gets EditMode tests for pure rules and PlayMode tests for runtime behaviour.
 - **Gotcha:** PlayMode tests that load a scene containing input components must derive from `InputTestFixture`, load the scene inside the test (not in `[UnitySetUp]`), and destroy the scene's objects before `base.TearDown()`. Otherwise their input-action state leaks into later fixtures (see `PrototypeSceneTests`).
+
+## 010 — Unit selection
+
+- **Decided:** `UnitSelection` (a component on `Systems`, wired through the Inspector) holds the selected units and the **roster** of units the player controls. `SelectableUnit` marks a unit the player may select and carries its `IsSelected` state; `SelectionIndicator` shows a ring. Selection holds state only: `PlayerCommandInput` decides what to select, and orders go to the selected units through `GroupOrders`. Disabled or destroyed units drop out of the selection.
+- **Why:** The roster gives box selection its candidate list without `Find*` lookups, singletons or a static registry. Keeping selection separate from commands lets AI and scripts order units without any selection.
+- **Rejected:** Finding units with `FindObjectsByType` at drag time (global lookup, against 007/009 wiring rules). A static registry of selectable units (global mutable state). Storing selection on the input component (the HUD and later systems need to read it).
+- **Implications:** Units spawned at runtime call `UnitSelection.AddToRoster`. Enemies and AI units are `CommandableUnit`s without `SelectableUnit`. Control groups, if wanted, would be saved lists of roster units.
