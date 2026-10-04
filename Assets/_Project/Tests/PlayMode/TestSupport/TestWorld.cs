@@ -55,6 +55,14 @@ namespace Blackglass.Tests
             return unit.AddComponent<CommandableUnit>();
         }
 
+        /// <summary>A unit the player can select (a CreateUnit unit plus SelectableUnit).</summary>
+        public SelectableUnit CreateFriendly(Vector3 groundPosition)
+        {
+            var unit = CreateUnit(groundPosition);
+            unit.name = "TestFriendly";
+            return unit.gameObject.AddComponent<SelectableUnit>();
+        }
+
         public Health CreateDummy(Vector3 groundPosition)
         {
             var dummy = Track(GameObject.CreatePrimitive(PrimitiveType.Cylinder));
