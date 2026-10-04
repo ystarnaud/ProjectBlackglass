@@ -23,7 +23,8 @@ namespace Blackglass
         [SerializeField, Min(1f)] float panReferenceDistance = 20f;
         [SerializeField, Min(0f)] float keyRotateSpeed = 90f;
         [SerializeField] float dragRotateDegreesPerPixel = 0.25f;
-        [SerializeField, Min(0f)] float dragThresholdPixels = 6f;
+        // Must equal the command input's threshold, so one right-button press never both rotates and commands.
+        [SerializeField, Min(0f)] float dragThresholdPixels = ClickDragDetector.DefaultThresholdPixels;
         [SerializeField, Min(0f)] float zoomStep = 2f;
         [SerializeField, Min(1f)] float minDistance = 5f;
         [SerializeField, Min(1f)] float maxDistance = 40f;

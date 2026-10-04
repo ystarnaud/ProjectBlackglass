@@ -34,7 +34,7 @@ namespace Blackglass
                     fontSize = 22,
                     fontStyle = FontStyle.Bold,
                 };
-                GUI.Label(new Rect(0f, 20f, Screen.width, 40f), "TACTICAL PAUSE - Space to resume", pausedStyle);
+                GUI.Label(new Rect(0f, 100f, Screen.width, 40f), "TACTICAL PAUSE - Space to resume", pausedStyle);
             }
         }
     }

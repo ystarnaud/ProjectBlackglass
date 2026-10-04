@@ -9,10 +9,13 @@ namespace Blackglass
     /// </summary>
     public sealed class ClickDragDetector
     {
+        /// <summary>Default click-versus-drag threshold. Every user of the detector should share it.</summary>
+        public const float DefaultThresholdPixels = 6f;
+
         readonly float thresholdPixels;
         Vector2 pressPosition;
 
-        public ClickDragDetector(float thresholdPixels = 6f)
+        public ClickDragDetector(float thresholdPixels = DefaultThresholdPixels)
         {
             if (thresholdPixels < 0f)
                 throw new ArgumentOutOfRangeException(nameof(thresholdPixels), thresholdPixels, "Threshold cannot be negative.");

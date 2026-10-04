@@ -20,7 +20,8 @@ namespace Blackglass
         [SerializeField] InputActionReference togglePauseAction;
 
         [Header("Tuning")]
-        [SerializeField, Min(0f)] float dragThresholdPixels = 6f;
+        // Must equal the camera controller's threshold, so one right-button press never both rotates and commands.
+        [SerializeField, Min(0f)] float dragThresholdPixels = ClickDragDetector.DefaultThresholdPixels;
         [SerializeField, Min(1f)] float maxClickDistance = 500f;
         [SerializeField] LayerMask clickableLayers = ~0;
 
