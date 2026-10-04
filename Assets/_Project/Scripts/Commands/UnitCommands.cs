@@ -4,9 +4,9 @@ using UnityEngine;
 namespace Blackglass
 {
     /// <summary>
-    /// An order for a unit. Commands are plain data: whoever creates one (player input today;
-    /// AI, queues or selection later) hands it to CommandableUnit.Issue, and the unit decides
-    /// how to carry it out. Future commands (Stop, Interact) are new subclasses.
+    /// An order for a unit. Commands are plain data: whoever creates one (player input, groups, AI or scripts)
+    /// hands it to CommandableUnit.Issue, and the unit decides how to carry it out. Future commands (Interact)
+    /// are new subclasses.
     /// </summary>
     public abstract class UnitCommand { }
 
@@ -27,5 +27,17 @@ namespace Blackglass
         }
 
         public Health Target { get; }
+    }
+
+    /// <summary>Halts the unit and clears all of its orders. Never queued.</summary>
+    public sealed class StopCommand : UnitCommand { }
+
+    /// <summary>How a new order combines with the orders a unit already has.</summary>
+    public enum IssueMode
+    {
+        /// <summary>Drop the current and pending orders and start this one now.</summary>
+        Replace,
+        /// <summary>Run this order after the pending ones (immediately if the unit is idle).</summary>
+        Append,
     }
 }
