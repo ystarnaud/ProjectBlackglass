@@ -91,10 +91,12 @@ namespace Blackglass.Tests
 
             var retreat = new MoveCommand(new Vector3(0f, 0f, -12f));
             Assert.That(victim.Issue(retreat), Is.True);
+            var healthAtRetreat = victimHealth.Current;
             yield return new WaitForSeconds(0.6f);   // the aggressor chases and hits again (0.2 s cooldown)
 
             Assert.That(victim.CurrentCommand, Is.SameAs(retreat), "Later hits must not replace the retreat order");
             Assert.That(TestWorld.HorizontalDistance(victim.transform.position, start), Is.GreaterThan(1.5f), "The unit did not retreat");
+            Assert.That(victimHealth.Current, Is.LessThan(healthAtRetreat), "Precondition: the aggressor hit the retreating unit again");
         }
 
         [UnityTest]
@@ -102,11 +104,23 @@ namespace Blackglass.Tests
         {
             yield return null;
             victim.SetMoveIntent(Vector3.forward * 0.01f);   // held, barely moving, so it stays in range
+            // CommandableUnit drops any order on the next frame while keys are held, so a later null check alone
+            // cannot tell "never issued" from "issued then dropped". Handlers run in subscription order, so
+            // AutoRetaliate has already reacted when this one samples the unit inside the hit.
+            var hitSeen = false;
+            UnitCommand commandAtHit = null;
+            victimHealth.AttackedBy += _ =>
+            {
+                hitSeen = true;
+                commandAtHit = victim.CurrentCommand;
+            };
             aggressor.Issue(new AttackCommand(victimHealth));
             yield return WaitForFirstHit();
             yield return null;
 
             Assert.That(victimHealth.Current, Is.LessThan(victimHealth.Max), "Precondition: the victim was hit");
+            Assert.That(hitSeen, Is.True, "Precondition: the hit event reached the test handler");
+            Assert.That(commandAtHit, Is.Null, "Held keys win: no retaliation order may be issued at the hit");
             Assert.That(victim.CurrentCommand, Is.Null, "Held keys win: no retaliation order");
         }
 
