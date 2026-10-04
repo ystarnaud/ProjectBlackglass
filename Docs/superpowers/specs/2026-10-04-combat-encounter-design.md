@@ -1,6 +1,6 @@
 # Combat Encounter (Phase 4) — Design
 
-Date: 2026-10-04 · Branch: `prototype/combat-encounter` · Status: design approved by the owner in conversation 2026-10-04; written spec awaiting review
+Date: 2026-10-04 · Branch: `prototype/combat-encounter` · Status: implemented 2026-10-04 (see Docs/superpowers/plans/2026-10-04-combat-encounter.md)
 
 Builds on Phases 1–3 (`2026-10-04-prototype-control-loop-design.md`, `2026-10-04-tactical-squad-control-design.md`, `2026-10-04-primary-character-takeover-design.md`, `2026-10-04-active-character-switching-design.md`) and decisions 006–012 in `Docs/Decisions.md`. It does not redesign the control architecture.
 
