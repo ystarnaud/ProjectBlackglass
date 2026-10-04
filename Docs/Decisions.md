@@ -52,9 +52,9 @@ Short record of decisions that are likely to matter later. Newest last.
 
 ## 008 — Input mapping and click vs drag
 
-- **Decided:** Project-wide actions live in `Assets/_Project/Input/BlackglassControls.inputactions`, with two maps: **Camera** (Pan WASD, Rotate Q/E, RotateDrag right button, PointerPosition, Zoom wheel) and **Commands** (Command right button, PointerPosition, TogglePause Space). A quick right-click (≤ 6 px of movement) issues the context command on release: Attack on a living `Health`, otherwise Move. A right-drag rotates the camera instead. `ClickDragDetector` holds that rule. Left-click is unused, reserved for selection.
-- **Why:** RTS convention, and one shared rule keeps the camera and command input consistent without coupling them.
-- **Implications:** Input components only create commands or call `TacticalPause`. They never touch movement or combat. Rebinding means editing the actions asset.
+- **Decided:** Project-wide actions live in `Assets/_Project/Input/BlackglassControls.inputactions`, with two maps: **Camera** (Pan WASD, Rotate Q/E, RotateDrag right button, PointerPosition, Zoom wheel) and **Commands** (Command left button, PointerPosition, TogglePause Space). A quick left-click (≤ 6 px of movement) issues the context command on release: Attack on a living `Health`, otherwise Move. A left-drag issues nothing, which leaves it free for box selection later. The right button is camera-only: right-drag rotates (horizontal) and tilts (vertical, 25°–85°). `ClickDragDetector` holds the click-versus-drag rule for both buttons.
+- **Why:** The owner chose left-click commands (2026-10-04). It changed from the first prototype's right-click commands. Giving each button one job removes the shared-button click-versus-drag coupling between camera and commands.
+- **Implications:** Input components only create commands or call `TacticalPause`. They never touch movement or combat. Rebinding means editing the actions asset. A future selection system must share the left button with commands, for example click on a friendly unit = select, or box-drag = select.
 
 ## 009 — Code assemblies and tests
 

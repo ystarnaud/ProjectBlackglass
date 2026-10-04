@@ -4,7 +4,7 @@ using UnityEngine.InputSystem;
 namespace Blackglass
 {
     /// <summary>
-    /// Translates the player's input into requests: a quick right-click becomes a unit command
+    /// Translates the player's input into requests: a quick left-click becomes a unit command
     /// (attack the clicked target, or move to the clicked point) and Space toggles tactical pause.
     /// Contains no movement or combat rules; the unit decides how to carry out its orders.
     /// </summary>
@@ -20,7 +20,7 @@ namespace Blackglass
         [SerializeField] InputActionReference togglePauseAction;
 
         [Header("Tuning")]
-        // Must equal the camera controller's threshold, so one right-button press never both rotates and commands.
+        // A press that moves further than this is a drag (reserved for selection later), not a command.
         [SerializeField, Min(0f)] float dragThresholdPixels = ClickDragDetector.DefaultThresholdPixels;
         [SerializeField, Min(1f)] float maxClickDistance = 500f;
         [SerializeField] LayerMask clickableLayers = ~0;

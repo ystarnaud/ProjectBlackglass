@@ -131,6 +131,52 @@ namespace Blackglass.Tests
             yield return null;
 
             Assert.That(Mathf.DeltaAngle(startYaw, controller.Yaw), Is.EqualTo(25f).Within(0.5f));
+            Assert.That(controller.Pitch, Is.EqualTo(55f).Within(0.001f), "Horizontal drag must not tilt");
+        }
+
+        IEnumerator RightDragVertically(float fromY, float toY)
+        {
+            Set(mouse.position, new Vector2(100f, fromY));
+            yield return null;
+            Press(mouse.rightButton);
+            yield return null;
+            var direction = Mathf.Sign(toY - fromY);
+            Set(mouse.position, new Vector2(100f, fromY + 10f * direction));   // crosses the 6 px threshold, no tilt yet
+            yield return null;
+            Set(mouse.position, new Vector2(100f, toY));
+            yield return null;
+            Release(mouse.rightButton);
+            yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator RightDragUp_TiltsTowardHorizon_WhilePaused()
+        {
+            pause.Pause();
+            var startYaw = controller.Yaw;
+
+            yield return RightDragVertically(100f, 210f);   // +100 px of upward drag after the threshold
+
+            Assert.That(controller.Pitch, Is.EqualTo(30f).Within(0.5f));
+            Assert.That(controller.Yaw, Is.EqualTo(startYaw).Within(0.001f), "Vertical drag must not rotate");
+        }
+
+        [UnityTest]
+        public IEnumerator RightDragDown_TiltsTowardTopDown()
+        {
+            yield return RightDragVertically(300f, 190f);   // -100 px of downward drag after the threshold
+
+            Assert.That(controller.Pitch, Is.EqualTo(80f).Within(0.5f));
+        }
+
+        [UnityTest]
+        public IEnumerator Tilt_IsClampedToRange()
+        {
+            yield return RightDragVertically(100f, 1100f);
+            Assert.That(controller.Pitch, Is.EqualTo(25f).Within(0.001f));
+
+            yield return RightDragVertically(1100f, 100f);
+            Assert.That(controller.Pitch, Is.EqualTo(85f).Within(0.001f));
         }
 
         [UnityTest]

@@ -109,7 +109,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator RightClickOnDummy_InScene_IssuesAttack()
+        public IEnumerator LeftClickOnDummy_InScene_IssuesAttack()
         {
             var mouse = InputSystem.AddDevice<Mouse>();
             InputSystem.AddDevice<Keyboard>();
@@ -120,9 +120,9 @@ namespace Blackglass.Tests
 
             Set(mouse.position, (Vector2)Camera.main.WorldToScreenPoint(dummy.transform.position));
             yield return null;
-            Press(mouse.rightButton);
+            Press(mouse.leftButton);
             yield return null;
-            Release(mouse.rightButton);
+            Release(mouse.leftButton);
             yield return null;
 
             Assert.That(unit.CurrentCommand, Is.TypeOf<AttackCommand>());

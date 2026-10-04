@@ -35,7 +35,7 @@
                 { "name": "TogglePause", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e04", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
             ],
             "bindings": [
-                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e11", "path": "<Mouse>/rightButton", "interactions": "", "processors": "", "groups": "", "action": "Command", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e11", "path": "<Mouse>/leftButton", "interactions": "", "processors": "", "groups": "", "action": "Command", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e12", "path": "<Pointer>/position", "interactions": "", "processors": "", "groups": "", "action": "PointerPosition", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e13", "path": "<Keyboard>/space", "interactions": "", "processors": "", "groups": "", "action": "TogglePause", "isComposite": false, "isPartOfComposite": false }
             ]

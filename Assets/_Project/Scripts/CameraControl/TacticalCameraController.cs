@@ -23,13 +23,16 @@ namespace Blackglass
         [SerializeField, Min(1f)] float panReferenceDistance = 20f;
         [SerializeField, Min(0f)] float keyRotateSpeed = 90f;
         [SerializeField] float dragRotateDegreesPerPixel = 0.25f;
-        // Must equal the command input's threshold, so one right-button press never both rotates and commands.
+        [SerializeField] float dragTiltDegreesPerPixel = 0.25f;
+        // Small accidental movements during a right-click don't move the camera.
         [SerializeField, Min(0f)] float dragThresholdPixels = ClickDragDetector.DefaultThresholdPixels;
         [SerializeField, Min(0f)] float zoomStep = 2f;
         [SerializeField, Min(1f)] float minDistance = 5f;
         [SerializeField, Min(1f)] float maxDistance = 40f;
         [SerializeField, Min(1f)] float distance = 20f;
         [SerializeField, Range(10f, 89f)] float pitch = 55f;
+        [SerializeField, Range(10f, 89f)] float minPitch = 25f;
+        [SerializeField, Range(10f, 89f)] float maxPitch = 85f;
         [SerializeField, Min(0f)] float boundsHalfSize = 25f;
 
         ClickDragDetector dragDetector;
@@ -38,6 +41,7 @@ namespace Blackglass
 
         public float Distance => distance;
         public float Yaw => transform.eulerAngles.y;
+        public float Pitch => pitch;
 
         internal void Initialize(Camera camera, InputActionReference pan, InputActionReference rotate,
             InputActionReference rotateDrag, InputActionReference pointerPosition, InputActionReference zoom)
@@ -94,7 +98,12 @@ namespace Blackglass
                 var wasDragging = dragDetector.IsDragging;
                 dragDetector.Track(pointer);
                 if (wasDragging)
-                    yaw += (pointer.x - lastPointerPosition.x) * dragRotateDegreesPerPixel;
+                {
+                    var delta = pointer - lastPointerPosition;
+                    yaw += delta.x * dragRotateDegreesPerPixel;
+                    // Dragging up tilts toward the horizon; dragging down looks more straight down.
+                    pitch = Mathf.Clamp(pitch - delta.y * dragTiltDegreesPerPixel, minPitch, maxPitch);
+                }
                 lastPointerPosition = pointer;
             }
 

@@ -50,34 +50,34 @@ namespace Blackglass.Tests
             base.TearDown();
         }
 
-        IEnumerator RightClickAt(Vector2 screenPoint)
+        IEnumerator LeftClickAt(Vector2 screenPoint)
         {
             Set(mouse.position, screenPoint);
             yield return null;
-            Press(mouse.rightButton);
+            Press(mouse.leftButton);
             yield return null;
-            Release(mouse.rightButton);
+            Release(mouse.leftButton);
             yield return null;
         }
 
         Vector2 ScreenPointOf(Vector3 world) => viewCamera.WorldToScreenPoint(world);
 
         [UnityTest]
-        public IEnumerator RightClickOnDummy_IssuesAttackOnIt()
+        public IEnumerator LeftClickOnDummy_IssuesAttackOnIt()
         {
             yield return null;
-            yield return RightClickAt(ScreenPointOf(dummy.transform.position));
+            yield return LeftClickAt(ScreenPointOf(dummy.transform.position));
 
             Assert.That(unit.CurrentCommand, Is.TypeOf<AttackCommand>());
             Assert.That(((AttackCommand)unit.CurrentCommand).Target, Is.SameAs(dummy));
         }
 
         [UnityTest]
-        public IEnumerator RightClickOnGround_IssuesMoveToClickedPoint()
+        public IEnumerator LeftClickOnGround_IssuesMoveToClickedPoint()
         {
             yield return null;
             var groundPoint = new Vector3(4f, 0f, -4f);
-            yield return RightClickAt(ScreenPointOf(groundPoint));
+            yield return LeftClickAt(ScreenPointOf(groundPoint));
 
             Assert.That(unit.CurrentCommand, Is.TypeOf<MoveCommand>());
             var destination = ((MoveCommand)unit.CurrentCommand).Destination;
@@ -85,15 +85,12 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator RightDrag_IssuesNoCommand()
+        public IEnumerator RightClickOnDummy_IssuesNothing()
         {
             yield return null;
-            var start = ScreenPointOf(new Vector3(4f, 0f, -4f));
-            Set(mouse.position, start);
+            Set(mouse.position, ScreenPointOf(dummy.transform.position));
             yield return null;
             Press(mouse.rightButton);
-            yield return null;
-            Set(mouse.position, start + new Vector2(40f, 0f));
             yield return null;
             Release(mouse.rightButton);
             yield return null;
@@ -102,11 +99,28 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator RightClickOnSky_IssuesNothing()
+        public IEnumerator LeftDrag_IssuesNoCommand()
+        {
+            yield return null;
+            var start = ScreenPointOf(new Vector3(4f, 0f, -4f));
+            Set(mouse.position, start);
+            yield return null;
+            Press(mouse.leftButton);
+            yield return null;
+            Set(mouse.position, start + new Vector2(40f, 0f));
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+
+            Assert.That(unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator LeftClickOnSky_IssuesNothing()
         {
             yield return null;
             var skyPoint = ScreenPointOf(new Vector3(0f, 500f, 2000f));
-            yield return RightClickAt(skyPoint);
+            yield return LeftClickAt(skyPoint);
 
             Assert.That(unit.CurrentCommand, Is.Null);
         }
@@ -129,13 +143,13 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator RightClickWhilePaused_IssuesCommandButUnitWaits()
+        public IEnumerator LeftClickWhilePaused_IssuesCommandButUnitWaits()
         {
             yield return null;
             pause.Pause();
             var start = unit.transform.position;
 
-            yield return RightClickAt(ScreenPointOf(new Vector3(4f, 0f, -4f)));
+            yield return LeftClickAt(ScreenPointOf(new Vector3(4f, 0f, -4f)));
             Assert.That(unit.CurrentCommand, Is.TypeOf<MoveCommand>());
 
             yield return new WaitForSecondsRealtime(0.5f);

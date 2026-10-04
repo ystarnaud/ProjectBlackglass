@@ -6,8 +6,8 @@ namespace Blackglass
     public sealed class PrototypeHud : MonoBehaviour
     {
         const string ControlHints =
-            "WASD: pan   Q/E or right-drag: rotate   Wheel: zoom\n" +
-            "Right-click ground: move   Right-click dummy: attack\n" +
+            "WASD: pan   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom\n" +
+            "Left-click ground: move   Left-click dummy: attack\n" +
             "Space: tactical pause";
 
         [SerializeField] TacticalPause tacticalPause;
