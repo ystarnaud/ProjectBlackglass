@@ -37,6 +37,10 @@ namespace Blackglass.Tests
                 box.transform.localScale = scale;
             }
 
+            // Auto sync is off, so until the next physics step the boxes' colliders would still sit where
+            // CreatePrimitive made them (a 1 m cube at the origin) and same-frame sight rays would miss the walls.
+            Physics.SyncTransforms();
+
             var surface = root.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Children;
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
@@ -81,6 +85,19 @@ namespace Blackglass.Tests
             host.AddComponent<AutoRetaliate>();
             host.SetActive(true);
             return unit;
+        }
+
+        /// <summary>A fighter with EnemyAI wired to the encounter. Hostile prototype stats by default.</summary>
+        public EnemyAI CreateHostile(Vector3 groundPosition, Encounter encounter, int maxHealth = 60, int damage = 10,
+            float cooldown = 1.2f, float detectionRange = 12f)
+        {
+            var unit = CreateFighter(groundPosition, maxHealth, damage, cooldown);
+            unit.name = "TestHostile";
+            unit.gameObject.SetActive(false);
+            var ai = unit.gameObject.AddComponent<EnemyAI>();
+            ai.Initialize(encounter, detectionRange);
+            unit.gameObject.SetActive(true);
+            return ai;
         }
 
         public Health CreateDummy(Vector3 groundPosition)
