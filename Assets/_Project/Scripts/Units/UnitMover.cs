@@ -3,7 +3,7 @@ using UnityEngine.AI;
 
 namespace Blackglass
 {
-    /// <summary>Moves the unit over the NavMesh. The only component that talks to the NavMeshAgent.</summary>
+    /// <summary>Moves the unit over the NavMesh, along paths or by direct steering. The only component that talks to the NavMeshAgent.</summary>
     [RequireComponent(typeof(NavMeshAgent))]
     public sealed class UnitMover : MonoBehaviour
     {
@@ -67,6 +67,30 @@ namespace Blackglass
             Agent.isStopped = false;
             moveRequestFrame = Time.frameCount;
             return Agent.SetDestination(hit.position);
+        }
+
+        /// <summary>
+        /// Moves the unit this frame in a horizontal direction at its normal speed, turning toward it. Call once per
+        /// simulation frame while steering. Drops any path and leftover velocity first, so it never fights a path or
+        /// coasts. Uses scaled time: does nothing while paused. A direction longer than 1 is clamped; zero does nothing.
+        /// </summary>
+        public void Steer(Vector3 direction)
+        {
+            // Time.deltaTime keeps last frame's value on the frame the game is paused, so check the time scale too.
+            var deltaTime = Time.deltaTime;
+            if (deltaTime <= 0f || Time.timeScale <= 0f || !Agent.isOnNavMesh)
+                return;
+            direction.y = 0f;
+            direction = Vector3.ClampMagnitude(direction, 1f);
+            if (direction == Vector3.zero)
+                return;
+
+            if (Agent.hasPath || Agent.pathPending || Agent.velocity != Vector3.zero)
+                Stop();
+            // Move keeps the unit on the NavMesh and slides it along walls.
+            Agent.Move(direction * (Agent.speed * deltaTime));
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(direction),
+                Agent.angularSpeed * deltaTime);
         }
 
         /// <summary>Stops immediately (no coasting) and clears the path.</summary>
