@@ -127,6 +127,23 @@ namespace Blackglass.Tests
 
             Assert.That(unit.CurrentCommand, Is.TypeOf<AttackCommand>());
         }
+
+        [UnityTest]
+        public IEnumerator HoldingW_InScene_PansTheCameraRig()
+        {
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            yield return SceneManager.LoadSceneAsync("Prototype", LoadSceneMode.Single);
+            yield return null;
+            var rig = Object.FindFirstObjectByType<TacticalCameraController>();
+            var start = rig.transform.position;
+
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.2f);
+            Release(keyboard.wKey);
+            yield return null;
+
+            Assert.That(rig.transform.position.z, Is.GreaterThan(start.z + 0.5f));
+        }
     }
 }
 #endif
