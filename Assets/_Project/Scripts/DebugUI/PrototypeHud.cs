@@ -9,20 +9,20 @@ namespace Blackglass
         const string ControlHints =
             "WASD: pan camera   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom   V: takeover (WASD moves character)\n" +
             "Left-click unit: select (Shift: add/remove)   Left-drag: box select   Esc: clear selection\n" +
-            "Left-click ground/dummy: controlled character moves/attacks (paused: selected units)   Shift: queue   X: stop selected\n" +
+            "Left-click ground/enemy: controlled character moves/attacks (paused: selected units)   Shift: queue   X: stop selected\n" +
             "Space: tactical pause   Tab / Shift+Tab: switch controlled character";
-        // Order labels float this far above a unit's centre (the capsule is 2 m tall).
+        // Unit labels float this far above a unit's centre (the capsule is 2 m tall).
         const float UnitLabelHeight = 1.5f;
 
         [SerializeField] TacticalPause tacticalPause;
-        [SerializeField] Health target;
-        [SerializeField] string targetLabel = "Training Dummy";
+        [SerializeField] Encounter encounter;
         [SerializeField] Camera viewCamera;
         [SerializeField] UnitSelection selection;
         [SerializeField] PlayerCommandInput commandInput;
         [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
 
         GUIStyle pausedStyle;
+        GUIStyle outcomeStyle;
         GUIStyle unitLabelStyle;
 
         /// <summary>Short summary of a unit's orders, such as "Move +2". Empty when idle.</summary>
@@ -44,24 +44,61 @@ namespace Blackglass
             return $"Controlled: {unitName} | {mode} | {activity}";
         }
 
+        internal static string DescribeNoActive() => "Controlled: none";
+
+        internal static string DescribeSides(int livingFriendlies, int friendlies, int livingHostiles, int hostiles) =>
+            $"Friendlies alive {livingFriendlies}/{friendlies} | Hostiles alive {livingHostiles}/{hostiles}";
+
+        internal static string DescribeUnit(string unitName, int current, int max) => $"{unitName} {current}/{max}";
+
+        /// <summary>A hostile's line: its AI state, its target if any, and the cooldown while one runs.</summary>
+        internal static string DescribeEnemy(EnemyState state, string targetName, float cooldownRemaining)
+        {
+            var text = string.IsNullOrEmpty(targetName) ? state.ToString() : $"{state} -> {targetName}";
+            return AppendCooldown(text, cooldownRemaining);
+        }
+
+        internal static string AppendCooldown(string text, float cooldownRemaining)
+        {
+            if (cooldownRemaining <= 0f)
+                return text;
+            var cooldown = $"CD {cooldownRemaining:0.0}";
+            return text.Length == 0 ? cooldown : $"{text} {cooldown}";
+        }
+
+        internal static string DescribeOutcome(EncounterOutcome outcome)
+        {
+            switch (outcome)
+            {
+                case EncounterOutcome.Victory:
+                    return "VICTORY - all hostiles are down";
+                case EncounterOutcome.Defeat:
+                    return "DEFEAT - the squad is down";
+                default:
+                    return string.Empty;
+            }
+        }
+
         void OnGUI()
         {
             GUI.Label(new Rect(10f, 10f, 820f, 80f), ControlHints);
 
-            if (target != null)
+            if (encounter != null)
             {
-                var status = target.IsAlive ? $"{target.Current} / {target.Max}" : "destroyed";
-                GUI.Label(new Rect(10f, 95f, 320f, 22f), $"{targetLabel}: {status}");
+                GUI.Label(new Rect(10f, 95f, 420f, 22f), DescribeSides(encounter.LivingFriendlies, encounter.Friendlies.Count,
+                    encounter.LivingHostiles, encounter.Hostiles.Count));
             }
 
             if (selection != null)
                 GUI.Label(new Rect(10f, 115f, 320f, 22f), $"Selected: {selection.Selected.Count}");
 
-            if (activeCharacter != null && activeCharacter.HasUnit)
+            if (activeCharacter != null)
             {
-                var unit = activeCharacter.Unit;
-                GUI.Label(new Rect(10f, 135f, 640f, 22f),
-                    DescribeActive(unit.name, activeCharacter.IsTakeoverOn, activeCharacter.IsPaused, unit.CurrentCommand != null));
+                var text = activeCharacter.HasUnit
+                    ? DescribeActive(activeCharacter.Unit.name, activeCharacter.IsTakeoverOn, activeCharacter.IsPaused,
+                        activeCharacter.Unit.CurrentCommand != null)
+                    : DescribeNoActive();
+                GUI.Label(new Rect(10f, 135f, 640f, 22f), text);
             }
 
             DrawUnitLabels();
@@ -79,26 +116,55 @@ namespace Blackglass
                 };
                 GUI.Label(new Rect(0f, 165f, Screen.width, 40f), "TACTICAL PAUSE - Space to resume", pausedStyle);
             }
+
+            if (encounter != null)
+            {
+                var outcome = DescribeOutcome(encounter.Outcome);
+                if (outcome.Length > 0)
+                {
+                    outcomeStyle ??= new GUIStyle(GUI.skin.label)
+                    {
+                        alignment = TextAnchor.UpperCenter,
+                        fontSize = 30,
+                        fontStyle = FontStyle.Bold,
+                    };
+                    GUI.Label(new Rect(0f, 205f, Screen.width, 50f), outcome, outcomeStyle);
+                }
+            }
         }
 
         void DrawUnitLabels()
         {
-            if (selection == null || viewCamera == null)
+            if (encounter == null || viewCamera == null)
                 return;
-            unitLabelStyle ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.MiddleCenter };
-            foreach (var selectable in selection.Roster)
-            {
-                if (selectable == null || !selectable.isActiveAndEnabled)
-                    continue;
-                var unit = selectable.Unit;
-                var text = DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count);
-                if (text.Length == 0)
-                    continue;
-                var screen = viewCamera.WorldToScreenPoint(unit.transform.position + Vector3.up * UnitLabelHeight);
-                if (screen.z <= 0f)
-                    continue;
-                GUI.Label(new Rect(screen.x - 60f, Screen.height - screen.y - 11f, 120f, 22f), text, unitLabelStyle);
-            }
+            unitLabelStyle ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter };
+            foreach (var health in encounter.Friendlies)
+                DrawUnitLabel(health, false);
+            foreach (var health in encounter.Hostiles)
+                DrawUnitLabel(health, true);
+        }
+
+        // Debug only: a handful of units, so per-frame GetComponent calls are fine here.
+        void DrawUnitLabel(Health health, bool hostile)
+        {
+            if (health == null || !health.IsAlive || !health.gameObject.activeInHierarchy)
+                return;
+            var text = DescribeUnit(health.name, health.Current, health.Max);
+            var cooldown = health.TryGetComponent<UnitAttacker>(out var attacker) ? attacker.CooldownRemaining : 0f;
+            string activity;
+            if (hostile && health.TryGetComponent<EnemyAI>(out var ai))
+                activity = DescribeEnemy(ai.State, ai.Target != null ? ai.Target.name : null, cooldown);
+            else if (health.TryGetComponent<CommandableUnit>(out var unit))
+                activity = AppendCooldown(DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count), cooldown);
+            else
+                activity = string.Empty;
+            if (activity.Length > 0)
+                text += "\n" + activity;
+
+            var screen = viewCamera.WorldToScreenPoint(health.transform.position + Vector3.up * UnitLabelHeight);
+            if (screen.z <= 0f)
+                return;
+            GUI.Label(new Rect(screen.x - 80f, Screen.height - screen.y - 22f, 160f, 44f), text, unitLabelStyle);
         }
     }
 }
