@@ -93,6 +93,9 @@ namespace Blackglass.Tests
             return health;
         }
 
+        /// <summary>An empty Encounter on its own object; call Initialize with the two sides once they exist.</summary>
+        public Encounter CreateEncounter() => Track(new GameObject("Encounter")).AddComponent<Encounter>();
+
         /// <summary>Waits (in real time, so it also works while paused) until the condition holds or the timeout passes.</summary>
         public static IEnumerator WaitUntil(Func<bool> condition, float timeoutSeconds)
         {
