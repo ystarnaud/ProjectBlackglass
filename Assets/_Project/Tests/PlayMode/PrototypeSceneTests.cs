@@ -175,13 +175,9 @@ namespace Blackglass.Tests
             Assert.That(squad[2].CurrentCommand, Is.Null);
         }
 
-        [UnityTest]
-        public IEnumerator BoxSelectSquadThenClickGround_InScene_AllThreeMove()
+        // Drags a selection box around every squad member.
+        IEnumerator BoxSelect(Mouse mouse, CommandableUnit[] squad)
         {
-            var mouse = InputSystem.AddDevice<Mouse>();
-            InputSystem.AddDevice<Keyboard>();
-            yield return LoadScene();
-            var squad = PrototypeSceneTests.FindSquad();
             var screenPoints = squad.Select(u => (Vector2)Camera.main.WorldToScreenPoint(u.transform.position)).ToArray();
             var margin = new Vector2(25f, 25f);
             var from = screenPoints.Aggregate(Vector2.Min) - margin;
@@ -195,12 +191,63 @@ namespace Blackglass.Tests
             yield return null;
             Release(mouse.leftButton);
             yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator BoxSelectSquadThenClickGround_InScene_AllThreeMove()
+        {
+            var mouse = InputSystem.AddDevice<Mouse>();
+            InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var squad = PrototypeSceneTests.FindSquad();
+
+            yield return BoxSelect(mouse, squad);
             Assert.That(Object.FindFirstObjectByType<UnitSelection>().Selected, Has.Count.EqualTo(3));
 
             yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, 0f)));
 
             foreach (var member in squad)
                 Assert.That(member.CurrentCommand, Is.TypeOf<MoveCommand>(), member.name);
+        }
+
+        [UnityTest]
+        public IEnumerator StopAndClearSelection_InScene_UseTheSceneBindings()
+        {
+            var mouse = InputSystem.AddDevice<Mouse>();
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var squad = PrototypeSceneTests.FindSquad();
+            var selection = Object.FindFirstObjectByType<UnitSelection>();
+
+            yield return BoxSelect(mouse, squad);
+            Assert.That(selection.Selected, Has.Count.EqualTo(3));
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, 0f)));
+            foreach (var member in squad)
+                Assert.That(member.CurrentCommand, Is.TypeOf<MoveCommand>(), member.name);
+
+            Press(keyboard.leftShiftKey);
+            yield return null;
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, 4f)));
+            Release(keyboard.leftShiftKey);
+            yield return null;
+            foreach (var member in squad)
+                Assert.That(member.PendingCommands, Has.Count.EqualTo(1), $"{member.name}: Shift-click did not queue an order");
+
+            Press(keyboard.xKey);
+            yield return null;
+            Release(keyboard.xKey);
+            yield return null;
+            foreach (var member in squad)
+            {
+                Assert.That(member.CurrentCommand, Is.Null, $"{member.name}: X did not stop the unit");
+                Assert.That(member.PendingCommands, Is.Empty, member.name);
+            }
+
+            Press(keyboard.escapeKey);
+            yield return null;
+            Release(keyboard.escapeKey);
+            yield return null;
+            Assert.That(selection.Selected, Is.Empty, "Esc did not clear the selection");
         }
 
         [UnityTest]
