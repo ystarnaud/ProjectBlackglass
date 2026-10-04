@@ -38,5 +38,48 @@ namespace Blackglass.Tests
         {
             Assert.That(PrototypeHud.DescribeActive("Hero", takeoverOn, isPaused, hasOrders), Is.EqualTo(expected));
         }
+
+        [Test]
+        public void DescribeSides_CountsBothSides()
+        {
+            Assert.That(PrototypeHud.DescribeSides(2, 3, 0, 3), Is.EqualTo("Friendlies alive 2/3 | Hostiles alive 0/3"));
+        }
+
+        [Test]
+        public void DescribeNoActive_SaysNone()
+        {
+            Assert.That(PrototypeHud.DescribeNoActive(), Is.EqualTo("Controlled: none"));
+        }
+
+        [Test]
+        public void DescribeUnit_NameAndHealth()
+        {
+            Assert.That(PrototypeHud.DescribeUnit("FriendlyUnit_2", 75, 100), Is.EqualTo("FriendlyUnit_2 75/100"));
+        }
+
+        [TestCase(EnemyState.Idle, null, 0f, "Idle")]
+        [TestCase(EnemyState.Chase, "FriendlyUnit_1", 0f, "Chase -> FriendlyUnit_1")]
+        [TestCase(EnemyState.Attack, "FriendlyUnit_1", 0.44f, "Attack -> FriendlyUnit_1 CD 0.4")]
+        [TestCase(EnemyState.Dead, null, 0f, "Dead")]
+        public void DescribeEnemy_StateTargetAndCooldown(EnemyState state, string target, float cooldown, string expected)
+        {
+            Assert.That(PrototypeHud.DescribeEnemy(state, target, cooldown), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void AppendCooldown_OnlyWhileCoolingDown()
+        {
+            Assert.That(PrototypeHud.AppendCooldown("Attack", 0f), Is.EqualTo("Attack"));
+            Assert.That(PrototypeHud.AppendCooldown("Attack", 0.96f), Is.EqualTo("Attack CD 1.0"));
+            Assert.That(PrototypeHud.AppendCooldown("", 0.5f), Is.EqualTo("CD 0.5"));
+        }
+
+        [TestCase(EncounterOutcome.Ongoing, "")]
+        [TestCase(EncounterOutcome.Victory, "VICTORY - all hostiles are down")]
+        [TestCase(EncounterOutcome.Defeat, "DEFEAT - the squad is down")]
+        public void DescribeOutcome_BannerText(EncounterOutcome outcome, string expected)
+        {
+            Assert.That(PrototypeHud.DescribeOutcome(outcome), Is.EqualTo(expected));
+        }
     }
 }

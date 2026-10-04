@@ -76,10 +76,9 @@ namespace Blackglass
         /// </summary>
         public void Steer(Vector3 direction)
         {
-            // Time.deltaTime keeps last frame's value on the frame the game is paused, so check the time scale too.
-            var deltaTime = Time.deltaTime;
-            if (deltaTime <= 0f || Time.timeScale <= 0f || !Agent.isOnNavMesh)
+            if (!SimulationTime.IsRunning || !Agent.isOnNavMesh)
                 return;
+            var deltaTime = Time.deltaTime;
             direction.y = 0f;
             direction = Vector3.ClampMagnitude(direction, 1f);
             if (direction == Vector3.zero)

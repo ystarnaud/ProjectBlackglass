@@ -220,5 +220,26 @@ namespace Blackglass.Tests
             unit.SetMoveIntent(Vector3.zero);
             Assert.That(unit.MoveIntent, Is.EqualTo(Vector3.zero));
         }
+
+        [Test]
+        public void IsAlive_WithoutHealth_IsTrue()
+        {
+            Assert.That(unit.IsAlive, Is.True);
+        }
+
+        [Test]
+        public void Issue_OnADeadUnit_IsRejectedForEveryCommand()
+        {
+            var own = unitHost.AddComponent<Health>();
+            own.TakeDamage(own.Max);
+            Assert.That(unit.IsAlive, Is.False);
+
+            Assert.That(unit.Issue(new AttackCommand(target)), Is.False);
+            Assert.That(unit.Issue(new MoveCommand(Vector3.one)), Is.False);
+            Assert.That(unit.Issue(new StopCommand()), Is.False);
+            Assert.That(unit.Issue(new AttackCommand(target), IssueMode.Append), Is.False);
+            Assert.That(unit.CurrentCommand, Is.Null);
+            Assert.That(unit.PendingCommands, Is.Empty);
+        }
     }
 }

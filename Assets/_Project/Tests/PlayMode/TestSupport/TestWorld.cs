@@ -37,6 +37,10 @@ namespace Blackglass.Tests
                 box.transform.localScale = scale;
             }
 
+            // Auto sync is off, so until the next physics step the boxes' colliders would still sit where
+            // CreatePrimitive made them (a 1 m cube at the origin) and same-frame sight rays would miss the walls.
+            Physics.SyncTransforms();
+
             var surface = root.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Children;
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
@@ -63,6 +67,47 @@ namespace Blackglass.Tests
             return unit.gameObject.AddComponent<SelectableUnit>();
         }
 
+        /// <summary>
+        /// A unit with Health that can fight and die. Assembled while inactive so every component's OnEnable sees
+        /// the others (CommandableUnit subscribes to its Health there).
+        /// </summary>
+        public CommandableUnit CreateFighter(Vector3 groundPosition, int maxHealth = 100, int damage = 25, float cooldown = 1f)
+        {
+            var host = Track(GameObject.CreatePrimitive(PrimitiveType.Capsule));
+            host.name = "TestFighter";
+            host.SetActive(false);
+            host.transform.position = groundPosition + Vector3.up;
+            host.AddComponent<UnitMover>();
+            host.GetComponent<NavMeshAgent>().baseOffset = 1f;
+            host.AddComponent<UnitAttacker>().Initialize(2f, damage, cooldown);
+            host.AddComponent<Health>().Initialize(maxHealth);
+            var unit = host.AddComponent<CommandableUnit>();
+            host.AddComponent<AutoRetaliate>();
+            host.SetActive(true);
+            return unit;
+        }
+
+        /// <summary>A fighter the player can select and control (a CreateFighter unit plus SelectableUnit).</summary>
+        public SelectableUnit CreateFriendlyFighter(Vector3 groundPosition, int maxHealth = 100)
+        {
+            var unit = CreateFighter(groundPosition, maxHealth);
+            unit.name = "TestFriendlyFighter";
+            return unit.gameObject.AddComponent<SelectableUnit>();
+        }
+
+        /// <summary>A fighter with EnemyAI wired to the encounter. Hostile prototype stats by default.</summary>
+        public EnemyAI CreateHostile(Vector3 groundPosition, Encounter encounter, int maxHealth = 60, int damage = 10,
+            float cooldown = 1.2f, float detectionRange = 12f)
+        {
+            var unit = CreateFighter(groundPosition, maxHealth, damage, cooldown);
+            unit.name = "TestHostile";
+            unit.gameObject.SetActive(false);
+            var ai = unit.gameObject.AddComponent<EnemyAI>();
+            ai.Initialize(encounter, detectionRange);
+            unit.gameObject.SetActive(true);
+            return ai;
+        }
+
         public Health CreateDummy(Vector3 groundPosition)
         {
             var dummy = Track(GameObject.CreatePrimitive(PrimitiveType.Cylinder));
@@ -72,6 +117,9 @@ namespace Blackglass.Tests
             dummy.AddComponent<HitFlash>();
             return health;
         }
+
+        /// <summary>An empty Encounter on its own object; call Initialize with the two sides once they exist.</summary>
+        public Encounter CreateEncounter() => Track(new GameObject("Encounter")).AddComponent<Encounter>();
 
         /// <summary>Waits (in real time, so it also works while paused) until the condition holds or the timeout passes.</summary>
         public static IEnumerator WaitUntil(Func<bool> condition, float timeoutSeconds)
