@@ -1,6 +1,6 @@
 # Tactical Squad Control (Phase 2) — Design
 
-Date: 2026-10-04 · Branch: `prototype/tactical-squad` · Status: draft, awaiting owner review
+Date: 2026-10-04 · Branch: `prototype/tactical-squad` · Status: approved by the owner 2026-10-04; refined while planning (see the plan's "Deviations")
 
 Builds on the Phase 1 control loop (`2026-10-04-prototype-control-loop-design.md`) and decisions 006–009 in `Docs/Decisions.md`.
 
@@ -69,7 +69,7 @@ public enum IssueMode { Replace, Append }
 
 **`GroupOrders`** (new, static): turns one command into orders for several units. Usable by player input, AI and scripts.
 
-- `Issue(IReadOnlyList<CommandableUnit> units, UnitCommand command, IssueMode mode)`.
+- `int Issue(IReadOnlyList<CommandableUnit> units, UnitCommand command, IssueMode mode, float spacing = 1.5f)`. Returns how many units accepted the order.
 - **Move:** unit *i* receives `MoveCommand(destination + offsets[i])`. If that unit rejects the offset point (not walkable, for example inside a wall), it is given `MoveCommand(destination)` instead.
 - **Attack, Stop:** every unit receives the same command instance. Commands are immutable, so sharing is safe.
 - Null entries in `units` are skipped. An empty list does nothing.
@@ -77,7 +77,8 @@ public enum IssueMode { Replace, Append }
 **`GroupMoveOffsets`** (new, static, pure): `Vector3[] Compute(int count, float spacing)`.
 
 - Index 0 is `Vector3.zero` (the clicked point).
-- Following indices fill hexagonal rings around it on the XZ plane: ring *r* holds 6·*r* points at distance *r*·`spacing`. Three units use the centre and two points of the first ring.
+- Following indices fill hexagonal rings of a hexagonal lattice around it on the XZ plane: ring *r* holds 6·*r* points (its six corners at distance *r*·`spacing`, the rest evenly spaced along its edges), so no two points are closer than `spacing`. Three units use the centre and two neighbouring corners of the first ring.
+- `count < 0` or `spacing <= 0` throws `ArgumentOutOfRangeException`.
 - Default spacing: 1.5 m (agent radius is 0.5 m).
 - Slots are assigned in selection order. There is no nearest-slot matching.
 
@@ -89,10 +90,11 @@ public enum IssueMode { Replace, Append }
 bool Issue(UnitCommand command, IssueMode mode = IssueMode.Replace)
 UnitCommand CurrentCommand { get; }
 IReadOnlyList<UnitCommand> PendingCommands { get; }
-event Action CommandsChanged;   // raised after any change to current or pending
 ```
 
-- **Validation at issue time** (as in Phase 1): a Move needs a walkable NavMesh point within 2 m (`UnitMover.CanMoveTo`); an Attack needs a target that is alive and active. A rejected command returns false and leaves current and pending orders untouched.
+There is no change event: the debug views read these properties every frame (they must redraw every frame anyway as the unit walks).
+
+- **Validation at issue time** (as in Phase 1): a Move needs a walkable NavMesh point within 2 m (`UnitMover.CanMoveTo`); an Attack needs a target that is alive and active. A rejected command returns false and leaves current and pending orders untouched. A rejected Move logs a warning, as in Phase 1.
 - `null` throws `ArgumentNullException`; an unknown type throws `ArgumentException`. Unknown `IssueMode` values throw `ArgumentOutOfRangeException`.
 - **Stop:** halts the mover, clears current and pending, returns true. The mode is ignored.
 - **Replace:** cancels the current order (stops the mover, ends any chase), replaces the queue, and starts the new command immediately. Phase 1's special case stays: replacing with an attack on the *current* attack target keeps the chase going instead of restarting it (pending orders are still cleared).
@@ -107,7 +109,7 @@ event Action CommandsChanged;   // raised after any change to current or pending
 **`UnitMover`** (changed):
 
 - New `bool CanMoveTo(Vector3 point)`: true when the agent is on a NavMesh and a walkable point exists within 2 m. No side effects, no warning.
-- **`HasArrived` fix** (Phase 1 spec §10): true when the path is not pending and either the agent has no path, or the **remaining distance along the path** is at most stopping distance + 0.1 m. For a destination the NavMesh only partially reaches, this becomes true at the end of the partial path, so a queued move can never block the queue forever.
+- **`HasArrived` fix** (Phase 1 spec §10): true when the path is not pending, no move was requested this frame, and either the agent has no path or the horizontal distance to the **end of its path** (`NavMeshAgent.pathEndPosition`) is at most stopping distance + 0.1 m. For a destination the NavMesh only partially reaches, the path ends at the closest reachable point, so this becomes true there and a queued move can never block the queue forever. (`remainingDistance` is not used: Phase 1 found it unreliable on the frame a destination is set. The same-frame guard covers the same staleness for `pathEndPosition`.)
 
 ### 4.3 Selection — `Selection/` (new folder)
 
@@ -122,7 +124,8 @@ event Action CommandsChanged;   // raised after any change to current or pending
 - `IReadOnlyList<SelectableUnit> Selected` (ordered by selection time), `event Action Changed` (raised only on change).
 - `Select(unit)` replaces the selection with one unit. `Toggle(unit)` adds or removes one. `Add(units)` adds several. `SetSelection(units)` replaces with several. `Clear()` empties it.
 - Every operation keeps each unit's `IsSelected` in sync.
-- Units that are destroyed or disabled are dropped from `Selected`.
+- Units that are destroyed or disabled are dropped from `Selected` (`SelectableUnit` raises an internal `Disabled` event from `OnDisable`). Inactive or disabled units cannot be selected.
+- `Select(null)`, `Toggle(null)`, `AddToRoster(null)` and null collections throw `ArgumentNullException`; null entries inside a collection are skipped.
 - Holds state only. It reads no input and issues no commands.
 
 **`ScreenBox`** (new, static, pure): builds a normalized screen rectangle from two corners and tests whether a screen point (in front of the camera) lies inside it.
@@ -150,7 +153,7 @@ The Camera map is unchanged: right-drag rotates and tilts, right-click alone doe
   - Hit a collider whose parents include a `SelectableUnit`: plain → `selection.Select(unit)`; Shift → `selection.Toggle(unit)`.
   - Any other hit: `CommandResolver.Resolve(health, point)` (unchanged), then `GroupOrders.Issue(selected units, command, Shift ? Append : Replace)`. With nothing selected, nothing happens.
   - No hit: nothing.
-- **Left drag:** on release, the roster units whose screen positions lie inside the box are selected. Plain → `SetSelection` (an empty box clears). Shift → `Add`. While dragging, `IsDragging` and `DragRect` (screen rectangle in GUI coordinates) are exposed for the HUD.
+- **Left drag:** on release, the roster units whose screen positions lie inside the box are selected. Plain → `SetSelection` (an empty box clears). Shift → `Add`. While dragging, `IsDragging` and `DragRect` (screen pixels, origin bottom-left) are exposed for the HUD, which converts it with `ScreenBox.ToGuiRect`.
 - **X:** `GroupOrders.Issue(selected units, new StopCommand(), Replace)`.
 - **Esc:** `selection.Clear()`.
 - **Space:** `tacticalPause.Toggle()`.
@@ -163,14 +166,14 @@ The Camera map is unchanged: right-drag rotates and tilts, right-click alone doe
 All of these only read state. None reads `Time.deltaTime`, so they behave the same paused or not. None has a collider, so none can block a click raycast.
 
 - **Selection ring:** child of each unit, a flat cylinder (about 1.4 m wide) with `SelectionRing.mat` (green), toggled by `SelectionIndicator`.
-- **`CommandQueueView`** (per unit, `LineRenderer`): a line from the unit through each order in sequence, current order first. A Move contributes its destination and a small flat marker disc (`MoveMarker.mat`, yellow). An Attack contributes the target's current position. Rebuilt on `CommandsChanged`; the unit end and attack points are refreshed in `LateUpdate`. Shown for every unit with orders. Markers are pooled children created on demand.
-- **`UnitDebugLabel`** (per unit, IMGUI): a label above the unit, such as `Move +2` (current order type plus pending count). Hidden when idle.
-- **`PrototypeHud`** (changed): new control hints, a "Selected: N" line, and the drag box while `PlayerCommandInput.IsDragging`. The pause banner and dummy HP line are unchanged.
+- **`CommandQueueView`** (per unit, `LineRenderer`): a line from the unit through each order in sequence, current order first. A Move contributes its destination and a small flat marker disc (`MoveMarker.mat`, yellow). An Attack contributes the target's current position. Rebuilt every `LateUpdate` from the unit's orders. Shown for every unit with orders. Markers are pooled children created on demand.
+- **Order labels:** drawn by `PrototypeHud` for every roster unit: a label above the unit, such as `Move +2` (current order type plus pending count), hidden when idle. The HUD already has the camera and selection references, so no per-unit label component (which would need its own camera reference or a `Camera.main` lookup) is added.
+- **`PrototypeHud`** (changed): new control hints, a "Selected: N" line, the order labels, and the drag box while `PlayerCommandInput.IsDragging`. New serialized references: `viewCamera`, `selection`, `commandInput`. The pause banner and dummy HP line are unchanged.
 - **New materials** (URP Unlit): `SelectionRing.mat` (green), `QueueLine.mat` (white), `MoveMarker.mat` (yellow).
 
 ## 5. Scene and assets
 
-- **Prefab** `Assets/_Project/Prefabs/FriendlyUnit.prefab`: blue capsule (`Unit.mat`), `NavMeshAgent`, `UnitMover`, `UnitAttacker`, `CommandableUnit`, `SelectableUnit`, `SelectionIndicator` with its ring child, `CommandQueueView` (`LineRenderer`, `QueueLine.mat`), `UnitDebugLabel`.
+- **Prefab** `Assets/_Project/Prefabs/FriendlyUnit.prefab`: blue capsule (`Unit.mat`), `NavMeshAgent`, `UnitMover`, `UnitAttacker`, `CommandableUnit`, `SelectableUnit`, `SelectionIndicator` with its ring child, `CommandQueueView` (`LineRenderer`, `QueueLine.mat`).
 - **`Prototype.unity`:**
   - `PlayerUnit` is replaced by `FriendlyUnit_1`, `FriendlyUnit_2`, `FriendlyUnit_3` (prefab instances) about 2 m apart around the old spawn point (−10, 1, −10).
   - `Systems` gains `UnitSelection` with the three units in its roster.
@@ -223,7 +226,7 @@ Tests are written first, following decision 009. Tests are run in batch mode wit
 - **Created:**
   - `Scripts/Commands/CommandQueue.cs`, `GroupOrders.cs`, `GroupMoveOffsets.cs`
   - `Scripts/Selection/SelectableUnit.cs`, `UnitSelection.cs`, `ScreenBox.cs`, `SelectionIndicator.cs`
-  - `Scripts/DebugUI/CommandQueueView.cs`, `UnitDebugLabel.cs`
+  - `Scripts/DebugUI/CommandQueueView.cs`
   - `Prefabs/FriendlyUnit.prefab`
   - `Materials/SelectionRing.mat`, `QueueLine.mat`, `MoveMarker.mat`
   - new EditMode and PlayMode test files
