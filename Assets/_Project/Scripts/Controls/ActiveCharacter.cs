@@ -4,10 +4,14 @@ namespace Blackglass
 {
     /// <summary>
     /// The friendly character the player currently controls directly, and whether takeover mode is on. Holds state
-    /// only: DirectControlInput, click input, the camera, the marker and the HUD read it. Any eligible roster unit can be
-    /// the active character; Cycle moves to the next or previous one. Takeover starts off (free mode) and can be toggled
-    /// while paused; it takes effect when simulation runs again.
+    /// only: DirectControlInput, click input, the camera, the marker and the HUD read it. When the active character
+    /// stops being eligible (it dies), control moves to the next eligible roster unit, or to nobody. Any eligible roster
+    /// unit can be the active character; Cycle moves to the next or previous one. Takeover starts off (free mode) and
+    /// can be toggled while paused; it takes effect when simulation runs again.
     /// </summary>
+    // Hands over before DirectControlInput (-100) reads Unit, so a death never shows as a one-frame HasUnit dip that
+    // would re-arm its release gate.
+    [DefaultExecutionOrder(-200)]
     public sealed class ActiveCharacter : MonoBehaviour
     {
         [SerializeField] CommandableUnit unit;
@@ -38,19 +42,19 @@ namespace Blackglass
         }
 
         /// <summary>
-        /// Whether a roster unit can become the active character: present, its SelectableUnit and CommandableUnit
-        /// enabled, active in the hierarchy, and either without Health or alive.
+        /// Whether a unit can be the active character: present, enabled, active in the hierarchy, alive, and if it
+        /// has a SelectableUnit, that one enabled too.
         /// </summary>
-        public static bool IsEligible(SelectableUnit candidate)
+        public static bool IsEligible(CommandableUnit candidate)
         {
-            if (candidate == null || !candidate.enabled || !candidate.gameObject.activeInHierarchy)
+            if (candidate == null || !candidate.enabled || !candidate.gameObject.activeInHierarchy || !candidate.IsAlive)
                 return false;
-            var commandable = candidate.Unit;
-            if (commandable == null || !commandable.enabled)
-                return false;
-            var health = candidate.GetComponent<Health>();
-            return health == null || health.IsAlive;
+            return !candidate.TryGetComponent<SelectableUnit>(out var selectable) || selectable.enabled;
         }
+
+        /// <summary>Whether a roster unit can become the active character (see the CommandableUnit overload).</summary>
+        public static bool IsEligible(SelectableUnit candidate) =>
+            candidate != null && candidate.enabled && IsEligible(candidate.Unit);
 
         /// <summary>Makes this unit the active character; null means none. Does not check eligibility.</summary>
         public void SetUnit(CommandableUnit newUnit) => unit = newUnit;
@@ -85,5 +89,21 @@ namespace Blackglass
         public void SetTakeover(bool on) => IsTakeoverOn = on;
 
         public void ToggleTakeover() => IsTakeoverOn = !IsTakeoverOn;
+
+        void Update() => RefreshEligibility();
+
+        /// <summary>
+        /// Keeps the active character valid: when it dies, is disabled, deactivated or destroyed, control passes to the
+        /// next eligible roster unit (roster order, wrapping), or to nobody when none is left. Takeover mode and the
+        /// selection are left alone. Runs every frame, paused or not, so the HUD and camera never see a dead unit as
+        /// controlled for more than a frame.
+        /// </summary>
+        internal void RefreshEligibility()
+        {
+            if (ReferenceEquals(unit, null) || IsEligible(unit))
+                return;
+            if (!Cycle(1))
+                SetUnit(null);
+        }
     }
 }

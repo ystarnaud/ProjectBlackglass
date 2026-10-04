@@ -308,7 +308,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator PrimaryUnitDeactivated_WhileDriving_StopsDrivingWithoutErrors()
+        public IEnumerator PrimaryUnitDeactivated_WhileDriving_HandsControlToTheNextFriendlyWithoutErrors()
         {
             yield return null;
             active.SetTakeover(true);
@@ -319,8 +319,9 @@ namespace Blackglass.Tests
             primaryUnit.gameObject.SetActive(false);
             yield return new WaitForSecondsRealtime(0.2f);
 
-            Assert.That(active.IsDriving, Is.False);
-            Assert.That(primaryUnit.MoveIntent, Is.EqualTo(Vector3.zero));
+            Assert.That(active.Unit, Is.SameAs(companion), "Control must pass to the next eligible friendly");
+            Assert.That(primaryUnit.MoveIntent, Is.EqualTo(Vector3.zero), "The old unit must not keep an intent");
+            Assert.That(active.IsDriving, Is.True, "Takeover stays on, so the new unit can be driven");
             Release(keyboard.wKey);
             yield return null;
             // Any error or exception logged meanwhile fails the test.
@@ -587,7 +588,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator ActiveUnitDestroyed_WhileDriving_ThenTab_MovesOnWithoutErrors()
+        public IEnumerator ActiveUnitDestroyed_WhileDriving_ControlPassesOn_AndTabMovesFurther()
         {
             yield return null;
             active.SetTakeover(true);
@@ -599,10 +600,12 @@ namespace Blackglass.Tests
             yield return new WaitForSecondsRealtime(0.1f);
             Release(keyboard.wKey);
             yield return null;
+            Assert.That(active.Unit, Is.SameAs(companion), "A destroyed active unit hands control to the next friendly");
+
             yield return Tap(keyboard.tabKey);
 
-            Assert.That(active.Unit, Is.SameAs(companion));
-            Assert.That(selection.Selected, Is.EqualTo(new[] { SelectableOf(companion) }));
+            Assert.That(active.Unit, Is.SameAs(third));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { SelectableOf(third) }));
             // Any error or exception logged meanwhile fails the test.
         }
     }

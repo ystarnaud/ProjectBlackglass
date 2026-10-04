@@ -87,6 +87,14 @@ namespace Blackglass.Tests
             return unit;
         }
 
+        /// <summary>A fighter the player can select and control (a CreateFighter unit plus SelectableUnit).</summary>
+        public SelectableUnit CreateFriendlyFighter(Vector3 groundPosition, int maxHealth = 100)
+        {
+            var unit = CreateFighter(groundPosition, maxHealth);
+            unit.name = "TestFriendlyFighter";
+            return unit.gameObject.AddComponent<SelectableUnit>();
+        }
+
         /// <summary>A fighter with EnemyAI wired to the encounter. Hostile prototype stats by default.</summary>
         public EnemyAI CreateHostile(Vector3 groundPosition, Encounter encounter, int maxHealth = 60, int damage = 10,
             float cooldown = 1.2f, float detectionRange = 12f)

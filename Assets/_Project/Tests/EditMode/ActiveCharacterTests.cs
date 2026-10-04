@@ -326,7 +326,132 @@ namespace Blackglass.Tests
         [Test]
         public void IsEligible_NullIsFalse()
         {
-            Assert.That(ActiveCharacter.IsEligible(null), Is.False);
+            Assert.That(ActiveCharacter.IsEligible((SelectableUnit)null), Is.False);
+        }
+
+        // --- Hand-over when the active unit stops being eligible.
+
+        // TryGetComponent, not GetComponent with ??: in the Editor a missing component is a placeholder, not a C# null.
+        static void Kill(GameObject host)
+        {
+            if (!host.TryGetComponent<Health>(out var health))
+                health = host.AddComponent<Health>();
+            health.TakeDamage(health.Max);
+        }
+
+        [Test]
+        public void RefreshEligibility_WhileEligible_ChangesNothing()
+        {
+            CreateSquad();
+            active.SetTakeover(true);
+            active.RefreshEligibility();
+            Assert.That(active.Unit, Is.SameAs(squad[0].Unit));
+            Assert.That(active.IsTakeoverOn, Is.True);
+        }
+
+        [Test]
+        public void RefreshEligibility_WhenTheActiveUnitDies_MovesToTheNextFriendly()
+        {
+            CreateSquad();
+            Kill(squad[0].gameObject);
+            active.RefreshEligibility();
+            Assert.That(active.Unit, Is.SameAs(squad[1].Unit));
+            Assert.That(active.HasUnit, Is.True);
+        }
+
+        [Test]
+        public void RefreshEligibility_DeadButStillActiveUnit_IsReplaced()
+        {
+            CreateSquad();
+            KillWithoutDeactivating(squad[0].gameObject);
+            active.RefreshEligibility();
+            Assert.That(active.Unit, Is.SameAs(squad[1].Unit));
+        }
+
+        [Test]
+        public void RefreshEligibility_WrapsToTheFirstFriendly()
+        {
+            CreateSquad();
+            active.SetUnit(squad[2].Unit);
+            Kill(squad[2].gameObject);
+            active.RefreshEligibility();
+            Assert.That(active.Unit, Is.SameAs(squad[0].Unit));
+        }
+
+        [Test]
+        public void RefreshEligibility_SkipsDeadFriendlies()
+        {
+            CreateSquad();
+            Kill(squad[0].gameObject);
+            Kill(squad[1].gameObject);
+            active.RefreshEligibility();
+            Assert.That(active.Unit, Is.SameAs(squad[2].Unit));
+        }
+
+        [Test]
+        public void RefreshEligibility_WithNobodyEligible_ClearsTheUnit_AndKeepsTakeover()
+        {
+            CreateSquad();
+            active.SetTakeover(true);
+            foreach (var friendly in squad)
+                Kill(friendly.gameObject);
+            active.RefreshEligibility();
+            Assert.That(active.Unit, Is.Null);
+            Assert.That(active.HasUnit, Is.False);
+            Assert.That(active.IsDriving, Is.False);
+            Assert.That(active.IsTakeoverOn, Is.True, "Takeover mode is the player's choice; death does not change it");
+            active.RefreshEligibility();   // idempotent with no unit
+            Assert.That(active.Unit, Is.Null);
+        }
+
+        [Test]
+        public void RefreshEligibility_DeactivatedOrDisabledUnit_IsReplaced()
+        {
+            CreateSquad();
+            squad[0].gameObject.SetActive(false);
+            active.RefreshEligibility();
+            Assert.That(active.Unit, Is.SameAs(squad[1].Unit));
+
+            squad[1].Unit.enabled = false;
+            active.RefreshEligibility();
+            Assert.That(active.Unit, Is.SameAs(squad[2].Unit));
+        }
+
+        [Test]
+        public void RefreshEligibility_WithoutASelection_ClearsADeadUnit()
+        {
+            Kill(unitHost);
+            active.RefreshEligibility();
+            Assert.That(active.Unit, Is.Null);
+        }
+
+        [Test]
+        public void IsEligible_CommandableUnit_Cases()
+        {
+            Assert.That(ActiveCharacter.IsEligible((CommandableUnit)null), Is.False);
+            Assert.That(ActiveCharacter.IsEligible(unit), Is.True, "A living unit without Health or SelectableUnit is eligible");
+            unit.enabled = false;
+            Assert.That(ActiveCharacter.IsEligible(unit), Is.False);
+            unit.enabled = true;
+            unitHost.SetActive(false);
+            Assert.That(ActiveCharacter.IsEligible(unit), Is.False);
+            unitHost.SetActive(true);
+            var selectable = unitHost.AddComponent<SelectableUnit>();
+            selectable.enabled = false;
+            Assert.That(ActiveCharacter.IsEligible(unit), Is.False, "A disabled SelectableUnit makes the unit ineligible");
+            selectable.enabled = true;
+            KillWithoutDeactivating(unitHost);
+            Assert.That(ActiveCharacter.IsEligible(unit), Is.False);
+        }
+
+        [Test]
+        public void IsEligible_SelectableUnit_AgreesWithTheCommandableUnitOverload()
+        {
+            CreateSquad();
+            Assert.That(ActiveCharacter.IsEligible(squad[0]), Is.EqualTo(ActiveCharacter.IsEligible(squad[0].Unit)));
+            Kill(squad[0].gameObject);
+            Assert.That(ActiveCharacter.IsEligible(squad[0]), Is.False);
+            Assert.That(ActiveCharacter.IsEligible(squad[0].Unit), Is.False);
         }
     }
 }
