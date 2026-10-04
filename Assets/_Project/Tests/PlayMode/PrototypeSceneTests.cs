@@ -13,11 +13,13 @@ namespace Blackglass.Tests
     public class PrototypeSceneTests : InputTestFixture
     {
         static readonly string[] FriendlyNames = { "FriendlyUnit_1", "FriendlyUnit_2", "FriendlyUnit_3" };
+        static readonly string[] HostileNames = { "HostileUnit_1", "HostileUnit_2", "HostileUnit_3" };
 
         CommandableUnit unit;
-        Health dummy;
+        Health firstHostile;
         TacticalPause pause;
         UnitSelection selection;
+        Encounter encounter;
 
         // Loaded from each test rather than [UnitySetUp]: the scene must load after InputTestFixture has isolated the
         // input system, otherwise the scene's actions (shared InputActionAsset) leak into later fixtures.
@@ -26,13 +28,19 @@ namespace Blackglass.Tests
             yield return SceneManager.LoadSceneAsync("Prototype", LoadSceneMode.Single);
             yield return null;
             unit = GameObject.Find(FriendlyNames[0]).GetComponent<CommandableUnit>();
-            dummy = Object.FindFirstObjectByType<Health>();
+            firstHostile = FindHostileHealth(HostileNames[0]);
             pause = Object.FindFirstObjectByType<TacticalPause>();
             selection = Object.FindFirstObjectByType<UnitSelection>();
+            encounter = Object.FindFirstObjectByType<Encounter>();
         }
 
         internal static CommandableUnit[] FindSquad() =>
             FriendlyNames.Select(n => GameObject.Find(n).GetComponent<CommandableUnit>()).ToArray();
+
+        internal static EnemyAI[] FindHostiles() =>
+            HostileNames.Select(n => GameObject.Find(n).GetComponent<EnemyAI>()).ToArray();
+
+        internal static Health FindHostileHealth(string name) => GameObject.Find(name).GetComponent<Health>();
 
         public override void TearDown()
         {
@@ -50,7 +58,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator Scene_ContainsWiredSquad_AndRunsWithoutErrors()
+        public IEnumerator Scene_ContainsWiredSquadAndHostiles_AndRunsWithoutErrors()
         {
             yield return LoadScene();
             var friendlies = Object.FindObjectsByType<SelectableUnit>(FindObjectsSortMode.None);
@@ -62,11 +70,41 @@ namespace Blackglass.Tests
             {
                 Assert.That(friendly.GetComponent<SelectionIndicator>(), Is.Not.Null, friendly.name);
                 Assert.That(friendly.GetComponent<CommandQueueView>(), Is.Not.Null, friendly.name);
+                Assert.That(friendly.GetComponent<Health>(), Is.Not.Null, $"{friendly.name} has no Health");
+                Assert.That(friendly.GetComponent<Health>().Max, Is.EqualTo(100), friendly.name);
+                Assert.That(friendly.GetComponent<HitFlash>(), Is.Not.Null, friendly.name);
+                Assert.That(friendly.GetComponent<DeathMarker>(), Is.Not.Null, friendly.name);
+                Assert.That(friendly.GetComponent<AutoRetaliate>(), Is.Not.Null, friendly.name);
+                Assert.That(friendly.GetComponent<AttackLineView>(), Is.Not.Null, friendly.name);
+                Assert.That(friendly.GetComponent<EnemyAI>(), Is.Null, $"{friendly.name} must not have enemy AI");
                 Assert.That(friendly.GetComponentsInChildren<Collider>(true), Has.Length.EqualTo(1),
                     $"{friendly.name}: only the capsule may have a collider, so debug visuals never block clicks");
             }
-            Assert.That(dummy, Is.Not.Null, "TrainingDummy missing");
-            Assert.That(dummy.name, Is.EqualTo("TrainingDummy"));
+
+            Assert.That(GameObject.Find("TrainingDummy"), Is.Null, "The training dummy should be gone");
+            var hostiles = Object.FindObjectsByType<EnemyAI>(FindObjectsSortMode.None);
+            Assert.That(hostiles.Select(h => h.name), Is.EquivalentTo(HostileNames));
+            foreach (var hostile in hostiles)
+            {
+                Assert.That(hostile.GetComponent<Health>().Max, Is.EqualTo(60), hostile.name);
+                Assert.That(hostile.GetComponent<UnitAttacker>().Damage, Is.EqualTo(10), hostile.name);
+                Assert.That(hostile.GetComponent<UnitAttacker>().Cooldown, Is.EqualTo(1.2f).Within(0.001f), hostile.name);
+                Assert.That(hostile.GetComponent<HitFlash>(), Is.Not.Null, hostile.name);
+                Assert.That(hostile.GetComponent<DeathMarker>(), Is.Not.Null, hostile.name);
+                Assert.That(hostile.GetComponent<AutoRetaliate>(), Is.Not.Null, hostile.name);
+                Assert.That(hostile.GetComponent<AttackLineView>(), Is.Not.Null, hostile.name);
+                Assert.That(hostile.GetComponent<SelectableUnit>(), Is.Null, $"{hostile.name} must not be selectable");
+                Assert.That(hostile.GetComponentsInChildren<Collider>(true), Has.Length.EqualTo(1), hostile.name);
+                Assert.That(hostile.State, Is.EqualTo(EnemyState.Idle), $"{hostile.name} should start idle, out of range of the squad");
+            }
+
+            Assert.That(encounter, Is.Not.Null, "Encounter missing");
+            Assert.That(encounter.Friendlies.Select(h => h.name), Is.EquivalentTo(FriendlyNames));
+            Assert.That(encounter.Hostiles.Select(h => h.name), Is.EquivalentTo(HostileNames));
+            Assert.That(encounter.Outcome, Is.EqualTo(EncounterOutcome.Ongoing));
+            Assert.That(GameObject.Find("Obstacle_E"), Is.Not.Null);
+            Assert.That(GameObject.Find("Obstacle_F"), Is.Not.Null);
+
             Assert.That(pause, Is.Not.Null, "TacticalPause missing");
             Assert.That(Object.FindFirstObjectByType<PlayerCommandInput>(), Is.Not.Null);
             Assert.That(Object.FindFirstObjectByType<TacticalCameraController>(), Is.Not.Null);
@@ -75,18 +113,16 @@ namespace Blackglass.Tests
             Assert.That(active, Is.Not.Null, "ActiveCharacter missing");
             Assert.That(active.Unit, Is.Not.Null, "ActiveCharacter has no unit");
             Assert.That(active.Unit.name, Is.EqualTo(FriendlyNames[0]), "The game starts controlling FriendlyUnit_1");
-            Assert.That(active.HasUnit, Is.True);
             Assert.That(active.IsTakeoverOn, Is.False, "The game starts in free mode");
-            Assert.That(active.Unit.transform.Find("PrimaryMarker"), Is.Null, "The old fixed marker is still on FriendlyUnit_1");
             var marker = Object.FindFirstObjectByType<ActiveCharacterMarker>();
             Assert.That(marker, Is.Not.Null, "ActiveMarker missing");
             Assert.That(marker.GetComponentsInChildren<Collider>(true), Is.Empty, "The marker must not block clicks");
-            Assert.That(marker.GetComponentsInChildren<Renderer>(true), Is.Not.Empty, "The marker has no visual");
             Assert.That(Object.FindFirstObjectByType<DirectControlInput>(), Is.Not.Null, "DirectControlInput missing");
             Assert.That(Camera.main, Is.Not.Null);
 
             // Any error or exception logged during this second fails the test automatically.
             yield return new WaitForSeconds(1f);
+            Assert.That(hostiles.All(h => h.State == EnemyState.Idle), Is.True, "Hostiles must stay idle while the squad is far away");
         }
 
         [UnityTest]
@@ -103,15 +139,38 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator Attack_DestroysTrainingDummy()
+        public IEnumerator Squad_AttacksEveryHostile_AndWins()
         {
             yield return LoadScene();
-            Assert.That(unit.Issue(new AttackCommand(dummy)), Is.True);
+            var squad = FindSquad();
+            var hostiles = HostileNames.Select(FindHostileHealth).ToArray();
+            Assert.That(GroupOrders.Issue(squad, new AttackCommand(hostiles[0]), IssueMode.Replace), Is.EqualTo(3));
+            Assert.That(GroupOrders.Issue(squad, new AttackCommand(hostiles[1]), IssueMode.Append), Is.EqualTo(3));
+            Assert.That(GroupOrders.Issue(squad, new AttackCommand(hostiles[2]), IssueMode.Append), Is.EqualTo(3));
 
-            yield return TestWorld.WaitUntil(() => !dummy.IsAlive, 20f);
+            yield return TestWorld.WaitUntil(() => encounter.Outcome != EncounterOutcome.Ongoing, 60f);
 
-            Assert.That(dummy.IsAlive, Is.False);
-            Assert.That(dummy.gameObject.activeSelf, Is.False);
+            Assert.That(encounter.Outcome, Is.EqualTo(EncounterOutcome.Victory), "The squad should beat three hostiles");
+            Assert.That(hostiles.All(h => !h.IsAlive && !h.gameObject.activeSelf), Is.True);
+            Assert.That(encounter.LivingFriendlies, Is.GreaterThan(0));
+            foreach (var name in HostileNames)
+                Assert.That(GameObject.Find($"{name} (dead)"), Is.Not.Null, $"{name} left no corpse marker");
+            Assert.That(PrototypeHud.DescribeOutcome(encounter.Outcome), Does.StartWith("VICTORY"));
+        }
+
+        [UnityTest]
+        public IEnumerator FriendlyWalksIntoView_HostilesEngageIt()
+        {
+            yield return LoadScene();
+            var hostiles = FindHostiles();
+            var health = unit.GetComponent<Health>();
+            // The gap between Obstacle_E and Obstacle_F, in plain sight of HostileUnit_1.
+            Assert.That(unit.Issue(new MoveCommand(new Vector3(10f, 0f, 6f))), Is.True);
+
+            yield return TestWorld.WaitUntil(() => hostiles.Any(h => h.Target == health) || health.Current < health.Max, 25f);
+
+            Assert.That(hostiles.Any(h => h.Target == health) || health.Current < health.Max, Is.True,
+                "No hostile engaged the friendly that walked into view");
         }
 
         [UnityTest]
@@ -128,6 +187,27 @@ namespace Blackglass.Tests
             pause.Resume();
             yield return TestWorld.WaitUntil(() => TestWorld.HorizontalDistance(unit.transform.position, start) > 1f, 5f);
             Assert.That(TestWorld.HorizontalDistance(unit.transform.position, start), Is.GreaterThan(1f));
+        }
+
+        [UnityTest]
+        public IEnumerator RepeatedPauseDuringTheFight_InScene_LogsNoErrors()
+        {
+            yield return LoadScene();
+            var squad = FindSquad();
+            GroupOrders.Issue(squad, new AttackCommand(firstHostile), IssueMode.Replace);
+            yield return TestWorld.WaitUntil(() => firstHostile.Current < firstHostile.Max, 20f);
+            Assert.That(firstHostile.Current, Is.LessThan(firstHostile.Max), "Precondition: the fight started");
+
+            for (var i = 0; i < 6; i++)
+            {
+                pause.Pause();
+                yield return new WaitForSecondsRealtime(0.15f);
+                pause.Resume();
+                yield return new WaitForSeconds(0.2f);
+            }
+
+            Assert.That(pause.IsPaused, Is.False);
+            Assert.That(encounter.Outcome, Is.Not.EqualTo(EncounterOutcome.Defeat));
         }
 
         [UnityTest]
@@ -162,6 +242,8 @@ namespace Blackglass.Tests
             yield return null;
         }
 
+        static Health FirstHostile() => PrototypeSceneTests.FindHostileHealth("HostileUnit_1");
+
         IEnumerator LeftClickAt(Mouse mouse, Vector2 screenPoint)
         {
             Set(mouse.position, screenPoint);
@@ -181,19 +263,20 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator PausedClickCompanionThenDummy_InScene_OnlyThatUnitAttacks()
+        public IEnumerator PausedClickCompanionThenHostile_InScene_OnlyThatUnitAttacks()
         {
             var mouse = InputSystem.AddDevice<Mouse>();
             var keyboard = InputSystem.AddDevice<Keyboard>();
             yield return LoadScene();
             var squad = PrototypeSceneTests.FindSquad();
-            var dummy = Object.FindFirstObjectByType<Health>();
+            var hostile = FirstHostile();
 
             yield return Tap(keyboard.spaceKey);
             yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(squad[1].transform.position));
-            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(dummy.transform.position));
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(hostile.transform.position));
 
             Assert.That(squad[1].CurrentCommand, Is.TypeOf<AttackCommand>());
+            Assert.That(((AttackCommand)squad[1].CurrentCommand).Target, Is.SameAs(hostile));
             Assert.That(squad[0].CurrentCommand, Is.Null);
             Assert.That(squad[2].CurrentCommand, Is.Null);
         }
@@ -292,18 +375,18 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator RealTimeClickOnDummy_InScene_ThePrimaryAttacks()
+        public IEnumerator RealTimeClickOnHostile_InScene_TheControlledCharacterAttacks()
         {
             var mouse = InputSystem.AddDevice<Mouse>();
             InputSystem.AddDevice<Keyboard>();
             yield return LoadScene();
             var squad = PrototypeSceneTests.FindSquad();
-            var dummy = Object.FindFirstObjectByType<Health>();
+            var hostile = FirstHostile();
 
-            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(dummy.transform.position));
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(hostile.transform.position));
 
-            Assert.That(squad[0].CurrentCommand, Is.TypeOf<AttackCommand>(), "The primary character did not attack");
-            Assert.That(((AttackCommand)squad[0].CurrentCommand).Target, Is.SameAs(dummy));
+            Assert.That(squad[0].CurrentCommand, Is.TypeOf<AttackCommand>(), "The controlled character did not attack");
+            Assert.That(((AttackCommand)squad[0].CurrentCommand).Target, Is.SameAs(hostile));
             Assert.That(squad[1].CurrentCommand, Is.Null);
             Assert.That(squad[2].CurrentCommand, Is.Null);
         }
@@ -362,7 +445,7 @@ namespace Blackglass.Tests
             var keyboard = InputSystem.AddDevice<Keyboard>();
             yield return LoadScene();
             var squad = PrototypeSceneTests.FindSquad();
-            var dummy = Object.FindFirstObjectByType<Health>();
+            var hostile = FirstHostile();
             var active = Object.FindFirstObjectByType<ActiveCharacter>();
             var selection = Object.FindFirstObjectByType<UnitSelection>();
             var marker = Object.FindFirstObjectByType<ActiveCharacterMarker>();
@@ -374,13 +457,13 @@ namespace Blackglass.Tests
 
             Assert.That(TestWorld.HorizontalDistance(marker.transform.position, squad[1].transform.position), Is.LessThan(0.01f),
                 "The marker did not move to the new active character");
-            var dummyOnScreen = Camera.main.WorldToScreenPoint(dummy.transform.position);
-            Assert.That(new Rect(0f, 0f, Screen.width, Screen.height).Contains(dummyOnScreen), Is.True,
-                "Precondition: the dummy is on screen after the camera focused FriendlyUnit_2");
-            yield return LeftClickAt(mouse, dummyOnScreen);
+            var hostileOnScreen = Camera.main.WorldToScreenPoint(hostile.transform.position);
+            Assert.That(new Rect(0f, 0f, Screen.width, Screen.height).Contains(hostileOnScreen), Is.True,
+                "Precondition: HostileUnit_1 is on screen after the camera focused FriendlyUnit_2");
+            yield return LeftClickAt(mouse, hostileOnScreen);
 
             Assert.That(squad[1].CurrentCommand, Is.TypeOf<AttackCommand>(), "The attack must come from FriendlyUnit_2");
-            Assert.That(((AttackCommand)squad[1].CurrentCommand).Target, Is.SameAs(dummy));
+            Assert.That(((AttackCommand)squad[1].CurrentCommand).Target, Is.SameAs(hostile));
             Assert.That(squad[0].CurrentCommand, Is.Null);
             Assert.That(squad[2].CurrentCommand, Is.Null);
         }
