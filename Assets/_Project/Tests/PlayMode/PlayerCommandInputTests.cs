@@ -24,7 +24,7 @@ namespace Blackglass.Tests
         TacticalPause pause;
         UnitSelection selection;
         PlayerCommandInput input;
-        PrimaryCharacter primaryCharacter;
+        ActiveCharacter activeCharacter;
 
         public override void Setup()
         {
@@ -49,8 +49,8 @@ namespace Blackglass.Tests
             selection = systems.AddComponent<UnitSelection>();
             selection.Initialize(unitA, unitB, unitC);
             // No unit yet: Phase 2 behaviour (orders go to the selection) until a test picks a primary character.
-            primaryCharacter = systems.AddComponent<PrimaryCharacter>();
-            primaryCharacter.Initialize(null, pause);
+            activeCharacter = systems.AddComponent<ActiveCharacter>();
+            activeCharacter.Initialize(null, pause);
             var actions = TestControls.Load();
             input = systems.AddComponent<PlayerCommandInput>();
             input.Initialize(viewCamera, selection, pause,
@@ -60,7 +60,7 @@ namespace Blackglass.Tests
                 TestControls.Ref(actions, "Commands/Modifier"),
                 TestControls.Ref(actions, "Commands/Stop"),
                 TestControls.Ref(actions, "Commands/ClearSelection"),
-                primaryCharacter);
+                activeCharacter);
             systems.SetActive(true);
         }
 
@@ -357,15 +357,15 @@ namespace Blackglass.Tests
             Assert.That(TestWorld.HorizontalDistance(unitA.transform.position, start), Is.GreaterThan(1f));
         }
 
-        // --- With a primary character (Phase 3). These tests give the fixture's PrimaryCharacter a unit.
+        // --- With a primary character (Phase 3). These tests give the fixture's ActiveCharacter a unit.
 
-        void MakePrimary(SelectableUnit unit) => primaryCharacter.Initialize(unit.Unit, pause);
+        void MakeActive(SelectableUnit unit) => activeCharacter.Initialize(unit.Unit, pause);
 
         [UnityTest]
         public IEnumerator RealTimeClickGround_WithAPrimary_OrdersOnlyThePrimary()
         {
             yield return null;
-            MakePrimary(unitA);
+            MakeActive(unitA);
             yield return LeftClickAt(ScreenPointOf(unitB));
             yield return LeftClickAt(ScreenPointOf(GroundPoint));
 
@@ -380,7 +380,7 @@ namespace Blackglass.Tests
         public IEnumerator RealTimeClickDummy_WithAPrimary_ThePrimaryAttacks()
         {
             yield return null;
-            MakePrimary(unitA);
+            MakeActive(unitA);
             yield return LeftClickAt(ScreenPointOf(unitB));
             yield return LeftClickAt(ScreenPointOf(dummy));
 
@@ -393,7 +393,7 @@ namespace Blackglass.Tests
         public IEnumerator RealTimeShiftClick_WithAPrimary_QueuesForThePrimary()
         {
             yield return null;
-            MakePrimary(unitA);
+            MakeActive(unitA);
             yield return LeftClickAt(ScreenPointOf(GroundPoint));
             yield return ShiftLeftClickAt(ScreenPointOf(OtherGroundPoint));
 
@@ -407,7 +407,7 @@ namespace Blackglass.Tests
         public IEnumerator PausedClickGround_WithAPrimary_OrdersTheSelection()
         {
             yield return null;
-            MakePrimary(unitA);
+            MakeActive(unitA);
             pause.Pause();
             yield return LeftClickAt(ScreenPointOf(unitB));
             yield return LeftClickAt(ScreenPointOf(GroundPoint));
@@ -420,7 +420,7 @@ namespace Blackglass.Tests
         public IEnumerator RealTimeClickFriendly_WithAPrimary_SelectsItAndOrdersNobody()
         {
             yield return null;
-            MakePrimary(unitA);
+            MakeActive(unitA);
             yield return LeftClickAt(ScreenPointOf(unitB));
 
             Assert.That(selection.Selected, Is.EqualTo(new[] { unitB }));
@@ -432,7 +432,7 @@ namespace Blackglass.Tests
         public IEnumerator RealTimeClickOnThePrimary_SelectsIt()
         {
             yield return null;
-            MakePrimary(unitA);
+            MakeActive(unitA);
             yield return LeftClickAt(ScreenPointOf(unitA));
 
             Assert.That(selection.Selected, Is.EqualTo(new[] { unitA }));
@@ -443,7 +443,7 @@ namespace Blackglass.Tests
         public IEnumerator RealTimeBoxDrag_WithAPrimary_StillSelects()
         {
             yield return null;
-            MakePrimary(unitA);
+            MakeActive(unitA);
             var (from, to) = BoxAround(unitA, unitB);
             yield return LeftDrag(from, to);
 
@@ -456,7 +456,7 @@ namespace Blackglass.Tests
         public IEnumerator RealTimeX_WithAPrimary_StopsTheSelectionNotThePrimary()
         {
             yield return null;
-            MakePrimary(unitA);
+            MakeActive(unitA);
             yield return LeftClickAt(ScreenPointOf(GroundPoint));          // the primary character walks
             pause.Pause();
             yield return LeftClickAt(ScreenPointOf(unitC));
@@ -475,13 +475,26 @@ namespace Blackglass.Tests
         public IEnumerator RealTimeClick_WithThePrimaryUnitDisabled_OrdersTheSelection()
         {
             yield return null;
-            MakePrimary(unitA);
+            MakeActive(unitA);
             unitA.Unit.enabled = false;
             yield return LeftClickAt(ScreenPointOf(unitB));
             yield return LeftClickAt(ScreenPointOf(GroundPoint));
 
             Assert.That(unitB.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "Without an active primary, clicks must order the selection");
             Assert.That(unitA.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeClickDummy_AfterSwitchingTheActiveCharacter_TheNewOneAttacks()
+        {
+            yield return null;
+            MakeActive(unitA);
+            activeCharacter.SetUnit(unitC.Unit);
+            yield return LeftClickAt(ScreenPointOf(dummy));
+
+            Assert.That(unitC.Unit.CurrentCommand, Is.TypeOf<AttackCommand>(), "The attack must come from the new active character");
+            Assert.That(((AttackCommand)unitC.Unit.CurrentCommand).Target, Is.SameAs(dummy));
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null, "The previous active character must not attack");
         }
     }
 }

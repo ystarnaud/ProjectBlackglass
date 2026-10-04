@@ -71,13 +71,17 @@ namespace Blackglass.Tests
             Assert.That(Object.FindFirstObjectByType<PlayerCommandInput>(), Is.Not.Null);
             Assert.That(Object.FindFirstObjectByType<TacticalCameraController>(), Is.Not.Null);
             Assert.That(Object.FindFirstObjectByType<PrototypeHud>(), Is.Not.Null);
-            var primary = Object.FindFirstObjectByType<PrimaryCharacter>();
-            Assert.That(primary, Is.Not.Null, "PrimaryCharacter missing");
-            Assert.That(primary.Unit, Is.Not.Null, "PrimaryCharacter has no unit");
-            Assert.That(primary.Unit.name, Is.EqualTo(FriendlyNames[0]));
-            Assert.That(primary.HasUnit, Is.True);
-            Assert.That(primary.IsTakeoverOn, Is.False, "The game starts in free mode");
-            Assert.That(primary.Unit.transform.Find("PrimaryMarker"), Is.Not.Null, "Primary marker missing");
+            var active = Object.FindFirstObjectByType<ActiveCharacter>();
+            Assert.That(active, Is.Not.Null, "ActiveCharacter missing");
+            Assert.That(active.Unit, Is.Not.Null, "ActiveCharacter has no unit");
+            Assert.That(active.Unit.name, Is.EqualTo(FriendlyNames[0]), "The game starts controlling FriendlyUnit_1");
+            Assert.That(active.HasUnit, Is.True);
+            Assert.That(active.IsTakeoverOn, Is.False, "The game starts in free mode");
+            Assert.That(active.Unit.transform.Find("PrimaryMarker"), Is.Null, "The old fixed marker is still on FriendlyUnit_1");
+            var marker = Object.FindFirstObjectByType<ActiveCharacterMarker>();
+            Assert.That(marker, Is.Not.Null, "ActiveMarker missing");
+            Assert.That(marker.GetComponentsInChildren<Collider>(true), Is.Empty, "The marker must not block clicks");
+            Assert.That(marker.GetComponentsInChildren<Renderer>(true), Is.Not.Empty, "The marker has no visual");
             Assert.That(Object.FindFirstObjectByType<DirectControlInput>(), Is.Not.Null, "DirectControlInput missing");
             Assert.That(Camera.main, Is.Not.Null);
 
@@ -349,6 +353,53 @@ namespace Blackglass.Tests
             Assert.That(squad[0].CurrentCommand, Is.Null, "Manual input must take the primary character back");
             Assert.That(squad[1].CurrentCommand, Is.TypeOf<MoveCommand>(), "Takeover cancelled a companion's order");
             Assert.That(squad[2].CurrentCommand, Is.TypeOf<MoveCommand>(), "Takeover cancelled a companion's order");
+        }
+
+        [UnityTest]
+        public IEnumerator Tab_InScene_SwitchesToTheNextFriendly_AndItsClicksAttack()
+        {
+            var mouse = InputSystem.AddDevice<Mouse>();
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var squad = PrototypeSceneTests.FindSquad();
+            var dummy = Object.FindFirstObjectByType<Health>();
+            var active = Object.FindFirstObjectByType<ActiveCharacter>();
+            var selection = Object.FindFirstObjectByType<UnitSelection>();
+            var marker = Object.FindFirstObjectByType<ActiveCharacterMarker>();
+
+            yield return Tap(keyboard.tabKey);
+            Assert.That(active.Unit, Is.SameAs(squad[1]), "Tab did not switch to FriendlyUnit_2");
+            Assert.That(selection.Selected, Is.EqualTo(new[] { squad[1].GetComponent<SelectableUnit>() }));
+            yield return new WaitForSecondsRealtime(1f);   // let the camera finish focusing before aiming the click
+
+            Assert.That(TestWorld.HorizontalDistance(marker.transform.position, squad[1].transform.position), Is.LessThan(0.01f),
+                "The marker did not move to the new active character");
+            var dummyOnScreen = Camera.main.WorldToScreenPoint(dummy.transform.position);
+            Assert.That(new Rect(0f, 0f, Screen.width, Screen.height).Contains(dummyOnScreen), Is.True,
+                "Precondition: the dummy is on screen after the camera focused FriendlyUnit_2");
+            yield return LeftClickAt(mouse, dummyOnScreen);
+
+            Assert.That(squad[1].CurrentCommand, Is.TypeOf<AttackCommand>(), "The attack must come from FriendlyUnit_2");
+            Assert.That(((AttackCommand)squad[1].CurrentCommand).Target, Is.SameAs(dummy));
+            Assert.That(squad[0].CurrentCommand, Is.Null);
+            Assert.That(squad[2].CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator ShiftTab_InScene_SwitchesBackToTheLastFriendly()
+        {
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var squad = PrototypeSceneTests.FindSquad();
+            var active = Object.FindFirstObjectByType<ActiveCharacter>();
+
+            Press(keyboard.leftShiftKey);
+            yield return null;
+            yield return Tap(keyboard.tabKey);
+            Release(keyboard.leftShiftKey);
+            yield return null;
+
+            Assert.That(active.Unit, Is.SameAs(squad[2]), "Shift+Tab did not switch to FriendlyUnit_3");
         }
     }
 }
