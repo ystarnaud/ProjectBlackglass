@@ -1,3 +1,4 @@
+using System.Globalization;
 using UnityEngine;
 using UnityEngine.Serialization;
 
@@ -24,6 +25,8 @@ namespace Blackglass
         GUIStyle pausedStyle;
         GUIStyle outcomeStyle;
         GUIStyle unitLabelStyle;
+
+        internal bool IsEncounterWired => encounter != null;
 
         /// <summary>Short summary of a unit's orders, such as "Move +2". Empty when idle.</summary>
         internal static string DescribeOrders(UnitCommand current, int pendingCount)
@@ -62,7 +65,8 @@ namespace Blackglass
         {
             if (cooldownRemaining <= 0f)
                 return text;
-            var cooldown = $"CD {cooldownRemaining:0.0}";
+            // Invariant culture: debug text and its tests must not depend on the OS locale.
+            var cooldown = "CD " + cooldownRemaining.ToString("0.0", CultureInfo.InvariantCulture);
             return text.Length == 0 ? cooldown : $"{text} {cooldown}";
         }
 

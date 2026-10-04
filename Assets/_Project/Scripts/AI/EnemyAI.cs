@@ -83,6 +83,12 @@ namespace Blackglass
             return true;
         }
 
+        void OnEnable()
+        {
+            if (encounter == null)
+                Debug.LogWarning($"{name} has no Encounter wired, so it will never acquire a target.", this);
+        }
+
         void Update()
         {
             if (!SimulationTime.IsRunning || !Unit.IsAlive)

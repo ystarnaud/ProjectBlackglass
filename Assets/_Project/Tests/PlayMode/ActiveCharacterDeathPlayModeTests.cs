@@ -167,6 +167,8 @@ namespace Blackglass.Tests
             Kill(second);
             yield return null;
             Assert.That(active.Unit, Is.SameAs(third), "Precondition: the last friendly took over");
+            selection.Select(SelectableOf(third));
+            yield return null;
 
             Kill(third);
             yield return null;

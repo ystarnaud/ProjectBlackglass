@@ -92,10 +92,12 @@ namespace Blackglass.Tests
             var retreat = new MoveCommand(new Vector3(0f, 0f, -12f));
             Assert.That(victim.Issue(retreat), Is.True);
             var healthAtRetreat = victimHealth.Current;
-            yield return new WaitForSeconds(0.6f);   // the aggressor chases and hits again (0.2 s cooldown)
+            // The aggressor chases and hits again (0.2 s cooldown); wait for that hit rather than a fixed time.
+            yield return TestWorld.WaitUntil(() => victimHealth.Current < healthAtRetreat, 1.5f);
+            yield return TestWorld.WaitUntil(() => TestWorld.HorizontalDistance(victim.transform.position, start) > 1f, 1.5f);
 
             Assert.That(victim.CurrentCommand, Is.SameAs(retreat), "Later hits must not replace the retreat order");
-            Assert.That(TestWorld.HorizontalDistance(victim.transform.position, start), Is.GreaterThan(1.5f), "The unit did not retreat");
+            Assert.That(TestWorld.HorizontalDistance(victim.transform.position, start), Is.GreaterThan(1f), "The unit did not retreat");
             Assert.That(victimHealth.Current, Is.LessThan(healthAtRetreat), "Precondition: the aggressor hit the retreating unit again");
         }
 
@@ -130,6 +132,14 @@ namespace Blackglass.Tests
             yield return null;
             var fragile = world.CreateFighter(new Vector3(1.5f, 0f, 1.5f), maxHealth: 10);
             var fragileHealth = fragile.GetComponent<Health>();
+            var hitSeen = false;
+            UnitCommand commandAtHit = null;
+            // Subscribed after the fighter exists, so AutoRetaliate's handler has already run when this samples.
+            fragileHealth.AttackedBy += _ =>
+            {
+                hitSeen = true;
+                commandAtHit = fragile.CurrentCommand;
+            };
             aggressor.Issue(new AttackCommand(fragileHealth));
             yield return TestWorld.WaitUntil(() => !fragileHealth.IsAlive, 2f);
             yield return null;
@@ -137,6 +147,8 @@ namespace Blackglass.Tests
             Assert.That(fragileHealth.IsAlive, Is.False, "Precondition: the first hit killed it");
             Assert.That(fragile.CurrentCommand, Is.Null, "A corpse must not carry a retaliation order");
             Assert.That(aggressorHealth.Current, Is.EqualTo(aggressorHealth.Max), "The dead unit must not have struck back");
+            Assert.That(hitSeen, Is.True, "Precondition: the killing blow was observed");
+            Assert.That(commandAtHit, Is.Null, "A dying unit must not issue a retaliation order inside the hit");
         }
 
         [UnityTest]

@@ -108,11 +108,14 @@ namespace Blackglass.Tests
             Assert.That(pause, Is.Not.Null, "TacticalPause missing");
             Assert.That(Object.FindFirstObjectByType<PlayerCommandInput>(), Is.Not.Null);
             Assert.That(Object.FindFirstObjectByType<TacticalCameraController>(), Is.Not.Null);
-            Assert.That(Object.FindFirstObjectByType<PrototypeHud>(), Is.Not.Null);
+            var hud = Object.FindFirstObjectByType<PrototypeHud>();
+            Assert.That(hud, Is.Not.Null);
+            Assert.That(hud.IsEncounterWired, Is.True, "PrototypeHud.encounter is not wired in the scene");
             var active = Object.FindFirstObjectByType<ActiveCharacter>();
             Assert.That(active, Is.Not.Null, "ActiveCharacter missing");
             Assert.That(active.Unit, Is.Not.Null, "ActiveCharacter has no unit");
             Assert.That(active.Unit.name, Is.EqualTo(FriendlyNames[0]), "The game starts controlling FriendlyUnit_1");
+            Assert.That(active.HasUnit, Is.True);
             Assert.That(active.IsTakeoverOn, Is.False, "The game starts in free mode");
             var marker = Object.FindFirstObjectByType<ActiveCharacterMarker>();
             Assert.That(marker, Is.Not.Null, "ActiveMarker missing");
