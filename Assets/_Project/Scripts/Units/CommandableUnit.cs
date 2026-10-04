@@ -169,6 +169,12 @@ namespace Blackglass
                     chasing = true;
                     lastChaseTarget = targetPosition;
                 }
+                else if (Mover.HasArrived)
+                {
+                    // A complete path ends at the target, inside attack range, so arriving out of range means the
+                    // path was partial: the target cannot be reached.
+                    FinishAttack();
+                }
                 return;
             }
 

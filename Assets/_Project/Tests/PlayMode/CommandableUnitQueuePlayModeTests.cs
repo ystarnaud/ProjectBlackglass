@@ -151,6 +151,31 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Attack_OnWalledOffTarget_Completes_AndTheNextOrderRuns()
+        {
+            // The same closed box of walls around (6, 0, 6), with the target inside it.
+            world.CreateEnvironment(
+                (new Vector3(6f, 1f, 8.5f), new Vector3(6f, 2f, 1f)),
+                (new Vector3(6f, 1f, 3.5f), new Vector3(6f, 2f, 1f)),
+                (new Vector3(3.5f, 1f, 6f), new Vector3(1f, 2f, 6f)),
+                (new Vector3(8.5f, 1f, 6f), new Vector3(1f, 2f, 6f)));
+            var unit = world.CreateUnit(new Vector3(-6f, 0f, -6f));
+            var dummy = world.CreateDummy(new Vector3(6f, 0f, 6f));
+            yield return null;
+            var startingHealth = dummy.Current;
+            var next = new Vector3(-6f, 0f, 0f);
+
+            Assert.That(unit.Issue(new AttackCommand(dummy)), Is.True);
+            Assert.That(unit.Issue(new MoveCommand(next), IssueMode.Append), Is.True);
+
+            yield return TestWorld.WaitUntil(() => unit.CurrentCommand == null, 25f);
+
+            Assert.That(unit.CurrentCommand, Is.Null, "The attack on the walled-off target never completed, so the queue stalled");
+            Assert.That(TestWorld.HorizontalDistance(unit.transform.position, next), Is.LessThan(0.3f));
+            Assert.That(dummy.Current, Is.EqualTo(startingHealth), "The walled-off target was damaged");
+        }
+
+        [UnityTest]
         public IEnumerator TwoUnitsMovedToTheSamePoint_BothMovesComplete()
         {
             world.CreateEnvironment();
