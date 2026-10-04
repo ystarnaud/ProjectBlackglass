@@ -1,0 +1,43 @@
+# Normalize line endings in the repository; Git detects text vs. binary.
+* text=auto
+
+# Unity writes its text-serialized files with LF on every platform. Keep them LF in
+# the working tree too, so Unity re-saves don't show up as modified files on machines
+# with core.autocrlf=true.
+#
+# These rules set only `eol`, never `text`, so Git's binary detection still applies.
+# Some .asset files are always binary (LightingData, NavMesh, TerrainData), and
+# forcing `text` on them would corrupt them on commit.
+
+# Scenes, prefabs and serialized assets
+*.unity               eol=lf
+*.prefab              eol=lf
+*.asset               eol=lf
+*.meta                eol=lf
+*.mat                 eol=lf
+*.anim                eol=lf
+*.controller          eol=lf
+*.overrideController  eol=lf
+*.mask                eol=lf
+*.playable            eol=lf
+*.signal              eol=lf
+*.mixer               eol=lf
+*.preset              eol=lf
+*.lighting            eol=lf
+*.renderTexture       eol=lf
+*.physicMaterial      eol=lf
+*.physicsMaterial     eol=lf
+*.terrainlayer        eol=lf
+*.spriteatlasv2       eol=lf
+*.shadergraph         eol=lf
+*.shadersubgraph      eol=lf
+
+# Unity-written JSON and text formats
+*.inputactions        eol=lf
+*.asmdef              eol=lf
+*.asmref              eol=lf
+*.json                eol=lf
+*.uxml                eol=lf
+*.uss                 eol=lf
+*.tss                 eol=lf
+ProjectSettings/ProjectVersion.txt eol=lf
