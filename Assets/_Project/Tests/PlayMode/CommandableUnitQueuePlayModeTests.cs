@@ -151,6 +151,48 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator TwoUnitsMovedToTheSamePoint_BothMovesComplete()
+        {
+            world.CreateEnvironment();
+            var first = world.CreateUnit(new Vector3(-6f, 0f, -6f));
+            var second = world.CreateUnit(new Vector3(6f, 0f, -6f));
+            yield return null;
+            var shared = new Vector3(0f, 0f, 0f);
+            var firstNext = new Vector3(-6f, 0f, 6f);
+            var secondNext = new Vector3(6f, 0f, 6f);
+
+            Assert.That(first.Issue(new MoveCommand(shared)), Is.True);
+            Assert.That(first.Issue(new MoveCommand(firstNext), IssueMode.Append), Is.True);
+            Assert.That(second.Issue(new MoveCommand(shared)), Is.True);
+            Assert.That(second.Issue(new MoveCommand(secondNext), IssueMode.Append), Is.True);
+
+            yield return TestWorld.WaitUntil(() => first.CurrentCommand == null && second.CurrentCommand == null, 20f);
+
+            Assert.That(first.CurrentCommand, Is.Null, "First unit's queue stalled");
+            Assert.That(second.CurrentCommand, Is.Null, "Second unit's queue stalled");
+            Assert.That(TestWorld.HorizontalDistance(first.transform.position, firstNext), Is.LessThan(0.3f));
+            Assert.That(TestWorld.HorizontalDistance(second.transform.position, secondNext), Is.LessThan(0.3f));
+        }
+
+        [UnityTest]
+        public IEnumerator Move_OntoAnIdleUnit_Completes_AndTheNextOrderRuns()
+        {
+            world.CreateEnvironment();
+            var blocker = world.CreateUnit(new Vector3(0f, 0f, 0f));
+            var unit = world.CreateUnit(new Vector3(-6f, 0f, -6f));
+            yield return null;
+            var next = new Vector3(6f, 0f, -6f);
+
+            Assert.That(unit.Issue(new MoveCommand(blocker.transform.position)), Is.True);
+            Assert.That(unit.Issue(new MoveCommand(next), IssueMode.Append), Is.True);
+
+            yield return TestWorld.WaitUntil(() => unit.CurrentCommand == null, 20f);
+
+            Assert.That(unit.CurrentCommand, Is.Null, "The move onto the idle unit never completed, so the queue stalled");
+            Assert.That(TestWorld.HorizontalDistance(unit.transform.position, next), Is.LessThan(0.3f));
+        }
+
+        [UnityTest]
         public IEnumerator Append_MoveOffNavMesh_IsRejectedWithWarning()
         {
             world.CreateEnvironment();
