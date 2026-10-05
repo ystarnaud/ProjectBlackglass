@@ -51,16 +51,16 @@ The script prints `error CS` lines, a summary (`result= total= passed= failed=`)
 | 2 | 212 | 181 |
 | 3 | 212 | 185 |
 | 4 | 217 | 185 |
-| 5 | 219 | 191 |
-| 6 | 219 | 193 |
-| 7 | 231 | 193 |
-| 8 | 231 | 206 |
-| 9 | 231 | 208 |
-| 10 | 238 | 208 |
-| 11 | 238 | 210 |
-| 12 | 238 | 210 |
+| 5 | 219 | 192 |
+| 6 | 219 | 194 |
+| 7 | 231 | 194 |
+| 8 | 231 | 207 |
+| 9 | 231 | 209 |
+| 10 | 238 | 209 |
+| 11 | 238 | 211 |
+| 12 | 238 | 211 |
 
-These totals assume each task adds exactly the tests listed. If a task's count differs, correct this table in that task's commit; the sequence must stay green either way.
+These totals assume each task adds exactly the tests listed. If a task's count differs, correct this table in that task's commit; the sequence must stay green either way. (Corrected after Task 5's review: its fix round added `FallbackWalkThenSightLostAgain_KeepsTheOrder_AndHitsAgain`, so PlayMode totals from Task 5 on are one higher than first planned.)
 
 ## Review Focus
 
