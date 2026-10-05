@@ -99,7 +99,9 @@ namespace Blackglass.Tests
             yield return TestWorld.WaitUntil(() => registry.Points.Count > 0, 2f);
             Assert.That(registry.Points, Is.Not.Empty, "Cover is discovered at start");
 
-            foreach (var unit in Object.FindObjectsByType<CommandableUnit>(FindObjectsSortMode.None))
+            var units = Object.FindObjectsByType<CommandableUnit>(FindObjectsSortMode.None);
+            Assert.That(units, Has.Length.EqualTo(FriendlyNames.Length + HostileNames.Length), "Three friendlies and three hostiles");
+            foreach (var unit in units)
             {
                 var radius = unit.Cover.OccupyRadius;
                 foreach (var point in registry.Points)
