@@ -12,6 +12,7 @@ namespace Blackglass.Tests
     {
         static readonly Vector3 GroundPoint = new Vector3(2f, 0f, 2f);
         static readonly Vector3 OtherGroundPoint = new Vector3(-2f, 0f, 2f);
+        static readonly Vector3 CoverGroundPoint = new Vector3(-6f, 0f, 2f);
 
         Keyboard keyboard;
         Mouse mouse;
@@ -25,6 +26,8 @@ namespace Blackglass.Tests
         UnitSelection selection;
         PlayerCommandInput input;
         ActiveCharacter activeCharacter;
+        CoverPoint coverPoint;
+        CoverRegistry registry;
 
         public override void Setup()
         {
@@ -38,6 +41,12 @@ namespace Blackglass.Tests
             unitB = world.CreateFriendly(new Vector3(-4f, 0f, -6f));
             unitC = world.CreateFriendly(new Vector3(4f, 0f, -6f));
             dummy = world.CreateDummy(new Vector3(6f, 0f, 6f));
+
+            // A loose waist-high wall north of the cover point (the environment is already baked; the box is only a
+            // collider for the point). Clicks at CoverGroundPoint reach the ground: the wall is farther from the camera.
+            var wall = world.CreateObstacle(CoverGroundPoint + new Vector3(0f, 0.45f, 1f), new Vector3(2f, 0.9f, 0.5f));
+            coverPoint = world.CreateCoverPoint(CoverGroundPoint, Vector3.forward, wall.GetComponent<Collider>());
+            registry = world.CreateRegistry(coverPoint);
 
             var cameraObject = world.Track(new GameObject("Camera"));
             cameraObject.transform.SetPositionAndRotation(new Vector3(0f, 25f, -20f), Quaternion.Euler(50f, 0f, 0f));
@@ -60,7 +69,7 @@ namespace Blackglass.Tests
                 TestControls.Ref(actions, "Commands/Modifier"),
                 TestControls.Ref(actions, "Commands/Stop"),
                 TestControls.Ref(actions, "Commands/ClearSelection"),
-                activeCharacter);
+                activeCharacter, registry);
             systems.SetActive(true);
         }
 
@@ -538,6 +547,21 @@ namespace Blackglass.Tests
             Assert.That(unitC.Unit.CurrentCommand, Is.TypeOf<AttackCommand>(), "The attack must come from the new active character");
             Assert.That(((AttackCommand)unitC.Unit.CurrentCommand).Target, Is.SameAs(dummy));
             Assert.That(unitA.Unit.CurrentCommand, Is.Null, "The previous active character must not attack");
+        }
+
+        [UnityTest]
+        public IEnumerator ClickNearACoverPoint_OrdersTheSelectionIntoCover()
+        {
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitA }), "Precondition: unit A is selected");
+            Assert.That(input.IsCoverWired, Is.True);
+
+            yield return LeftClickAt(ScreenPointOf(CoverGroundPoint + new Vector3(0.4f, 0f, 0f)));
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<MoveToCoverCommand>(), "A click within 1 m of a cover point is a cover order");
+            Assert.That(((MoveToCoverCommand)unitA.Unit.CurrentCommand).Point, Is.SameAs(coverPoint));
+            Assert.That(unitA.Unit.Cover.Status, Is.EqualTo(CoverStatus.Reserved));
+            Assert.That(unitB.Unit.CurrentCommand, Is.Null);
         }
     }
 }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -7,7 +8,7 @@ namespace Blackglass
 {
     /// <summary>
     /// Translates the player's input into requests. Left button: a click on a friendly unit selects it, a click
-    /// anywhere else gives an order (attack the clicked target, or move to the clicked point), and a drag box-selects.
+    /// anywhere else gives an order (attack the clicked target, move into the cover point within coverClickRadius of the click, or move to the clicked point), and a drag box-selects.
     /// The order goes to the selected units whenever any are selected or the game is paused; with nothing selected in
     /// real time it goes to the active character. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
     /// selection, Space toggles tactical pause. Contains no movement or combat rules.
@@ -18,6 +19,7 @@ namespace Blackglass
         [SerializeField] UnitSelection selection;
         [SerializeField] TacticalPause tacticalPause;
         [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
+        [SerializeField] CoverRegistry coverRegistry;
 
         [Header("Input")]
         [SerializeField] InputActionReference commandAction;
@@ -33,9 +35,12 @@ namespace Blackglass
         [SerializeField, Min(1f)] float maxClickDistance = 500f;
         [SerializeField] LayerMask clickableLayers = ~0;
         [SerializeField, Min(0.5f)] float groupSpacing = GroupOrders.DefaultSpacing;
+        // A ground click this close to a cover point orders the unit into that point instead of onto the ground.
+        [SerializeField, Min(0f)] float coverClickRadius = 1f;
 
         readonly List<CommandableUnit> orderedUnits = new List<CommandableUnit>();
         readonly List<SelectableUnit> boxedUnits = new List<SelectableUnit>();
+        static readonly Func<CoverPoint, bool> acceptAny = _ => true;
         ClickDragDetector clickDetector;
         Vector2 pressPosition;
 
@@ -45,10 +50,12 @@ namespace Blackglass
         /// <summary>The box being dragged, in screen pixels (origin bottom-left). Only meaningful while IsDragging.</summary>
         public Rect DragRect => ScreenBox.FromCorners(pressPosition, PointerPosition);
 
+        internal bool IsCoverWired => coverRegistry != null;
+
         internal void Initialize(Camera camera, UnitSelection unitSelection, TacticalPause pause,
             InputActionReference command, InputActionReference pointerPosition, InputActionReference togglePause,
             InputActionReference modifier, InputActionReference stop, InputActionReference clearSelection,
-            ActiveCharacter active = null)
+            ActiveCharacter active = null, CoverRegistry registry = null)
         {
             viewCamera = camera;
             selection = unitSelection;
@@ -60,6 +67,7 @@ namespace Blackglass
             stopAction = stop;
             clearSelectionAction = clearSelection;
             activeCharacter = active;
+            coverRegistry = registry;
         }
 
         void Awake() => clickDetector = new ClickDragDetector(dragThresholdPixels);
@@ -161,7 +169,10 @@ namespace Blackglass
                 return;
             }
 
-            var command = CommandResolver.Resolve(hit.collider.GetComponentInParent<Health>(), hit.point);
+            CoverPoint cover = null;
+            if (coverRegistry != null)
+                CoverRules.TryChooseNearest(coverRegistry.Points, hit.point, coverClickRadius, acceptAny, out cover);
+            var command = CommandResolver.Resolve(hit.collider.GetComponentInParent<Health>(), hit.point, cover);
             GroupOrders.Issue(OrderedUnits(), command, ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
         }
 
