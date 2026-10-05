@@ -71,7 +71,8 @@ namespace Blackglass.Tests
         /// A unit with Health that can fight and die. Assembled while inactive so every component's OnEnable sees
         /// the others (CommandableUnit subscribes to its Health there).
         /// </summary>
-        public CommandableUnit CreateFighter(Vector3 groundPosition, int maxHealth = 100, int damage = 25, float cooldown = 1f)
+        public CommandableUnit CreateFighter(Vector3 groundPosition, int maxHealth = 100, int damage = 25, float cooldown = 1f,
+            CombatRole role = CombatRole.Melee, float range = 2f)
         {
             var host = Track(GameObject.CreatePrimitive(PrimitiveType.Capsule));
             host.name = "TestFighter";
@@ -79,7 +80,7 @@ namespace Blackglass.Tests
             host.transform.position = groundPosition + Vector3.up;
             host.AddComponent<UnitMover>();
             host.GetComponent<NavMeshAgent>().baseOffset = 1f;
-            host.AddComponent<UnitAttacker>().Initialize(2f, damage, cooldown);
+            host.AddComponent<UnitAttacker>().Initialize(range, damage, cooldown, role);
             host.AddComponent<Health>().Initialize(maxHealth);
             var unit = host.AddComponent<CommandableUnit>();
             host.AddComponent<AutoRetaliate>();
@@ -97,13 +98,33 @@ namespace Blackglass.Tests
 
         /// <summary>A fighter with EnemyAI wired to the encounter. Hostile prototype stats by default.</summary>
         public EnemyAI CreateHostile(Vector3 groundPosition, Encounter encounter, int maxHealth = 60, int damage = 10,
-            float cooldown = 1.2f, float detectionRange = 12f)
+            float cooldown = 1.2f, float detectionRange = 12f, CombatRole role = CombatRole.Melee, float range = 2f)
         {
-            var unit = CreateFighter(groundPosition, maxHealth, damage, cooldown);
+            var unit = CreateFighter(groundPosition, maxHealth, damage, cooldown, role, range);
             unit.name = "TestHostile";
             unit.gameObject.SetActive(false);
             var ai = unit.gameObject.AddComponent<EnemyAI>();
             ai.Initialize(encounter, detectionRange);
+            unit.gameObject.SetActive(true);
+            return ai;
+        }
+
+        /// <summary>An ActiveCharacter on its own object, controlling the given unit (no roster, so Cycle does nothing).</summary>
+        public ActiveCharacter CreateActiveCharacter(CommandableUnit unit, TacticalPause pause = null)
+        {
+            var active = Track(new GameObject("ActiveCharacter")).AddComponent<ActiveCharacter>();
+            active.Initialize(unit, pause);
+            return active;
+        }
+
+        /// <summary>A friendly fighter with CompanionAI wired to the active character and the encounter.</summary>
+        public CompanionAI CreateCompanion(Vector3 groundPosition, ActiveCharacter active, Encounter encounter, int maxHealth = 100)
+        {
+            var unit = CreateFighter(groundPosition, maxHealth);
+            unit.name = "TestCompanion";
+            unit.gameObject.SetActive(false);
+            var ai = unit.gameObject.AddComponent<CompanionAI>();
+            ai.Initialize(active, encounter);
             unit.gameObject.SetActive(true);
             return ai;
         }

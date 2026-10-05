@@ -76,6 +76,12 @@ namespace Blackglass.Tests
                 Assert.That(friendly.GetComponent<DeathMarker>(), Is.Not.Null, friendly.name);
                 Assert.That(friendly.GetComponent<AutoRetaliate>(), Is.Not.Null, friendly.name);
                 Assert.That(friendly.GetComponent<AttackLineView>(), Is.Not.Null, friendly.name);
+                Assert.That(friendly.GetComponent<CompanionAI>(), Is.Not.Null, $"{friendly.name} has no CompanionAI");
+                Assert.That(friendly.GetComponent<CompanionAI>().IsWired, Is.True, $"{friendly.name}'s CompanionAI is not wired");
+                var expectedRole = friendly.name == "FriendlyUnit_3" ? CombatRole.Ranged : CombatRole.Melee;
+                Assert.That(friendly.GetComponent<UnitAttacker>().Role, Is.EqualTo(expectedRole), friendly.name);
+                Assert.That(friendly.GetComponent<UnitAttacker>().Range, Is.EqualTo(expectedRole == CombatRole.Ranged ? 8f : 2f), friendly.name);
+                Assert.That(friendly.GetComponent<UnitAttacker>().Damage, Is.EqualTo(expectedRole == CombatRole.Ranged ? 15 : 25), friendly.name);
                 Assert.That(friendly.GetComponent<EnemyAI>(), Is.Null, $"{friendly.name} must not have enemy AI");
                 Assert.That(friendly.GetComponentsInChildren<Collider>(true), Has.Length.EqualTo(1),
                     $"{friendly.name}: only the capsule may have a collider, so debug visuals never block clicks");
@@ -87,8 +93,12 @@ namespace Blackglass.Tests
             foreach (var hostile in hostiles)
             {
                 Assert.That(hostile.GetComponent<Health>().Max, Is.EqualTo(60), hostile.name);
-                Assert.That(hostile.GetComponent<UnitAttacker>().Damage, Is.EqualTo(10), hostile.name);
-                Assert.That(hostile.GetComponent<UnitAttacker>().Cooldown, Is.EqualTo(1.2f).Within(0.001f), hostile.name);
+                var ranged = hostile.name == "HostileUnit_3";
+                Assert.That(hostile.GetComponent<UnitAttacker>().Role, Is.EqualTo(ranged ? CombatRole.Ranged : CombatRole.Melee), hostile.name);
+                Assert.That(hostile.GetComponent<UnitAttacker>().Range, Is.EqualTo(ranged ? 8f : 2f), hostile.name);
+                Assert.That(hostile.GetComponent<UnitAttacker>().Damage, Is.EqualTo(ranged ? 8 : 10), hostile.name);
+                Assert.That(hostile.GetComponent<UnitAttacker>().Cooldown, Is.EqualTo(ranged ? 1.5f : 1.2f).Within(0.001f), hostile.name);
+                Assert.That(hostile.GetComponent<CompanionAI>(), Is.Null, $"{hostile.name} must not have companion AI");
                 Assert.That(hostile.GetComponent<HitFlash>(), Is.Not.Null, hostile.name);
                 Assert.That(hostile.GetComponent<DeathMarker>(), Is.Not.Null, hostile.name);
                 Assert.That(hostile.GetComponent<AutoRetaliate>(), Is.Not.Null, hostile.name);
@@ -104,6 +114,8 @@ namespace Blackglass.Tests
             Assert.That(encounter.Outcome, Is.EqualTo(EncounterOutcome.Ongoing));
             Assert.That(GameObject.Find("Obstacle_E"), Is.Not.Null);
             Assert.That(GameObject.Find("Obstacle_F"), Is.Not.Null);
+            foreach (var obstacle in new[] { "Pillar_G", "Pillar_H", "Barrier_I", "Crate_J", "Crate_K" })
+                Assert.That(GameObject.Find(obstacle), Is.Not.Null, $"{obstacle} missing");
 
             Assert.That(pause, Is.Not.Null, "TacticalPause missing");
             Assert.That(Object.FindFirstObjectByType<PlayerCommandInput>(), Is.Not.Null);
@@ -126,6 +138,46 @@ namespace Blackglass.Tests
             // Any error or exception logged during this second fails the test automatically.
             yield return new WaitForSeconds(1f);
             Assert.That(hostiles.All(h => h.State == EnemyState.Idle), Is.True, "Hostiles must stay idle while the squad is far away");
+            var companions = FindSquad().Select(u => u.GetComponent<CompanionAI>()).ToArray();
+            Assert.That(companions[0].State, Is.EqualTo(CompanionState.Controlled), "FriendlyUnit_1 is controlled");
+            Assert.That(companions[1].State, Is.EqualTo(CompanionState.Idle), "FriendlyUnit_2 starts within follow distance");
+            Assert.That(companions[2].State, Is.EqualTo(CompanionState.Idle), "FriendlyUnit_3 starts within follow distance");
+        }
+
+        [UnityTest]
+        public IEnumerator ControlledCharacterMoves_CompanionsFollow()
+        {
+            yield return LoadScene();
+            var squad = FindSquad();
+            Assert.That(unit.Issue(new MoveCommand(new Vector3(-14f, 0f, 0f))), Is.True);
+
+            // Waiting for the leader to arrive too: at load the companions already stand within 6 m of it.
+            yield return TestWorld.WaitUntil(() => unit.CurrentCommand == null && squad.Skip(1).All(u => u.CurrentCommand == null
+                && TestWorld.HorizontalDistance(u.transform.position, unit.transform.position) < 6f), 25f);
+
+            Assert.That(unit.CurrentCommand, Is.Null, "The controlled character did not arrive");
+            foreach (var companion in squad.Skip(1))
+                Assert.That(TestWorld.HorizontalDistance(companion.transform.position, unit.transform.position), Is.LessThan(6f),
+                    $"{companion.name} did not follow the controlled character");
+        }
+
+        [UnityTest]
+        public IEnumerator Tab_ThenMove_TheOldLeaderFollowsTheNewOne()
+        {
+            yield return LoadScene();
+            var squad = FindSquad();
+            var active = Object.FindFirstObjectByType<ActiveCharacter>();
+            Assert.That(active.Cycle(1), Is.True);
+            Assert.That(active.Unit, Is.SameAs(squad[1]));
+            Assert.That(squad[1].Issue(new MoveCommand(new Vector3(-14f, 0f, 0f))), Is.True);
+
+            yield return TestWorld.WaitUntil(() => squad[1].CurrentCommand == null && squad[0].CurrentCommand == null
+                && TestWorld.HorizontalDistance(squad[0].transform.position, squad[1].transform.position) < 6f, 25f);
+
+            Assert.That(squad[1].CurrentCommand, Is.Null, "FriendlyUnit_2 did not arrive");
+            Assert.That(TestWorld.HorizontalDistance(squad[0].transform.position, squad[1].transform.position), Is.LessThan(6f),
+                "FriendlyUnit_1 must follow once FriendlyUnit_2 is controlled");
+            Assert.That(squad[0].GetComponent<CompanionAI>().State, Is.Not.EqualTo(CompanionState.Controlled));
         }
 
         [UnityTest]
@@ -355,7 +407,7 @@ namespace Blackglass.Tests
 
             Press(keyboard.leftShiftKey);
             yield return null;
-            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, 4f)));
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, -4f)));   // (-6, 0, 4) is hidden behind Barrier_I
             Release(keyboard.leftShiftKey);
             yield return null;
             foreach (var member in squad)

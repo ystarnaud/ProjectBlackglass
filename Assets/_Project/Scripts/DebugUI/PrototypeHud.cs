@@ -4,7 +4,7 @@ using UnityEngine.Serialization;
 
 namespace Blackglass
 {
-    /// <summary>Debug-only on-screen text (IMGUI). Not production UI. Works while paused.</summary>
+    /// <summary>Debug-only on-screen text (IMGUI). Not production UI. Works while paused. Unit labels show role, health, orders, AI state and line of sight.</summary>
     public sealed class PrototypeHud : MonoBehaviour
     {
         const string ControlHints =
@@ -52,13 +52,30 @@ namespace Blackglass
         internal static string DescribeSides(int livingFriendlies, int friendlies, int livingHostiles, int hostiles) =>
             $"Friendlies alive {livingFriendlies}/{friendlies} | Hostiles alive {livingHostiles}/{hostiles}";
 
-        internal static string DescribeUnit(string unitName, int current, int max) => $"{unitName} {current}/{max}";
+        internal static string DescribeUnit(string unitName, int current, int max, CombatRole role) =>
+            $"{unitName} {current}/{max} [{role}]";
 
         /// <summary>A hostile's line: its AI state, its target if any, and the cooldown while one runs.</summary>
         internal static string DescribeEnemy(EnemyState state, string targetName, float cooldownRemaining)
         {
             var text = string.IsNullOrEmpty(targetName) ? state.ToString() : $"{state} -> {targetName}";
             return AppendCooldown(text, cooldownRemaining);
+        }
+
+        /// <summary>A companion's line: its orders (if any) and what its autonomy is doing, e.g. "Attack | Assist -> HostileUnit_1".</summary>
+        internal static string DescribeCompanion(string orders, CompanionState state, string assistTargetName)
+        {
+            var text = state == CompanionState.Assist && !string.IsNullOrEmpty(assistTargetName)
+                ? $"{state} -> {assistTargetName}"
+                : state.ToString();
+            return string.IsNullOrEmpty(orders) ? text : $"{orders} | {text}";
+        }
+
+        /// <summary>Appends the line-of-sight verdict for a ranged unit with an attack order.</summary>
+        internal static string AppendSight(string text, bool hasLineOfSight)
+        {
+            var sight = hasLineOfSight ? "LOS clear" : "LOS blocked";
+            return text.Length == 0 ? sight : $"{text} {sight}";
         }
 
         internal static string AppendCooldown(string text, float cooldownRemaining)
@@ -148,27 +165,34 @@ namespace Blackglass
                 DrawUnitLabel(health, true);
         }
 
-        // Debug only: a handful of units, so per-frame GetComponent calls are fine here.
+        // Debug only: a handful of units, so per-frame GetComponent calls and one sight ray per ranged attacker are fine.
         void DrawUnitLabel(Health health, bool hostile)
         {
             if (health == null || !health.IsAlive || !health.gameObject.activeInHierarchy)
                 return;
-            var text = DescribeUnit(health.name, health.Current, health.Max);
-            var cooldown = health.TryGetComponent<UnitAttacker>(out var attacker) ? attacker.CooldownRemaining : 0f;
+            var hasAttacker = health.TryGetComponent<UnitAttacker>(out var attacker);
+            var text = DescribeUnit(health.name, health.Current, health.Max, hasAttacker ? attacker.Role : CombatRole.Melee);
+            var cooldown = hasAttacker ? attacker.CooldownRemaining : 0f;
+            health.TryGetComponent<CommandableUnit>(out var unit);
             string activity;
             if (hostile && health.TryGetComponent<EnemyAI>(out var ai))
                 activity = DescribeEnemy(ai.State, ai.Target != null ? ai.Target.name : null, cooldown);
-            else if (health.TryGetComponent<CommandableUnit>(out var unit))
+            else if (unit != null && health.TryGetComponent<CompanionAI>(out var companion))
+                activity = AppendCooldown(DescribeCompanion(DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count),
+                    companion.State, companion.AssistTarget != null ? companion.AssistTarget.name : null), cooldown);
+            else if (unit != null)
                 activity = AppendCooldown(DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count), cooldown);
             else
                 activity = string.Empty;
+            if (hasAttacker && attacker.NeedsLineOfSight && unit != null && unit.CurrentCommand is AttackCommand attack)
+                activity = AppendSight(activity, attacker.HasLineOfSight(attack.Target));
             if (activity.Length > 0)
                 text += "\n" + activity;
 
             var screen = viewCamera.WorldToScreenPoint(health.transform.position + Vector3.up * UnitLabelHeight);
             if (screen.z <= 0f)
                 return;
-            GUI.Label(new Rect(screen.x - 80f, Screen.height - screen.y - 22f, 160f, 44f), text, unitLabelStyle);
+            GUI.Label(new Rect(screen.x - 100f, Screen.height - screen.y - 22f, 200f, 44f), text, unitLabelStyle);
         }
     }
 }

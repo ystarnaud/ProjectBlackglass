@@ -315,9 +315,13 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ef61364b34b2d2947873f8cf99fe1c2a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.UnitAttacker
+  role: 0
   range: 2
   damage: 10
   cooldown: 1.2
+  sightBlockers:
+    serializedVersion: 2
+    m_Bits: 4294967295
 --- !u!114 &7895547863240179074
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -416,7 +420,3 @@ MonoBehaviour:
   encounter: {fileID: 0}
   detectionRange: 12
   thinkInterval: 0.25
-  sightBlockers:
-    serializedVersion: 2
-    m_Bits: 4294967295
-  eyeHeight: 0.5

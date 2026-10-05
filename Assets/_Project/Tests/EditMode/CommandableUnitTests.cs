@@ -65,6 +65,16 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void AttackPhase_IsNoneWithoutAnAttackOrder_AndApproachOnceOneIsIssued()
+        {
+            Assert.That(unit.AttackPhase, Is.EqualTo(AttackPhase.None));
+            Assert.That(unit.Issue(new AttackCommand(target)), Is.True);
+            Assert.That(unit.AttackPhase, Is.EqualTo(AttackPhase.Approach), "An attack order that has not ticked is approaching");
+            Assert.That(unit.Issue(new StopCommand()), Is.True);
+            Assert.That(unit.AttackPhase, Is.EqualTo(AttackPhase.None), "No order, no phase");
+        }
+
+        [Test]
         public void Issue_AttackOnDeadTarget_IsRejected()
         {
             var attack = new AttackCommand(target);

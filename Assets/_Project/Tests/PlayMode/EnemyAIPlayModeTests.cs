@@ -172,10 +172,10 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator UnreachableVisibleFriendly_IsRechasedWithoutErrors()
+        public IEnumerator UnreachableVisibleFriendly_IsIgnored()
         {
-            // Low walls ring the friendly: agents cannot climb 1 m (0.8 m, just over their 0.75 m climb,
-            // was still crossed once voxelized), but a 1.5 m eye sees over them.
+            // Low walls ring the friendly: agents cannot climb 1 m, but a 1.5 m eye sees over them. Phase 4 chased
+            // anyway and stood at the ring; now an unreachable friendly is not a target at all.
             world.CreateEnvironment(
                 (new Vector3(0f, 0.5f, -8f), new Vector3(6f, 1f, 0.5f)),
                 (new Vector3(0f, 0.5f, -2f), new Vector3(6f, 1f, 0.5f)),
@@ -184,14 +184,54 @@ namespace Blackglass.Tests
             var friendly = world.CreateFighter(new Vector3(0f, 0f, -5f));
             var hostile = world.CreateHostile(new Vector3(0f, 0f, 4f), encounter);
             Arm(new[] { hostile }, friendly);
+            var start = hostile.transform.position;
 
-            yield return new WaitForSeconds(3f);
+            yield return new WaitForSeconds(1.5f);
 
-            Assert.That(HealthOf(friendly).Current, Is.EqualTo(HealthOf(friendly).Max), "The hostile must not reach the ringed friendly");
-            Assert.That(hostile.State, Is.Not.EqualTo(EnemyState.Dead));
-            Assert.That(TestWorld.HorizontalDistance(hostile.transform.position, friendly.transform.position), Is.LessThan(6f),
-                "The hostile should have walked up to the ring");
-            // Any logged error during the 3 s fails the test on its own.
+            Assert.That(hostile.State, Is.EqualTo(EnemyState.Idle), "A friendly with no complete path is not a target");
+            Assert.That(hostile.Target, Is.Null);
+            Assert.That(TestWorld.HorizontalDistance(hostile.transform.position, start), Is.LessThan(0.1f), "The hostile did not move");
+            Assert.That(HealthOf(friendly).Current, Is.EqualTo(HealthOf(friendly).Max));
+        }
+
+        [UnityTest]
+        public IEnumerator UnreachableFriendly_IsSkippedForAFartherReachableOne()
+        {
+            world.CreateEnvironment(
+                (new Vector3(0f, 0.5f, -8f), new Vector3(6f, 1f, 0.5f)),
+                (new Vector3(0f, 0.5f, -2f), new Vector3(6f, 1f, 0.5f)),
+                (new Vector3(-3f, 0.5f, -5f), new Vector3(0.5f, 1f, 6f)),
+                (new Vector3(3f, 0.5f, -5f), new Vector3(0.5f, 1f, 6f)));
+            var ringed = world.CreateFighter(new Vector3(0f, 0f, -5f));
+            var reachable = world.CreateFighter(new Vector3(6f, 0f, -3f));   // 9.2 m away, clear of the ring
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, 4f), encounter);
+            Arm(new[] { hostile }, ringed, reachable);
+
+            yield return WaitForState(hostile, EnemyState.Chase, 1.5f);
+
+            Assert.That(hostile.Target, Is.SameAs(HealthOf(reachable)), "The nearer but unreachable friendly must lose to the reachable one");
+        }
+
+        [UnityTest]
+        public IEnumerator RangedHostile_AcquiresAtDetectionRange_StopsAtItsRange_AndFires()
+        {
+            world.CreateEnvironment();
+            var friendly = world.CreateFighter(new Vector3(0f, 0f, -11f));
+            var hostile = world.CreateHostile(Vector3.zero, encounter, damage: 8, cooldown: 1.5f, role: CombatRole.Ranged, range: 8f);
+            Arm(new[] { hostile }, friendly);
+            var distanceAtFirstHit = -1f;
+            hostile.GetComponent<UnitAttacker>().Attacked += _ =>
+            {
+                if (distanceAtFirstHit < 0f)
+                    distanceAtFirstHit = TestWorld.HorizontalDistance(hostile.transform.position, friendly.transform.position);
+            };
+
+            yield return WaitForState(hostile, EnemyState.Chase, 1f);
+            Assert.That(hostile.Target, Is.SameAs(HealthOf(friendly)), "11 m is inside the 12 m detection range");
+            yield return TestWorld.WaitUntil(() => distanceAtFirstHit >= 0f, 6f);
+
+            Assert.That(distanceAtFirstHit, Is.GreaterThanOrEqualTo(6f).And.LessThanOrEqualTo(8.5f), "A ranged hostile fires from its range");
+            Assert.That(HealthOf(friendly).Current, Is.EqualTo(HealthOf(friendly).Max - 8));
         }
 
         [UnityTest]
@@ -207,22 +247,6 @@ namespace Blackglass.Tests
             yield return WaitForState(hostile, EnemyState.Chase, 1f);
 
             Assert.That(hostile.Target, Is.SameAs(HealthOf(other)));
-        }
-
-        [UnityTest]
-        public IEnumerator HasLineOfSight_UnitsNeverBlock_WallsDo()
-        {
-            world.CreateEnvironment((new Vector3(5f, 1f, 0f), new Vector3(1f, 2f, 6f)));
-            var seen = world.CreateFighter(new Vector3(0f, 0f, -4f));
-            var blocker = world.CreateFighter(new Vector3(0f, 0f, -2f));
-            var behindWall = world.CreateFighter(new Vector3(8f, 0f, 0f));
-            yield return new WaitForFixedUpdate();   // colliders take their positions
-            var buffer = new RaycastHit[8];
-            var eye = new Vector3(0f, 1.5f, 1f);
-
-            Assert.That(EnemyAI.HasLineOfSight(eye, HealthOf(seen), ~0, buffer), Is.True, "A unit in between must not block sight");
-            Assert.That(EnemyAI.HasLineOfSight(eye, HealthOf(blocker), ~0, buffer), Is.True);
-            Assert.That(EnemyAI.HasLineOfSight(eye, HealthOf(behindWall), ~0, buffer), Is.False, "A wall must block sight");
         }
     }
 }

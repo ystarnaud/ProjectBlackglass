@@ -17,8 +17,13 @@ namespace Blackglass
 
         NavMeshAgent agent;
         int moveRequestFrame = -1;
+        // Reused by CanReach so reachability checks allocate nothing. A plain C# object, so ??= is fine.
+        NavMeshPath reachPath;
 
         NavMeshAgent Agent => agent != null ? agent : agent = GetComponent<NavMeshAgent>();
+
+        /// <summary>Height of the unit's pivot above the NavMesh (the agent's base offset, 1 m for the prototype capsules).</summary>
+        public float PivotHeight => Agent.baseOffset;
 
         /// <summary>
         /// True when the unit is at the end of its path, or has no path left to walk. The path ends at the closest
@@ -42,6 +47,34 @@ namespace Blackglass
         /// <summary>True if MoveTo(point) would be accepted: on a NavMesh, with a walkable point within 2 m. No side effects.</summary>
         public bool CanMoveTo(Vector3 point) =>
             Agent.isOnNavMesh && NavMesh.SamplePosition(point, out _, SnapRadius, NavMesh.AllAreas);
+
+        /// <summary>
+        /// Nearest walkable point within SnapRadius (2 m) of `point`, if any: the tolerance MoveTo and CanMoveTo use,
+        /// so a pivot-height point (1 m up) or one in the erosion band beside a wall still snaps. No side effects.
+        /// </summary>
+        public bool TrySnap(Vector3 point, out Vector3 onNavMesh)
+        {
+            if (NavMesh.SamplePosition(point, out var hit, SnapRadius, NavMesh.AllAreas))
+            {
+                onNavMesh = hit.position;
+                return true;
+            }
+            onNavMesh = point;
+            return false;
+        }
+
+        /// <summary>
+        /// True when a complete path exists from the agent to a walkable point within 2 m of `point`. A partial path
+        /// (the point is on another NavMesh island, or ringed by walls) is not reachable. No side effects.
+        /// </summary>
+        public bool CanReach(Vector3 point)
+        {
+            if (!Agent.isOnNavMesh || !TrySnap(point, out var destination))
+                return false;
+            reachPath ??= new NavMeshPath();
+            // The agent's own CalculatePath starts from its NavMesh location, so no snapping of the source is needed.
+            return Agent.CalculatePath(destination, reachPath) && reachPath.status == NavMeshPathStatus.PathComplete;
+        }
 
         void Awake()
         {

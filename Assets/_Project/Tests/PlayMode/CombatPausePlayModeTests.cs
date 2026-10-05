@@ -9,6 +9,7 @@ namespace Blackglass.Tests
     public class CombatPausePlayModeTests
     {
         TestWorld world;
+        GameObject environment;
         TacticalPause pause;
         Encounter encounter;
         CommandableUnit friendly;
@@ -20,7 +21,7 @@ namespace Blackglass.Tests
         public void SetUp()
         {
             world = new TestWorld();
-            world.CreateEnvironment();
+            environment = world.CreateEnvironment();
             pause = world.Track(new GameObject("Pause")).AddComponent<TacticalPause>();
             encounter = world.CreateEncounter();
             friendly = world.CreateFighter(new Vector3(0f, 0f, -6f), cooldown: 0.4f);
@@ -114,6 +115,40 @@ namespace Blackglass.Tests
 
             Assert.That(TestWorld.HorizontalDistance(friendly.transform.position, friendlyAt), Is.GreaterThan(2f), "The queued retreat did not run");
             Assert.That(hostile.State, Is.EqualTo(EnemyState.Chase).Or.EqualTo(EnemyState.Attack), "The hostile must keep after the friendly");
+        }
+
+        [UnityTest]
+        public IEnumerator Paused_RepositioningUnit_DoesNotAdvance()
+        {
+            // The fixture's duel and flat ground would interfere (a second NavMesh without the pillar would also let
+            // the unit path straight through it), so clear them and build the pillar scenario from
+            // RangedCombatPlayModeTests: the unit is blind and walks to a side spot.
+            Object.Destroy(environment);
+            Object.Destroy(friendly.gameObject);
+            Object.Destroy(hostile.gameObject);
+            yield return null;
+
+            world.CreateEnvironment((new Vector3(0f, 1f, 0f), new Vector3(1f, 2f, 1f)));
+            var ranged = world.CreateFighter(new Vector3(0f, 0f, -3.5f), role: CombatRole.Ranged, range: 8f);
+            var dummy = world.CreateDummy(new Vector3(0f, 0f, 4f));
+            yield return new WaitForFixedUpdate();
+            Assert.That(ranged.Issue(new AttackCommand(dummy)), Is.True);
+            yield return TestWorld.WaitUntil(() => ranged.AttackPhase == AttackPhase.Reposition
+                && TestWorld.HorizontalDistance(ranged.transform.position, new Vector3(0f, 0f, -3.5f)) > 0.2f, 3f);
+            Assert.That(ranged.AttackPhase, Is.EqualTo(AttackPhase.Reposition), "Precondition: it is walking to a firing position");
+
+            pause.Pause();
+            var frozenAt = ranged.transform.position;
+            var health = dummy.Current;
+            yield return new WaitForSecondsRealtime(1f);
+
+            Assert.That(ranged.transform.position, Is.EqualTo(frozenAt), "Repositioning must not advance while paused");
+            Assert.That(ranged.AttackPhase, Is.EqualTo(AttackPhase.Reposition));
+            Assert.That(dummy.Current, Is.EqualTo(health));
+
+            pause.Resume();
+            yield return TestWorld.WaitUntil(() => dummy.Current < health, 8f);
+            Assert.That(dummy.Current, Is.LessThan(health), "After resume the unit finishes repositioning and fires");
         }
     }
 }
