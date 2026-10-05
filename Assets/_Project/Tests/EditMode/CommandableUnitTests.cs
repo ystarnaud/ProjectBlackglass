@@ -251,5 +251,65 @@ namespace Blackglass.Tests
             Assert.That(unit.CurrentCommand, Is.Null);
             Assert.That(unit.PendingCommands, Is.Empty);
         }
+
+        CoverPoint NewPoint(string name, out GameObject pointHost)
+        {
+            pointHost = new GameObject(name);
+            return pointHost.AddComponent<CoverPoint>();
+        }
+
+        [Test]
+        public void UnitCover_IsRequired()
+        {
+            Assert.That(unitHost.GetComponent<UnitCover>(), Is.Not.Null);
+            Assert.That(unit.Cover, Is.SameAs(unitHost.GetComponent<UnitCover>()));
+            Assert.That(unitHost.GetComponent<Health>(), Is.Null, "Requiring UnitCover must not drag a Health onto every unit");
+        }
+
+        [Test]
+        public void MoveToCoverCommand_RejectsANullPoint()
+        {
+            Assert.Throws<ArgumentNullException>(() => new MoveToCoverCommand(null));
+        }
+
+        [Test]
+        public void Issue_MoveToCover_OnAPointAnotherUnitHolds_IsRefused_AndChangesNothing()
+        {
+            var point = NewPoint("Cover", out var pointHost);
+            var otherHost = new GameObject("Other");
+            var other = otherHost.AddComponent<UnitCover>();
+            Assert.That(other.TryReserve(point), Is.True);
+            var attack = new AttackCommand(target);
+            unit.Issue(attack);
+
+            Assert.That(unit.Issue(new MoveToCoverCommand(point)), Is.False);
+            Assert.That(unit.CurrentCommand, Is.SameAs(attack));
+            Assert.That(point.Claimant, Is.SameAs(other));
+            Assert.That(unit.Cover.Status, Is.EqualTo(CoverStatus.None));
+            Object.DestroyImmediate(otherHost);
+            Object.DestroyImmediate(pointHost);
+        }
+
+        [Test]
+        public void Issue_MoveToCover_WithoutANavMesh_IsRefusedSilently_AndThePointStaysUnclaimed()
+        {
+            var point = NewPoint("Cover", out var pointHost);
+            // CanMoveTo is silent (unlike MoveTo), so no warning is expected here.
+            Assert.That(unit.Issue(new MoveToCoverCommand(point)), Is.False);
+            Assert.That(unit.CurrentCommand, Is.Null);
+            Assert.That(point.IsClaimed, Is.False, "A refused start must not leave a claim behind");
+            Assert.That(unit.Cover.Status, Is.EqualTo(CoverStatus.None));
+            Object.DestroyImmediate(pointHost);
+        }
+
+        [Test]
+        public void AttackTarget_ReadsTheCurrentAttack_AndIsNullOtherwise()
+        {
+            Assert.That(unit.AttackTarget, Is.Null);
+            unit.Issue(new AttackCommand(target));
+            Assert.That(unit.AttackTarget, Is.SameAs(target));
+            unit.Issue(new StopCommand());
+            Assert.That(unit.AttackTarget, Is.Null);
+        }
     }
 }
