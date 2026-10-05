@@ -155,10 +155,13 @@ namespace Blackglass
             return found;
         }
 
-        // Unclaimed or ours; protects the point from the target (one obstacle ray); the target can be attacked from
-        // the eye a unit would have there (range and sight); reachable (a path, so last).
+        // Low (a firing spot) and unclaimed or ours; protects the point from the target (one obstacle ray); the target
+        // can be attacked from the eye a unit would have there (range and sight); reachable (a path, so last). Tall
+        // locations are hiding spots: without a peek behaviour a hostile there could not fire and would leave again.
         bool IsUsefulCover(CoverLocation point)
         {
+            if (point.Height != CoverHeight.Low)
+                return false;
             if (point.IsClaimed && !point.IsClaimedBy(Unit.Cover))
                 return false;
             var pivot = point.Position + Vector3.up * Mover.PivotHeight;
