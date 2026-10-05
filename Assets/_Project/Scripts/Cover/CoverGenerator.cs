@@ -104,6 +104,7 @@ namespace Blackglass
             foreach (var box in boxes)
             {
                 var candidates = new List<Candidate>();
+                AddCorners(box, settings, isWalkable, candidates);
                 AddFaces(box, settings, candidates);
 
                 var accepted = new List<Candidate>();
@@ -154,6 +155,40 @@ namespace Blackglass
                         Position = OnGround(box, point),
                         Facing = -face.Normal,
                         Placement = CoverPlacement.Face,
+                    });
+                }
+            }
+        }
+
+        // Tall walls only: one corner at each end of each long face, inset into the wall's shadow, peeking out past the end.
+        static void AddCorners(CoverBox box, CoverGenerationSettings settings, Func<Vector3, bool> isWalkable, List<Candidate> candidates)
+        {
+            if (box.Height <= settings.lowMaxHeight)
+                return;
+            var longHalf = Mathf.Max(box.HalfExtents.x, box.HalfExtents.z);
+            var shortHalf = Mathf.Min(box.HalfExtents.x, box.HalfExtents.z);
+            var length = longHalf * 2f;
+            if (length < settings.minCornerLength || length < shortHalf * 4f)
+                return;
+            foreach (var face in FacesOf(box))
+            {
+                // The long faces are the ones that run the whole length of the box.
+                if (!Mathf.Approximately(face.HalfLength, longHalf))
+                    continue;
+                for (var end = 0; end < 2; end++)
+                {
+                    var along = face.Tangent * (end == 0 ? 1f : -1f);
+                    var stand = OnGround(box, box.Center + face.Normal * (face.Depth + settings.standOffset)
+                        + along * (face.HalfLength - settings.cornerInset));
+                    var peek = stand + along * settings.peekDistance;
+                    var hasPeek = isWalkable(peek);
+                    candidates.Add(new Candidate
+                    {
+                        Position = stand,
+                        Facing = -face.Normal,
+                        Placement = CoverPlacement.Corner,
+                        PeekDirection = hasPeek ? along : Vector3.zero,
+                        PeekPoint = hasPeek ? peek : Vector3.zero,
                     });
                 }
             }
