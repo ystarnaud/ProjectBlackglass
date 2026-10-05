@@ -63,5 +63,30 @@ namespace Blackglass.Tests
             Assert.That(view.LinePointCount, Is.EqualTo(3));
             Assert.That(view.ActiveMarkerCount, Is.EqualTo(2));
         }
+
+        [UnityTest]
+        public IEnumerator CoverOrder_ShowsAMarkerAtThePoint_AndAVanishedPointDrawsNothing()
+        {
+            var environment = world.CreateEnvironment((new Vector3(0f, 0.45f, 0f), new Vector3(4f, 0.9f, 0.5f)));
+            var point = world.CreateCoverPoint(new Vector3(0f, 0f, -1f), Vector3.forward, TestWorld.ObstacleCollider(environment));
+            var pause = world.Track(new GameObject("Pause")).AddComponent<TacticalPause>();
+            var unit = world.CreateUnit(new Vector3(0f, 0f, -8f));
+            var view = unit.gameObject.AddComponent<CommandQueueView>();
+            yield return null;
+            // Paused, so the walk never starts and the order stays current while its point is destroyed.
+            pause.Pause();
+            Assert.That(unit.Issue(new MoveToCoverCommand(point)), Is.True);
+            yield return null;
+            Assert.That(view.LinePointCount, Is.EqualTo(2), "unit + the cover point");
+            Assert.That(view.ActiveMarkerCount, Is.EqualTo(1));
+
+            Object.Destroy(point.gameObject);
+            yield return null;
+            yield return null;
+
+            Assert.That(unit.CurrentCommand, Is.TypeOf<MoveToCoverCommand>(), "Precondition: paused, the order is still current");
+            Assert.That(view.LinePointCount, Is.EqualTo(0), "A vanished point draws nothing, and nothing throws");
+            Assert.That(view.ActiveMarkerCount, Is.EqualTo(0));
+        }
     }
 }
