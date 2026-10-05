@@ -34,6 +34,13 @@ namespace Blackglass.Tests
             encounter = Object.FindFirstObjectByType<Encounter>();
         }
 
+        // Every obstacle of the arena: all of them generate cover.
+        static readonly string[] ArenaObstacles =
+        {
+            "Obstacle_A", "Obstacle_B", "Obstacle_C", "Obstacle_D", "Obstacle_E", "Obstacle_F", "Obstacle_CentralWall",
+            "Pillar_G", "Pillar_H", "Barrier_I", "Crate_J", "Crate_K", "LowWall_L", "LowWall_M", "LowWall_N",
+        };
+
         internal static CommandableUnit[] FindSquad() =>
             FriendlyNames.Select(n => GameObject.Find(n).GetComponent<CommandableUnit>()).ToArray();
 
@@ -81,13 +88,14 @@ namespace Blackglass.Tests
 
             var central = GameObject.Find("Obstacle_CentralWall").GetComponent<Collider>();
             var centralCorners = registry.Points.Where(p => p.Obstacle == central && p.Placement == CoverPlacement.Corner).ToList();
-            Assert.That(centralCorners.Count, Is.GreaterThanOrEqualTo(2),
-                $"The 45-degree central wall gets corners (found {centralCorners.Count}; some may fall off the NavMesh near LowWall_L's corridor)");
+            Assert.That(centralCorners.Count, Is.EqualTo(4),
+                "The 45-degree central wall keeps all four corners, including the one next to Barrier_I's end-face point: " +
+                "points of different objects never remove each other");
 
-            foreach (var untagged in new[] { "Obstacle_A", "Obstacle_B", "Obstacle_D", "Obstacle_E", "Obstacle_F", "Pillar_H", "Crate_K" })
+            foreach (var name in ArenaObstacles)
             {
-                var collider = GameObject.Find(untagged).GetComponent<Collider>();
-                Assert.That(registry.Points.Any(p => p.Obstacle == collider), Is.False, $"{untagged} is not cover-generating");
+                var collider = GameObject.Find(name).GetComponent<Collider>();
+                Assert.That(registry.Points.Any(p => p.Obstacle == collider), Is.True, $"{name} produced at least one cover location");
             }
         }
 
@@ -175,7 +183,7 @@ namespace Blackglass.Tests
             Assert.That(registry, Is.Not.Null, "CoverRegistry missing");
             Assert.That(GameObject.Find("CoverPoints"), Is.Null, "Hand-placed cover points are gone: cover is discovered");
             Assert.That(Object.FindFirstObjectByType<CoverDiscovery>(), Is.Not.Null, "CoverDiscovery missing");
-            foreach (var surfaceName in new[] { "LowWall_L", "LowWall_M", "LowWall_N", "Pillar_G", "Crate_J", "Barrier_I", "Obstacle_CentralWall" })
+            foreach (var surfaceName in ArenaObstacles)
                 Assert.That(GameObject.Find(surfaceName).GetComponent<CoverSurface>(), Is.Not.Null, $"{surfaceName} is not cover-generating");
             yield return TestWorld.WaitUntil(() => registry.Points.Count > 0, 2f);
             Assert.That(registry.Points, Is.Not.Empty, "Cover is discovered at start");
@@ -410,8 +418,9 @@ namespace Blackglass.Tests
 
             yield return Tap(keyboard.spaceKey);
             yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(squad[0].transform.position));
-            // 0.5 m east of the point, on open ground south of LowWall_L (nothing between it and the camera).
-            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(point.Position + new Vector3(0.5f, 0f, 0f)));
+            // 0.25 m east of the point, on open ground south of LowWall_L (nothing between it and the camera). Within the
+            // 0.5 m click radius of S1 only: S2 is 1 m east of S1, so a click 0.5 m east would be a tie between them.
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(point.Position + new Vector3(0.25f, 0f, 0f)));
 
             Assert.That(squad[0].CurrentCommand, Is.TypeOf<MoveToCoverCommand>(), "A paused click beside a marker orders cover");
             Assert.That(((MoveToCoverCommand)squad[0].CurrentCommand).Point, Is.SameAs(point));
@@ -474,7 +483,7 @@ namespace Blackglass.Tests
             yield return BoxSelect(mouse, squad);
             Assert.That(Object.FindFirstObjectByType<UnitSelection>().Selected, Has.Count.EqualTo(3));
 
-            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, -1f)));   // plain ground: more than 1 m from every cover marker (Barrier_I_SCorner2 is at -5.35, 0.75)
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, -1f)));   // plain ground: more than 0.5 m from every cover marker (Barrier_I_SCorner2 is at -5.35, 0.75)
 
             foreach (var member in squad)
                 Assert.That(member.CurrentCommand, Is.TypeOf<MoveCommand>(), member.name);

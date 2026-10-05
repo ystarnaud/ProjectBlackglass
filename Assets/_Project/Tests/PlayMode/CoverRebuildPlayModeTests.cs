@@ -105,7 +105,9 @@ namespace Blackglass.Tests
                 Fighter(new Vector3(-1.5f, 0f, -5f)),
                 Fighter(new Vector3(1.5f, 0f, -5f)),
             };
-            var points = registry.Points.Where(l => l.Facing.z > 0.5f).OrderBy(l => l.Position.x).Take(2).ToList();
+            // The first and last south points: at 1 m spacing neighbours would put the units shoulder to shoulder.
+            var south = registry.Points.Where(l => l.Facing.z > 0.5f).OrderBy(l => l.Position.x).ToList();
+            var points = new[] { south.First(), south.Last() };
             for (var i = 0; i < units.Length; i++)
                 Assert.That(units[i].Issue(new MoveToCoverCommand(points[i])), Is.True);
             yield return TestWorld.WaitUntil(() => units.All(u => u.Cover.Status == CoverStatus.Occupied), 10f);

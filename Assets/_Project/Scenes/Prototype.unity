@@ -314,6 +314,7 @@ GameObject:
   - component: {fileID: 240885942}
   - component: {fileID: 240885941}
   - component: {fileID: 240885940}
+  - component: {fileID: 240885943}
   m_Layer: 0
   m_Name: Obstacle_F
   m_TagString: Untagged
@@ -414,6 +415,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 240885938}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &240885943
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 240885938}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1001 &278992984
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -653,6 +666,7 @@ GameObject:
   - component: {fileID: 379088706}
   - component: {fileID: 379088705}
   - component: {fileID: 379088704}
+  - component: {fileID: 379088707}
   m_Layer: 0
   m_Name: Crate_K
   m_TagString: Untagged
@@ -753,6 +767,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 379088702}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &379088707
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 379088702}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &398294328
 GameObject:
   m_ObjectHideFlags: 0
@@ -890,6 +916,7 @@ GameObject:
   - component: {fileID: 421774594}
   - component: {fileID: 421774593}
   - component: {fileID: 421774592}
+  - component: {fileID: 421774595}
   m_Layer: 0
   m_Name: Obstacle_A
   m_TagString: Untagged
@@ -990,6 +1017,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 421774590}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &421774595
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 421774590}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &518862751
 GameObject:
   m_ObjectHideFlags: 0
@@ -1642,6 +1681,7 @@ GameObject:
   - component: {fileID: 897997312}
   - component: {fileID: 897997311}
   - component: {fileID: 897997310}
+  - component: {fileID: 897997313}
   m_Layer: 0
   m_Name: Obstacle_D
   m_TagString: Untagged
@@ -1742,6 +1782,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 897997308}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &897997313
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 897997308}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1001 &970402066
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2003,7 +2055,7 @@ MonoBehaviour:
     serializedVersion: 2
     m_Bits: 4294967295
   groupSpacing: 1.5
-  coverClickRadius: 1
+  coverClickRadius: 0.5
 --- !u!114 &1021927381
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2147,14 +2199,14 @@ MonoBehaviour:
   registry: {fileID: 1021927387}
   settings:
     standOffset: 0.75
-    spacing: 2
+    spacing: 1
     endMargin: 0.5
     minFaceLength: 1
     lowMaxHeight: 1.2
     minCornerLength: 2
     cornerInset: 0.35
     peekDistance: 1.25
-    mergeDistance: 1
+    mergeDistance: 0.9
     hitChance: 0.5
     walkableTolerance: 0.25
   discoverOnStart: 1
@@ -2408,6 +2460,7 @@ GameObject:
   - component: {fileID: 1294341900}
   - component: {fileID: 1294341899}
   - component: {fileID: 1294341898}
+  - component: {fileID: 1294341901}
   m_Layer: 0
   m_Name: Obstacle_B
   m_TagString: Untagged
@@ -2508,6 +2561,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1294341896}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1294341901
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1294341896}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &1311753648
 GameObject:
   m_ObjectHideFlags: 0
@@ -2933,6 +2998,7 @@ GameObject:
   - component: {fileID: 1890533020}
   - component: {fileID: 1890533019}
   - component: {fileID: 1890533018}
+  - component: {fileID: 1890533021}
   m_Layer: 0
   m_Name: Pillar_H
   m_TagString: Untagged
@@ -3033,6 +3099,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1890533016}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1890533021
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1890533016}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &1898344115
 GameObject:
   m_ObjectHideFlags: 0
@@ -3045,6 +3123,7 @@ GameObject:
   - component: {fileID: 1898344119}
   - component: {fileID: 1898344118}
   - component: {fileID: 1898344117}
+  - component: {fileID: 1898344120}
   m_Layer: 0
   m_Name: Obstacle_E
   m_TagString: Untagged
@@ -3145,6 +3224,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1898344115}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1898344120
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1898344115}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &2064927959
 GameObject:
   m_ObjectHideFlags: 0
@@ -3157,6 +3248,7 @@ GameObject:
   - component: {fileID: 2064927963}
   - component: {fileID: 2064927962}
   - component: {fileID: 2064927961}
+  - component: {fileID: 2064927964}
   m_Layer: 0
   m_Name: Obstacle_C
   m_TagString: Untagged
@@ -3257,6 +3349,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 2064927959}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &2064927964
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2064927959}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
