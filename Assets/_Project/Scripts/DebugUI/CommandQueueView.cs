@@ -6,7 +6,7 @@ namespace Blackglass
 {
     /// <summary>
     /// Debug view of a unit's orders: a line from the unit through each order in sequence, and a small disc at every
-    /// move destination. Reads the unit's orders every frame and never changes them. Works while paused.
+    /// move or cover destination. Reads the unit's orders every frame and never changes them. Works while paused.
     /// Has no colliders, so it never blocks click raycasts.
     /// </summary>
     [RequireComponent(typeof(CommandableUnit), typeof(LineRenderer))]
@@ -82,6 +82,11 @@ namespace Blackglass
                     var destination = OnGround(move.Destination);
                     points.Add(destination);
                     ShowMarker(destination);
+                    break;
+                case MoveToCoverCommand toCover when toCover.Point != null && toCover.Point.gameObject.activeInHierarchy:
+                    var spot = OnGround(toCover.Point.Position);
+                    points.Add(spot);
+                    ShowMarker(spot);
                     break;
                 case AttackCommand attack when attack.Target != null && attack.Target.gameObject.activeInHierarchy:
                     points.Add(OnGround(attack.Target.transform.position));

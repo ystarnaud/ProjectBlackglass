@@ -64,5 +64,47 @@ namespace Blackglass.Tests
             Assert.That(attacker.CanAttackFrom(new Vector3(2.5f, 1f, 0f), target), Is.False);
             Assert.That(attacker.CanAttack(null), Is.False);
         }
+
+        [Test]
+        public void IsTargetInCover_IsFalseForMelee_AndForATargetWithoutUnitCover()
+        {
+            targetHost.transform.position = new Vector3(0f, 1f, 1f);
+            Assert.That(attacker.IsTargetInCover(target, out var chance), Is.False, "Melee never asks about cover");
+            Assert.That(chance, Is.EqualTo(1f));
+            attacker.Initialize(8f, 15, 1f, CombatRole.Ranged);
+            Assert.That(attacker.IsTargetInCover(target), Is.False, "A target without a UnitCover is exposed");
+            Assert.That(attacker.IsTargetInCover(null), Is.False);
+        }
+
+        [Test]
+        public void IsTargetInCover_IsFalseWhileTheTargetOnlyReservesAPoint()
+        {
+            attacker.Initialize(8f, 15, 1f, CombatRole.Ranged);
+            targetHost.transform.position = new Vector3(0f, 1f, 4f);
+            var pointHost = new GameObject("Cover");
+            pointHost.transform.position = new Vector3(0f, 0f, 4f);
+            var point = pointHost.AddComponent<CoverPoint>();
+            point.Initialize(null, 0.25f);
+            var cover = targetHost.AddComponent<UnitCover>();
+            Assert.That(cover.TryReserve(point), Is.True);
+
+            Assert.That(attacker.IsTargetInCover(target, out var chance), Is.False, "Reserved is not occupied");
+            Assert.That(chance, Is.EqualTo(1f));
+            Object.DestroyImmediate(pointHost);
+        }
+
+        [Test]
+        public void TryAttack_CountsShotsAndHits_AndAnExposedTargetAlwaysTakesDamage()
+        {
+            targetHost.transform.position = new Vector3(0f, 1f, 1f);
+            attacker.HitRoll = () => 0.999f;   // would miss a covered target; an exposed one is hit regardless
+            Assert.That(attacker.ShotsFired, Is.EqualTo(0));
+            Assert.That(attacker.TryAttack(target), Is.True);
+            Assert.That(attacker.ShotsFired, Is.EqualTo(1));
+            Assert.That(attacker.Hits, Is.EqualTo(1));
+            Assert.That(target.Current, Is.EqualTo(target.Max - attacker.Damage));
+            Assert.That(attacker.TryAttack(target), Is.False, "Cooling down: no shot");
+            Assert.That(attacker.ShotsFired, Is.EqualTo(1));
+        }
     }
 }

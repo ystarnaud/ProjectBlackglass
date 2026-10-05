@@ -4,14 +4,15 @@ using UnityEngine.Serialization;
 
 namespace Blackglass
 {
-    /// <summary>Debug-only on-screen text (IMGUI). Not production UI. Works while paused. Unit labels show role, health, orders, AI state and line of sight.</summary>
+    /// <summary>Debug-only on-screen text (IMGUI). Not production UI. Works while paused. Unit labels show role, health, orders, AI state, line of sight and cover.</summary>
     public sealed class PrototypeHud : MonoBehaviour
     {
         const string ControlHints =
             "WASD: pan camera   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom   V: takeover (WASD moves character)\n" +
             "Left-click unit: select (Shift: add/remove)   Left-drag: box select   Esc: clear selection\n" +
             "Left-click ground/enemy: selected units move/attack (nothing selected: controlled character)   Shift: queue   X: stop selected\n" +
-            "Space: tactical pause   Tab / Shift+Tab: switch controlled character";
+            "Space: tactical pause   Tab / Shift+Tab: switch controlled character\n" +
+            "Left-click cover marker: move into cover (one unit per marker; markers show while paused)";
         // Unit labels float this far above a unit's centre (the capsule is 2 m tall).
         const float UnitLabelHeight = 1.5f;
 
@@ -76,6 +77,31 @@ namespace Blackglass
         {
             var sight = hasLineOfSight ? "LOS clear" : "LOS blocked";
             return text.Length == 0 ? sight : $"{text} {sight}";
+        }
+
+        /// <summary>A unit's cover line: the point it holds and how, e.g. "Cover: Cover_LowWall_L_S1 (occupied, ordered)". Empty without one.</summary>
+        internal static string DescribeCover(CoverStatus status, string pointName, bool byOrder)
+        {
+            if (status == CoverStatus.None || string.IsNullOrEmpty(pointName))
+                return string.Empty;
+            var how = status == CoverStatus.Reserved ? "reserved" : byOrder ? "occupied, ordered" : "occupied";
+            return $"Cover: {pointName} ({how})";
+        }
+
+        /// <summary>Appends whether a ranged unit's target is in cover against it, with the chance to hit.</summary>
+        internal static string AppendTargetCover(string text, bool inCover, float hitChance)
+        {
+            var verdict = inCover ? $"target in cover {Mathf.RoundToInt(hitChance * 100f)}%" : "target exposed";
+            return text.Length == 0 ? verdict : $"{text} {verdict}";
+        }
+
+        /// <summary>Appends a ranged unit's hits over shots once it has fired.</summary>
+        internal static string AppendHits(string text, int hits, int shots)
+        {
+            if (shots == 0)
+                return text;
+            var tally = $"hits {hits}/{shots}";
+            return text.Length == 0 ? tally : $"{text} {tally}";
         }
 
         internal static string AppendCooldown(string text, float cooldownRemaining)
@@ -185,14 +211,27 @@ namespace Blackglass
             else
                 activity = string.Empty;
             if (hasAttacker && attacker.NeedsLineOfSight && unit != null && unit.CurrentCommand is AttackCommand attack)
+            {
                 activity = AppendSight(activity, attacker.HasLineOfSight(attack.Target));
+                activity = AppendTargetCover(activity, attacker.IsTargetInCover(attack.Target, out var hitChance), hitChance);
+            }
+            if (hasAttacker && attacker.NeedsLineOfSight)
+                activity = AppendHits(activity, attacker.Hits, attacker.ShotsFired);
             if (activity.Length > 0)
                 text += "\n" + activity;
+            if (unit != null)
+            {
+                // A point destroyed during a pause reads as null until UnitCover releases it on resume: draw nothing.
+                var cover = unit.Cover;
+                var coverText = DescribeCover(cover.Status, cover.Point != null ? cover.Point.name : null, cover.OccupiedByOrder);
+                if (coverText.Length > 0)
+                    text += "\n" + coverText;
+            }
 
             var screen = viewCamera.WorldToScreenPoint(health.transform.position + Vector3.up * UnitLabelHeight);
             if (screen.z <= 0f)
                 return;
-            GUI.Label(new Rect(screen.x - 100f, Screen.height - screen.y - 22f, 200f, 44f), text, unitLabelStyle);
+            GUI.Label(new Rect(screen.x - 110f, Screen.height - screen.y - 22f, 220f, 66f), text, unitLabelStyle);
         }
     }
 }

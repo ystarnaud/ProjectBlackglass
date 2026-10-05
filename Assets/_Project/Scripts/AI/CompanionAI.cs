@@ -23,7 +23,10 @@ namespace Blackglass
     /// A friendly unit's autonomy while the player is not telling it what to do. Priority: dead, controlled, explicit
     /// orders, assist (attack a hostile that is fighting the squad), follow the controlled character, idle. It tells
     /// its own orders from everyone else's by remembering the command object it issued: any other current order, or
-    /// any pending order, is left alone. Decides only what to do; CommandableUnit does it. Runs on simulation time.
+    /// any pending order, is left alone. A companion holding cover it was ordered into does not follow, and assists
+    /// only against a target it can attack from where it stands; cover it merely stopped on changes nothing. Both
+    /// checks are made when its own order is issued (acquisition only, like the rest). Decides only what to do;
+    /// CommandableUnit does it. Runs on simulation time.
     /// </summary>
     // After ActiveCharacter (-200) refreshes who is controlled and before DirectControlInput (-100) hands over, so a
     // companion that just became the controlled character has already dropped its own follow move when the hand-over
@@ -47,6 +50,8 @@ namespace Blackglass
 
         CommandableUnit unit;
         UnitMover mover;
+        UnitAttacker attacker;
+        UnitCover coverComponent;
         float nextThinkTime;
         // The order this component issued, while it is still the unit's current order.
         UnitCommand ownCommand;
@@ -77,6 +82,8 @@ namespace Blackglass
 
         CommandableUnit Unit => unit != null ? unit : unit = GetComponent<CommandableUnit>();
         UnitMover Mover => mover != null ? mover : mover = GetComponent<UnitMover>();
+        UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
+        UnitCover Cover => coverComponent != null ? coverComponent : coverComponent = Unit.Cover;
 
         bool IsControlled => activeCharacter != null && activeCharacter.Unit == Unit;
 
@@ -148,9 +155,15 @@ namespace Blackglass
             var target = ChooseAssistTarget();
             if (target != null)
             {
+                // Ordered cover is held: a companion that cannot hit the target from where it stands does not charge.
+                if (Cover.OccupiedByOrder && !Attacker.CanAttack(target))
+                    return;
                 IssueOwn(new AttackCommand(target));
                 return;
             }
+            // Ordered cover is held instead of following; a point the companion merely stopped on is not.
+            if (Cover.OccupiedByOrder)
+                return;
 
             if (activeCharacter == null || !activeCharacter.HasUnit || !activeCharacter.Unit.IsAlive)
                 return;
@@ -173,15 +186,16 @@ namespace Blackglass
             if (encounter == null)
                 return null;
             Health leaderTarget = null;
-            if (activeCharacter != null && activeCharacter.HasUnit && activeCharacter.Unit.CurrentCommand is AttackCommand leaderAttack)
-                leaderTarget = leaderAttack.Target;
+            if (activeCharacter != null && activeCharacter.HasUnit)
+                leaderTarget = activeCharacter.Unit.AttackTarget;   // also set while the leader walks to cover with an attack queued
             canReach ??= Mover.CanReach;   // plain delegates (this one and isEngaged), cached so ticks allocate nothing
             return ChooseAssistTarget(transform.position, assistRange, leaderTarget, encounter.Hostiles, isEngaged, canReach);
         }
 
-        // A hostile that is attacking anyone is engaged; its order is read from the shared unit, not from EnemyAI.
+        // A hostile that is attacking anyone, or walking to cover with its attack queued, is engaged; read from the
+        // shared unit, never from EnemyAI.
         static bool IsEngaged(Health hostile) =>
-            hostile.TryGetComponent<CommandableUnit>(out var hostileUnit) && hostileUnit.CurrentCommand is AttackCommand;
+            hostile.TryGetComponent<CommandableUnit>(out var hostileUnit) && hostileUnit.AttackTarget != null;
 
         // The raw follow point can sit inside a wall or past the ground edge. Snap it to the mesh (the snap radius is
         // 2 m); a point farther than that from the mesh falls back to the leader's own position, which is always on

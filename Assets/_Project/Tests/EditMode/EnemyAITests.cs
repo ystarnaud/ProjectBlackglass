@@ -51,7 +51,19 @@ namespace Blackglass.Tests
             Assert.That(host.GetComponent<Health>(), Is.Not.Null);
             Assert.That(host.GetComponent<UnitAttacker>(), Is.Not.Null);
             Assert.That(ai.DetectionRange, Is.EqualTo(12f));
+            Assert.That(ai.CoverSearchRange, Is.EqualTo(8f));
+            Assert.That(ai.IsCoverWired, Is.False);
             Assert.That(ai.Target, Is.Null);
+            Object.DestroyImmediate(host);
+        }
+
+        [Test]
+        public void DeriveState_Cover_WhileACoverOrderIsCurrent()
+        {
+            var host = new GameObject("Cover");
+            var toCover = new MoveToCoverCommand(host.AddComponent<CoverPoint>());
+            Assert.That(EnemyAI.DeriveState(true, toCover, AttackPhase.None), Is.EqualTo(EnemyState.Cover));
+            Assert.That(EnemyAI.DeriveState(false, toCover, AttackPhase.None), Is.EqualTo(EnemyState.Dead));
             Object.DestroyImmediate(host);
         }
     }

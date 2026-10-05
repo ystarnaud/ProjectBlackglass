@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace Blackglass
@@ -9,16 +10,20 @@ namespace Blackglass
         Chase,
         Reposition,
         Attack,
+        /// <summary>Walking to a cover point before attacking.</summary>
+        Cover,
         Dead,
     }
 
     /// <summary>
     /// The smallest hostile brain: while idle, every think tick it looks for the nearest living friendly inside its
-    /// detection radius that it can see and reach, and attacks it through the normal order path. CommandableUnit then chases,
-    /// stops and hits; when the target dies or cannot be reached that order ends on its own and the brain looks
-    /// again. Line of sight (UnitAttacker.HasLineOfSight) gates acquisition only: a target once taken is followed
-    /// around corners. A ranged hostile stops at its range and repositions when blind, because CommandableUnit does
-    /// that for every attack order. Runs on simulation time, so it freezes while paused.
+    /// detection radius that it can see and reach, and attacks it through the normal order path. A ranged hostile
+    /// first looks for useful cover nearby (unclaimed or its own, protecting from the target, letting it shoot the
+    /// target, reachable) and, when there is some, walks there before attacking; a melee hostile never looks.
+    /// CommandableUnit then chases, stops and hits; when the target dies or cannot be reached that order ends on its
+    /// own and the brain looks again. Line of sight (UnitAttacker.HasLineOfSight) gates acquisition only: a target
+    /// once taken is followed around corners. Cover is chosen at acquisition only. Runs on simulation time, so it
+    /// freezes while paused.
     /// </summary>
     [RequireComponent(typeof(CommandableUnit), typeof(Health), typeof(UnitAttacker))]
     public sealed class EnemyAI : MonoBehaviour
@@ -26,36 +31,52 @@ namespace Blackglass
         [SerializeField] Encounter encounter;
         [SerializeField, Min(0f)] float detectionRange = 12f;
         [SerializeField, Min(0f)] float thinkInterval = 0.25f;
+        [Header("Cover")]
+        // Optional: without a registry the hostile never seeks cover.
+        [SerializeField] CoverRegistry coverRegistry;
+        [SerializeField, Min(0f)] float coverSearchRange = 8f;
 
         CommandableUnit unit;
         UnitAttacker attacker;
         UnitMover mover;
         float nextThinkTime;
+        // The target of the search in progress, read by the predicate (a cached delegate, so ticks allocate nothing).
+        Health coverTarget;
+        Func<CoverPoint, bool> isUsefulCover;
 
         public float DetectionRange => detectionRange;
+        public float CoverSearchRange => coverSearchRange;
 
-        /// <summary>The friendly this hostile is after, or null while idle.</summary>
-        public Health Target => Unit.CurrentCommand is AttackCommand attack ? attack.Target : null;
+        /// <summary>The friendly this hostile is after (attacking, or about to once it reaches cover), or null while idle.</summary>
+        public Health Target => Unit.AttackTarget;
 
         /// <summary>Derived each read; nothing is stored. Debug views show it.</summary>
         public EnemyState State => DeriveState(Unit.IsAlive, Unit.CurrentCommand, Unit.AttackPhase);
+
+        internal bool IsCoverWired => coverRegistry != null;
 
         CommandableUnit Unit => unit != null ? unit : unit = GetComponent<CommandableUnit>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
         UnitMover Mover => mover != null ? mover : mover = GetComponent<UnitMover>();
 
-        internal void Initialize(Encounter encounterToFight, float range = 12f, float interval = 0.25f)
+        internal void Initialize(Encounter encounterToFight, float range = 12f, float interval = 0.25f, CoverRegistry registry = null)
         {
             encounter = encounterToFight;
             detectionRange = range;
             thinkInterval = interval;
+            coverRegistry = registry;
         }
 
-        /// <summary>Dead beats everything; an attack order maps its phase to Chase, Reposition or Attack; otherwise Idle.</summary>
+        /// <summary>
+        /// Dead beats everything; a cover order is Cover; an attack order maps its phase to Chase, Reposition or
+        /// Attack; otherwise Idle.
+        /// </summary>
         public static EnemyState DeriveState(bool alive, UnitCommand current, AttackPhase phase)
         {
             if (!alive)
                 return EnemyState.Dead;
+            if (current is MoveToCoverCommand)
+                return EnemyState.Cover;
             if (!(current is AttackCommand))
                 return EnemyState.Idle;
             switch (phase)
@@ -83,12 +104,19 @@ namespace Blackglass
                 return;
             nextThinkTime = Time.time + thinkInterval;
 
-            // Busy units are left alone: CommandableUnit runs the chase and the attack.
+            // Busy units are left alone: CommandableUnit runs the walk, the chase and the attack.
             if (Unit.CurrentCommand != null || encounter == null)
                 return;
             var target = FindTarget();
-            if (target != null)
-                Unit.Issue(new AttackCommand(target));
+            if (target == null)
+                return;
+            // The cover order can still be refused (someone claimed the point this frame); then attack without cover.
+            if (Attacker.NeedsLineOfSight && TryFindCover(target, out var point) && Unit.Issue(new MoveToCoverCommand(point)))
+            {
+                Unit.Issue(new AttackCommand(target), IssueMode.Append);
+                return;
+            }
+            Unit.Issue(new AttackCommand(target));
         }
 
         // Nearest friendly that is alive, active, inside the detection radius, in sight and reachable. Distance and
@@ -112,6 +140,31 @@ namespace Blackglass
                 bestDistance = distance;
             }
             return best;
+        }
+
+        // The nearest registry point within coverSearchRange that IsUsefulCover admits against this target.
+        bool TryFindCover(Health target, out CoverPoint point)
+        {
+            point = null;
+            if (coverRegistry == null)
+                return false;
+            coverTarget = target;
+            isUsefulCover ??= IsUsefulCover;
+            var found = CoverRules.TryChooseNearest(coverRegistry.Points, transform.position, coverSearchRange, isUsefulCover, out point);
+            coverTarget = null;
+            return found;
+        }
+
+        // Unclaimed or ours; protects the point from the target (one obstacle ray); the target can be attacked from
+        // the eye a unit would have there (range and sight); reachable (a path, so last).
+        bool IsUsefulCover(CoverPoint point)
+        {
+            if (point.IsClaimed && !point.IsClaimedBy(Unit.Cover))
+                return false;
+            var pivot = point.Position + Vector3.up * Mover.PivotHeight;
+            return point.ProtectsFrom(coverTarget.transform.position, pivot)
+                && Attacker.CanAttackFrom(pivot, coverTarget)
+                && Mover.CanReach(point.Position);
         }
     }
 }

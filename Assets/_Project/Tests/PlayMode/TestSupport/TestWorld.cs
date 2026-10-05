@@ -48,6 +48,42 @@ namespace Blackglass.Tests
             return root;
         }
 
+        /// <summary>The n-th box obstacle CreateEnvironment made (creation order), for wiring a CoverPoint to it.</summary>
+        public static BoxCollider ObstacleCollider(GameObject environment, int index = 0) =>
+            environment.GetComponentsInChildren<BoxCollider>()[index];
+
+        /// <summary>
+        /// A box with a collider outside the NavMesh environment (built after the bake, so it carves nothing). For
+        /// geometry tests that only need a collider to raycast against.
+        /// </summary>
+        public GameObject CreateObstacle(Vector3 position, Vector3 scale)
+        {
+            var box = Track(GameObject.CreatePrimitive(PrimitiveType.Cube));
+            box.name = "LooseObstacle";
+            box.transform.position = position;
+            box.transform.localScale = scale;
+            Physics.SyncTransforms();
+            return box;
+        }
+
+        /// <summary>A cover point at exactly the given stand position, facing `forward`, protected by `obstacle`.</summary>
+        public CoverPoint CreateCoverPoint(Vector3 position, Vector3 forward, Collider obstacle, float hitChance = 0.5f)
+        {
+            var host = Track(new GameObject("TestCoverPoint"));
+            host.transform.SetPositionAndRotation(position, Quaternion.LookRotation(forward));
+            var point = host.AddComponent<CoverPoint>();
+            point.Initialize(obstacle, hitChance);
+            return point;
+        }
+
+        /// <summary>A registry on its own object listing the given points.</summary>
+        public CoverRegistry CreateRegistry(params CoverPoint[] points)
+        {
+            var registry = Track(new GameObject("CoverRegistry")).AddComponent<CoverRegistry>();
+            registry.Initialize(points);
+            return registry;
+        }
+
         public CommandableUnit CreateUnit(Vector3 groundPosition)
         {
             var unit = Track(GameObject.CreatePrimitive(PrimitiveType.Capsule));
@@ -56,6 +92,7 @@ namespace Blackglass.Tests
             unit.AddComponent<UnitMover>();
             unit.GetComponent<NavMeshAgent>().baseOffset = 1f;
             unit.AddComponent<UnitAttacker>();
+            unit.AddComponent<UnitCover>();
             return unit.AddComponent<CommandableUnit>();
         }
 
@@ -72,7 +109,7 @@ namespace Blackglass.Tests
         /// the others (CommandableUnit subscribes to its Health there).
         /// </summary>
         public CommandableUnit CreateFighter(Vector3 groundPosition, int maxHealth = 100, int damage = 25, float cooldown = 1f,
-            CombatRole role = CombatRole.Melee, float range = 2f)
+            CombatRole role = CombatRole.Melee, float range = 2f, CoverRegistry registry = null)
         {
             var host = Track(GameObject.CreatePrimitive(PrimitiveType.Capsule));
             host.name = "TestFighter";
@@ -82,6 +119,9 @@ namespace Blackglass.Tests
             host.GetComponent<NavMeshAgent>().baseOffset = 1f;
             host.AddComponent<UnitAttacker>().Initialize(range, damage, cooldown, role);
             host.AddComponent<Health>().Initialize(maxHealth);
+            var cover = host.AddComponent<UnitCover>();
+            if (registry != null)
+                cover.Initialize(registry);
             var unit = host.AddComponent<CommandableUnit>();
             host.AddComponent<AutoRetaliate>();
             host.SetActive(true);
@@ -96,15 +136,16 @@ namespace Blackglass.Tests
             return unit.gameObject.AddComponent<SelectableUnit>();
         }
 
-        /// <summary>A fighter with EnemyAI wired to the encounter. Hostile prototype stats by default.</summary>
+        /// <summary>A fighter with EnemyAI wired to the encounter (and a cover registry, when given). Hostile prototype stats by default.</summary>
         public EnemyAI CreateHostile(Vector3 groundPosition, Encounter encounter, int maxHealth = 60, int damage = 10,
-            float cooldown = 1.2f, float detectionRange = 12f, CombatRole role = CombatRole.Melee, float range = 2f)
+            float cooldown = 1.2f, float detectionRange = 12f, CombatRole role = CombatRole.Melee, float range = 2f,
+            CoverRegistry registry = null)
         {
-            var unit = CreateFighter(groundPosition, maxHealth, damage, cooldown, role, range);
+            var unit = CreateFighter(groundPosition, maxHealth, damage, cooldown, role, range, registry);
             unit.name = "TestHostile";
             unit.gameObject.SetActive(false);
             var ai = unit.gameObject.AddComponent<EnemyAI>();
-            ai.Initialize(encounter, detectionRange);
+            ai.Initialize(encounter, detectionRange, registry: registry);
             unit.gameObject.SetActive(true);
             return ai;
         }
@@ -117,10 +158,11 @@ namespace Blackglass.Tests
             return active;
         }
 
-        /// <summary>A friendly fighter with CompanionAI wired to the active character and the encounter.</summary>
-        public CompanionAI CreateCompanion(Vector3 groundPosition, ActiveCharacter active, Encounter encounter, int maxHealth = 100)
+        /// <summary>A friendly fighter with CompanionAI wired to the active character and the encounter (and a cover registry, when given).</summary>
+        public CompanionAI CreateCompanion(Vector3 groundPosition, ActiveCharacter active, Encounter encounter, int maxHealth = 100,
+            CoverRegistry registry = null)
         {
-            var unit = CreateFighter(groundPosition, maxHealth);
+            var unit = CreateFighter(groundPosition, maxHealth, registry: registry);
             unit.name = "TestCompanion";
             unit.gameObject.SetActive(false);
             var ai = unit.gameObject.AddComponent<CompanionAI>();

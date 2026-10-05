@@ -162,6 +162,7 @@ GameObject:
   - component: {fileID: 2646243876658041223}
   - component: {fileID: 7840743941712577355}
   - component: {fileID: 4792525998028801470}
+  - component: {fileID: 8016659859887484488}
   m_Layer: 0
   m_Name: HostileUnit
   m_TagString: Untagged
@@ -420,3 +421,21 @@ MonoBehaviour:
   encounter: {fileID: 0}
   detectionRange: 12
   thinkInterval: 0.25
+  coverRegistry: {fileID: 0}
+  coverSearchRange: 8
+--- !u!114 &8016659859887484488
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8744270717196842595}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4f67791cec4603243be13310bbcaae59, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.UnitCover
+  registry: {fileID: 0}
+  occupyRadius: 0.6
+  leaveRadius: 1
+  stillSpeed: 0.5

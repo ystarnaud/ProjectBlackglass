@@ -116,6 +116,27 @@ namespace Blackglass.Tests
             Assert.That(GameObject.Find("Obstacle_F"), Is.Not.Null);
             foreach (var obstacle in new[] { "Pillar_G", "Pillar_H", "Barrier_I", "Crate_J", "Crate_K" })
                 Assert.That(GameObject.Find(obstacle), Is.Not.Null, $"{obstacle} missing");
+            foreach (var wall in new[] { "LowWall_L", "LowWall_M", "LowWall_N" })
+                Assert.That(GameObject.Find(wall), Is.Not.Null, $"{wall} missing");
+            var registry = Object.FindFirstObjectByType<CoverRegistry>();
+            Assert.That(registry, Is.Not.Null, "CoverRegistry missing");
+            Assert.That(registry.Points.Count, Is.EqualTo(20));
+            var pointsRoot = GameObject.Find("CoverPoints");
+            Assert.That(pointsRoot, Is.Not.Null, "CoverPoints root missing");
+            Assert.That(registry.Points, Is.EquivalentTo(pointsRoot.GetComponentsInChildren<CoverPoint>()));
+            foreach (var point in registry.Points)
+            {
+                Assert.That(point.Obstacle, Is.Not.Null, $"{point.name} has no obstacle");
+                Assert.That(point.IsClaimed, Is.False, $"{point.name} starts claimed");
+                Assert.That(UnityEngine.AI.NavMesh.SamplePosition(point.Position, out _, 0.5f, UnityEngine.AI.NavMesh.AllAreas), Is.True,
+                    $"{point.name} at {point.Position} is off the NavMesh");
+            }
+            Assert.That(Object.FindFirstObjectByType<CoverView>(), Is.Not.Null, "CoverView missing");
+            Assert.That(Object.FindFirstObjectByType<PlayerCommandInput>().IsCoverWired, Is.True, "PlayerCommandInput.coverRegistry is not wired");
+            foreach (var hostile in hostiles)
+                Assert.That(hostile.IsCoverWired, Is.True, $"{hostile.name}'s EnemyAI has no cover registry");
+            foreach (var unit in friendlies.Select(f => f.Unit).Concat(hostiles.Select(h => h.GetComponent<CommandableUnit>())))
+                Assert.That(unit.Cover.IsWired, Is.True, $"{unit.name}'s UnitCover is not wired");
 
             Assert.That(pause, Is.Not.Null, "TacticalPause missing");
             Assert.That(Object.FindFirstObjectByType<PlayerCommandInput>(), Is.Not.Null);
@@ -315,6 +336,32 @@ namespace Blackglass.Tests
             yield return null;
             Release(key);
             yield return null;
+        }
+
+        [UnityTest]
+        public IEnumerator PausedClickNearACoverMarker_InScene_OrdersCover_ThenTheUnitOccupiesItAfterResume()
+        {
+            var mouse = InputSystem.AddDevice<Mouse>();
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var squad = PrototypeSceneTests.FindSquad();
+            var point = GameObject.Find("Cover_LowWall_L_S1").GetComponent<CoverPoint>();
+
+            yield return Tap(keyboard.spaceKey);
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(squad[0].transform.position));
+            // 0.5 m east of the point, on open ground south of LowWall_L (nothing between it and the camera).
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(point.Position + new Vector3(0.5f, 0f, 0f)));
+
+            Assert.That(squad[0].CurrentCommand, Is.TypeOf<MoveToCoverCommand>(), "A paused click beside a marker orders cover");
+            Assert.That(((MoveToCoverCommand)squad[0].CurrentCommand).Point, Is.SameAs(point));
+            Assert.That(squad[0].Cover.Status, Is.EqualTo(CoverStatus.Reserved));
+            Assert.That(squad[1].CurrentCommand, Is.Null, "Only the selected unit is ordered");
+
+            yield return Tap(keyboard.spaceKey);
+            yield return TestWorld.WaitUntil(() => squad[0].Cover.Status == CoverStatus.Occupied, 20f);
+
+            Assert.That(squad[0].Cover.Status, Is.EqualTo(CoverStatus.Occupied), "After resume the unit walks there and takes it");
+            Assert.That(squad[0].Cover.Point, Is.SameAs(point));
         }
 
         [UnityTest]

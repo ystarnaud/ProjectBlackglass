@@ -248,5 +248,119 @@ namespace Blackglass.Tests
 
             Assert.That(hostile.Target, Is.SameAs(HealthOf(other)));
         }
+
+        static UnitCover CoverOf(Component unit) => unit.GetComponent<UnitCover>();
+
+        // A 0.9 m wall from z -0.25 to 0.25 (x -2..2), one point 0.75 m north of it facing south (into the wall), and a
+        // sturdy friendly 5 m south of the wall. From the point a ranged hostile shoots the friendly over the wall
+        // (6 m, in range; the 1.5 m eye line clears 0.9 m) while the friendly's eye-to-feet ray crosses the wall.
+        (CoverPoint point, CoverRegistry registry, CommandableUnit friendly) CoverLayout()
+        {
+            var environment = world.CreateEnvironment((new Vector3(0f, 0.45f, 0f), new Vector3(4f, 0.9f, 0.5f)));
+            var point = world.CreateCoverPoint(new Vector3(0f, 0f, 1f), Vector3.back, TestWorld.ObstacleCollider(environment));
+            var registry = world.CreateRegistry(point);
+            var friendly = world.CreateFighter(new Vector3(0f, 0f, -5f), maxHealth: 300);
+            return (point, registry, friendly);
+        }
+
+        [UnityTest]
+        public IEnumerator RangedHostile_TakesNearbyCover_ThenFiresFromIt()
+        {
+            var (point, registry, friendly) = CoverLayout();
+            // 10 m from the friendly: inside the 12 m detection range, outside the 8 m attack range; the point is 4 m away.
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, 5f), encounter, damage: 8, cooldown: 1.5f, role: CombatRole.Ranged, range: 8f, registry: registry);
+            Arm(new[] { hostile }, friendly);
+            var distanceAtFirstHit = -1f;
+            hostile.GetComponent<UnitAttacker>().Attacked += _ =>
+            {
+                if (distanceAtFirstHit < 0f)
+                    distanceAtFirstHit = TestWorld.HorizontalDistance(hostile.transform.position, friendly.transform.position);
+            };
+
+            yield return WaitForState(hostile, EnemyState.Cover, 1.5f);
+            Assert.That(hostile.State, Is.EqualTo(EnemyState.Cover), "A ranged hostile with useful cover nearby walks to it first");
+            Assert.That(hostile.Target, Is.SameAs(HealthOf(friendly)), "The queued attack already names the target");
+            Assert.That(point.Claimant, Is.SameAs(CoverOf(hostile)));
+            yield return TestWorld.WaitUntil(() => CoverOf(hostile).Status == CoverStatus.Occupied, 5f);
+            Assert.That(CoverOf(hostile).Status, Is.EqualTo(CoverStatus.Occupied), "It arrived in cover");
+            yield return TestWorld.WaitUntil(() => distanceAtFirstHit >= 0f, 6f);
+
+            Assert.That(distanceAtFirstHit, Is.EqualTo(6f).Within(0.75f), "It fires from the point, 6 m from the friendly");
+            Assert.That(CoverOf(hostile).Status, Is.EqualTo(CoverStatus.Occupied), "Still in cover after firing");
+            Assert.That(hostile.State, Is.EqualTo(EnemyState.Attack));
+        }
+
+        [UnityTest]
+        public IEnumerator MeleeHostile_InTheSameLayout_ChargesWithoutClaimingAPoint()
+        {
+            var (point, registry, friendly) = CoverLayout();
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, 5f), encounter, registry: registry);   // melee
+            Arm(new[] { hostile }, friendly);
+            var everCover = false;
+            var everClaimed = false;
+
+            var deadline = Time.realtimeSinceStartup + 8f;
+            while (HealthOf(friendly).Current == HealthOf(friendly).Max && Time.realtimeSinceStartup < deadline)
+            {
+                everCover |= hostile.State == EnemyState.Cover;
+                everClaimed |= point.IsClaimed;
+                yield return null;
+            }
+
+            Assert.That(HealthOf(friendly).Current, Is.LessThan(HealthOf(friendly).Max), "Precondition: the melee hostile reached and hit the friendly");
+            Assert.That(everCover, Is.False, "A melee hostile never seeks cover");
+            Assert.That(everClaimed, Is.False, "...and claims no point on its way");
+        }
+
+        [UnityTest]
+        public IEnumerator RangedHostile_WithTheOnlyPointClaimed_AttacksWithoutCover()
+        {
+            var (point, registry, friendly) = CoverLayout();
+            var squatter = world.CreateFighter(new Vector3(0f, 0f, 3f), registry: registry);   // not in the encounter
+            Assert.That(squatter.Issue(new MoveToCoverCommand(point)), Is.True);
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, 5f), encounter, damage: 8, cooldown: 1.5f, role: CombatRole.Ranged, range: 8f, registry: registry);
+            Arm(new[] { hostile }, friendly);
+
+            yield return WaitForState(hostile, EnemyState.Chase, 1.5f);
+            Assert.That(hostile.State, Is.EqualTo(EnemyState.Chase), "No usable point: a plain attack, approaching to range");
+            Assert.That(hostile.Target, Is.SameAs(HealthOf(friendly)));
+            Assert.That(CoverOf(hostile).Status, Is.EqualTo(CoverStatus.None));
+            yield return TestWorld.WaitUntil(() => HealthOf(friendly).Current < HealthOf(friendly).Max, 8f);
+
+            Assert.That(HealthOf(friendly).Current, Is.LessThan(HealthOf(friendly).Max), "It still fights");
+            Assert.That(point.Claimant, Is.SameAs(CoverOf(squatter)), "The squatter keeps the point");
+        }
+
+        [UnityTest]
+        public IEnumerator RangedHostile_StandingOnAUsefulPoint_FiresFromIt_WithoutMoving()
+        {
+            var (point, registry, friendly) = CoverLayout();
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, 1f), encounter, damage: 8, cooldown: 1.5f, role: CombatRole.Ranged, range: 8f, registry: registry);
+            Arm(new[] { hostile }, friendly);
+            var start = hostile.transform.position;
+
+            yield return TestWorld.WaitUntil(() => HealthOf(friendly).Current < HealthOf(friendly).Max, 6f);
+
+            Assert.That(HealthOf(friendly).Current, Is.LessThan(HealthOf(friendly).Max), "Precondition: it fired");
+            Assert.That(TestWorld.HorizontalDistance(hostile.transform.position, start), Is.LessThan(0.3f), "Its own point is useful: no walk");
+            Assert.That(CoverOf(hostile).Point, Is.SameAs(point));
+            Assert.That(CoverOf(hostile).Status, Is.EqualTo(CoverStatus.Occupied));
+            Assert.That(CoverOf(hostile).OccupiedByOrder, Is.True, "The cover order on its own spot completed at once");
+        }
+
+        [UnityTest]
+        public IEnumerator IdleHostile_StandingBesideAFreePoint_OccupiesIt()
+        {
+            var (point, registry, _) = CoverLayout();
+            var hostile = world.CreateHostile(new Vector3(0.3f, 0f, 1f), encounter, registry: registry);
+            Arm(new[] { hostile });   // no friendlies: it stays idle
+
+            yield return TestWorld.WaitUntil(() => CoverOf(hostile).Status == CoverStatus.Occupied, 2f);
+
+            Assert.That(hostile.State, Is.EqualTo(EnemyState.Idle));
+            Assert.That(CoverOf(hostile).Status, Is.EqualTo(CoverStatus.Occupied));
+            Assert.That(CoverOf(hostile).Point, Is.SameAs(point));
+            Assert.That(CoverOf(hostile).OccupiedByOrder, Is.False, "It only happens to stand there");
+        }
     }
 }

@@ -3,7 +3,7 @@ using UnityEngine;
 namespace Blackglass
 {
     /// <summary>
-    /// Debug feedback: shows a line from this unit to its target for a moment after each hit. The LineRenderer lives
+    /// Debug feedback: shows a line from this unit to its target for a moment after each shot, hit or miss. The LineRenderer lives
     /// on a collider-free child, because a friendly unit's own LineRenderer belongs to CommandQueueView. Counts down
     /// on simulation time, so it freezes while paused.
     /// </summary>
@@ -27,12 +27,14 @@ namespace Blackglass
         void OnEnable()
         {
             attacker.Attacked += OnAttacked;
+            attacker.Missed += OnAttacked;
             Hide();
         }
 
         void OnDisable()
         {
             attacker.Attacked -= OnAttacked;
+            attacker.Missed -= OnAttacked;
             remaining = 0f;
             Hide();
         }

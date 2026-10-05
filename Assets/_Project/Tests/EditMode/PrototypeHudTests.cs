@@ -62,6 +62,7 @@ namespace Blackglass.Tests
         [TestCase(EnemyState.Chase, "FriendlyUnit_1", 0f, "Chase -> FriendlyUnit_1")]
         [TestCase(EnemyState.Attack, "FriendlyUnit_1", 0.44f, "Attack -> FriendlyUnit_1 CD 0.4")]
         [TestCase(EnemyState.Reposition, "FriendlyUnit_3", 0f, "Reposition -> FriendlyUnit_3")]
+        [TestCase(EnemyState.Cover, "FriendlyUnit_1", 0f, "Cover -> FriendlyUnit_1")]
         [TestCase(EnemyState.Dead, null, 0f, "Dead")]
         public void DescribeEnemy_StateTargetAndCooldown(EnemyState state, string target, float cooldown, string expected)
         {
@@ -101,6 +102,32 @@ namespace Blackglass.Tests
         public void DescribeOutcome_BannerText(EncounterOutcome outcome, string expected)
         {
             Assert.That(PrototypeHud.DescribeOutcome(outcome), Is.EqualTo(expected));
+        }
+
+        [TestCase(CoverStatus.None, "Cover_LowWall_L_S1", false, "")]
+        [TestCase(CoverStatus.Reserved, "Cover_LowWall_L_S1", false, "Cover: Cover_LowWall_L_S1 (reserved)")]
+        [TestCase(CoverStatus.Occupied, "Cover_LowWall_L_S1", false, "Cover: Cover_LowWall_L_S1 (occupied)")]
+        [TestCase(CoverStatus.Occupied, "Cover_LowWall_L_S1", true, "Cover: Cover_LowWall_L_S1 (occupied, ordered)")]
+        [TestCase(CoverStatus.Occupied, null, true, "")]
+        public void DescribeCover_StatusAndPoint(CoverStatus status, string pointName, bool byOrder, string expected)
+        {
+            Assert.That(PrototypeHud.DescribeCover(status, pointName, byOrder), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void AppendTargetCover_SaysInCoverWithTheChance_OrExposed()
+        {
+            Assert.That(PrototypeHud.AppendTargetCover("Attack", true, 0.5f), Is.EqualTo("Attack target in cover 50%"));
+            Assert.That(PrototypeHud.AppendTargetCover("Attack LOS clear", true, 0.25f), Is.EqualTo("Attack LOS clear target in cover 25%"));
+            Assert.That(PrototypeHud.AppendTargetCover("", false, 1f), Is.EqualTo("target exposed"));
+        }
+
+        [Test]
+        public void AppendHits_OnlyAfterTheFirstShot()
+        {
+            Assert.That(PrototypeHud.AppendHits("Attack", 0, 0), Is.EqualTo("Attack"));
+            Assert.That(PrototypeHud.AppendHits("Attack", 3, 7), Is.EqualTo("Attack hits 3/7"));
+            Assert.That(PrototypeHud.AppendHits("", 0, 2), Is.EqualTo("hits 0/2"));
         }
     }
 }

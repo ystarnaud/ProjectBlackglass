@@ -5,8 +5,8 @@ namespace Blackglass
 {
     /// <summary>
     /// An order for a unit. Commands are plain data: whoever creates one (player input, groups, AI or scripts)
-    /// hands it to CommandableUnit.Issue, and the unit decides how to carry it out. Future commands (Interact)
-    /// are new subclasses.
+    /// hands it to CommandableUnit.Issue, and the unit decides how to carry it out. The commands are Move, Attack,
+    /// MoveToCover and Stop. Future commands (Interact) are new subclasses.
     /// </summary>
     public abstract class UnitCommand { }
 
@@ -27,6 +27,22 @@ namespace Blackglass
         }
 
         public Health Target { get; }
+    }
+
+    /// <summary>
+    /// Walk to a cover point and occupy it. The point is reserved when the order starts and refused when another unit
+    /// holds it; the reservation lives exactly as long as this order is current.
+    /// </summary>
+    public sealed class MoveToCoverCommand : UnitCommand
+    {
+        public MoveToCoverCommand(CoverPoint point)
+        {
+            if (point == null)
+                throw new ArgumentNullException(nameof(point));
+            Point = point;
+        }
+
+        public CoverPoint Point { get; }
     }
 
     /// <summary>Halts the unit and clears all of its orders. Never queued.</summary>
