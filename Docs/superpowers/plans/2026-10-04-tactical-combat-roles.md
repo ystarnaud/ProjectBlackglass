@@ -410,11 +410,12 @@ namespace Blackglass.Tests
             Assert.That(attacker.TryAttack(dummy), Is.False, "A ranged attack must not land through a wall");
             Assert.That(dummy.Current, Is.EqualTo(dummy.Max));
 
-            ranged.transform.position = new Vector3(4f, 1f, -3f);
+            // A second ranged unit already standing to the side (teleporting a NavMeshAgent by transform is unreliable).
+            var sideAttacker = world.CreateFighter(new Vector3(4f, 0f, -3f), role: CombatRole.Ranged, range: 8f).GetComponent<UnitAttacker>();
             yield return new WaitForFixedUpdate();
-            Assert.That(attacker.CanAttack(dummy), Is.True, "From the side the wall is cleared");
-            Assert.That(attacker.TryAttack(dummy), Is.True);
-            Assert.That(dummy.Current, Is.EqualTo(dummy.Max - attacker.Damage));
+            Assert.That(sideAttacker.CanAttack(dummy), Is.True, "From the side the wall is cleared");
+            Assert.That(sideAttacker.TryAttack(dummy), Is.True);
+            Assert.That(dummy.Current, Is.EqualTo(dummy.Max - sideAttacker.Damage));
         }
     }
 }
@@ -608,8 +609,8 @@ namespace Blackglass.Tests
             yield return null;
 
             Assert.That(mover.TrySnap(new Vector3(0f, 0f, 0f), out var edge), Is.True);
-            Assert.That(TestWorld.HorizontalDistance(edge, Vector3.zero), Is.GreaterThan(0.9f).And.LessThan(2f),
-                "The snapped point sits on the eroded NavMesh around the 1 m wall");
+            Assert.That(TestWorld.HorizontalDistance(edge, Vector3.zero), Is.GreaterThan(0.6f).And.LessThan(2f),
+                "The snapped point sits on the eroded NavMesh around the 1 m wall (edge near 1 m, give or take a voxel)");
             Assert.That(mover.TrySnap(new Vector3(5f, 1f, 5f), out var fromPivot), Is.True, "A pivot-height point snaps down to the mesh");
             Assert.That(fromPivot.y, Is.LessThan(0.3f));
             Assert.That(TestWorld.HorizontalDistance(fromPivot, new Vector3(5f, 0f, 5f)), Is.LessThan(0.01f));
@@ -957,17 +958,17 @@ In `Assets/_Project/Tests/EditMode/CommandableUnitTests.cs` add one test inside 
             var target = targetHost.AddComponent<Health>();
 
             Assert.That(unit.AttackPhase, Is.EqualTo(AttackPhase.None));
-            unit.Issue(new MoveCommand(Vector3.zero));
-            Assert.That(unit.AttackPhase, Is.EqualTo(AttackPhase.None), "A move is not an attack");
             Assert.That(unit.Issue(new AttackCommand(target)), Is.True);
             Assert.That(unit.AttackPhase, Is.EqualTo(AttackPhase.Approach), "An attack order that has not ticked is approaching");
+            Assert.That(unit.Issue(new StopCommand()), Is.True);
+            Assert.That(unit.AttackPhase, Is.EqualTo(AttackPhase.None), "No order, no phase");
 
             Object.DestroyImmediate(host);
             Object.DestroyImmediate(targetHost);
         }
 ```
 
-(`Issue(new MoveCommand(...))` returns false here because there is no NavMesh in EditMode; that is fine, the assertion is about the phase.)
+(No `MoveCommand` here: without a NavMesh in EditMode it would log a "not on a NavMesh" warning, and test output must stay pristine.)
 
 In `Assets/_Project/Tests/PlayMode/RangedCombatPlayModeTests.cs` add four tests inside the fixture:
 
