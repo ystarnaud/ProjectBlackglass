@@ -119,52 +119,6 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &101573973
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 101573974}
-  - component: {fileID: 101573975}
-  m_Layer: 0
-  m_Name: Cover_Crate_J_W
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &101573974
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 101573973}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: 8.25, y: 0, z: -5}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &101573975
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 101573973}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 341328422}
-  hitChance: 0.5
 --- !u!1001 &145679767
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -574,6 +528,7 @@ GameObject:
   - component: {fileID: 341328423}
   - component: {fileID: 341328422}
   - component: {fileID: 341328421}
+  - component: {fileID: 341328424}
   m_Layer: 0
   m_Name: Crate_J
   m_TagString: Untagged
@@ -674,6 +629,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 341328419}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &341328424
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 341328419}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &379088702
 GameObject:
   m_ObjectHideFlags: 0
@@ -798,6 +765,7 @@ GameObject:
   - component: {fileID: 398294332}
   - component: {fileID: 398294331}
   - component: {fileID: 398294330}
+  - component: {fileID: 398294333}
   m_Layer: 0
   m_Name: LowWall_L
   m_TagString: Untagged
@@ -898,6 +866,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 398294328}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &398294333
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 398294328}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &421774590
 GameObject:
   m_ObjectHideFlags: 0
@@ -1022,6 +1002,7 @@ GameObject:
   - component: {fileID: 518862755}
   - component: {fileID: 518862754}
   - component: {fileID: 518862753}
+  - component: {fileID: 518862756}
   m_Layer: 0
   m_Name: Obstacle_CentralWall
   m_TagString: Untagged
@@ -1122,6 +1103,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 518862751}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &518862756
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 518862751}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &538365520
 GameObject:
   m_ObjectHideFlags: 0
@@ -1170,52 +1163,6 @@ Transform:
   - {fileID: 625247418}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &565566990
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 565566991}
-  - component: {fileID: 565566992}
-  m_Layer: 0
-  m_Name: Cover_LowWall_N_N
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &565566991
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 565566990}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 1, z: -0, w: 0}
-  m_LocalPosition: {x: 8.5, y: 0, z: 7}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &565566992
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 565566990}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 1833863203}
-  hitChance: 0.5
 --- !u!1 &622546476
 GameObject:
   m_ObjectHideFlags: 0
@@ -1228,6 +1175,7 @@ GameObject:
   - component: {fileID: 622546480}
   - component: {fileID: 622546479}
   - component: {fileID: 622546478}
+  - component: {fileID: 622546481}
   m_Layer: 0
   m_Name: Pillar_G
   m_TagString: Untagged
@@ -1328,6 +1276,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 622546476}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &622546481
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 622546476}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &625247415
 GameObject:
   m_ObjectHideFlags: 0
@@ -1670,144 +1630,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9954ad40d7a7ef443832fbdca5ea3221, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.Health
---- !u!1 &860390192
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 860390193}
-  - component: {fileID: 860390194}
-  m_Layer: 0
-  m_Name: Cover_Barrier_I_S2
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &860390193
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 860390192}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -7, y: 0, z: 0.75}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &860390194
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 860390192}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 1311753651}
-  hitChance: 0.5
---- !u!1 &875519151
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 875519152}
-  - component: {fileID: 875519153}
-  m_Layer: 0
-  m_Name: Cover_LowWall_M_S2
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &875519152
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 875519151}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -3, y: 0, z: 5}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &875519153
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 875519151}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 1189556995}
-  hitChance: 0.5
---- !u!1 &880303393
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 880303394}
-  - component: {fileID: 880303395}
-  m_Layer: 0
-  m_Name: Cover_LowWall_L_S2
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &880303394
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 880303393}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 7.5, y: 0, z: -4}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &880303395
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 880303393}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 398294331}
-  hitChance: 0.5
 --- !u!1 &897997308
 GameObject:
   m_ObjectHideFlags: 0
@@ -2108,52 +1930,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 50, y: -30, z: 0}
---- !u!1 &996515939
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 996515940}
-  - component: {fileID: 996515941}
-  m_Layer: 0
-  m_Name: Cover_LowWall_M_N1
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &996515940
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 996515939}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 1, z: -0, w: 0}
-  m_LocalPosition: {x: -5, y: 0, z: 7}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &996515941
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 996515939}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 1189556995}
-  hitChance: 0.5
 --- !u!1 &1021927378
 GameObject:
   m_ObjectHideFlags: 0
@@ -2172,6 +1948,7 @@ GameObject:
   - component: {fileID: 1021927386}
   - component: {fileID: 1021927387}
   - component: {fileID: 1021927388}
+  - component: {fileID: 1021927389}
   m_Layer: 0
   m_Name: Systems
   m_TagString: Untagged
@@ -2337,27 +2114,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4223b18790f34b2438b11a03579b77a9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.CoverRegistry
-  points:
-  - {fileID: 1574275852}
-  - {fileID: 880303395}
-  - {fileID: 2054991079}
-  - {fileID: 1821147057}
-  - {fileID: 1105531954}
-  - {fileID: 875519153}
-  - {fileID: 996515941}
-  - {fileID: 1299978006}
-  - {fileID: 1953511933}
-  - {fileID: 565566992}
-  - {fileID: 1847794059}
-  - {fileID: 1822074342}
-  - {fileID: 1049453474}
-  - {fileID: 1472398146}
-  - {fileID: 1130900086}
-  - {fileID: 2049248275}
-  - {fileID: 101573975}
-  - {fileID: 2039330393}
-  - {fileID: 1612398078}
-  - {fileID: 860390194}
 --- !u!114 &1021927388
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2372,147 +2128,36 @@ MonoBehaviour:
   m_EditorClassIdentifier: Blackglass::Blackglass.CoverView
   registry: {fileID: 1021927387}
   tacticalPause: {fileID: 1021927381}
+  selection: {fileID: 1021927383}
   markerMaterial: {fileID: 2100000, guid: b42da9722a5649248a5574266db4a807, type: 2}
   discDiameter: 0.5
   groundHeight: 0.05
---- !u!1 &1049453472
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1049453473}
-  - component: {fileID: 1049453474}
-  m_Layer: 0
-  m_Name: Cover_Pillar_G_W
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1049453473
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1049453472}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: -3.5, y: 0, z: -6}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1049453474
+--- !u!114 &1021927389
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1049453472}
+  m_GameObject: {fileID: 1021927378}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
+  m_Script: {fileID: 11500000, guid: 930889caf623c5d49a0ae8da5a3a66a0, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 622546479}
-  hitChance: 0.5
---- !u!1 &1105531952
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1105531953}
-  - component: {fileID: 1105531954}
-  m_Layer: 0
-  m_Name: Cover_LowWall_M_S1
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1105531953
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1105531952}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -5, y: 0, z: 5}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1105531954
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1105531952}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 1189556995}
-  hitChance: 0.5
---- !u!1 &1130900084
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1130900085}
-  - component: {fileID: 1130900086}
-  m_Layer: 0
-  m_Name: Cover_Crate_J_S
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1130900085
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1130900084}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 10, y: 0, z: -6.75}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1130900086
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1130900084}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 341328422}
-  hitChance: 0.5
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverDiscovery
+  registry: {fileID: 1021927387}
+  settings:
+    standOffset: 0.75
+    spacing: 2
+    endMargin: 0.5
+    minFaceLength: 1
+    lowMaxHeight: 1.2
+    minCornerLength: 2
+    cornerInset: 0.35
+    peekDistance: 1.25
+    mergeDistance: 1
+    hitChance: 0.5
+    walkableTolerance: 0.25
+  discoverOnStart: 1
 --- !u!1 &1189556992
 GameObject:
   m_ObjectHideFlags: 0
@@ -2525,6 +2170,7 @@ GameObject:
   - component: {fileID: 1189556996}
   - component: {fileID: 1189556995}
   - component: {fileID: 1189556994}
+  - component: {fileID: 1189556997}
   m_Layer: 0
   m_Name: LowWall_M
   m_TagString: Untagged
@@ -2625,6 +2271,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1189556992}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!114 &1189556997
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1189556992}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &1204200033
 GameObject:
   m_ObjectHideFlags: 0
@@ -2850,52 +2508,6 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1294341896}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
---- !u!1 &1299978004
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1299978005}
-  - component: {fileID: 1299978006}
-  m_Layer: 0
-  m_Name: Cover_LowWall_M_N2
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1299978005
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1299978004}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 1, z: -0, w: 0}
-  m_LocalPosition: {x: -3, y: 0, z: 7}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1299978006
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1299978004}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 1189556995}
-  hitChance: 0.5
 --- !u!1 &1311753648
 GameObject:
   m_ObjectHideFlags: 0
@@ -2908,6 +2520,7 @@ GameObject:
   - component: {fileID: 1311753652}
   - component: {fileID: 1311753651}
   - component: {fileID: 1311753650}
+  - component: {fileID: 1311753653}
   m_Layer: 0
   m_Name: Barrier_I
   m_TagString: Untagged
@@ -3008,52 +2621,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1311753648}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
---- !u!1 &1472398144
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1472398145}
-  - component: {fileID: 1472398146}
-  m_Layer: 0
-  m_Name: Cover_Pillar_G_E
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1472398145
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1472398144}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0.7071068, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: -0.5, y: 0, z: -6}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1472398146
+--- !u!114 &1311753653
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1472398144}
+  m_GameObject: {fileID: 1311753648}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 622546479}
-  hitChance: 0.5
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1001 &1538312277
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -3150,98 +2729,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9954ad40d7a7ef443832fbdca5ea3221, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.Health
---- !u!1 &1574275850
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1574275851}
-  - component: {fileID: 1574275852}
-  m_Layer: 0
-  m_Name: Cover_LowWall_L_S1
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1574275851
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1574275850}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 5.5, y: 0, z: -4}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1574275852
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1574275850}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 398294331}
-  hitChance: 0.5
---- !u!1 &1612398076
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1612398077}
-  - component: {fileID: 1612398078}
-  m_Layer: 0
-  m_Name: Cover_Barrier_I_S1
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1612398077
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1612398076}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -9, y: 0, z: 0.75}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1612398078
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1612398076}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 1311753651}
-  hitChance: 0.5
 --- !u!1 &1635730849
 GameObject:
   m_ObjectHideFlags: 0
@@ -3309,149 +2796,6 @@ MonoBehaviour:
   maxPitch: 85
   boundsHalfSize: 25
   followSharpness: 10
---- !u!1 &1705416121
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1705416122}
-  m_Layer: 0
-  m_Name: CoverPoints
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1705416122
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1705416121}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 1574275851}
-  - {fileID: 880303394}
-  - {fileID: 2054991078}
-  - {fileID: 1821147056}
-  - {fileID: 1105531953}
-  - {fileID: 875519152}
-  - {fileID: 996515940}
-  - {fileID: 1299978005}
-  - {fileID: 1953511932}
-  - {fileID: 565566991}
-  - {fileID: 1847794058}
-  - {fileID: 1822074341}
-  - {fileID: 1049453473}
-  - {fileID: 1472398145}
-  - {fileID: 1130900085}
-  - {fileID: 2049248274}
-  - {fileID: 101573974}
-  - {fileID: 2039330392}
-  - {fileID: 1612398077}
-  - {fileID: 860390193}
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1821147055
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1821147056}
-  - component: {fileID: 1821147057}
-  m_Layer: 0
-  m_Name: Cover_LowWall_L_N2
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1821147056
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1821147055}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 1, z: -0, w: 0}
-  m_LocalPosition: {x: 7.5, y: 0, z: -2}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1821147057
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1821147055}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 398294331}
-  hitChance: 0.5
---- !u!1 &1822074340
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1822074341}
-  - component: {fileID: 1822074342}
-  m_Layer: 0
-  m_Name: Cover_Pillar_G_N
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1822074341
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1822074340}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 1, z: -0, w: 0}
-  m_LocalPosition: {x: -2, y: 0, z: -4.5}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1822074342
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1822074340}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 622546479}
-  hitChance: 0.5
 --- !u!1 &1833863200
 GameObject:
   m_ObjectHideFlags: 0
@@ -3464,6 +2808,7 @@ GameObject:
   - component: {fileID: 1833863204}
   - component: {fileID: 1833863203}
   - component: {fileID: 1833863202}
+  - component: {fileID: 1833863205}
   m_Layer: 0
   m_Name: LowWall_N
   m_TagString: Untagged
@@ -3564,52 +2909,18 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1833863200}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
---- !u!1 &1847794057
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1847794058}
-  - component: {fileID: 1847794059}
-  m_Layer: 0
-  m_Name: Cover_Pillar_G_S
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1847794058
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1847794057}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -2, y: 0, z: -7.5}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1847794059
+--- !u!114 &1833863205
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1847794057}
+  m_GameObject: {fileID: 1833863200}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
+  m_Script: {fileID: 11500000, guid: 6332c6686e811184e9697637d27a3a74, type: 3}
   m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 622546479}
-  hitChance: 0.5
+  m_EditorClassIdentifier: Blackglass::Blackglass.CoverSurface
 --- !u!1 &1890533016
 GameObject:
   m_ObjectHideFlags: 0
@@ -3834,190 +3145,6 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1898344115}
   m_Mesh: {fileID: 10202, guid: 0000000000000000e000000000000000, type: 0}
---- !u!1 &1953511931
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1953511932}
-  - component: {fileID: 1953511933}
-  m_Layer: 0
-  m_Name: Cover_LowWall_N_S
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1953511932
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1953511931}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 8.5, y: 0, z: 5}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1953511933
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1953511931}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 1833863203}
-  hitChance: 0.5
---- !u!1 &2039330391
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 2039330392}
-  - component: {fileID: 2039330393}
-  m_Layer: 0
-  m_Name: Cover_Crate_J_E
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &2039330392
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2039330391}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0.7071068, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: 11.75, y: 0, z: -5}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &2039330393
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2039330391}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 341328422}
-  hitChance: 0.5
---- !u!1 &2049248273
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 2049248274}
-  - component: {fileID: 2049248275}
-  m_Layer: 0
-  m_Name: Cover_Crate_J_N
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &2049248274
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2049248273}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 1, z: -0, w: 0}
-  m_LocalPosition: {x: 10, y: 0, z: -3.25}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &2049248275
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2049248273}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 341328422}
-  hitChance: 0.5
---- !u!1 &2054991077
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 2054991078}
-  - component: {fileID: 2054991079}
-  m_Layer: 0
-  m_Name: Cover_LowWall_L_N1
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &2054991078
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2054991077}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 1, z: -0, w: 0}
-  m_LocalPosition: {x: 5.5, y: 0, z: -2}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 1705416122}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &2054991079
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2054991077}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: c3f809041f11adb45876bbb89ba817a7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.CoverPoint
-  obstacle: {fileID: 398294331}
-  hitChance: 0.5
 --- !u!1 &2064927959
 GameObject:
   m_ObjectHideFlags: 0
@@ -4145,4 +3272,3 @@ SceneRoots:
   - {fileID: 802515751}
   - {fileID: 145679767}
   - {fileID: 1538312277}
-  - {fileID: 1705416122}

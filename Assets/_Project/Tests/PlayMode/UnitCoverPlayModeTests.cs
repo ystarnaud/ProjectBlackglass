@@ -9,7 +9,7 @@ namespace Blackglass.Tests
     public class UnitCoverPlayModeTests
     {
         TestWorld world;
-        CoverPoint point;
+        CoverLocation point;
         CoverRegistry registry;
 
         [SetUp]
@@ -126,7 +126,7 @@ namespace Blackglass.Tests
             yield return WalkOntoThePoint(unit);
             Assert.That(CoverOf(unit).Status, Is.EqualTo(CoverStatus.Occupied), "Precondition");
 
-            Object.Destroy(point.gameObject);
+            point.Retire();
             yield return null;
             yield return null;
 

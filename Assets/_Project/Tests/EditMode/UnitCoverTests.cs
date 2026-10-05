@@ -9,22 +9,16 @@ namespace Blackglass.Tests
     {
         GameObject unitHost;
         GameObject otherHost;
-        GameObject pointHostA;
-        GameObject pointHostB;
         UnitCover cover;
         UnitCover other;
-        CoverPoint pointA;
-        CoverPoint pointB;
+        CoverLocation pointA;
+        CoverLocation pointB;
 
         [SetUp]
         public void SetUp()
         {
-            pointHostA = new GameObject("A");
-            pointHostA.transform.position = new Vector3(0f, 0f, 0f);
-            pointA = pointHostA.AddComponent<CoverPoint>();
-            pointHostB = new GameObject("B");
-            pointHostB.transform.position = new Vector3(5f, 0f, 0f);
-            pointB = pointHostB.AddComponent<CoverPoint>();
+            pointA = new CoverLocation("A", new Vector3(0f, 0f, 0f), Vector3.forward, null);
+            pointB = new CoverLocation("B", new Vector3(5f, 0f, 0f), Vector3.forward, null);
             unitHost = new GameObject("Unit");
             unitHost.transform.position = new Vector3(0f, 1f, 0f);   // on A, at pivot height
             cover = unitHost.AddComponent<UnitCover>();
@@ -38,8 +32,6 @@ namespace Blackglass.Tests
         {
             Object.DestroyImmediate(unitHost);
             Object.DestroyImmediate(otherHost);
-            Object.DestroyImmediate(pointHostA);
-            Object.DestroyImmediate(pointHostB);
         }
 
         [Test]
@@ -134,10 +126,37 @@ namespace Blackglass.Tests
         {
             Assert.That(cover.HitChance, Is.EqualTo(1f));
             Assert.That(cover.IsProtectedFrom(new Vector3(0f, 1f, 5f)), Is.False);
-            pointA.Initialize(null, 0.3f);
+            pointA = new CoverLocation("A", new Vector3(0f, 0f, 0f), Vector3.forward, null, 0.3f);
             cover.TryReserve(pointA);
             Assert.That(cover.HitChance, Is.EqualTo(0.3f));
             Assert.That(cover.IsProtectedFrom(new Vector3(0f, 1f, 5f)), Is.False, "Reserved is not occupied: no protection, and no obstacle ray is cast");
+        }
+
+        [Test]
+        public void IsProtectedFrom_IsFalseTheMomentThePointIsRetired_BeforeAnyUpdateReleasesIt()
+        {
+            // A thin wall across z = 0; the unit stands south of it, the attacker north.
+            var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                wall.transform.localScale = new Vector3(4f, 2f, 0.5f);
+                Physics.SyncTransforms();
+                var point = new CoverLocation("Wall_S", new Vector3(0f, 0f, -1f), Vector3.forward, wall.GetComponent<Collider>());
+                unitHost.transform.position = new Vector3(0f, 1f, -1f);
+                var attacker = new Vector3(0f, 1f, 5f);
+                Assert.That(cover.TryReserve(point), Is.True);
+                Assert.That(cover.TryOccupy(), Is.True);
+                Assert.That(cover.IsProtectedFrom(attacker), Is.True, "Precondition: the wall protects an occupant from the north");
+
+                point.Retire();   // a registry rebuild; UnitCover.Update has not run yet
+
+                Assert.That(cover.Status, Is.EqualTo(CoverStatus.Occupied), "Precondition: nothing has released the unit yet");
+                Assert.That(cover.IsProtectedFrom(attacker), Is.False, "A retired point protects nobody, even before the unit lets go of it");
+            }
+            finally
+            {
+                Object.DestroyImmediate(wall);
+            }
         }
     }
 }

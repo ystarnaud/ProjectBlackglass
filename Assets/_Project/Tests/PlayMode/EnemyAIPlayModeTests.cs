@@ -254,7 +254,7 @@ namespace Blackglass.Tests
         // A 0.9 m wall from z -0.25 to 0.25 (x -2..2), one point 0.75 m north of it facing south (into the wall), and a
         // sturdy friendly 5 m south of the wall. From the point a ranged hostile shoots the friendly over the wall
         // (6 m, in range; the 1.5 m eye line clears 0.9 m) while the friendly's eye-to-feet ray crosses the wall.
-        (CoverPoint point, CoverRegistry registry, CommandableUnit friendly) CoverLayout()
+        (CoverLocation point, CoverRegistry registry, CommandableUnit friendly) CoverLayout()
         {
             var environment = world.CreateEnvironment((new Vector3(0f, 0.45f, 0f), new Vector3(4f, 0.9f, 0.5f)));
             var point = world.CreateCoverPoint(new Vector3(0f, 0f, 1f), Vector3.back, TestWorld.ObstacleCollider(environment));
@@ -288,6 +288,26 @@ namespace Blackglass.Tests
             Assert.That(distanceAtFirstHit, Is.EqualTo(6f).Within(0.75f), "It fires from the point, 6 m from the friendly");
             Assert.That(CoverOf(hostile).Status, Is.EqualTo(CoverStatus.Occupied), "Still in cover after firing");
             Assert.That(hostile.State, Is.EqualTo(EnemyState.Attack));
+        }
+
+        [UnityTest]
+        public IEnumerator RangedHostile_IgnoresATallLocation_AndAttacksWithoutCover()
+        {
+            // The same layout as CoverLayout, but the only location is Tall (a hiding spot): a hostile standing there
+            // could not shoot, and without a peek behaviour it would leave it again, so it never takes one.
+            var environment = world.CreateEnvironment((new Vector3(0f, 0.45f, 0f), new Vector3(4f, 0.9f, 0.5f)));
+            var tall = world.CreateCoverPoint(new Vector3(0f, 0f, 1f), Vector3.back, TestWorld.ObstacleCollider(environment), 0.5f, CoverHeight.Tall);
+            var registry = world.CreateRegistry(tall);
+            var friendly = world.CreateFighter(new Vector3(0f, 0f, -5f), maxHealth: 300);
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, 5f), encounter, damage: 8, cooldown: 1.5f, role: CombatRole.Ranged, range: 8f, registry: registry);
+            Arm(new[] { hostile }, friendly);
+
+            yield return WaitForState(hostile, EnemyState.Chase, 1.5f);
+
+            Assert.That(hostile.State, Is.EqualTo(EnemyState.Chase), "A plain attack: no Low location within reach");
+            Assert.That(hostile.Target, Is.SameAs(HealthOf(friendly)), "Precondition: the hostile acquired the friendly");
+            Assert.That(tall.IsClaimed, Is.False);
+            Assert.That(CoverOf(hostile).Status, Is.EqualTo(CoverStatus.None));
         }
 
         [UnityTest]

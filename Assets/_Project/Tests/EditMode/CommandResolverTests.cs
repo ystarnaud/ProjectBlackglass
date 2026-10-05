@@ -53,23 +53,19 @@ namespace Blackglass.Tests
         [Test]
         public void ClickNearACoverPoint_ResolvesToMoveToCover()
         {
-            var pointHost = new GameObject("Cover");
-            var point = pointHost.AddComponent<CoverPoint>();
+            var point = new CoverLocation("Cover", Vector3.zero, Vector3.forward, null);
             var command = CommandResolver.Resolve(null, new Vector3(1f, 0f, 2f), point);
             Assert.That(command, Is.TypeOf<MoveToCoverCommand>());
             Assert.That(((MoveToCoverCommand)command).Point, Is.SameAs(point));
-            Object.DestroyImmediate(pointHost);
         }
 
         [Test]
         public void ClickOnLivingTarget_BeatsCover_AndADeadTargetDoesNot()
         {
-            var pointHost = new GameObject("Cover");
-            var point = pointHost.AddComponent<CoverPoint>();
+            var point = new CoverLocation("Cover", Vector3.zero, Vector3.forward, null);
             Assert.That(CommandResolver.Resolve(health, Vector3.zero, point), Is.TypeOf<AttackCommand>());
             health.TakeDamage(health.Max);
             Assert.That(CommandResolver.Resolve(health, Vector3.zero, point), Is.TypeOf<MoveToCoverCommand>());
-            Object.DestroyImmediate(pointHost);
         }
     }
 }

@@ -229,9 +229,9 @@ namespace Blackglass
                 text += "\n" + activity;
             if (unit != null)
             {
-                // A point destroyed during a pause reads as null until UnitCover releases it on resume: draw nothing.
+                // A location retired during a pause reads as invalid until UnitCover releases it on resume: draw nothing.
                 var cover = unit.Cover;
-                var coverText = DescribeCover(cover.Status, cover.Point != null ? cover.Point.name : null, cover.OccupiedByOrder);
+                var coverText = DescribeCover(cover.Status, cover.Point != null && cover.Point.IsValid ? cover.Point.Name : null, cover.OccupiedByOrder);
                 if (coverText.Length > 0)
                     text += "\n" + coverText;
             }

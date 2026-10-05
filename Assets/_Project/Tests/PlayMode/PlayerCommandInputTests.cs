@@ -26,7 +26,7 @@ namespace Blackglass.Tests
         UnitSelection selection;
         PlayerCommandInput input;
         ActiveCharacter activeCharacter;
-        CoverPoint coverPoint;
+        CoverLocation coverPoint;
         CoverRegistry registry;
 
         public override void Setup()

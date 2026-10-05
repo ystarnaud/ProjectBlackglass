@@ -167,7 +167,7 @@ namespace Blackglass.Tests
 
         // Cover away from the fixture's duel. The loose box is only there so the point has an obstacle; the hold rule
         // is about the order, not the geometry, and the shooter's roll always hits.
-        (CoverPoint point, CoverRegistry registry) LooseCover(Vector3 standAt)
+        (CoverLocation point, CoverRegistry registry) LooseCover(Vector3 standAt)
         {
             var box = world.CreateObstacle(standAt + new Vector3(0f, 0.45f, 1f), new Vector3(2f, 0.9f, 0.5f));
             var point = world.CreateCoverPoint(standAt, Vector3.forward, box.GetComponent<Collider>());

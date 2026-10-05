@@ -2,32 +2,13 @@ using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using UnityEngine;
-using Object = UnityEngine.Object;
 
 namespace Blackglass.Tests
 {
     public class CoverRulesTests
     {
-        readonly List<GameObject> hosts = new List<GameObject>();
-
-        [TearDown]
-        public void TearDown()
-        {
-            foreach (var host in hosts)
-            {
-                if (host != null)
-                    Object.DestroyImmediate(host);
-            }
-            hosts.Clear();
-        }
-
-        CoverPoint Point(float x, float z)
-        {
-            var host = new GameObject($"Cover ({x}, {z})");
-            host.transform.position = new Vector3(x, 0f, z);
-            hosts.Add(host);
-            return host.AddComponent<CoverPoint>();
-        }
+        CoverLocation Point(float x, float z) =>
+            new CoverLocation($"Cover ({x}, {z})", new Vector3(x, 0f, z), Vector3.forward, null);
 
         [Test]
         public void ResolveHit_ExposedTarget_AlwaysHits()
@@ -70,21 +51,21 @@ namespace Blackglass.Tests
             Assert.That(CoverRules.TryChooseNearest(new[] { near, middle, far }, Vector3.zero, 3f, p => p != near, out chosen), Is.False, "Nothing accepted inside the radius");
             Assert.That(chosen, Is.Null);
             Assert.That(CoverRules.TryChooseNearest(new[] { far }, Vector3.zero, 10f, _ => true, out _), Is.False, "12 m is outside 10 m");
-            Assert.That(CoverRules.TryChooseNearest(new CoverPoint[0], Vector3.zero, 10f, _ => true, out _), Is.False);
+            Assert.That(CoverRules.TryChooseNearest(new CoverLocation[0], Vector3.zero, 10f, _ => true, out _), Is.False);
         }
 
         [Test]
-        public void TryChooseNearest_SkipsNullAndDestroyedEntries_WithoutCallingAccept()
+        public void TryChooseNearest_SkipsNullAndRetiredEntries_WithoutCallingAccept()
         {
             var live = Point(0f, 5f);
-            var destroyed = Point(0f, 1f);
-            Object.DestroyImmediate(destroyed.gameObject);
-            var inactive = Point(0f, 2f);
-            inactive.gameObject.SetActive(false);
-            var seen = new List<CoverPoint>();
-            Assert.That(CoverRules.TryChooseNearest(new[] { null, destroyed, inactive, live }, Vector3.zero, 10f, p => { seen.Add(p); return true; }, out var chosen), Is.True);
+            var retired = Point(0f, 1f);
+            retired.Retire();
+            var alsoRetired = Point(0f, 2f);
+            alsoRetired.Retire();
+            var seen = new List<CoverLocation>();
+            Assert.That(CoverRules.TryChooseNearest(new[] { null, retired, alsoRetired, live }, Vector3.zero, 10f, p => { seen.Add(p); return true; }, out var chosen), Is.True);
             Assert.That(chosen, Is.SameAs(live));
-            Assert.That(seen, Is.EqualTo(new[] { live }), "Dead and inactive points must never reach the predicate");
+            Assert.That(seen, Is.EqualTo(new[] { live }), "Null and retired points must never reach the predicate");
         }
 
         [Test]
@@ -92,7 +73,7 @@ namespace Blackglass.Tests
         {
             var near = Point(0f, 2f);
             var far = Point(0f, 6f);
-            var seen = new List<CoverPoint>();
+            var seen = new List<CoverLocation>();
             CoverRules.TryChooseNearest(new[] { near, far }, Vector3.zero, 10f, p => { seen.Add(p); return true; }, out _);
             Assert.That(seen, Is.EqualTo(new[] { near }), "The dear predicate must not run on points that cannot win");
         }
@@ -101,7 +82,7 @@ namespace Blackglass.Tests
         public void TryChooseNearest_RejectsNullArguments()
         {
             Assert.Throws<ArgumentNullException>(() => CoverRules.TryChooseNearest(null, Vector3.zero, 1f, _ => true, out _));
-            Assert.Throws<ArgumentNullException>(() => CoverRules.TryChooseNearest(new CoverPoint[0], Vector3.zero, 1f, null, out _));
+            Assert.Throws<ArgumentNullException>(() => CoverRules.TryChooseNearest(new CoverLocation[0], Vector3.zero, 1f, null, out _));
         }
     }
 }

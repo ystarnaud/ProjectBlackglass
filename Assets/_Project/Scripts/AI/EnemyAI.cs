@@ -42,7 +42,7 @@ namespace Blackglass
         float nextThinkTime;
         // The target of the search in progress, read by the predicate (a cached delegate, so ticks allocate nothing).
         Health coverTarget;
-        Func<CoverPoint, bool> isUsefulCover;
+        Func<CoverLocation, bool> isUsefulCover;
 
         public float DetectionRange => detectionRange;
         public float CoverSearchRange => coverSearchRange;
@@ -143,7 +143,7 @@ namespace Blackglass
         }
 
         // The nearest registry point within coverSearchRange that IsUsefulCover admits against this target.
-        bool TryFindCover(Health target, out CoverPoint point)
+        bool TryFindCover(Health target, out CoverLocation point)
         {
             point = null;
             if (coverRegistry == null)
@@ -155,10 +155,13 @@ namespace Blackglass
             return found;
         }
 
-        // Unclaimed or ours; protects the point from the target (one obstacle ray); the target can be attacked from
-        // the eye a unit would have there (range and sight); reachable (a path, so last).
-        bool IsUsefulCover(CoverPoint point)
+        // Low (a firing spot) and unclaimed or ours; protects the point from the target (one obstacle ray); the target
+        // can be attacked from the eye a unit would have there (range and sight); reachable (a path, so last). Tall
+        // locations are hiding spots: without a peek behaviour a hostile there could not fire and would leave again.
+        bool IsUsefulCover(CoverLocation point)
         {
+            if (point.Height != CoverHeight.Low)
+                return false;
             if (point.IsClaimed && !point.IsClaimedBy(Unit.Cover))
                 return false;
             var pivot = point.Position + Vector3.up * Mover.PivotHeight;

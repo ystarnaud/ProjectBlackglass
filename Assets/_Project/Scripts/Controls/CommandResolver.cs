@@ -8,7 +8,7 @@ namespace Blackglass
     /// </summary>
     public static class CommandResolver
     {
-        public static UnitCommand Resolve(Health clicked, Vector3 point, CoverPoint cover = null)
+        public static UnitCommand Resolve(Health clicked, Vector3 point, CoverLocation cover = null)
         {
             if (clicked != null && clicked.IsAlive)
                 return new AttackCommand(clicked);

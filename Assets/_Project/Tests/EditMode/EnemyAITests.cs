@@ -60,11 +60,9 @@ namespace Blackglass.Tests
         [Test]
         public void DeriveState_Cover_WhileACoverOrderIsCurrent()
         {
-            var host = new GameObject("Cover");
-            var toCover = new MoveToCoverCommand(host.AddComponent<CoverPoint>());
+            var toCover = new MoveToCoverCommand(new CoverLocation("Cover", Vector3.zero, Vector3.forward, null));
             Assert.That(EnemyAI.DeriveState(true, toCover, AttackPhase.None), Is.EqualTo(EnemyState.Cover));
             Assert.That(EnemyAI.DeriveState(false, toCover, AttackPhase.None), Is.EqualTo(EnemyState.Dead));
-            Object.DestroyImmediate(host);
         }
     }
 }

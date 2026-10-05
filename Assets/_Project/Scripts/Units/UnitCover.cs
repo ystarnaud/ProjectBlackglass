@@ -14,7 +14,7 @@ namespace Blackglass
     }
 
     /// <summary>
-    /// The unit's cover: the one point it has reserved or occupies. The only writer of CoverPoint claims. A reservation
+    /// The unit's cover: the one point it has reserved or occupies. The only writer of CoverLocation claims. A reservation
     /// is driven by CommandableUnit (a MoveToCover order); an occupancy by standing on the point, by order (TryOccupy)
     /// or by chance (standing still within occupyRadius of a free point, which needs the registry). Health is optional,
     /// as everywhere: looked up lazily, Died subscribed to only when present. Runs on simulation time.
@@ -28,14 +28,14 @@ namespace Blackglass
         [SerializeField, Min(0f)] float stillSpeed = 0.5f;
 
         // The method group converted once; passing IsUnclaimed directly would allocate a delegate every frame.
-        static readonly Func<CoverPoint, bool> isUnclaimed = IsUnclaimed;
+        static readonly Func<CoverLocation, bool> isUnclaimed = IsUnclaimed;
 
         Health ownHealth;
         Vector3 lastFlatPosition;
         bool hasLastPosition;
 
         /// <summary>The reserved or occupied point, else null.</summary>
-        public CoverPoint Point { get; private set; }
+        public CoverLocation Point { get; private set; }
 
         public CoverStatus Status { get; private set; }
 
@@ -67,7 +67,7 @@ namespace Blackglass
         /// Otherwise any other point this unit held, reserved or occupied, is released first, so a unit never holds
         /// two points.
         /// </summary>
-        public bool TryReserve(CoverPoint point)
+        public bool TryReserve(CoverLocation point)
         {
             if (point == null)
                 throw new ArgumentNullException(nameof(point));
@@ -116,7 +116,7 @@ namespace Blackglass
 
         /// <summary>Occupied, and the point protects this unit from an attacker at that pivot.</summary>
         public bool IsProtectedFrom(Vector3 attackerPivot) =>
-            Status == CoverStatus.Occupied && Point != null && Point.ProtectsFrom(attackerPivot, transform.position);
+            Status == CoverStatus.Occupied && Point != null && Point.IsValid && Point.ProtectsFrom(attackerPivot, transform.position);
 
         void OnEnable()
         {
@@ -152,7 +152,7 @@ namespace Blackglass
             lastFlatPosition = flat;
             hasLastPosition = true;
 
-            if (Status != CoverStatus.None && (Point == null || !Point.gameObject.activeInHierarchy))
+            if (Status != CoverStatus.None && (Point == null || !Point.IsValid))
             {
                 Release();   // the cover became invalid
                 return;
@@ -174,7 +174,7 @@ namespace Blackglass
             }
         }
 
-        static bool IsUnclaimed(CoverPoint point) => !point.IsClaimed;
+        static bool IsUnclaimed(CoverLocation point) => !point.IsClaimed;
 
         bool IsWithin(float radius) => Point != null && CoverRules.FlatDistance(transform.position, Point.Position) <= radius;
     }

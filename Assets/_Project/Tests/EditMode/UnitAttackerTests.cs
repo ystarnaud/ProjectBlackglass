@@ -81,16 +81,12 @@ namespace Blackglass.Tests
         {
             attacker.Initialize(8f, 15, 1f, CombatRole.Ranged);
             targetHost.transform.position = new Vector3(0f, 1f, 4f);
-            var pointHost = new GameObject("Cover");
-            pointHost.transform.position = new Vector3(0f, 0f, 4f);
-            var point = pointHost.AddComponent<CoverPoint>();
-            point.Initialize(null, 0.25f);
+            var point = new CoverLocation("Cover", new Vector3(0f, 0f, 4f), Vector3.forward, null, 0.25f);
             var cover = targetHost.AddComponent<UnitCover>();
             Assert.That(cover.TryReserve(point), Is.True);
 
             Assert.That(attacker.IsTargetInCover(target, out var chance), Is.False, "Reserved is not occupied");
             Assert.That(chance, Is.EqualTo(1f));
-            Object.DestroyImmediate(pointHost);
         }
 
         [Test]
