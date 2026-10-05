@@ -50,6 +50,54 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void FollowStartsOn()
+        {
+            Assert.That(active.IsFollowOn, Is.True);
+        }
+
+        [Test]
+        public void ToggleFollow_TurnsItOffAndOn()
+        {
+            active.ToggleFollow();
+            Assert.That(active.IsFollowOn, Is.False);
+            active.ToggleFollow();
+            Assert.That(active.IsFollowOn, Is.True);
+        }
+
+        [Test]
+        public void SetFollow_SetsTheFlag_AndIsIdempotent()
+        {
+            active.SetFollow(false);
+            active.SetFollow(false);
+            Assert.That(active.IsFollowOn, Is.False);
+            active.SetFollow(true);
+            active.SetFollow(true);
+            Assert.That(active.IsFollowOn, Is.True);
+        }
+
+        [Test]
+        public void FollowFlag_IsIndependentOfTakeover()
+        {
+            active.SetFollow(false);
+            active.ToggleTakeover();
+            Assert.That(active.IsFollowOn, Is.False);
+            active.SetFollow(true);
+            Assert.That(active.IsTakeoverOn, Is.True, "Follow must not touch takeover");
+        }
+
+        [Test]
+        public void Cycle_LeavesTheFollowFlagAlone()
+        {
+            CreateSquad();
+            active.SetFollow(false);
+            Assert.That(active.Cycle(1), Is.True);
+            Assert.That(active.IsFollowOn, Is.False);
+            active.SetFollow(true);
+            Assert.That(active.Cycle(-1), Is.True);
+            Assert.That(active.IsFollowOn, Is.True);
+        }
+
+        [Test]
         public void ExposesItsUnit()
         {
             Assert.That(active.Unit, Is.SameAs(unit));

@@ -154,12 +154,15 @@ namespace Blackglass.Tests
             Assert.That(marker, Is.Not.Null, "ActiveMarker missing");
             Assert.That(marker.GetComponentsInChildren<Collider>(true), Is.Empty, "The marker must not block clicks");
             Assert.That(Object.FindFirstObjectByType<DirectControlInput>(), Is.Not.Null, "DirectControlInput missing");
+            Assert.That(Object.FindFirstObjectByType<DirectControlInput>().IsFollowWired, Is.True, "DirectControlInput.toggleFollowAction is not wired in the scene");
+            Assert.That(active.IsFollowOn, Is.True, "The game starts with follow on");
             Assert.That(Camera.main, Is.Not.Null);
 
             // Any error or exception logged during this second fails the test automatically.
             yield return new WaitForSeconds(1f);
             Assert.That(hostiles.All(h => h.State == EnemyState.Idle), Is.True, "Hostiles must stay idle while the squad is far away");
             var companions = FindSquad().Select(u => u.GetComponent<CompanionAI>()).ToArray();
+            Assert.That(companions.All(c => !c.IsParked), Is.True, "Everyone starts attached");
             Assert.That(companions[0].State, Is.EqualTo(CompanionState.Controlled), "FriendlyUnit_1 is controlled");
             Assert.That(companions[1].State, Is.EqualTo(CompanionState.Idle), "FriendlyUnit_2 starts within follow distance");
             Assert.That(companions[2].State, Is.EqualTo(CompanionState.Idle), "FriendlyUnit_3 starts within follow distance");
@@ -585,6 +588,46 @@ namespace Blackglass.Tests
             Assert.That(((AttackCommand)squad[1].CurrentCommand).Target, Is.SameAs(hostile));
             Assert.That(squad[0].CurrentCommand, Is.Null);
             Assert.That(squad[2].CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator F_InScene_TogglesFollow_AlsoWhilePaused()
+        {
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var active = Object.FindFirstObjectByType<ActiveCharacter>();
+            Assert.That(active.IsFollowOn, Is.True, "Precondition: follow starts on");
+
+            yield return Tap(keyboard.fKey);
+            Assert.That(active.IsFollowOn, Is.False, "F did not turn follow off");
+            yield return Tap(keyboard.fKey);
+            Assert.That(active.IsFollowOn, Is.True, "F did not turn follow back on");
+
+            yield return Tap(keyboard.spaceKey);
+            Assert.That(active.IsPaused, Is.True, "Precondition: paused");
+            yield return Tap(keyboard.fKey);
+            Assert.That(active.IsFollowOn, Is.False, "F must work while paused");
+        }
+
+        [UnityTest]
+        public IEnumerator Tab_InScene_ParksTheCompanionsFarFromTheNewLeader()
+        {
+            var keyboard = InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var squad = PrototypeSceneTests.FindSquad();
+            var ais = squad.Select(u => u.GetComponent<CompanionAI>()).ToArray();
+            // FriendlyUnit_2 walks 12 m from the others (its explicit order parks it, which is fine), then becomes the leader.
+            Assert.That(squad[1].Issue(new MoveCommand(new Vector3(-14f, 0f, 0f))), Is.True);
+            yield return TestWorld.WaitUntil(() => squad[1].CurrentCommand == null, 10f);
+            Assert.That(TestWorld.HorizontalDistance(squad[0].transform.position, squad[1].transform.position), Is.GreaterThan(6f), "Precondition");
+
+            yield return Tap(keyboard.tabKey);
+            yield return null;
+
+            var active = Object.FindFirstObjectByType<ActiveCharacter>();
+            Assert.That(active.Unit, Is.SameAs(squad[1]));
+            Assert.That(ais[0].IsParked, Is.True, "FriendlyUnit_1 is beyond 6 m of the new leader");
+            Assert.That(squad[0].CurrentCommand, Is.Null, "Tab alone never sends anyone anywhere");
         }
 
         [UnityTest]

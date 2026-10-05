@@ -12,7 +12,7 @@ namespace Blackglass
             "Left-click unit: select (Shift: add/remove)   Left-drag: box select   Esc: clear selection\n" +
             "Left-click ground/enemy: selected units move/attack (nothing selected: controlled character)   Shift: queue   X: stop selected\n" +
             "Space: tactical pause   Tab / Shift+Tab: switch controlled character\n" +
-            "Left-click cover marker: move into cover (one unit per marker; markers show while paused)";
+            "Left-click cover marker: move into cover (one unit per marker; markers show while paused)   F: follow on/off";
         // Unit labels float this far above a unit's centre (the capsule is 2 m tall).
         const float UnitLabelHeight = 1.5f;
 
@@ -63,13 +63,20 @@ namespace Blackglass
             return AppendCooldown(text, cooldownRemaining);
         }
 
-        /// <summary>A companion's line: its orders (if any) and what its autonomy is doing, e.g. "Attack | Assist -> HostileUnit_1".</summary>
-        internal static string DescribeCompanion(string orders, CompanionState state, string assistTargetName)
+        /// <summary>The follow flag line, e.g. "Follow: ON (F)".</summary>
+        internal static string DescribeFollow(bool on) => $"Follow: {(on ? "ON" : "OFF")} (F)";
+
+        /// <summary>
+        /// A companion's line: its orders (if any) and what its autonomy is doing, e.g. "Attack | Assist -> HostileUnit_1".
+        /// A parked companion (see CompanionAI) gets " [parked]", except a dead or controlled one.
+        /// </summary>
+        internal static string DescribeCompanion(string orders, CompanionState state, string assistTargetName, bool parked = false)
         {
             var text = state == CompanionState.Assist && !string.IsNullOrEmpty(assistTargetName)
                 ? $"{state} -> {assistTargetName}"
                 : state.ToString();
-            return string.IsNullOrEmpty(orders) ? text : $"{orders} | {text}";
+            text = string.IsNullOrEmpty(orders) ? text : $"{orders} | {text}";
+            return parked && state != CompanionState.Dead && state != CompanionState.Controlled ? text + " [parked]" : text;
         }
 
         /// <summary>Appends the line-of-sight verdict for a ranged unit with an attack order.</summary>
@@ -146,6 +153,7 @@ namespace Blackglass
                         activeCharacter.Unit.CurrentCommand != null)
                     : DescribeNoActive();
                 GUI.Label(new Rect(10f, 135f, 640f, 22f), text);
+                GUI.Label(new Rect(10f, 155f, 320f, 22f), DescribeFollow(activeCharacter.IsFollowOn));
             }
 
             DrawUnitLabels();
@@ -205,7 +213,7 @@ namespace Blackglass
                 activity = DescribeEnemy(ai.State, ai.Target != null ? ai.Target.name : null, cooldown);
             else if (unit != null && health.TryGetComponent<CompanionAI>(out var companion))
                 activity = AppendCooldown(DescribeCompanion(DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count),
-                    companion.State, companion.AssistTarget != null ? companion.AssistTarget.name : null), cooldown);
+                    companion.State, companion.AssistTarget != null ? companion.AssistTarget.name : null, companion.IsParked), cooldown);
             else if (unit != null)
                 activity = AppendCooldown(DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count), cooldown);
             else

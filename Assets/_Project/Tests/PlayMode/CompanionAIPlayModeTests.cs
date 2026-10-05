@@ -97,7 +97,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator ExplicitMove_IsNotInterrupted_AndFollowResumesAfterwards()
+        public IEnumerator ExplicitMove_IsNotInterrupted_AndTheUnitStaysParkedWhereItEnded()
         {
             world.CreateEnvironment();
             var (leader, _, companion) = Squad(new Vector3(0f, 0f, -10f));
@@ -109,8 +109,20 @@ namespace Blackglass.Tests
             var whereTheOrderEnded = companion.transform.position;
             Assert.That(TestWorld.HorizontalDistance(whereTheOrderEnded, away), Is.LessThan(0.5f), "The explicit move must run to its end");
 
-            yield return TestWorld.WaitUntil(() => Gap(companion, leader) < 6f, 12f);
-            Assert.That(Gap(companion, leader), Is.LessThan(6f), "Following resumes once the explicit order is done");
+            // Decision 022: an explicit order parks the unit, and finishing it does not bring the unit back to Follow.
+            var everOrdered = false;
+            var deadline = Time.realtimeSinceStartup + 3f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                everOrdered |= UnitOf(companion).CurrentCommand != null;
+                yield return null;
+            }
+            Assert.That(everOrdered, Is.False, "No follow move may start after the explicit order");
+            Assert.That(companion.IsParked, Is.True, "The unit is parked at its resulting position");
+            Assert.That(companion.State, Is.EqualTo(CompanionState.Idle));
+            Assert.That(TestWorld.HorizontalDistance(companion.transform.position, whereTheOrderEnded), Is.LessThan(0.5f),
+                "It stays where it ended (a follow move would have walked it 10 m)");
+            Assert.That(Gap(companion, leader), Is.GreaterThan(6f), "Still far from the leader, and still not following");
         }
 
         [UnityTest]
@@ -147,9 +159,22 @@ namespace Blackglass.Tests
             active.SetUnit(UnitOf(companion));
             yield return null;   // one simulation frame: the per-frame controlled check, not the 0.25 s tick
             Assert.That(UnitOf(companion).CurrentCommand, Is.Null, "The newly controlled unit drops its own follow move on the next frame");
-            yield return TestWorld.WaitUntil(() => leaderAi.IsFollowing, 1f);
 
+            // Decision 022: the old leader is far from the new one, so the switch parks it instead of sending it after
+            // the new leader (a switch never makes a unit move).
+            yield return new WaitForSeconds(1f);
             Assert.That(companion.State, Is.EqualTo(CompanionState.Controlled));
+            Assert.That(leaderAi.IsParked, Is.True, "The far old leader is parked by the switch");
+            Assert.That(leaderAi.State, Is.EqualTo(CompanionState.Idle));
+            Assert.That(leader.CurrentCommand, Is.Null, "The old leader does not follow the new one");
+
+            // Roles are fully swapped once the new leader walks up to the old one (magnet) and then away again.
+            Assert.That(UnitOf(companion).Issue(new MoveCommand(new Vector3(0f, 0f, -4f))), Is.True);
+            yield return TestWorld.WaitUntil(() => !leaderAi.IsParked, 6f);
+            Assert.That(leaderAi.IsParked, Is.False, "The new leader walked within the magnet radius of the old one");
+            yield return TestWorld.WaitUntil(() => UnitOf(companion).CurrentCommand == null, 6f);
+            Assert.That(UnitOf(companion).Issue(new MoveCommand(new Vector3(0f, 0f, -14f))), Is.True);
+            yield return TestWorld.WaitUntil(() => leaderAi.IsFollowing, 3f);
             Assert.That(leaderAi.State, Is.EqualTo(CompanionState.Follow), "The old leader now follows the new one");
         }
 
@@ -343,8 +368,17 @@ namespace Blackglass.Tests
             yield return TestWorld.WaitUntil(() => UnitOf(companion).CurrentCommand != order, 8f);
             Assert.That(TestWorld.HorizontalDistance(companion.transform.position, order.Destination), Is.LessThan(0.5f),
                 "After resume the explicit order runs first, uninterrupted by follow");
-            yield return TestWorld.WaitUntil(() => Gap(companion, leader) < 6f, 12f);
-            Assert.That(Gap(companion, leader), Is.LessThan(6f), "Then follow resumes");
+            // Decision 022: the explicit order parked the unit, so it stays where the order ended (still 16 m from the leader).
+            var everOrdered = false;
+            var deadline = Time.realtimeSinceStartup + 2f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                everOrdered |= UnitOf(companion).CurrentCommand != null;
+                yield return null;
+            }
+            Assert.That(everOrdered, Is.False, "Then it stays parked: no follow move");
+            Assert.That(companion.IsParked, Is.True);
+            Assert.That(Gap(companion, leader), Is.GreaterThan(6f));
         }
 
         static UnitCover CoverOf(Component unit) => unit.GetComponent<UnitCover>();
@@ -405,7 +439,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator CompanionOrderedAwayFromCover_FollowsAgain()
+        public IEnumerator CompanionOrderedAwayFromCover_StaysParkedUntilTheLeaderWalksUp_ThenFollowsAgain()
         {
             var (leader, _, companion, point, _) = CoverSquad(new Vector3(0f, 0f, -12f), new Vector3(0f, 0f, -4f));
             Arm(new Health[0], leader, companion);
@@ -415,11 +449,24 @@ namespace Blackglass.Tests
             Assert.That(UnitOf(companion).CurrentCommand, Is.Null, "Precondition: holding cover");
 
             Assert.That(UnitOf(companion).Issue(new MoveCommand(new Vector3(0f, 0f, -3f))), Is.True);   // 2 m off the point
-            yield return TestWorld.WaitUntil(() => Gap(companion, leader) < 6f, 12f);
-
-            Assert.That(Gap(companion, leader), Is.LessThan(6f), "Once it has left its cover, following resumes");
-            Assert.That(CoverOf(companion).Status, Is.EqualTo(CoverStatus.None));
+            yield return TestWorld.WaitUntil(() => UnitOf(companion).CurrentCommand == null, 5f);
+            Assert.That(CoverOf(companion).Status, Is.EqualTo(CoverStatus.None), "The move took it off its cover point");
             Assert.That(point.IsClaimed, Is.False);
+
+            // Decision 022: the explicit move parked it; it stays 9 m from the leader and does not follow.
+            yield return new WaitForSeconds(1.5f);
+            Assert.That(companion.IsParked, Is.True);
+            Assert.That(UnitOf(companion).CurrentCommand, Is.Null, "Leaving cover by order does not bring it back to Follow");
+            Assert.That(Gap(companion, leader), Is.GreaterThan(6f));
+
+            // The leader walks within the magnet radius (4.5 m) and then away: it follows again.
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, -7f))), Is.True);   // 4 m from the unit
+            yield return TestWorld.WaitUntil(() => !companion.IsParked, 5f);
+            Assert.That(companion.IsParked, Is.False, "The leader entered the magnet radius");
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, -14f))), Is.True);
+            yield return TestWorld.WaitUntil(() => leader.CurrentCommand == null && UnitOf(companion).CurrentCommand == null && Gap(companion, leader) < 6f, 12f);
+
+            Assert.That(Gap(companion, leader), Is.LessThan(6f), "Once the leader has reacquired it, following resumes");
         }
 
         [UnityTest]
@@ -441,6 +488,569 @@ namespace Blackglass.Tests
 
             Assert.That(Gap(companion, leader), Is.LessThan(6f), "An incidental occupancy never holds a companion");
             Assert.That(byChance.IsClaimed, Is.False);
+        }
+
+        // --- Follow mode and the magnet (decision 022).
+
+        // A leader at the origin and companions at the given positions; the encounter has no hostiles.
+        (CommandableUnit leader, ActiveCharacter active, CompanionAI[] companions) SquadOf(params Vector3[] positions)
+        {
+            var leader = world.CreateFighter(Vector3.zero);
+            leader.name = "Leader";
+            var active = world.CreateActiveCharacter(leader);
+            var companions = positions.Select(p => world.CreateCompanion(p, active, encounter)).ToArray();
+            Arm(new Health[0], new Component[] { leader }.Concat(companions).ToArray());
+            return (leader, active, companions);
+        }
+
+        // Runs for a number of real seconds, calling the check on every frame.
+        static IEnumerator ForSeconds(float seconds, System.Action everyFrame)
+        {
+            var deadline = Time.realtimeSinceStartup + seconds;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                everyFrame();
+                yield return null;
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator Switching_ParksTheCompanionsFartherThanTheStartDistance_AndNobodyMoves()
+        {
+            world.CreateEnvironment();
+            // Everyone starts within 6 m of the leader, so nothing is ordered before the switch.
+            var (leader, active, companions) = SquadOf(new Vector3(0f, 0f, 5.5f), new Vector3(0f, 0f, -5.5f), new Vector3(2f, 0f, 4f));
+            var (newLeader, far, near) = (companions[0], companions[1], companions[2]);
+            yield return null;
+            yield return null;
+            Assert.That(new[] { newLeader, far, near }.All(c => !c.IsParked && UnitOf(c).CurrentCommand == null), Is.True, "Precondition");
+
+            active.SetUnit(UnitOf(newLeader));
+            for (var i = 0; i < 4; i++)
+            {
+                Assert.That(leader.CurrentCommand, Is.Null);
+                Assert.That(UnitOf(far).CurrentCommand, Is.Null, "A switch alone orders nobody");
+                Assert.That(UnitOf(near).CurrentCommand, Is.Null);
+                yield return null;
+            }
+            Assert.That(far.IsParked, Is.True, "11 m from the new leader: parked");
+            Assert.That(near.IsParked, Is.False, "2.2 m from the new leader: stays attached");
+            Assert.That(newLeader.IsParked, Is.False, "The controlled character is attached by definition");
+
+            // The new leader walks 6 m away: the parked unit never gets an order, the attached one follows.
+            Assert.That(UnitOf(newLeader).Issue(new MoveCommand(new Vector3(0f, 0f, 11.5f))), Is.True);
+            var nearFollowed = false;
+            yield return ForSeconds(2.5f, () =>
+            {
+                Assert.That(UnitOf(far).CurrentCommand, Is.Null, "A parked unit is never ordered by following");
+                nearFollowed |= near.IsFollowing;   // the follow move is short: it may already be over by the end of the window
+            });
+            Assert.That(nearFollowed, Is.True, "The companion that stayed attached follows the new leader once it walks off");
+            Assert.That(near.IsParked, Is.False);
+            Assert.That(far.IsParked, Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator Switching_ParksTheOldLeaderToo_WhenItIsFarFromTheNewOne()
+        {
+            world.CreateEnvironment();
+            var (leader, active, companions) = SquadOf(new Vector3(0f, 0f, 5.5f));
+            // The leader can be a companion too (added while inactive, so OnEnable sees the wiring).
+            leader.gameObject.SetActive(false);
+            var oldLeaderAi = leader.gameObject.AddComponent<CompanionAI>();
+            oldLeaderAi.Initialize(active, encounter);
+            leader.gameObject.SetActive(true);
+            yield return null;
+            yield return null;
+            Assert.That(oldLeaderAi.State, Is.EqualTo(CompanionState.Controlled), "Precondition");
+
+            // Walk the future leader 8 m from the old one first, then switch to it.
+            Assert.That(UnitOf(companions[0]).Issue(new MoveCommand(new Vector3(0f, 0f, 8f))), Is.True);
+            yield return TestWorld.WaitUntil(() => UnitOf(companions[0]).CurrentCommand == null, 5f);
+            Assert.That(Gap(companions[0], leader), Is.GreaterThan(6f), "Precondition");
+            active.SetUnit(UnitOf(companions[0]));
+            yield return null;
+            yield return null;
+
+            Assert.That(oldLeaderAi.IsParked, Is.True, "The previous leader is treated like any other companion at the switch");
+            yield return ForSeconds(1f, () => Assert.That(leader.CurrentCommand, Is.Null));
+        }
+
+        [UnityTest]
+        public IEnumerator ParkedUnit_StaysParkedAtASwitch_EvenInsideTheNewLeadersMagnetRadius()
+        {
+            world.CreateEnvironment();
+            var (_, active, companions) = SquadOf(new Vector3(0f, 0f, -5f), new Vector3(0f, 0f, -8f));
+            var (newLeader, parked) = (companions[0], companions[1]);
+            Assert.That(UnitOf(parked).Issue(new StopCommand()), Is.True);   // parks it before the first think
+            yield return null;
+            yield return null;
+            Assert.That(parked.IsParked, Is.True, "Precondition: a Stop parks");
+
+            active.SetUnit(UnitOf(newLeader));   // 3 m from the parked unit: inside the magnet radius
+            yield return ForSeconds(1f, () =>
+            {
+                Assert.That(parked.IsParked, Is.True, "A switch alone never attaches anyone");
+                Assert.That(UnitOf(parked).CurrentCommand, Is.Null);
+            });
+        }
+
+        [UnityTest]
+        public IEnumerator HandOverWhenTheLeaderDies_ParksTheFarCompanions()
+        {
+            world.CreateEnvironment();
+            var (leader, active, companions) = SquadOf(new Vector3(0f, 0f, 5.5f), new Vector3(0f, 0f, -5.5f), new Vector3(2f, 0f, 4f));
+            var (newLeader, far, near) = (companions[0], companions[1], companions[2]);
+            // A roster, so the death can hand control over to the next eligible unit (the new leader).
+            var roster = world.Track(new GameObject("Roster")).AddComponent<UnitSelection>();
+            roster.Initialize(leader.gameObject.AddComponent<SelectableUnit>(), newLeader.gameObject.AddComponent<SelectableUnit>(),
+                far.gameObject.AddComponent<SelectableUnit>(), near.gameObject.AddComponent<SelectableUnit>());
+            active.Initialize(leader, null, roster);
+            yield return null;
+            yield return null;
+
+            HealthOf(leader).TakeDamage(1000);
+            yield return null;
+            yield return null;
+
+            Assert.That(active.Unit, Is.SameAs(UnitOf(newLeader)), "Control passed to the next roster unit");
+            Assert.That(far.IsParked, Is.True, "Parked by the hand-over: 11 m from the new leader");
+            Assert.That(near.IsParked, Is.False);
+            yield return ForSeconds(1.5f, () => Assert.That(UnitOf(far).CurrentCommand, Is.Null));
+        }
+
+        [UnityTest]
+        public IEnumerator Magnet_ParkedUnitAttachesWhenTheLeaderWalksUp_ThenFollowsWhenItLeaves()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companions) = SquadOf(new Vector3(0f, 0f, -12f));
+            var parked = companions[0];
+            Assert.That(UnitOf(parked).Issue(new StopCommand()), Is.True);   // parks it before the first think
+            yield return TestWorld.WaitUntil(() => parked.IsParked, 1f);
+            yield return ForSeconds(0.8f, () => Assert.That(UnitOf(parked).CurrentCommand, Is.Null, "Parked: 12 m away and not following"));
+
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, -8f))), Is.True);   // 4 m from the parked unit
+            yield return TestWorld.WaitUntil(() => !parked.IsParked, 4f);
+            Assert.That(parked.IsParked, Is.False, "The leader came within 4.5 m");
+            yield return TestWorld.WaitUntil(() => leader.CurrentCommand == null, 4f);
+            Assert.That(UnitOf(parked).CurrentCommand, Is.Null, "Attached and 4 m away: nothing to follow yet");
+
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, 6f))), Is.True);
+            yield return TestWorld.WaitUntil(() => parked.IsFollowing, 4f);
+            Assert.That(parked.IsFollowing, Is.True, "Once attached, it follows the leader away");
+            yield return TestWorld.WaitUntil(() => leader.CurrentCommand == null && UnitOf(parked).CurrentCommand == null, 10f);
+            Assert.That(Gap(parked, leader), Is.LessThan(6f));
+        }
+
+        [UnityTest]
+        public IEnumerator Magnet_OnlyTheControlledCharacterAttaches_AnotherCompanionWalkingPastDoesNot()
+        {
+            world.CreateEnvironment();
+            // The leader stays 8 m away; the walker passes 1.5 m from the parked unit, well inside the 4.5 m radius.
+            var leader = world.CreateFighter(new Vector3(-8f, 0f, -9f));
+            var active = world.CreateActiveCharacter(leader);
+            var parked = world.CreateCompanion(new Vector3(0f, 0f, -10.5f), active, encounter);
+            var walker = world.CreateCompanion(new Vector3(-8f, 0f, -12f), active, encounter);
+            Arm(new Health[0], leader, parked, walker);
+            Assert.That(UnitOf(parked).Issue(new StopCommand()), Is.True);
+            var order = new MoveCommand(new Vector3(8f, 0f, -12f));
+            Assert.That(UnitOf(walker).Issue(order), Is.True);
+            yield return null;   // one frame, so the Stop has parked the unit
+
+            var closest = float.PositiveInfinity;
+            yield return ForSeconds(4.5f, () =>
+            {
+                closest = Mathf.Min(closest, Gap(walker, parked));
+                Assert.That(parked.IsParked, Is.True, "Only proximity of the controlled character attaches a parked unit");
+                Assert.That(UnitOf(parked).CurrentCommand, Is.Null);
+            });
+            Assert.That(closest, Is.LessThan(4.5f), "Precondition: the walker really passed inside the magnet radius");
+            Assert.That(UnitOf(walker).CurrentCommand, Is.Null, "Precondition: the walker finished its walk");
+        }
+
+        [UnityTest]
+        public IEnumerator AttachedCompanion_StaysAttached_WhenTheLeaderRunsFarAway()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companions) = SquadOf(new Vector3(0f, 0f, -4f));
+            var companion = companions[0];
+            yield return null;
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, 16f))), Is.True);
+
+            var everParked = false;
+            yield return ForSeconds(1.5f, () => everParked |= companion.IsParked);
+            Assert.That(Gap(companion, leader), Is.GreaterThan(4.5f), "Precondition: the leader is beyond the magnet radius");
+            yield return TestWorld.WaitUntil(() => leader.CurrentCommand == null && UnitOf(companion).CurrentCommand == null && Gap(companion, leader) < 6f, 10f);
+
+            Assert.That(everParked, Is.False, "The magnet radius never detaches an attached unit");
+            Assert.That(companion.IsParked, Is.False);
+            Assert.That(companion.transform.position.z, Is.GreaterThan(8f), "It kept following the leader north");
+        }
+
+        [UnityTest]
+        public IEnumerator QueuedExplicitSequence_NeverReturnsToFollowBetweenOrders_AndStaysParkedAfterTheLast()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companions) = SquadOf(new Vector3(0f, 0f, -10f));
+            var companion = companions[0];
+            var first = new MoveCommand(new Vector3(0f, 0f, -14f));
+            var second = new MoveCommand(new Vector3(6f, 0f, -14f));
+            Assert.That(UnitOf(companion).Issue(first), Is.True);
+            Assert.That(UnitOf(companion).Issue(second, IssueMode.Append), Is.True);
+
+            var sawSecond = false;
+            var stray = false;
+            var deadline = Time.realtimeSinceStartup + 12f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                var current = UnitOf(companion).CurrentCommand;
+                sawSecond |= current == second;
+                // Only the two explicit orders may ever be current, and nothing (idle) only once both are done.
+                stray |= current != first && current != second && !(current == null && sawSecond);
+                if (current == null && sawSecond)
+                    break;
+                yield return null;
+            }
+            Assert.That(sawSecond, Is.True, "Precondition: the queued order ran");
+            // Note: StartNext advances to the second order in the same frame the first ends, so this half cannot catch a
+            // regression by itself; the sticky-parking check after the last order below is what pins the rule.
+            Assert.That(stray, Is.False, "A follow order was current between the queued orders");
+
+            var everOrdered = false;
+            yield return ForSeconds(2f, () => everOrdered |= UnitOf(companion).CurrentCommand != null);
+            Assert.That(everOrdered, Is.False, "The final explicit order completes: the unit is left parked where it ended");
+            Assert.That(companion.IsParked, Is.True);
+            Assert.That(Gap(companion, leader), Is.GreaterThan(6f));
+        }
+
+        [UnityTest]
+        public IEnumerator Switching_StopsTheOwnFollowMoveOfAUnitItParks()
+        {
+            world.CreateEnvironment();
+            // The future leader stands 5.5 m from the leader (so nobody moves before the switch) and 17.5 m from C.
+            var (_, active, companions) = SquadOf(new Vector3(0f, 0f, -12f), new Vector3(0f, 0f, 5.5f));
+            var (c, newLeader) = (companions[0], companions[1]);
+            yield return TestWorld.WaitUntil(() => c.IsFollowing, 1f);
+            Assert.That(c.IsFollowing, Is.True, "Precondition: C has a follow move running");
+
+            active.SetUnit(UnitOf(newLeader));
+            yield return null;
+            yield return null;
+
+            Assert.That(c.IsParked, Is.True, "17.5 m from the new leader: parked by the switch");
+            Assert.That(UnitOf(c).CurrentCommand, Is.Null, "A running own follow move of a unit the switch parks is stopped");
+            var stoppedAt = c.transform.position;
+            var everOrdered = false;
+            yield return ForSeconds(1.5f, () => everOrdered |= UnitOf(c).CurrentCommand != null);
+            Assert.That(everOrdered, Is.False, "It is never ordered again");
+            Assert.That(TestWorld.HorizontalDistance(c.transform.position, stoppedAt), Is.LessThan(0.3f), "It stood still");
+        }
+
+        [UnityTest]
+        public IEnumerator FollowOff_ParkedAndMagnetStillUpdate_SoTurningItOnFollowsTheAttachedUnit()
+        {
+            world.CreateEnvironment();
+            var (leader, active, companions) = SquadOf(new Vector3(0f, 0f, -14f));
+            var unit = companions[0];
+            active.SetFollow(false);
+            Assert.That(UnitOf(unit).Issue(new StopCommand()), Is.True);   // parked while the leader is 14 m away
+            yield return null;
+            yield return null;
+            Assert.That(unit.IsParked, Is.True, "Precondition: parked");
+
+            // Rule 10: with follow OFF the magnet still attaches it when the leader walks up.
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, -10f))), Is.True);   // 4 m from the unit
+            yield return TestWorld.WaitUntil(() => !unit.IsParked, 4f);
+            Assert.That(unit.IsParked, Is.False, "The magnet works while follow is OFF");
+            yield return TestWorld.WaitUntil(() => leader.CurrentCommand == null, 4f);
+            Assert.That(UnitOf(unit).CurrentCommand, Is.Null, "Follow is OFF: attached but not moving");
+
+            active.SetFollow(true);
+            yield return null;
+            yield return null;
+            Assert.That(unit.IsParked, Is.False, "Turning follow on keeps it attached");
+            Assert.That(UnitOf(unit).CurrentCommand, Is.Null, "4 m from the leader: nothing to follow yet");
+
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, 4f))), Is.True);   // 18 m from the unit
+            yield return TestWorld.WaitUntil(() => unit.IsFollowing, 4f);
+            Assert.That(unit.IsFollowing, Is.True, "Once the leader walks off, the attached unit follows");
+        }
+
+        [UnityTest]
+        public IEnumerator Stop_ViaGroupOrders_ParksAFollowingCompanion()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companions) = SquadOf(new Vector3(0f, 0f, -12f));
+            var companion = companions[0];
+            yield return TestWorld.WaitUntil(() => companion.IsFollowing, 1f);
+            Assert.That(companion.IsFollowing, Is.True, "Precondition: a follow move is running");
+
+            Assert.That(GroupOrders.Issue(new[] { UnitOf(companion) }, new StopCommand(), IssueMode.Replace), Is.EqualTo(1));
+
+            var everOrdered = false;
+            yield return ForSeconds(2f, () => everOrdered |= UnitOf(companion).CurrentCommand != null);
+            Assert.That(everOrdered, Is.False, "A Stop parks: no new follow move although the leader is far");
+            Assert.That(companion.IsParked, Is.True);
+            Assert.That(Gap(companion, leader), Is.GreaterThan(6f));
+        }
+
+        [UnityTest]
+        public IEnumerator Stop_ViaTheUnit_ParksAFollowingCompanion()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companions) = SquadOf(new Vector3(0f, 0f, -12f));
+            var companion = companions[0];
+            yield return TestWorld.WaitUntil(() => companion.IsFollowing, 1f);
+
+            Assert.That(UnitOf(companion).Issue(new StopCommand()), Is.True);
+
+            var everOrdered = false;
+            yield return ForSeconds(2f, () => everOrdered |= UnitOf(companion).CurrentCommand != null);
+            Assert.That(everOrdered, Is.False);
+            Assert.That(companion.IsParked, Is.True);
+            Assert.That(Gap(companion, leader), Is.GreaterThan(6f));
+        }
+
+        [UnityTest]
+        public IEnumerator OwnStop_WhenTheUnitIsDriven_DoesNotParkIt()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companions) = SquadOf(new Vector3(0f, 0f, -12f));
+            var companion = companions[0];
+            yield return TestWorld.WaitUntil(() => companion.IsFollowing, 1f);
+            Assert.That(companion.IsFollowing, Is.True, "Precondition: a follow move is running");
+
+            // Something other than the player steers the unit: autonomy yields with its own Stop, which is not a parking Stop.
+            UnitOf(companion).SetMoveIntent(Vector3.right);
+            yield return null;
+            yield return null;
+            Assert.That(UnitOf(companion).CurrentCommand, Is.Null, "Precondition: the follow move was dropped");
+            UnitOf(companion).SetMoveIntent(Vector3.zero);
+
+            yield return TestWorld.WaitUntil(() => companion.IsFollowing, 2f);
+            Assert.That(companion.IsParked, Is.False, "The component's own Stop must not park it");
+            Assert.That(companion.IsFollowing, Is.True, "Released again, it follows");
+            Assert.That(Gap(companion, leader), Is.GreaterThan(6f));
+        }
+
+        [UnityTest]
+        public IEnumerator FollowOff_AFarAttachedCompanion_IsNotSentAfterTheLeader_AndStaysAttached()
+        {
+            world.CreateEnvironment();
+            var (leader, active, companions) = SquadOf(new Vector3(0f, 0f, -12f));
+            var companion = companions[0];
+            active.SetFollow(false);   // before the first think
+
+            var everOrdered = false;
+            yield return ForSeconds(2f, () => everOrdered |= UnitOf(companion).CurrentCommand != null);
+
+            Assert.That(everOrdered, Is.False, "Follow OFF: no follow moves");
+            Assert.That(companion.IsParked, Is.False, "The flag gates movement only; the unit is still attached");
+            Assert.That(Gap(companion, leader), Is.GreaterThan(6f));
+        }
+
+        [UnityTest]
+        public IEnumerator FollowOff_StopsARunningFollowMove()
+        {
+            world.CreateEnvironment();
+            var (_, active, companions) = SquadOf(new Vector3(0f, 0f, -12f));
+            var companion = companions[0];
+            yield return TestWorld.WaitUntil(() => companion.IsFollowing, 1f);
+            Assert.That(companion.IsFollowing, Is.True, "Precondition: a follow move is running");
+
+            active.ToggleFollow();
+            yield return null;
+            yield return null;
+
+            Assert.That(UnitOf(companion).CurrentCommand, Is.Null, "A follow move already running is stopped");
+            Assert.That(companion.IsFollowing, Is.False);
+            Assert.That(companion.IsParked, Is.False, "Its own Stop must not park the unit");
+            var everOrdered = false;
+            yield return ForSeconds(1.5f, () => everOrdered |= UnitOf(companion).CurrentCommand != null);
+            Assert.That(everOrdered, Is.False);
+        }
+
+        [UnityTest]
+        public IEnumerator FollowOff_DoesNotDropAQueuedExplicitOrder_BehindAFollowMove()
+        {
+            world.CreateEnvironment();
+            var (_, active, companions) = SquadOf(new Vector3(0f, 0f, -12f));
+            var companion = companions[0];
+            yield return TestWorld.WaitUntil(() => companion.IsFollowing, 1f);
+            var away = new Vector3(10f, 0f, -12f);
+            Assert.That(UnitOf(companion).Issue(new MoveCommand(away), IssueMode.Append), Is.True);
+
+            active.SetFollow(false);
+            yield return null;
+            yield return null;
+
+            Assert.That(UnitOf(companion).PendingCommands.Count, Is.EqualTo(1), "The player's queue is never wiped by the flag");
+            yield return TestWorld.WaitUntil(() => TestWorld.HorizontalDistance(companion.transform.position, away) < 0.5f, 15f);
+            Assert.That(TestWorld.HorizontalDistance(companion.transform.position, away), Is.LessThan(0.5f), "The queued order ran");
+        }
+
+        [UnityTest]
+        public IEnumerator FollowOff_AssistStillAttacksAnEngagedHostile()
+        {
+            world.CreateEnvironment();
+            var leader = world.CreateFighter(Vector3.zero);
+            var active = world.CreateActiveCharacter(leader);
+            var companion = world.CreateCompanion(new Vector3(3f, 0f, 0f), active, encounter);
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, 6f), encounter);
+            Arm(new[] { HealthOf(hostile) }, leader, companion);
+            active.SetFollow(false);
+
+            yield return TestWorld.WaitUntil(() => companion.State == CompanionState.Assist, 3f);
+
+            Assert.That(companion.State, Is.EqualTo(CompanionState.Assist), "The flag does not change assist");
+            Assert.That(companion.AssistTarget, Is.SameAs(HealthOf(hostile)));
+        }
+
+        [UnityTest]
+        public IEnumerator Parked_AssistStillAttacksAnEngagedHostile()
+        {
+            world.CreateEnvironment();
+            var leader = world.CreateFighter(Vector3.zero);
+            var active = world.CreateActiveCharacter(leader);
+            var companion = world.CreateCompanion(new Vector3(3f, 0f, 0f), active, encounter);
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, 6f), encounter);
+            Arm(new[] { HealthOf(hostile) }, leader, companion);
+            Assert.That(UnitOf(companion).Issue(new StopCommand()), Is.True);   // parks it before the first think
+
+            yield return TestWorld.WaitUntil(() => companion.State == CompanionState.Assist, 3f);
+
+            Assert.That(companion.IsParked, Is.True);
+            Assert.That(companion.State, Is.EqualTo(CompanionState.Assist), "Parking does not change assist");
+        }
+
+        [UnityTest]
+        public IEnumerator FollowBackOn_AnAttachedFarCompanionFollows_AParkedOneStaysParked()
+        {
+            world.CreateEnvironment();
+            var (_, active, companions) = SquadOf(new Vector3(0f, 0f, -12f), new Vector3(0f, 0f, 12f));
+            var (attached, parked) = (companions[0], companions[1]);
+            active.SetFollow(false);   // before the first think
+            Assert.That(UnitOf(parked).Issue(new StopCommand()), Is.True);
+            yield return ForSeconds(1f, () =>
+            {
+                Assert.That(UnitOf(attached).CurrentCommand, Is.Null);
+                Assert.That(UnitOf(parked).CurrentCommand, Is.Null);
+            });
+
+            active.SetFollow(true);
+
+            yield return TestWorld.WaitUntil(() => attached.IsFollowing, 1.5f);
+            Assert.That(attached.IsFollowing, Is.True, "Follow back ON: the attached far companion follows");
+            var everOrdered = false;
+            yield return ForSeconds(1.5f, () => everOrdered |= UnitOf(parked).CurrentCommand != null);
+            Assert.That(everOrdered, Is.False, "A parked unit stays parked");
+            Assert.That(parked.IsParked, Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator RetaliationDoesNotPark_AndTheCompanionRejoinsTheSquad()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companions) = SquadOf(new Vector3(3f, 0f, 0f));
+            var companion = companions[0];
+            var hostile = world.CreateHostile(new Vector3(3f, 0f, 4f), encounter, detectionRange: 0f);   // never notices anyone
+            Arm(new[] { HealthOf(hostile) }, leader, companion);
+            yield return null;
+            yield return null;
+
+            HealthOf(companion).TakeDamage(5, HealthOf(hostile));
+            var fought = false;
+            var everParked = false;
+            yield return ForSeconds(1.5f, () =>
+            {
+                fought |= UnitOf(companion).CurrentCommand is AttackCommand;
+                everParked |= companion.IsParked;
+            });
+            Assert.That(fought, Is.True, "Precondition: the companion fought back");
+            Assert.That(everParked, Is.False, "A retaliation order does not park");
+
+            // Kill the hostile so the fight ends, then check the unit is still attached and follows the leader away.
+            HealthOf(hostile).TakeDamage(1000, HealthOf(companion));
+            yield return TestWorld.WaitUntil(() => UnitOf(companion).CurrentCommand == null, 2f);
+            Assert.That(companion.IsParked, Is.False, "Not parked after the fight either");
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, -14f))), Is.True);
+            yield return TestWorld.WaitUntil(() => companion.IsFollowing, 3f);
+            Assert.That(companion.IsFollowing, Is.True, "It rejoins the squad");
+        }
+
+        [UnityTest]
+        public IEnumerator Paused_FollowToggleAndLeaderSwitchAreAccepted_AndTakeEffectAfterResume()
+        {
+            world.CreateEnvironment();
+            var pause = world.Track(new GameObject("Pause")).AddComponent<TacticalPause>();
+            var leader = world.CreateFighter(Vector3.zero);
+            leader.name = "Leader";
+            var active = world.CreateActiveCharacter(leader, pause);
+            var newLeader = world.CreateCompanion(new Vector3(0f, 0f, 5.5f), active, encounter);
+            var far = world.CreateCompanion(new Vector3(0f, 0f, -5.5f), active, encounter);
+            var old = world.CreateCompanion(new Vector3(2f, 0f, 4f), active, encounter);
+            Arm(new Health[0], leader, newLeader, far, old);
+            var units = new[] { leader, UnitOf(newLeader), UnitOf(far), UnitOf(old) };
+            yield return null;   // one running frame, so every companion has seen the first leader
+            yield return null;
+            pause.Pause();
+            var starts = units.Select(u => u.transform.position).ToArray();
+
+            active.ToggleFollow();
+            active.SetUnit(UnitOf(newLeader));
+            Assert.That(active.IsFollowOn, Is.False, "Follow toggles while paused");
+            Assert.That(active.Unit, Is.SameAs(UnitOf(newLeader)), "The leader switches while paused");
+            yield return new WaitForSecondsRealtime(1f);
+            for (var i = 0; i < units.Length; i++)
+            {
+                Assert.That(units[i].transform.position, Is.EqualTo(starts[i]), $"{units[i].name} moved while paused");
+                Assert.That(units[i].CurrentCommand, Is.Null);
+            }
+            Assert.That(far.IsParked, Is.False, "Nothing is decided on simulation time while paused");
+
+            pause.Resume();
+            yield return new WaitForSeconds(0.5f);
+            Assert.That(far.IsParked, Is.True, "After resume the switch parks the companion 11 m from the new leader");
+            Assert.That(old.IsParked, Is.False);
+            for (var i = 0; i < units.Length; i++)
+                Assert.That(units[i].CurrentCommand, Is.Null, $"{units[i].name}: follow is OFF, so nobody moves");
+
+            // The flag works after resume: ON again, and the new leader walks off, the attached unit follows.
+            active.SetFollow(true);
+            Assert.That(UnitOf(newLeader).Issue(new MoveCommand(new Vector3(0f, 0f, 14f))), Is.True);
+            yield return TestWorld.WaitUntil(() => old.IsFollowing, 3f);
+            Assert.That(old.IsFollowing, Is.True);
+            Assert.That(UnitOf(far).CurrentCommand, Is.Null, "The parked unit stays put");
+        }
+
+        [UnityTest]
+        public IEnumerator Magnet_IsAnEdge_AUnitStoppedNextToTheLeaderStaysParkedUntilItReEntersTheRadius()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companions) = SquadOf(new Vector3(0f, 0f, -3f));
+            var unit = companions[0];
+            Assert.That(UnitOf(unit).Issue(new StopCommand()), Is.True);   // parked while the leader stands 3 m away
+            yield return null;
+            yield return ForSeconds(1f, () =>
+            {
+                Assert.That(unit.IsParked, Is.True, "The leader is already inside the radius: no attach");
+                Assert.That(UnitOf(unit).CurrentCommand, Is.Null);
+            });
+
+            // Out of the radius (and past the 6 m start distance): still parked, so it does not follow.
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, 8f))), Is.True);
+            yield return TestWorld.WaitUntil(() => leader.CurrentCommand == null, 5f);
+            Assert.That(Gap(unit, leader), Is.GreaterThan(6f), "Precondition: well outside the radius");
+            yield return ForSeconds(1f, () =>
+            {
+                Assert.That(unit.IsParked, Is.True, "Leaving the radius never attaches");
+                Assert.That(UnitOf(unit).CurrentCommand, Is.Null);
+            });
+
+            // Back inside: an edge, so now it attaches.
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(3f, 0f, 0f))), Is.True);   // 4.2 m from the unit
+            yield return TestWorld.WaitUntil(() => !unit.IsParked, 5f);
+            Assert.That(unit.IsParked, Is.False, "Entering the radius again attaches it");
         }
     }
 }

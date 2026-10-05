@@ -15,6 +15,8 @@ namespace Blackglass
         CommandableUnit unit;
         Health health;
         UnitAttacker attacker;
+        // The last order this component issued; identity is all CompanionAI needs, so it is never cleared.
+        UnitCommand lastRetaliation;
 
         void Awake()
         {
@@ -36,7 +38,15 @@ namespace Blackglass
             // Decided here, once: a retaliation that starts from cover runs like any attack order afterwards.
             if (unit.Cover.OccupiedByOrder && !attacker.CanAttack(attackerHealth))
                 return;
-            unit.Issue(new AttackCommand(attackerHealth));
+            var command = new AttackCommand(attackerHealth);
+            if (unit.Issue(command))
+                lastRetaliation = command;
         }
+
+        /// <summary>
+        /// True only for the exact command object this component issued as a retaliation. Lets CompanionAI tell a
+        /// fight-back from an explicit order, since both look like "an order that is not mine".
+        /// </summary>
+        public bool IsRetaliating(UnitCommand command) => command != null && command == lastRetaliation;
     }
 }

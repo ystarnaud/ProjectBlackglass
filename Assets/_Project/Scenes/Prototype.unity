@@ -2289,6 +2289,7 @@ MonoBehaviour:
   takeoverAction: {fileID: -9162610413966631102, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   cycleAction: {fileID: 2406061088517015284, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   reverseAction: {fileID: -789005813888026758, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  toggleFollowAction: {fileID: 7467027872341685976, guid: 052faaac586de48259a63d0c4782560b, type: 3}
 --- !u!114 &1021927385
 MonoBehaviour:
   m_ObjectHideFlags: 0

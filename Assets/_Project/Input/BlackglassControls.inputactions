@@ -54,7 +54,8 @@
                 { "name": "Move", "type": "Value", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f02", "expectedControlType": "Vector2", "processors": "", "interactions": "", "initialStateCheck": true },
                 { "name": "Takeover", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f03", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
                 { "name": "CycleCharacter", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f04", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
-                { "name": "CycleReverse", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f05", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+                { "name": "CycleReverse", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f05", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ToggleFollow", "type": "Button", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f06", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
             ],
             "bindings": [
                 { "name": "WASD", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f11", "path": "2DVector", "interactions": "", "processors": "", "groups": "", "action": "Move", "isComposite": true, "isPartOfComposite": false },
@@ -65,7 +66,8 @@
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f16", "path": "<Keyboard>/v", "interactions": "", "processors": "", "groups": "", "action": "Takeover", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f17", "path": "<Keyboard>/tab", "interactions": "", "processors": "", "groups": "", "action": "CycleCharacter", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f18", "path": "<Keyboard>/leftShift", "interactions": "", "processors": "", "groups": "", "action": "CycleReverse", "isComposite": false, "isPartOfComposite": false },
-                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f19", "path": "<Keyboard>/rightShift", "interactions": "", "processors": "", "groups": "", "action": "CycleReverse", "isComposite": false, "isPartOfComposite": false }
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f19", "path": "<Keyboard>/rightShift", "interactions": "", "processors": "", "groups": "", "action": "CycleReverse", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9f1a", "path": "<Keyboard>/f", "interactions": "", "processors": "", "groups": "", "action": "ToggleFollow", "isComposite": false, "isPartOfComposite": false }
             ]
         }
     ],
