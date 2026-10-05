@@ -91,6 +91,116 @@ namespace Blackglass
             thinkInterval = interval;
         }
 
+        void OnEnable()
+        {
+            if (!IsWired)
+                Debug.LogWarning($"{name} has no ActiveCharacter or Encounter wired, so it will neither follow nor assist.", this);
+        }
+
+        void Update()
+        {
+            if (!SimulationTime.IsRunning || !Unit.IsAlive)
+                return;
+            // "Am I controlled now?" is answered every frame so the stop lands on the Tab frame; the rest is a tick.
+            if (YieldToControl())
+                return;
+            if (Time.time < nextThinkTime)
+                return;
+            nextThinkTime = Time.time + thinkInterval;
+            Think();
+        }
+
+        /// <summary>
+        /// Steps 0-2 of the priority: forget a finished or replaced own order, then, if this unit is the controlled
+        /// character (or is being driven), drop our own order once and report that autonomy must stay out.
+        /// </summary>
+        internal bool YieldToControl()
+        {
+            ownCommand = OwnCommand;   // forget an order that finished or was replaced
+            if (!IsControlled && Unit.MoveIntent == Vector3.zero)
+                return false;
+            // No autonomy for the controlled character: drop our own order once, never anyone else's.
+            if (ownCommand != null && Unit.PendingCommands.Count == 0)
+            {
+                Unit.Issue(new StopCommand());
+                ownCommand = null;
+            }
+            return true;
+        }
+
+        /// <summary>Steps 3-6 of the priority: orders win, then assist, then follow. Internal so tests can drive it.</summary>
+        internal void Think()
+        {
+            ownCommand = OwnCommand;
+
+            // Explicit orders (or a retaliation) win: a current order that is not ours, or anything queued.
+            if (Unit.CurrentCommand != null && (ownCommand == null || Unit.PendingCommands.Count > 0))
+                return;
+
+            // Acquisition only: a running assist is never retargeted; it ends with its target, then we look again.
+            if (ownCommand is AttackCommand)
+                return;
+            var target = ChooseAssistTarget();
+            if (target != null)
+            {
+                IssueOwn(new AttackCommand(target));
+                return;
+            }
+
+            if (activeCharacter == null || !activeCharacter.HasUnit || !activeCharacter.Unit.IsAlive)
+                return;
+            var leader = activeCharacter.Unit.transform;
+            var distanceToLeader = FlatDistance(leader.position, transform.position);
+            if (ownCommand is MoveCommand)
+            {
+                // Re-aim only while still beyond the follow distance: FollowPoint lies on the far side of a companion
+                // the leader has walked into, so re-aiming then would send it away from the leader.
+                if (distanceToLeader > followDistance && FlatDistance(leader.position, leaderPositionAtIssue) >= followRepathDistance)
+                    IssueFollow(leader);
+                return;
+            }
+            if (distanceToLeader > followStartDistance)
+                IssueFollow(leader);
+        }
+
+        Health ChooseAssistTarget()
+        {
+            if (encounter == null)
+                return null;
+            Health leaderTarget = null;
+            if (activeCharacter != null && activeCharacter.HasUnit && activeCharacter.Unit.CurrentCommand is AttackCommand leaderAttack)
+                leaderTarget = leaderAttack.Target;
+            canReach ??= Mover.CanReach;   // a plain delegate, cached so ticks allocate nothing
+            return ChooseAssistTarget(transform.position, assistRange, leaderTarget, encounter.Hostiles, IsEngaged, canReach);
+        }
+
+        // A hostile that is attacking anyone is engaged; its order is read from the shared unit, not from EnemyAI.
+        static bool IsEngaged(Health hostile) =>
+            hostile.TryGetComponent<CommandableUnit>(out var hostileUnit) && hostileUnit.CurrentCommand is AttackCommand;
+
+        // The raw follow point can sit inside a wall or past the ground edge, farther than MoveTo's 2 m snap; snap it
+        // first and otherwise aim at the leader itself, which is always on the mesh. A rejected order is forgotten.
+        void IssueFollow(Transform leader)
+        {
+            var point = FollowPoint(leader.position, transform.position, followDistance, leader.forward);
+            if (!Mover.TrySnap(point, out var onMesh) || FlatDistance(onMesh, point) > followDistance)
+                onMesh = leader.position;
+            if (IssueOwn(new MoveCommand(onMesh)))
+                leaderPositionAtIssue = leader.position;
+        }
+
+        // Replace is safe here: Think only reaches an issue when nothing but our own order is current.
+        bool IssueOwn(UnitCommand command)
+        {
+            if (Unit.Issue(command))
+            {
+                ownCommand = command;
+                return true;
+            }
+            ownCommand = null;
+            return false;
+        }
+
         /// <summary>
         /// Dead beats everything, then controlled. With no order the companion is idle. A current order that is not
         /// ours, or anything pending behind ours, means orders (explicit, or a retaliation). Otherwise our own attack

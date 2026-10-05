@@ -109,6 +109,26 @@ namespace Blackglass.Tests
             return ai;
         }
 
+        /// <summary>An ActiveCharacter on its own object, controlling the given unit (no roster, so Cycle does nothing).</summary>
+        public ActiveCharacter CreateActiveCharacter(CommandableUnit unit, TacticalPause pause = null)
+        {
+            var active = Track(new GameObject("ActiveCharacter")).AddComponent<ActiveCharacter>();
+            active.Initialize(unit, pause);
+            return active;
+        }
+
+        /// <summary>A friendly fighter with CompanionAI wired to the active character and the encounter.</summary>
+        public CompanionAI CreateCompanion(Vector3 groundPosition, ActiveCharacter active, Encounter encounter, int maxHealth = 100)
+        {
+            var unit = CreateFighter(groundPosition, maxHealth);
+            unit.name = "TestCompanion";
+            unit.gameObject.SetActive(false);
+            var ai = unit.gameObject.AddComponent<CompanionAI>();
+            ai.Initialize(active, encounter);
+            unit.gameObject.SetActive(true);
+            return ai;
+        }
+
         public Health CreateDummy(Vector3 groundPosition)
         {
             var dummy = Track(GameObject.CreatePrimitive(PrimitiveType.Cylinder));
