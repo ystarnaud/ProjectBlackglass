@@ -97,6 +97,21 @@ namespace Blackglass.Tests
                 var collider = GameObject.Find(name).GetComponent<Collider>();
                 Assert.That(registry.Points.Any(p => p.Obstacle == collider), Is.True, $"{name} produced at least one cover location");
             }
+
+            // The scene stores the generation settings on its CoverDiscovery component, which overrides the class
+            // defaults: pin them, and pin the gaps they produce (a 3 m wall: usable 2 m, three south points 1 m apart).
+            var settings = Object.FindFirstObjectByType<CoverDiscovery>().Settings;
+            Assert.That(settings.spacing, Is.EqualTo(1f), "The scene's CoverDiscovery spacing");
+            Assert.That(settings.mergeDistance, Is.EqualTo(0.9f), "The scene's CoverDiscovery mergeDistance");
+            var lowWallL = GameObject.Find("LowWall_L").GetComponent<Collider>();
+            var south = registry.Points.Where(p => p.Obstacle == lowWallL && p.Facing.z > 0.5f).OrderBy(p => p.Position.x).ToList();
+            Assert.That(south, Has.Count.EqualTo(3), "LowWall_L's south face has three points at 1 m spacing");
+            for (var i = 1; i < south.Count; i++)
+            {
+                var gap = south[i].Position.x - south[i - 1].Position.x;
+                Assert.That(gap, Is.GreaterThanOrEqualTo(1f - 1e-3f), $"{south[i - 1].Name} to {south[i].Name}");
+                Assert.That(gap, Is.LessThan(2f), $"{south[i - 1].Name} to {south[i].Name}");
+            }
         }
 
         [UnityTest]
@@ -483,7 +498,7 @@ namespace Blackglass.Tests
             yield return BoxSelect(mouse, squad);
             Assert.That(Object.FindFirstObjectByType<UnitSelection>().Selected, Has.Count.EqualTo(3));
 
-            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, -1f)));   // plain ground: more than 0.5 m from every cover marker (Barrier_I_SCorner2 is at -5.35, 0.75)
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, -1f)));   // plain ground: no cover point lies within the 0.5 m cover-click radius of this click
 
             foreach (var member in squad)
                 Assert.That(member.CurrentCommand, Is.TypeOf<MoveCommand>(), member.name);
