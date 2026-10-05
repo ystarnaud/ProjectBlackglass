@@ -25,8 +25,12 @@ namespace Blackglass
     /// its own orders from everyone else's by remembering the command object it issued: any other current order, or
     /// any pending order, is left alone. A companion holding cover it was ordered into does not follow, and assists
     /// only against a target it can attack from where it stands; cover it merely stopped on changes nothing. Both
-    /// checks are made when its own order is issued (acquisition only, like the rest). Decides only what to do;
-    /// CommandableUnit does it. Runs on simulation time.
+    /// checks are made when its own order is issued (acquisition only, like the rest). Following has two more
+    /// conditions (decision 022): the follow flag on ActiveCharacter is on, and the companion is attached rather than
+    /// parked. It is parked by a switch of the controlled character that leaves it farther than the follow start
+    /// distance from the new leader, by an explicit order (not a retaliation) and by a Stop, and it is attached again
+    /// when the controlled character walks up to it (the magnet). Decides only what to do; CommandableUnit does it.
+    /// Runs on simulation time.
     /// </summary>
     // After ActiveCharacter (-200) refreshes who is controlled and before DirectControlInput (-100) hands over, so a
     // companion that just became the controlled character has already dropped its own follow move when the hand-over
@@ -44,6 +48,8 @@ namespace Blackglass
         [SerializeField, Min(0f)] float followStartDistance = 6f;
         // A running follow move is re-aimed once the leader has moved this far from where it was aimed.
         [SerializeField, Min(0f)] float followRepathDistance = 2f;
+        // A parked companion is attached again when the controlled character comes this close (flat distance).
+        [SerializeField, Min(0f)] float magnetRadius = 4.5f;
         [Header("Assist")]
         [SerializeField, Min(0f)] float assistRange = 10f;
         [SerializeField, Min(0f)] float thinkInterval = 0.25f;
@@ -52,10 +58,20 @@ namespace Blackglass
         UnitMover mover;
         UnitAttacker attacker;
         UnitCover coverComponent;
+        AutoRetaliate retaliate;
         float nextThinkTime;
         // The order this component issued, while it is still the unit's current order.
         UnitCommand ownCommand;
         Vector3 leaderPositionAtIssue;
+        // Attached companions follow; parked ones stay where they are until the magnet attaches them (decision 022).
+        bool isParked;
+        // Who the controlled character was last frame, to see a switch; leaderSeen tells "no frame yet" from "nobody".
+        CommandableUnit lastLeader;
+        bool leaderSeen;
+        // The unit's StopCount as of the last frame, to see a Stop; our own Stops are folded in so they never park us.
+        int seenStopCount;
+        // Whether the controlled character was inside the magnet radius last frame: the magnet fires on entering.
+        bool inMagnet;
         Func<Vector3, bool> canReach;
         // The method group converted once; passing IsEngaged directly would allocate a new delegate on every tick.
         static readonly Func<Health, bool> isEngaged = IsEngaged;
@@ -66,6 +82,14 @@ namespace Blackglass
         public float FollowStartDistance => followStartDistance;
         /// <summary>Hostiles farther than this are never assisted against.</summary>
         public float AssistRange => assistRange;
+        /// <summary>A parked companion is attached again when the controlled character comes within this distance.</summary>
+        public float MagnetRadius => magnetRadius;
+
+        /// <summary>
+        /// True while this companion is parked: it does not follow, whatever the follow flag says, until the controlled
+        /// character walks up to it. The controlled character itself is never parked.
+        /// </summary>
+        public bool IsParked => isParked;
 
         /// <summary>True when the scene wired both references this component needs.</summary>
         public bool IsWired => activeCharacter != null && encounter != null;
@@ -92,7 +116,7 @@ namespace Blackglass
         UnitCommand OwnCommand => ownCommand != null && Unit.CurrentCommand == ownCommand ? ownCommand : null;
 
         internal void Initialize(ActiveCharacter active, Encounter encounterToAssist, float follow = 3.5f, float followStart = 6f,
-            float followRepath = 2f, float assist = 10f, float interval = 0.25f)
+            float followRepath = 2f, float assist = 10f, float interval = 0.25f, float magnet = 4.5f)
         {
             activeCharacter = active;
             encounter = encounterToAssist;
@@ -101,6 +125,7 @@ namespace Blackglass
             followRepathDistance = followRepath;
             assistRange = assist;
             thinkInterval = interval;
+            magnetRadius = magnet;
         }
 
         void OnEnable()
@@ -113,6 +138,8 @@ namespace Blackglass
         {
             if (!SimulationTime.IsRunning || !Unit.IsAlive)
                 return;
+            // Every frame, not every tick: a switch, a Stop or a walk past the magnet radius can last a single frame.
+            TrackAttachment();
             // "Am I controlled now?" is answered every frame so the stop lands on the Tab frame; the rest is a tick.
             if (YieldToControl())
                 return;
@@ -136,8 +163,65 @@ namespace Blackglass
             {
                 Unit.Issue(new StopCommand());
                 ownCommand = null;
+                seenStopCount = Unit.StopCount;   // our own Stop is not the player's: it must not park us
             }
             return true;
+        }
+
+        /// <summary>
+        /// Keeps the parked/attached state (decision 022), every simulation frame. The controlled character is
+        /// attached by definition. Otherwise a unit is parked by a switch of the controlled character that leaves it
+        /// beyond the follow start distance from the new leader, by any explicit order (a current order that is neither
+        /// ours nor a retaliation, or anything pending) and by a Stop; parked is sticky, so finishing the orders leaves
+        /// it where it ended. It is attached again only by the controlled character ENTERING the magnet radius, never
+        /// on a switch frame: a level would undo a Stop or a finished order next to the leader on the next frame.
+        /// Finally a follow move that is running while the unit is parked or follow is off is stopped.
+        /// </summary>
+        internal void TrackAttachment()
+        {
+            var leaderUnit = activeCharacter != null && activeCharacter.HasUnit ? activeCharacter.Unit : null;
+            var leaderChanged = leaderSeen && leaderUnit != lastLeader;
+            lastLeader = leaderUnit;
+            leaderSeen = true;
+            var stopped = Unit.StopCount != seenStopCount;
+            seenStopCount = Unit.StopCount;
+
+            if (IsControlled)
+            {
+                isParked = false;
+                inMagnet = false;
+                return;
+            }
+
+            var distance = leaderUnit != null ? FlatDistance(leaderUnit.transform.position, transform.position) : float.PositiveInfinity;
+            var inMagnetNow = distance <= magnetRadius;
+            var current = Unit.CurrentCommand;
+            var hasExplicit = (current != null && current != ownCommand && !IsRetaliation(current)) || Unit.PendingCommands.Count > 0;
+
+            if (leaderChanged && distance > followStartDistance)
+                isParked = true;
+            if (stopped || hasExplicit)
+                isParked = true;
+            else if (isParked && inMagnetNow && !inMagnet && !leaderChanged)
+                isParked = false;
+            inMagnet = inMagnetNow;
+
+            // Never wipe the player's queue: StopCommand clears all of it (the same guard as YieldToControl). The check
+            // reads the unit's current order, because ownCommand may be stale here.
+            if (OwnCommand is MoveCommand && (isParked || (activeCharacter != null && !activeCharacter.IsFollowOn)) && Unit.PendingCommands.Count == 0)
+            {
+                Unit.Issue(new StopCommand());
+                ownCommand = null;
+                seenStopCount = Unit.StopCount;   // our own Stop must not park us
+            }
+        }
+
+        // AutoRetaliate is optional (a plain companion may not carry one); looked up once.
+        bool IsRetaliation(UnitCommand command)
+        {
+            if (retaliate == null)
+                TryGetComponent(out retaliate);
+            return retaliate != null && retaliate.IsRetaliating(command);
         }
 
         /// <summary>Steps 3-6 of the priority: orders win, then assist, then follow. Internal so tests can drive it.</summary>
@@ -165,7 +249,8 @@ namespace Blackglass
             if (Cover.OccupiedByOrder)
                 return;
 
-            if (activeCharacter == null || !activeCharacter.HasUnit || !activeCharacter.Unit.IsAlive)
+            // Following needs the flag on and an attached unit; assist and cover above never look at either.
+            if (activeCharacter == null || !activeCharacter.IsFollowOn || isParked || !activeCharacter.HasUnit || !activeCharacter.Unit.IsAlive)
                 return;
             var leader = activeCharacter.Unit.transform;
             var distanceToLeader = FlatDistance(leader.position, transform.position);

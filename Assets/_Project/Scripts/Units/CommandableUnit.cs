@@ -64,6 +64,12 @@ namespace Blackglass
         /// <summary>Orders waiting behind the current one, in the order they will run.</summary>
         public IReadOnlyList<UnitCommand> PendingCommands => queue.Pending;
 
+        /// <summary>
+        /// How many Stop commands this unit has accepted (also when it was already idle). A Stop leaves no order
+        /// behind, so this lets autonomy see that one happened.
+        /// </summary>
+        public int StopCount { get; private set; }
+
         /// <summary>The direction direct control is steering the unit in, or zero. See SetMoveIntent.</summary>
         public Vector3 MoveIntent => moveIntent;
 
@@ -132,6 +138,7 @@ namespace Blackglass
             switch (command)
             {
                 case StopCommand _:
+                    StopCount++;
                     StopAll();
                     return true;
                 case MoveCommand _:

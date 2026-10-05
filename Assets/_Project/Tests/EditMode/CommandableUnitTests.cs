@@ -208,6 +208,42 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void StopCount_StartsAtZero()
+        {
+            Assert.That(unit.StopCount, Is.EqualTo(0));
+        }
+
+        [TestCase(IssueMode.Replace)]
+        [TestCase(IssueMode.Append)]
+        public void StopCount_RisesOnceForEveryAcceptedStop_EvenWhenIdle(IssueMode mode)
+        {
+            Assert.That(unit.Issue(new StopCommand(), mode), Is.True);
+            Assert.That(unit.StopCount, Is.EqualTo(1), "A Stop on an idle unit still counts");
+            unit.Issue(new AttackCommand(target));
+            Assert.That(unit.Issue(new StopCommand(), mode), Is.True);
+            Assert.That(unit.StopCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void StopCount_IgnoresOtherCommands()
+        {
+            unit.Issue(new AttackCommand(target));
+            unit.Issue(new AttackCommand(otherTarget), IssueMode.Append);
+            unit.Issue(new MoveCommand(Vector3.one));
+            Assert.That(unit.StopCount, Is.EqualTo(0));
+        }
+
+        [Test]
+        public void StopCount_IgnoresARefusedStop_AndDeath()
+        {
+            var own = unitHost.AddComponent<Health>();
+            own.TakeDamage(own.Max);   // the unit stops itself on death; that is not a Stop command
+
+            Assert.That(unit.Issue(new StopCommand()), Is.False);
+            Assert.That(unit.StopCount, Is.EqualTo(0));
+        }
+
+        [Test]
         public void StartsWithNoMoveIntent()
         {
             Assert.That(unit.MoveIntent, Is.EqualTo(Vector3.zero));

@@ -24,6 +24,12 @@ namespace Blackglass
         public bool IsTakeoverOn { get; private set; }
 
         /// <summary>
+        /// Whether companions follow the controlled character. It gates formation following only: assist, orders and
+        /// the parked/attached state (see CompanionAI) are not affected by it. Starts on.
+        /// </summary>
+        public bool IsFollowOn { get; private set; } = true;
+
+        /// <summary>
         /// True when there is an active character that can act: assigned, enabled and active. Uses enabled and
         /// activeInHierarchy (not isActiveAndEnabled), like UnitSelection, so it gives the same answer in EditMode.
         /// </summary>
@@ -89,6 +95,12 @@ namespace Blackglass
         public void SetTakeover(bool on) => IsTakeoverOn = on;
 
         public void ToggleTakeover() => IsTakeoverOn = !IsTakeoverOn;
+
+        /// <summary>Turns formation following on or off (see IsFollowOn). Works while paused; it takes effect when simulation runs.</summary>
+        public void SetFollow(bool on) => IsFollowOn = on;
+
+        /// <summary>Flips the follow flag.</summary>
+        public void ToggleFollow() => IsFollowOn = !IsFollowOn;
 
         void Update() => RefreshEligibility();
 
