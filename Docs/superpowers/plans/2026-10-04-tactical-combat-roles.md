@@ -56,9 +56,9 @@ The script prints `error CS` lines, a summary (`result= total= passed= failed=`)
 | 7 | 231 | 194 |
 | 8 | 231 | 208 |
 | 9 | 231 | 211 |
-| 10 | 238 | 211 |
-| 11 | 238 | 213 |
-| 12 | 238 | 213 |
+| 10 | 239 | 211 |
+| 11 | 239 | 213 |
+| 12 | 239 | 213 |
 
 These totals assume each task adds exactly the tests listed. If a task's count differs, correct this table in that task's commit; the sequence must stay green either way. (Corrected after Task 5's review: its fix round added `FallbackWalkThenSightLostAgain_KeepsTheOrder_AndHitsAgain`, so PlayMode totals from Task 5 on are one higher than first planned. Corrected again after Task 8: its fixture holds 14 tests, not 13.)
 
