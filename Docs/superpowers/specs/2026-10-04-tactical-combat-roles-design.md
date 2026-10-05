@@ -246,7 +246,7 @@ ownCommand is MoveCommand                → Follow
 6. Idle: nothing.
 
 IssueFollow: point = FollowPoint(leader, companion, followDistance, leader.forward);
-             if not Mover.TrySnap(point, out point) within followDistance: point = leader position;
+             if not Mover.TrySnap(point, out point): point = leader position;
              if Issue(Move(point)) succeeds: remember the command and the leader's position; else remember nothing.
 ```
 
@@ -254,7 +254,7 @@ The AI uses `Replace` (steps 4 and 5) and `Stop` (step 2), always on its own ord
 
 `ChooseAssistTarget()`: the controlled character's current `AttackCommand` target if it is a living, active hostile in `encounter.Hostiles`, within `assistRange` of this companion and reachable; otherwise the nearest hostile that is alive, active, within `assistRange`, reachable, and whose `CommandableUnit.CurrentCommand is AttackCommand`. Null when none. `static Health ChooseAssistTarget(Vector3 from, float range, Health leaderTarget, IReadOnlyList<Health> hostiles, Func<Health, bool> isEngaged, Func<Vector3, bool> canReach)` is the pure, EditMode-tested core.
 
-`FollowPoint(leader, companion, followDistance, leaderForward)` (pure, EditMode-tested): `leader + (companion − leader).normalized(horizontal) × followDistance`; with the companion on top of the leader, use the leader's backward direction. The raw point can lie farther than `MoveTo`'s 2 m snap from the mesh (the centre of the 3 × 3 `Obstacle_A`, or past the ground edge), which is why `IssueFollow` snaps it within `followDistance` first and otherwise aims at the leader's own position, which is always on the mesh. A rejected `Issue` remembers nothing, so the next tick simply tries again.
+`FollowPoint(leader, companion, followDistance, leaderForward)` (pure, EditMode-tested): `leader + (companion − leader).normalized(horizontal) × followDistance`; with the companion on top of the leader, use the leader's backward direction. The raw point can lie farther than `MoveTo`'s 2 m snap from the mesh (the centre of the 3 × 3 `Obstacle_A`, or past the ground edge), which is why `IssueFollow` snaps it to the NavMesh first (the 2 m snap radius) and otherwise aims at the leader's own position, which is always on the mesh. A rejected `Issue` remembers nothing, so the next tick simply tries again.
 
 Why remembering one command object is enough: `Issue(Replace)` by anyone else makes a different object current; `Issue(Append)` leaves ours current but makes `PendingCommands` non-empty; `Stop`, death and direct control clear the queue. All three cases read as "not ours".
 
