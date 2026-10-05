@@ -80,6 +80,30 @@ namespace Blackglass.Tests
             Assert.That(PrototypeHud.DescribeCompanion(orders, state, assistTarget), Is.EqualTo(expected));
         }
 
+        [TestCase("", CompanionState.Idle, null, "Idle [parked]")]
+        [TestCase("Attack +1", CompanionState.Orders, null, "Attack +1 | Orders [parked]")]
+        [TestCase("Attack", CompanionState.Assist, "HostileUnit_1", "Attack | Assist -> HostileUnit_1 [parked]")]
+        [TestCase("Move", CompanionState.Follow, null, "Move | Follow [parked]")]
+        [TestCase("", CompanionState.Dead, null, "Dead")]
+        [TestCase("", CompanionState.Controlled, null, "Controlled")]
+        public void DescribeCompanion_Parked_IsMarkedExceptForDeadAndControlled(string orders, CompanionState state, string assistTarget, string expected)
+        {
+            Assert.That(PrototypeHud.DescribeCompanion(orders, state, assistTarget, true), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void DescribeCompanion_NotParked_HasNoMarker()
+        {
+            Assert.That(PrototypeHud.DescribeCompanion("", CompanionState.Idle, null, false), Is.EqualTo("Idle"));
+        }
+
+        [Test]
+        public void DescribeFollow_ShowsTheFlagAndItsKey()
+        {
+            Assert.That(PrototypeHud.DescribeFollow(true), Is.EqualTo("Follow: ON (F)"));
+            Assert.That(PrototypeHud.DescribeFollow(false), Is.EqualTo("Follow: OFF (F)"));
+        }
+
         [Test]
         public void AppendSight_SaysClearOrBlocked()
         {

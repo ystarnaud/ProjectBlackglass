@@ -8,7 +8,8 @@ namespace Blackglass
     /// Direct-control input for the active character. V toggles takeover. Tab makes the next eligible friendly the
     /// active character (Shift+Tab: the previous one) and selects it. While the active character is being driven
     /// (ActiveCharacter.IsDriving), WASD becomes a camera-relative move intent on its CommandableUnit; otherwise the
-    /// intent is zero. Contains no movement rules: the unit decides what the intent means.
+    /// intent is zero. F toggles the follow flag on ActiveCharacter. Contains no movement or follow rules: the unit
+    /// decides what the intent means, and CompanionAI what the flag means.
     /// Release gate: whenever driving starts (resume, or takeover turned on), keys already held are ignored until Move
     /// reads zero, so a key held from panning the camera cannot wipe orders just queued.
     /// Handover: when the active character changes, the old one's intent is zeroed in the same frame. A held key
@@ -28,14 +29,18 @@ namespace Blackglass
         [SerializeField] InputActionReference cycleAction;
         // Held while cycling to go backward (Shift).
         [SerializeField] InputActionReference reverseAction;
+        [SerializeField] InputActionReference toggleFollowAction;
 
         CommandableUnit steeredUnit;
         bool wasDriving;
         bool waitingForRelease;
 
+        /// <summary>True when the scene wired the follow-toggle action.</summary>
+        internal bool IsFollowWired => toggleFollowAction != null;
+
         internal void Initialize(ActiveCharacter active, Camera camera, InputActionReference move,
             InputActionReference takeover, UnitSelection unitSelection = null, InputActionReference cycle = null,
-            InputActionReference reverse = null)
+            InputActionReference reverse = null, InputActionReference toggleFollow = null)
         {
             activeCharacter = active;
             viewCamera = camera;
@@ -44,6 +49,7 @@ namespace Blackglass
             selection = unitSelection;
             cycleAction = cycle;
             reverseAction = reverse;
+            toggleFollowAction = toggleFollow;
         }
 
         /// <summary>Turns movement input into a ground direction relative to the camera's yaw, at most length 1.</summary>
@@ -52,11 +58,13 @@ namespace Blackglass
 
         void OnEnable()
         {
-            InputActionUtility.SetEnabled(true, moveAction, takeoverAction, cycleAction, reverseAction);
+            InputActionUtility.SetEnabled(true, moveAction, takeoverAction, cycleAction, reverseAction, toggleFollowAction);
             if (takeoverAction != null)
                 takeoverAction.action.performed += OnTakeover;
             if (cycleAction != null)
                 cycleAction.action.performed += OnCycle;
+            if (toggleFollowAction != null)
+                toggleFollowAction.action.performed += OnToggleFollow;
         }
 
         void OnDisable()
@@ -65,7 +73,9 @@ namespace Blackglass
                 takeoverAction.action.performed -= OnTakeover;
             if (cycleAction != null)
                 cycleAction.action.performed -= OnCycle;
-            InputActionUtility.SetEnabled(false, moveAction, takeoverAction, cycleAction, reverseAction);
+            if (toggleFollowAction != null)
+                toggleFollowAction.action.performed -= OnToggleFollow;
+            InputActionUtility.SetEnabled(false, moveAction, takeoverAction, cycleAction, reverseAction, toggleFollowAction);
             wasDriving = false;
             SetIntent(Vector3.zero);
         }
@@ -111,6 +121,12 @@ namespace Blackglass
         {
             if (activeCharacter != null)
                 activeCharacter.ToggleTakeover();
+        }
+
+        void OnToggleFollow(InputAction.CallbackContext context)
+        {
+            if (activeCharacter != null)
+                activeCharacter.ToggleFollow();
         }
 
         void OnCycle(InputAction.CallbackContext context)

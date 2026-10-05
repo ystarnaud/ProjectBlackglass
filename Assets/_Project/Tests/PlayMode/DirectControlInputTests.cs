@@ -50,7 +50,8 @@ namespace Blackglass.Tests
                 TestControls.Ref(actions, "Character/Takeover"),
                 selection,
                 TestControls.Ref(actions, "Character/CycleCharacter"),
-                TestControls.Ref(actions, "Character/CycleReverse"));
+                TestControls.Ref(actions, "Character/CycleReverse"),
+                TestControls.Ref(actions, "Character/ToggleFollow"));
             systems.SetActive(true);
         }
 
@@ -133,6 +134,23 @@ namespace Blackglass.Tests
                 "The companion's second order started before it reached the first destination");
             Assert.That(TestWorld.HorizontalDistance(primaryUnit.transform.position, primarySecond.Destination), Is.LessThan(0.3f));
             Assert.That(TestWorld.HorizontalDistance(companion.transform.position, companionSecond.Destination), Is.LessThan(0.3f));
+        }
+
+        [UnityTest]
+        public IEnumerator F_TogglesFollow_AlsoWhilePaused_AndChangesNothingElse()
+        {
+            Assert.That(active.IsFollowOn, Is.True);
+            Assert.That(input.IsFollowWired, Is.True);
+            yield return Tap(keyboard.fKey);
+            Assert.That(active.IsFollowOn, Is.False);
+            yield return Tap(keyboard.fKey);
+            Assert.That(active.IsFollowOn, Is.True);
+
+            pause.Pause();
+            yield return Tap(keyboard.fKey);
+            Assert.That(active.IsFollowOn, Is.False, "F works while paused");
+            Assert.That(active.IsTakeoverOn, Is.False, "F is not V");
+            Assert.That(active.Unit, Is.SameAs(primaryUnit), "F is not Tab");
         }
 
         [UnityTest]
