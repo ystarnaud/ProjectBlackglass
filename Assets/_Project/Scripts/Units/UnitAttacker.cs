@@ -13,9 +13,11 @@ namespace Blackglass
     }
 
     /// <summary>
-    /// Prototype attack: a combat role (melee or ranged), fixed range, damage and cooldown. A ranged hit also needs line of sight. Cooldown uses scaled time, so it freezes while paused.
-    /// Reports each hit through Attacked and tells the target which Health hit it. Owns the unit's sight test
-    /// (LineOfSight from this unit's eye), which EnemyAI uses for acquisition.
+    /// Prototype attack: a combat role (melee or ranged), fixed range, damage and cooldown. A ranged hit also needs
+    /// line of sight, and a ranged shot at a target occupying cover that protects it from here lands only with that
+    /// cover's hit chance; melee ignores cover. Cooldown uses scaled time, so it freezes while paused. Reports each
+    /// hit through Attacked and each miss through Missed, and tells the target which Health hit it. Owns the unit's
+    /// sight test (LineOfSight from this unit's eye), which EnemyAI uses for acquisition.
     /// </summary>
     public sealed class UnitAttacker : MonoBehaviour
     {
@@ -28,6 +30,9 @@ namespace Blackglass
 
         readonly RaycastHit[] sightHits = new RaycastHit[LineOfSight.HitBufferSize];
         float nextAttackTime;
+        // The roll is replaceable so tests can force a hit or a miss; the default is Unity's random stream.
+        static readonly Func<float> defaultRoll = () => UnityEngine.Random.value;
+        Func<float> hitRoll;
         Health ownHealth;
 
         public float Range => range;
@@ -43,6 +48,22 @@ namespace Blackglass
 
         /// <summary>Raised with the target after every hit.</summary>
         public event Action<Health> Attacked;
+
+        /// <summary>Raised with the target after every shot that cover turned away.</summary>
+        public event Action<Health> Missed;
+
+        /// <summary>Shots fired since the component was enabled (debug counter).</summary>
+        public int ShotsFired { get; private set; }
+
+        /// <summary>Shots that landed (debug counter).</summary>
+        public int Hits { get; private set; }
+
+        /// <summary>The 0..1 roll compared with a covered target's hit chance. A plain delegate, so ?? is fine.</summary>
+        internal Func<float> HitRoll
+        {
+            get => hitRoll ?? defaultRoll;
+            set => hitRoll = value;
+        }
 
         // This unit's own Health, if it has one. Looked up lazily so a Health added after this component is found.
         Health OwnHealth => ownHealth != null ? ownHealth : ownHealth = GetComponent<Health>();
@@ -82,14 +103,45 @@ namespace Blackglass
         public bool CanAttackFrom(Vector3 pivot, Health target) =>
             IsInRangeFrom(pivot, target) && (!NeedsLineOfSight || HasLineOfSightFrom(pivot, target));
 
-        /// <summary>Hits the target if it is alive, attackable from here (range, and sight for ranged units) and the cooldown has elapsed. Returns whether it hit.</summary>
+        /// <summary>
+        /// True when the target is in cover against a shot from this unit's position: ranged role, a target with a
+        /// UnitCover that occupies a point, and that point protecting it from here. Melee: always false. hitChance
+        /// is that point's chance when in cover, else 1. The HUD uses the same overload.
+        /// </summary>
+        public bool IsTargetInCover(Health target, out float hitChance)
+        {
+            hitChance = 1f;
+            if (!NeedsLineOfSight || target == null || !target.TryGetComponent<UnitCover>(out var cover)
+                || !cover.IsProtectedFrom(transform.position))
+                return false;
+            hitChance = cover.HitChance;
+            return true;
+        }
+
+        public bool IsTargetInCover(Health target) => IsTargetInCover(target, out _);
+
+        /// <summary>
+        /// Fires at the target if it is alive, attackable from here (range, and sight for ranged units) and the
+        /// cooldown has elapsed. A target in cover against this unit is hit with its cover's chance; otherwise every
+        /// shot lands. Returns whether a shot was fired (hit or miss); Attacked and Missed say which.
+        /// </summary>
         public bool TryAttack(Health target)
         {
             if (target == null || !target.IsAlive || !CanAttack(target) || Time.time < nextAttackTime)
                 return false;
             nextAttackTime = Time.time + cooldown;
-            target.TakeDamage(damage, OwnHealth);
-            Attacked?.Invoke(target);
+            ShotsFired++;
+            var inCover = IsTargetInCover(target, out var hitChance);
+            if (CoverRules.ResolveHit(inCover, hitChance, HitRoll()))
+            {
+                Hits++;
+                target.TakeDamage(damage, OwnHealth);
+                Attacked?.Invoke(target);
+            }
+            else
+            {
+                Missed?.Invoke(target);
+            }
             return true;
         }
     }

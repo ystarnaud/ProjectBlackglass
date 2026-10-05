@@ -374,6 +374,7 @@ namespace Blackglass
                 walkingAtTarget = false;
             }
             FaceTowards(target.transform.position);
+            // A fired shot (hit or miss) proves the firing position; whether it lands is cover, not positioning.
             if (Attacker.TryAttack(target))
                 repositionsWithoutShot = 0;
             if (!target.IsAlive)
