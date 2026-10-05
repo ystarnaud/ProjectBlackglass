@@ -145,7 +145,7 @@ namespace Blackglass
                 if (length < settings.minFaceLength)
                     continue;
                 var usable = length - 2f * settings.endMargin;
-                var count = usable <= 0f ? 1 : Mathf.FloorToInt(usable / settings.spacing + 1e-4f) + 1;
+                var count = usable <= 0f ? 1 : Mathf.FloorToInt(usable / Mathf.Max(settings.spacing, 0.1f) + 1e-4f) + 1;
                 for (var i = 0; i < count; i++)
                 {
                     var along = count == 1 ? 0f : -usable * 0.5f + i * usable / (count - 1);

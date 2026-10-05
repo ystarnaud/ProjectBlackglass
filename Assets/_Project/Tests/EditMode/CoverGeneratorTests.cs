@@ -111,6 +111,21 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void ASpacingOfZeroOrLess_StillGenerates_WithEveryLocationAtLeastTheMergeDistanceApart()
+        {
+            foreach (var spacing in new[] { 0f, -1f })
+            {
+                var settings = new CoverGenerationSettings { spacing = spacing };
+                var result = Generate(Box("Wall", P(0f, 0.45f, 0f), P(3f, 0.9f, 0.5f)), settings: settings);
+                Assert.That(result, Is.Not.Empty, $"spacing {spacing}");
+                for (var i = 0; i < result.Count; i++)
+                    for (var j = i + 1; j < result.Count; j++)
+                        Assert.That(CoverRules.FlatDistance(result[i].Position, result[j].Position), Is.GreaterThanOrEqualTo(settings.mergeDistance),
+                            $"spacing {spacing}: {result[i].Name} and {result[j].Name}");
+            }
+        }
+
+        [Test]
         public void Generate_RejectsNullArguments()
         {
             var boxes = new CoverBox[0];
@@ -193,7 +208,60 @@ namespace Blackglass.Tests
                 Assert.That(corner.Facing.magnitude, Is.EqualTo(1f).Within(1e-4f));
                 Assert.That(corner.PeekDirection.magnitude, Is.EqualTo(1f).Within(1e-4f));
                 Assert.That(Vector3.Dot(corner.Facing, corner.PeekDirection), Is.EqualTo(0f).Within(1e-4f), "Peek runs along the wall, not through it");
+                Assert.That(Mathf.Abs(corner.Facing.x), Is.EqualTo(0.7071f).Within(1e-3f), "A wall turned 45 degrees faces diagonally");
+                Assert.That(Mathf.Abs(corner.Facing.z), Is.EqualTo(0.7071f).Within(1e-3f));
             }
+        }
+
+        [Test]
+        public void AWallTurnedFortyFiveDegrees_GivesTheYawZeroLocationsRotatedAboutItsCentre()
+        {
+            var centre = P(0f, 1f, 0f);
+            var rotation = Quaternion.Euler(0f, 45f, 0f);
+            var straight = Generate(Box("Wall", centre, P(8f, 2f, 1f), 0f));
+            var turned = Generate(Box("Wall", centre, P(8f, 2f, 1f), 45f));
+            Assert.That(straight, Is.Not.Empty);
+            Assert.That(turned, Has.Count.EqualTo(straight.Count));
+
+            Vector3 AboutCentre(Vector3 position)
+            {
+                var turnedPosition = centre + rotation * new Vector3(position.x - centre.x, 0f, position.z - centre.z);
+                return new Vector3(turnedPosition.x, position.y, turnedPosition.z);
+            }
+
+            var unmatched = new List<CoverLocation>(turned);
+            foreach (var location in straight)
+            {
+                var expectedPosition = AboutCentre(location.Position);
+                var match = unmatched.OrderBy(t => Vector3.Distance(t.Position, expectedPosition)).First();
+                Assert.That(Vector3.Distance(match.Position, expectedPosition), Is.LessThan(1e-3f),
+                    $"{location.Name} should turn to {expectedPosition}, nearest was {match.Position}");
+                Assert.That(Vector3.Distance(match.Facing, rotation * location.Facing), Is.LessThan(1e-3f), location.Name + " facing");
+                Assert.That(match.Placement, Is.EqualTo(location.Placement), location.Name);
+                Assert.That(match.HasPeek, Is.EqualTo(location.HasPeek), location.Name);
+                if (location.HasPeek)
+                {
+                    Assert.That(Vector3.Distance(match.PeekDirection, rotation * location.PeekDirection), Is.LessThan(1e-3f), location.Name + " peek direction");
+                    Assert.That(Vector3.Distance(match.PeekPoint, AboutCentre(location.PeekPoint)), Is.LessThan(1e-3f), location.Name + " peek point");
+                }
+                unmatched.Remove(match);
+            }
+            Assert.That(unmatched, Is.Empty, "One-to-one: every turned location matches a rotated yaw-0 one");
+        }
+
+        [Test]
+        public void AWallTurnedNinetyDegrees_SwapsItsCompassLabels()
+        {
+            var straight = Generate(Box("Wall", P(0f, 1f, 0f), P(6f, 2f, 1f), 0f));
+            var turned = Generate(Box("Wall", P(0f, 1f, 0f), P(6f, 2f, 1f), 90f));
+            var longFaces = turned.Where(l => Mathf.Abs(l.Facing.x) > 0.5f).ToList();
+            Assert.That(longFaces, Is.Not.Empty);
+            Assert.That(longFaces.All(l => l.Name.StartsWith("Cover_Wall_E") || l.Name.StartsWith("Cover_Wall_W")), Is.True,
+                "The long faces of a wall turned 90 degrees look east and west");
+            Assert.That(longFaces.Any(l => l.Name.StartsWith("Cover_Wall_ECorner")), Is.True);
+            Assert.That(longFaces.Any(l => l.Name.StartsWith("Cover_Wall_WCorner")), Is.True);
+            Assert.That(turned.Where(l => l.Placement == CoverPlacement.Corner).All(l => Mathf.Abs(l.Facing.x) > 0.99f), Is.True);
+            Assert.That(straight.Where(l => l.Placement == CoverPlacement.Corner).All(l => l.Name.StartsWith("Cover_Wall_NCorner") || l.Name.StartsWith("Cover_Wall_SCorner")), Is.True);
         }
 
         [Test]
