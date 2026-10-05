@@ -78,6 +78,7 @@ namespace Blackglass
         /// <summary>The one "could I hit it from here" test: in range, and for a ranged unit in sight.</summary>
         public bool CanAttack(Health target) => CanAttackFrom(transform.position, target);
 
+        /// <summary>The CanAttack test from another pivot, for choosing a firing position.</summary>
         public bool CanAttackFrom(Vector3 pivot, Health target) =>
             IsInRangeFrom(pivot, target) && (!NeedsLineOfSight || HasLineOfSightFrom(pivot, target));
 

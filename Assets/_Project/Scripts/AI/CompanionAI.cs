@@ -55,8 +55,11 @@ namespace Blackglass
         // The method group converted once; passing IsEngaged directly would allocate a new delegate on every tick.
         static readonly Func<Health, bool> isEngaged = IsEngaged;
 
+        /// <summary>How far from the controlled character a follow move aims.</summary>
         public float FollowDistance => followDistance;
+        /// <summary>Beyond this distance an idle companion starts following.</summary>
         public float FollowStartDistance => followStartDistance;
+        /// <summary>Hostiles farther than this are never assisted against.</summary>
         public float AssistRange => assistRange;
 
         /// <summary>True when the scene wired both references this component needs.</summary>
@@ -180,12 +183,13 @@ namespace Blackglass
         static bool IsEngaged(Health hostile) =>
             hostile.TryGetComponent<CommandableUnit>(out var hostileUnit) && hostileUnit.CurrentCommand is AttackCommand;
 
-        // The raw follow point can sit inside a wall or past the ground edge, farther than MoveTo's 2 m snap; snap it
-        // first and otherwise aim at the leader itself, which is always on the mesh. A rejected order is forgotten.
+        // The raw follow point can sit inside a wall or past the ground edge. Snap it to the mesh (the snap radius is
+        // 2 m); a point farther than that from the mesh falls back to the leader's own position, which is always on
+        // the mesh. A rejected order is forgotten.
         void IssueFollow(Transform leader)
         {
             var point = FollowPoint(leader.position, transform.position, followDistance, leader.forward);
-            if (!Mover.TrySnap(point, out var onMesh) || FlatDistance(onMesh, point) > followDistance)
+            if (!Mover.TrySnap(point, out var onMesh))
                 onMesh = leader.position;
             if (IssueOwn(new MoveCommand(onMesh)))
                 leaderPositionAtIssue = leader.position;
@@ -237,7 +241,7 @@ namespace Blackglass
             if (canReach == null)
                 throw new ArgumentNullException(nameof(canReach));
 
-            if (IsValidTarget(from, range, leaderTarget, canReach) && Contains(hostiles, leaderTarget))
+            if (Contains(hostiles, leaderTarget) && IsValidTarget(from, range, leaderTarget, canReach))
                 return leaderTarget;
 
             Health best = null;
