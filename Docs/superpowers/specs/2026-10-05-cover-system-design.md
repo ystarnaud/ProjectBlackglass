@@ -1,5 +1,7 @@
 # Tactical Cover (Phase 6) — Design
 
+> Revised by 2026-10-05-procedural-cover-design.md (decision 023): hand-placed points, the cover point component and the arena's 20 points are replaced by discovered `CoverLocation`s. Read both.
+
 Date: 2026-10-05 · Branch: `prototype/cover-system` · Status: implemented 2026-10-05 (see Docs/superpowers/plans/2026-10-05-cover-system.md)
 
 Builds on Phases 1–5 (the five earlier specs in this folder and decisions 006–018 in `Docs/Decisions.md`). It adds one shared capability (cover evaluation and occupancy), one command (`MoveToCoverCommand`), the minimum hit-resolution rule cover needs, and basic cover use by ranged hostiles. The control architecture, the `Issue` path, line of sight, repositioning and companion autonomy are kept as they are.
