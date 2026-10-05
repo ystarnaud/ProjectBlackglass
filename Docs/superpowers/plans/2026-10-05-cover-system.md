@@ -49,17 +49,17 @@ The script prints `error CS` lines, a summary (`result= total= passed= failed=`)
 | After task | EditMode | PlayMode |
 |---|---|---|
 | 1 | 250 | 217 |
-| 2 | 262 | 223 |
-| 3 | 267 | 237 |
-| 4 | 270 | 242 |
-| 5 | 272 | 243 |
-| 6 | 273 | 248 |
-| 7 | 273 | 256 |
-| 8 | 281 | 260 |
-| 9 | 281 | 261 |
-| 10 | 281 | 261 |
+| 2 | 262 | 224 |
+| 3 | 267 | 238 |
+| 4 | 270 | 243 |
+| 5 | 272 | 244 |
+| 6 | 273 | 249 |
+| 7 | 273 | 257 |
+| 8 | 281 | 261 |
+| 9 | 281 | 262 |
+| 10 | 281 | 262 |
 
-These totals assume each task adds exactly the tests listed. If a task's count differs, correct this table in that task's commit; the sequence must stay green either way.
+These totals assume each task adds exactly the tests listed. (Corrected after Task 2's review: its fix round added `DyingUnit_ThatIsNotDeactivated_DoesNotReclaimCover`, so PlayMode totals from Task 2 on are one higher than first planned.) If a task's count differs, correct this table in that task's commit; the sequence must stay green either way.
 
 ## Review Focus
 
@@ -1225,10 +1225,10 @@ namespace Blackglass.Tests
 
 - [ ] **Step 6: Run the PlayMode tests**
 
-Run: `Tools/run-tests.sh PlayMode Blackglass.Tests.UnitCoverPlayModeTests` → expected `total="6" passed="6"`, `EXIT=0`. Troubleshooting: if `PlainMoveOntoAFreePoint...` times out on the occupancy wait, the unit stopped more than 0.6 m from the point (check `UnitMover.stoppingDistance` is 0.1 and the point is at (0, 0, −1), not inside the wall's erosion band at z ≥ −0.75).
+Run: `Tools/run-tests.sh PlayMode Blackglass.Tests.UnitCoverPlayModeTests` → expected `total="7" passed="7"`, `EXIT=0`. Troubleshooting: if `PlainMoveOntoAFreePoint...` times out on the occupancy wait, the unit stopped more than 0.6 m from the point (check `UnitMover.stoppingDistance` is 0.1 and the point is at (0, 0, −1), not inside the wall's erosion band at z ≥ −0.75).
 
 Run: `Tools/run-tests.sh EditMode` → expected `total="262" passed="262"`, `EXIT=0`.
-Run: `Tools/run-tests.sh PlayMode` → expected `total="223" passed="223"`, `EXIT=0`.
+Run: `Tools/run-tests.sh PlayMode` → expected `total="224" passed="224"`, `EXIT=0`.
 
 - [ ] **Step 7: Commit**
 
@@ -1884,7 +1884,7 @@ Troubleshooting:
 - `DestroyingThePointMidWalk_...` fails on `NoUnexpectedReceived`: `UpdateCover` logged the arrival warning, meaning it took the `HasArrived` branch; the vanished-point check must come first.
 - `CoverOrderWhilePaused_...` never damages the dummy: the dummy must be north of the wall at (0, 0, 5) so the eye line from the point (1.5 m) clears the 0.9 m wall; check the fighter is ranged with range 8.
 
-Run: `Tools/run-tests.sh PlayMode` → expected `total="237" passed="237"`, `EXIT=0` (the scene tests pass because Step 4b put `UnitCover` on the prefab instances).
+Run: `Tools/run-tests.sh PlayMode` → expected `total="238" passed="238"`, `EXIT=0` (the scene tests pass because Step 4b put `UnitCover` on the prefab instances).
 Run: `Tools/run-tests.sh EditMode` → expected `total="267" passed="267"`, `EXIT=0`.
 
 - [ ] **Step 7: Commit**
@@ -2241,7 +2241,7 @@ Troubleshooting:
 - `AlwaysMissRoll_...` precondition "the wall is between them" fails: `IsTargetInCover` needs the defender Occupied (check `PutInCover` waited) and the shooter ranged; the obstacle collider must be the environment's wall (index 0).
 - `ATallWall_...` fires a shot: the 20 m wall must span x −10..10 so neither 2 m nor 4 m ring candidate sees past it within 1.5 s.
 
-Run: `Tools/run-tests.sh PlayMode` → expected `total="242" passed="242"`, `EXIT=0` (`RangedCombatPlayModeTests` and `EnemyAIPlayModeTests` still pass: their targets are exposed, so every shot lands as before).
+Run: `Tools/run-tests.sh PlayMode` → expected `total="243" passed="243"`, `EXIT=0` (`RangedCombatPlayModeTests` and `EnemyAIPlayModeTests` still pass: their targets are exposed, so every shot lands as before).
 Run: `Tools/run-tests.sh EditMode` → expected `total="270" passed="270"`, `EXIT=0`.
 
 - [ ] **Step 7: Commit**
@@ -2392,7 +2392,7 @@ In `Assets/_Project/Tests/PlayMode/PlayerCommandInputTests.cs`:
 
 Run: `Tools/run-tests.sh PlayMode Blackglass.Tests.PlayerCommandInputTests` → expected `total="31" passed="31"`, `EXIT=0`. The existing click tests keep passing: every other click point in that fixture is at least 4 m from (−6, 0, 2).
 
-Run: `Tools/run-tests.sh PlayMode` → expected `total="243" passed="243"`, `EXIT=0`.
+Run: `Tools/run-tests.sh PlayMode` → expected `total="244" passed="244"`, `EXIT=0`.
 Run: `Tools/run-tests.sh EditMode` → expected `total="272" passed="272"`, `EXIT=0`.
 
 - [ ] **Step 7: Commit**
@@ -2768,7 +2768,7 @@ Troubleshooting:
 - `RangedHostile_TakesNearbyCover_...` never reaches `Cover`: check the point faces `Vector3.back` (the wall is south of it) and `IsUsefulCover`'s order (claim, `ProtectsFrom`, `CanAttackFrom`, `CanReach`); `ProtectsFrom` is called with the friendly's pivot as the attacker and the point's pivot (ground + 1 m) as the defender.
 - `RangedHostile_StandingOnAUsefulPoint_...` moved: the first think tick runs before the hostile's own auto-occupancy, which is expected: it then reserves its own spot and `MoveTo` targets its own position; a walk means the point was not accepted (re-check `IsClaimedBy(Unit.Cover)`).
 
-Run: `Tools/run-tests.sh PlayMode` → expected `total="248" passed="248"`, `EXIT=0`.
+Run: `Tools/run-tests.sh PlayMode` → expected `total="249" passed="249"`, `EXIT=0`.
 Run: `Tools/run-tests.sh EditMode` → expected `total="273" passed="273"`, `EXIT=0`.
 
 - [ ] **Step 7: Commit**
@@ -3160,7 +3160,7 @@ Troubleshooting:
 - `CompanionThatStopsOnAPointByChance_StillFollows` never occupies: the follow move must end within 0.6 m of (0, 0, −8.5); the companion starts straight north of the leader at (0, 0, 2), so `FollowPoint` is exactly (0, 0, −8.5). If the companion ended short, check `followDistance` is 3.5 and the leader did not move.
 - `MeleeCompanionHoldingCover_...` sees an assist: the hostile walked within 2 m of the companion. It must fight the leader at (6, 5.5) from (6, 4) and never leave; check both have 300 hit points and the leader is the active character (no autonomy).
 
-Run: `Tools/run-tests.sh PlayMode` → expected `total="256" passed="256"`, `EXIT=0`.
+Run: `Tools/run-tests.sh PlayMode` → expected `total="257" passed="257"`, `EXIT=0`.
 Run: `Tools/run-tests.sh EditMode` → expected `total="273" passed="273"`, `EXIT=0`.
 
 - [ ] **Step 5: Commit**
@@ -3580,7 +3580,7 @@ Run: `Tools/run-tests.sh PlayMode "Blackglass.Tests.CoverViewTests|Blackglass.Te
 
 Troubleshooting: `ColoursFollowTheState` reads white after the reservation: `LateUpdate` must paint on every shown frame (not only on visibility changes); `ShownColor` reads the first renderer's property block.
 
-Run: `Tools/run-tests.sh PlayMode` → expected `total="260" passed="260"`, `EXIT=0`.
+Run: `Tools/run-tests.sh PlayMode` → expected `total="261" passed="261"`, `EXIT=0`.
 Run: `Tools/run-tests.sh EditMode` → expected `total="281" passed="281"`, `EXIT=0`.
 
 - [ ] **Step 7: Commit**
@@ -3882,7 +3882,7 @@ rm -r Assets/_Project/Editor Assets/_Project/Editor.meta
 
 - [ ] **Step 5: Run all tests to verify they pass**
 
-Run: `Tools/run-tests.sh PlayMode` → expected `total="261" passed="261"`, `EXIT=0`. This run also recompiles without the deleted builder.
+Run: `Tools/run-tests.sh PlayMode` → expected `total="262" passed="262"`, `EXIT=0`. This run also recompiles without the deleted builder.
 Run: `Tools/run-tests.sh EditMode` → expected `total="281" passed="281"`, `EXIT=0`.
 
 Troubleshooting:
@@ -3958,7 +3958,7 @@ In `Docs/superpowers/specs/2026-10-05-cover-system-design.md`, change the `Statu
 ```bash
 git status --short                 # only the two docs modified
 Tools/run-tests.sh EditMode        # expected total="281" passed="281" EXIT=0
-Tools/run-tests.sh PlayMode        # expected total="261" passed="261" EXIT=0
+Tools/run-tests.sh PlayMode        # expected total="262" passed="262" EXIT=0
 grep -rn "Assets/_Project/Editor" .gitignore Assets/_Project 2>/dev/null; ls Assets/_Project/Editor 2>/dev/null   # expect nothing: the builder is gone
 git log --oneline main..HEAD       # nine task commits so far, plus the spec and plan commits (Task 10's own commit follows in Step 5)
 ```
