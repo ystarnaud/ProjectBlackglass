@@ -10,8 +10,11 @@ namespace Blackglass
     {
         /// <summary>Stand point distance from a face (agent radius 0.5 m plus margin).</summary>
         public float standOffset = 0.75f;
-        /// <summary>Target gap between face points along a face.</summary>
-        public float spacing = 2f;
+        /// <summary>
+        /// Minimum gap between neighbouring face points along a face. Points are spread evenly, so every gap is under
+        /// twice this: no gap can fit another unit one metre wide.
+        /// </summary>
+        public float spacing = 1f;
         /// <summary>Keep face points this far from a face's ends.</summary>
         public float endMargin = 0.5f;
         /// <summary>Faces shorter than this get no points (a wall's thin ends).</summary>
@@ -24,8 +27,11 @@ namespace Blackglass
         public float cornerInset = 0.35f;
         /// <summary>Stand point to peek point.</summary>
         public float peekDistance = 1.25f;
-        /// <summary>A location this close (flat) to an earlier accepted one is dropped.</summary>
-        public float mergeDistance = 1f;
+        /// <summary>
+        /// A location this close (flat) to an earlier accepted one of the same object is dropped. Within one object only,
+        /// and below the 1 m minimum gap so float noise cannot merge neighbours.
+        /// </summary>
+        public float mergeDistance = 0.9f;
         /// <summary>Copied to every generated location.</summary>
         public float hitChance = 0.5f;
         /// <summary>NavMesh.SamplePosition radius CoverDiscovery uses to decide a point is walkable.</summary>
@@ -59,7 +65,8 @@ namespace Blackglass
     /// <summary>
     /// Turns boxes into cover locations. Pure: no scene access, the NavMesh arrives as a predicate. Per box, corner
     /// candidates come first (so they win a merge), then face candidates; candidates that are not walkable or lie
-    /// within mergeDistance of an earlier accepted location are dropped; the survivors are named and returned.
+    /// within mergeDistance of an earlier accepted candidate of the same box are dropped; the survivors are named and
+    /// returned. Locations of different boxes never remove each other.
     /// </summary>
     public static class CoverGenerator
     {
@@ -110,7 +117,7 @@ namespace Blackglass
                 var accepted = new List<Candidate>();
                 foreach (var candidate in candidates)
                 {
-                    if (!isWalkable(candidate.Position) || IsNearAny(candidate.Position, result, accepted, settings.mergeDistance))
+                    if (!isWalkable(candidate.Position) || IsNearAny(candidate.Position, accepted, settings.mergeDistance))
                         continue;
                     accepted.Add(candidate);
                 }
@@ -194,13 +201,8 @@ namespace Blackglass
             }
         }
 
-        static bool IsNearAny(Vector3 position, List<CoverLocation> locations, List<Candidate> candidates, float distance)
+        static bool IsNearAny(Vector3 position, List<Candidate> candidates, float distance)
         {
-            foreach (var location in locations)
-            {
-                if (CoverRules.FlatDistance(position, location.Position) < distance)
-                    return true;
-            }
             foreach (var candidate in candidates)
             {
                 if (CoverRules.FlatDistance(position, candidate.Position) < distance)

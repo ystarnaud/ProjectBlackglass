@@ -36,7 +36,7 @@ namespace Blackglass
         [SerializeField] LayerMask clickableLayers = ~0;
         [SerializeField, Min(0.5f)] float groupSpacing = GroupOrders.DefaultSpacing;
         // A ground click this close to a cover point orders the unit into that point instead of onto the ground.
-        [SerializeField, Min(0f)] float coverClickRadius = 1f;
+        [SerializeField, Min(0f)] float coverClickRadius = 0.5f;
 
         readonly List<CommandableUnit> orderedUnits = new List<CommandableUnit>();
         readonly List<SelectableUnit> boxedUnits = new List<SelectableUnit>();
