@@ -7,6 +7,7 @@ namespace Blackglass
     {
         Idle,
         Chase,
+        Reposition,
         Attack,
         Dead,
     }
@@ -16,7 +17,8 @@ namespace Blackglass
     /// detection radius that it can see, and attacks it through the normal order path. CommandableUnit then chases,
     /// stops and hits; when the target dies or cannot be reached that order ends on its own and the brain looks
     /// again. Line of sight (UnitAttacker.HasLineOfSight) gates acquisition only: a target once taken is followed
-    /// around corners. Runs on simulation time, so it freezes while paused.
+    /// around corners. A ranged hostile stops at its range and repositions when blind, because CommandableUnit does
+    /// that for every attack order. Runs on simulation time, so it freezes while paused.
     /// </summary>
     [RequireComponent(typeof(CommandableUnit), typeof(Health), typeof(UnitAttacker))]
     public sealed class EnemyAI : MonoBehaviour
@@ -35,7 +37,7 @@ namespace Blackglass
         public Health Target => Unit.CurrentCommand is AttackCommand attack ? attack.Target : null;
 
         /// <summary>Derived each read; nothing is stored. Debug views show it.</summary>
-        public EnemyState State => DeriveState(Unit.IsAlive, Unit.CurrentCommand, Target != null && Attacker.IsInRange(Target));
+        public EnemyState State => DeriveState(Unit.IsAlive, Unit.CurrentCommand, Unit.AttackPhase);
 
         CommandableUnit Unit => unit != null ? unit : unit = GetComponent<CommandableUnit>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
@@ -47,14 +49,22 @@ namespace Blackglass
             thinkInterval = interval;
         }
 
-        /// <summary>Dead beats everything; an attack order is Chase out of range and Attack in range; otherwise Idle.</summary>
-        public static EnemyState DeriveState(bool alive, UnitCommand current, bool inRange)
+        /// <summary>Dead beats everything; an attack order maps its phase to Chase, Reposition or Attack; otherwise Idle.</summary>
+        public static EnemyState DeriveState(bool alive, UnitCommand current, AttackPhase phase)
         {
             if (!alive)
                 return EnemyState.Dead;
-            if (current is AttackCommand)
-                return inRange ? EnemyState.Attack : EnemyState.Chase;
-            return EnemyState.Idle;
+            if (!(current is AttackCommand))
+                return EnemyState.Idle;
+            switch (phase)
+            {
+                case AttackPhase.Reposition:
+                    return EnemyState.Reposition;
+                case AttackPhase.Attack:
+                    return EnemyState.Attack;
+                default:
+                    return EnemyState.Chase;
+            }
         }
 
         void OnEnable()

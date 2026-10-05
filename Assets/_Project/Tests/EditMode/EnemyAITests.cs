@@ -10,25 +10,35 @@ namespace Blackglass.Tests
         {
             var host = new GameObject("Target");
             var attack = new AttackCommand(host.AddComponent<Health>());
-            Assert.That(EnemyAI.DeriveState(false, null, false), Is.EqualTo(EnemyState.Dead));
-            Assert.That(EnemyAI.DeriveState(false, attack, true), Is.EqualTo(EnemyState.Dead));
+            Assert.That(EnemyAI.DeriveState(false, null, AttackPhase.None), Is.EqualTo(EnemyState.Dead));
+            Assert.That(EnemyAI.DeriveState(false, attack, AttackPhase.Attack), Is.EqualTo(EnemyState.Dead));
             Object.DestroyImmediate(host);
         }
 
         [Test]
         public void DeriveState_Idle_WithoutAnAttackOrder()
         {
-            Assert.That(EnemyAI.DeriveState(true, null, false), Is.EqualTo(EnemyState.Idle));
-            Assert.That(EnemyAI.DeriveState(true, new MoveCommand(Vector3.zero), false), Is.EqualTo(EnemyState.Idle));
+            Assert.That(EnemyAI.DeriveState(true, null, AttackPhase.None), Is.EqualTo(EnemyState.Idle));
+            Assert.That(EnemyAI.DeriveState(true, new MoveCommand(Vector3.zero), AttackPhase.None), Is.EqualTo(EnemyState.Idle));
         }
 
         [Test]
-        public void DeriveState_ChaseOutOfRange_AttackInRange()
+        public void DeriveState_FollowsTheAttackPhase()
         {
             var host = new GameObject("Target");
             var attack = new AttackCommand(host.AddComponent<Health>());
-            Assert.That(EnemyAI.DeriveState(true, attack, false), Is.EqualTo(EnemyState.Chase));
-            Assert.That(EnemyAI.DeriveState(true, attack, true), Is.EqualTo(EnemyState.Attack));
+            Assert.That(EnemyAI.DeriveState(true, attack, AttackPhase.Approach), Is.EqualTo(EnemyState.Chase));
+            Assert.That(EnemyAI.DeriveState(true, attack, AttackPhase.Reposition), Is.EqualTo(EnemyState.Reposition));
+            Assert.That(EnemyAI.DeriveState(true, attack, AttackPhase.Attack), Is.EqualTo(EnemyState.Attack));
+            Object.DestroyImmediate(host);
+        }
+
+        [Test]
+        public void DeriveState_AnAttackOrderThatHasNotTickedYet_IsChase()
+        {
+            var host = new GameObject("Target");
+            var attack = new AttackCommand(host.AddComponent<Health>());
+            Assert.That(EnemyAI.DeriveState(true, attack, AttackPhase.None), Is.EqualTo(EnemyState.Chase));
             Object.DestroyImmediate(host);
         }
 

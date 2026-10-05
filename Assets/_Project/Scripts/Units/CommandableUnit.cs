@@ -4,22 +4,49 @@ using UnityEngine;
 
 namespace Blackglass
 {
+    /// <summary>Where an attack order is in its life. Derived by CommandableUnit; debug views and AI state read it.</summary>
+    public enum AttackPhase
+    {
+        /// <summary>No attack order.</summary>
+        None,
+        /// <summary>Out of range: walking toward the target.</summary>
+        Approach,
+        /// <summary>In range but no line of sight (ranged only): walking to a firing position, or at the target.</summary>
+        Reposition,
+        /// <summary>In range (and in sight): standing, facing and hitting on cooldown.</summary>
+        Attack,
+    }
+
     /// <summary>
     /// The single entry point for gameplay orders and direct control. Keeps the unit's orders in a CommandQueue (the
     /// current order plus pending ones) and carries out the current order each simulation frame using UnitMover and
     /// UnitAttacker. A held move intent (direct control) takes precedence: while it is non-zero the unit drops its
-    /// orders and steers instead.
+    /// orders and steers instead. An attack order runs in phases: approach until in range, reposition while a ranged
+    /// unit has no line of sight, attack otherwise.
     /// </summary>
     [RequireComponent(typeof(UnitMover), typeof(UnitAttacker))]
     public sealed class CommandableUnit : MonoBehaviour
     {
         const float ChaseRepathDistance = 0.5f;
+        // Firing-position searches cost 16 snaps, sight rays and paths, so they are rate limited.
+        const float RepositionInterval = 0.5f;
+        // A reposition walk that has not arrived after this long (a spot taken by another unit) is searched again.
+        const float RepositionWalkTimeout = 3f;
+        // After this many repositions without landing a hit the unit walks at the target instead.
+        const int MaxRepositionsWithoutShot = 3;
 
         readonly CommandQueue queue = new CommandQueue();
+        readonly Vector3[] firingCandidates = new Vector3[FiringPositionFinder.CandidateCount];
         UnitMover mover;
         UnitAttacker attacker;
-        bool chasing;
-        Vector3 lastChaseTarget;
+        AttackPhase attackPhase;
+        // Where the target stood when the current approach or reposition path was requested.
+        Vector3 lastTargetPosition;
+        float nextRepositionTime;
+        float searchTime;
+        int repositionsWithoutShot;
+        // True while the reposition fallback is walking at the target itself rather than to a firing position.
+        bool walkingAtTarget;
         Vector3 moveIntent;
         Health ownHealth;
 
@@ -34,6 +61,20 @@ namespace Blackglass
 
         /// <summary>False once this unit's Health (if it has one) has died. A dead unit takes and runs no orders.</summary>
         public bool IsAlive => OwnHealth == null || OwnHealth.IsAlive;
+
+        /// <summary>
+        /// The phase of the current attack order; None without one. An attack order that has not ticked yet reads as
+        /// Approach, so the HUD never shows an attacking unit as doing nothing.
+        /// </summary>
+        public AttackPhase AttackPhase
+        {
+            get
+            {
+                if (!(queue.Current is AttackCommand))
+                    return AttackPhase.None;
+                return attackPhase == AttackPhase.None ? AttackPhase.Approach : attackPhase;
+            }
+        }
 
         UnitMover Mover => mover != null ? mover : mover = GetComponent<UnitMover>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
@@ -168,13 +209,13 @@ namespace Blackglass
                 case MoveCommand move:
                     if (!Mover.MoveTo(move.Destination))
                         return false;
-                    chasing = false;
+                    ResetAttack();
                     return true;
                 case AttackCommand attack:
                     if (!IsAttackable(attack.Target))
                         return false;
                     Mover.Stop();
-                    chasing = false;
+                    ResetAttack();
                     return true;
                 default:
                     return false;
@@ -194,8 +235,17 @@ namespace Blackglass
         void StopAll()
         {
             Mover.Stop();
-            chasing = false;
+            ResetAttack();
             queue.Clear();
+        }
+
+        void ResetAttack()
+        {
+            attackPhase = AttackPhase.None;
+            repositionsWithoutShot = 0;
+            walkingAtTarget = false;
+            nextRepositionTime = 0f;
+            searchTime = 0f;
         }
 
         void UpdateAttack(Health target)
@@ -208,36 +258,116 @@ namespace Blackglass
 
             if (!Attacker.IsInRange(target))
             {
-                var targetPosition = target.transform.position;
-                if (!chasing || (targetPosition - lastChaseTarget).sqrMagnitude > ChaseRepathDistance * ChaseRepathDistance)
-                {
-                    if (!Mover.MoveTo(targetPosition))
-                    {
-                        FinishAttack();
-                        return;
-                    }
-                    chasing = true;
-                    lastChaseTarget = targetPosition;
-                }
-                else if (Mover.HasArrived)
-                {
-                    // A complete path ends at the target, inside attack range, so arriving out of range means the
-                    // path was partial: the target cannot be reached.
-                    FinishAttack();
-                }
+                Approach(target);
                 return;
             }
 
-            if (chasing)
+            // Committed to a validated firing position: finish the walk even if the line clears early, so the unit
+            // ends clear of the corner rather than on its edge (where a small target move would blind it again).
+            if (attackPhase == AttackPhase.Reposition && !walkingAtTarget && !Mover.HasArrived
+                && !TargetMoved(target.transform.position) && Time.time < searchTime + RepositionWalkTimeout)
+                return;
+
+            if (Attacker.NeedsLineOfSight && !Attacker.HasLineOfSight(target))
+            {
+                Reposition(target);
+                return;
+            }
+
+            if (attackPhase != AttackPhase.Attack)
             {
                 Mover.Stop();
-                chasing = false;
+                attackPhase = AttackPhase.Attack;
             }
             FaceTowards(target.transform.position);
-            Attacker.TryAttack(target);
+            if (Attacker.TryAttack(target))
+                repositionsWithoutShot = 0;
             if (!target.IsAlive)
                 FinishAttack();
         }
+
+        // Out of range: walk toward the target, re-pathing when it has moved. Arriving while still out of range
+        // means the path was partial (a complete path ends at the target, inside range): the target cannot be reached.
+        void Approach(Health target)
+        {
+            var targetPosition = target.transform.position;
+            if (attackPhase != AttackPhase.Approach || TargetMoved(targetPosition))
+            {
+                if (!Mover.MoveTo(targetPosition))
+                {
+                    FinishAttack();
+                    return;
+                }
+                attackPhase = AttackPhase.Approach;
+                lastTargetPosition = targetPosition;
+            }
+            else if (Mover.HasArrived)
+            {
+                FinishAttack();
+            }
+        }
+
+        // In range but blind (ranged only): stand, then at most twice a second look for a nearby firing position
+        // and walk there. UpdateAttack keeps the unit on a walk to a validated spot until it arrives; only the
+        // fallback walk at the target ends the moment the line clears, since it has no validated endpoint.
+        // Arriving at the end of a fallback walk still blind means the path was partial: the target cannot be
+        // reached from anywhere in sight, so the order ends as Approach's does for an unreachable target.
+        void Reposition(Health target)
+        {
+            if (attackPhase != AttackPhase.Reposition)
+            {
+                Mover.Stop();
+                attackPhase = AttackPhase.Reposition;
+                lastTargetPosition = target.transform.position;
+            }
+            else if (walkingAtTarget && Mover.HasArrived)
+            {
+                FinishAttack();
+                return;
+            }
+            else if (!Mover.HasArrived && !TargetMoved(target.transform.position) && Time.time < searchTime + RepositionWalkTimeout)
+            {
+                return;   // still walking to the chosen spot
+            }
+            if (Time.time >= nextRepositionTime)
+                SearchFiringPosition(target);
+        }
+
+        void SearchFiringPosition(Health target)
+        {
+            searchTime = Time.time;
+            nextRepositionTime = Time.time + RepositionInterval;
+            lastTargetPosition = target.transform.position;
+            if (repositionsWithoutShot < MaxRepositionsWithoutShot)
+            {
+                // Candidates start on the ground, so the 2 m snap only has to absorb the erosion band beside walls.
+                var count = FiringPositionFinder.Candidates(transform.position - Vector3.up * Mover.PivotHeight, firingCandidates);
+                // The closure allocates once per search (at most twice a second per blind unit); acceptable.
+                if (FiringPositionFinder.TryChoose(firingCandidates, count,
+                        (Vector3 candidate, out Vector3 accepted) => IsFiringPosition(candidate, target, out accepted), out var spot)
+                    && Mover.MoveTo(spot))
+                {
+                    repositionsWithoutShot++;
+                    walkingAtTarget = false;
+                    return;
+                }
+            }
+            // Fallback: walk at the target until the line clears. No walkable point near it means it is unreachable.
+            if (Mover.MoveTo(lastTargetPosition))
+                walkingAtTarget = true;
+            else
+                FinishAttack();
+        }
+
+        // On the NavMesh, in range and in sight from the eye a unit would have there (snapped point + pivot height,
+        // then LineOfSight adds the eye height), and reachable. Returns the snapped point as the place to walk to.
+        bool IsFiringPosition(Vector3 candidate, Health target, out Vector3 point) =>
+            Mover.TrySnap(candidate, out point)
+            && Attacker.CanAttackFrom(point + Vector3.up * Mover.PivotHeight, target)
+            && Mover.CanReach(point);
+
+        bool TargetMoved(Vector3 targetPosition) =>
+            (targetPosition - lastTargetPosition).sqrMagnitude > ChaseRepathDistance * ChaseRepathDistance;
 
         // A target that is missing, dead, or deactivated while still alive can no longer be attacked.
         static bool IsAttackable(Health target) => target != null && target.IsAlive && target.gameObject.activeInHierarchy;
@@ -245,7 +375,7 @@ namespace Blackglass
         void FinishAttack()
         {
             Mover.Stop();
-            chasing = false;
+            ResetAttack();
             StartNext();
         }
 
