@@ -204,9 +204,32 @@ namespace Blackglass.Tests
             Assert.That(UnitOf(companion).Issue(order), Is.True);
 
             active.SetUnit(UnitOf(companion));
-            yield return new WaitForSeconds(0.6f);
+            yield return null;   // one simulation frame: the per-frame controlled check must not stop an explicit order
+            Assert.That(UnitOf(companion).CurrentCommand, Is.SameAs(order), "An explicit order is never stopped by the hand-over");
 
-            Assert.That(UnitOf(companion).CurrentCommand, Is.SameAs(order).Or.Null, "An explicit order is never stopped by the hand-over");
+            yield return TestWorld.WaitUntil(() => UnitOf(companion).CurrentCommand == null, 10f);
+            Assert.That(TestWorld.HorizontalDistance(companion.transform.position, order.Destination), Is.LessThan(0.5f),
+                "The order ran to completion");
+        }
+
+        [UnityTest]
+        public IEnumerator ControlledCompanionWithQueuedOrders_KeepsItsQueue()
+        {
+            world.CreateEnvironment();
+            var (_, active, companion) = Squad(new Vector3(0f, 0f, -12f));
+            yield return TestWorld.WaitUntil(() => companion.IsFollowing, 1f);
+            Assert.That(companion.IsFollowing, Is.True, "Precondition: a follow move is running");
+            var queued = new Vector3(6f, 0f, -12f);
+            Assert.That(UnitOf(companion).Issue(new MoveCommand(queued), IssueMode.Append), Is.True);
+
+            active.SetUnit(UnitOf(companion));
+            yield return null;   // one simulation frame: the per-frame controlled check
+
+            Assert.That(UnitOf(companion).CurrentCommand, Is.TypeOf<MoveCommand>(), "The hand-over must not stop while orders are pending");
+            Assert.That(UnitOf(companion).PendingCommands.Count, Is.EqualTo(1), "The player's queued order is kept");
+
+            yield return TestWorld.WaitUntil(() => TestWorld.HorizontalDistance(companion.transform.position, queued) < 0.5f, 15f);
+            Assert.That(TestWorld.HorizontalDistance(companion.transform.position, queued), Is.LessThan(0.5f), "The queued order ran");
         }
 
         [UnityTest]

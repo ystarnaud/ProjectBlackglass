@@ -52,6 +52,8 @@ namespace Blackglass
         UnitCommand ownCommand;
         Vector3 leaderPositionAtIssue;
         Func<Vector3, bool> canReach;
+        // The method group converted once; passing IsEngaged directly would allocate a new delegate on every tick.
+        static readonly Func<Health, bool> isEngaged = IsEngaged;
 
         public float FollowDistance => followDistance;
         public float FollowStartDistance => followStartDistance;
@@ -170,8 +172,8 @@ namespace Blackglass
             Health leaderTarget = null;
             if (activeCharacter != null && activeCharacter.HasUnit && activeCharacter.Unit.CurrentCommand is AttackCommand leaderAttack)
                 leaderTarget = leaderAttack.Target;
-            canReach ??= Mover.CanReach;   // a plain delegate, cached so ticks allocate nothing
-            return ChooseAssistTarget(transform.position, assistRange, leaderTarget, encounter.Hostiles, IsEngaged, canReach);
+            canReach ??= Mover.CanReach;   // plain delegates (this one and isEngaged), cached so ticks allocate nothing
+            return ChooseAssistTarget(transform.position, assistRange, leaderTarget, encounter.Hostiles, isEngaged, canReach);
         }
 
         // A hostile that is attacking anyone is engaged; its order is read from the shared unit, not from EnemyAI.
