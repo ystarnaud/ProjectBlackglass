@@ -150,5 +150,27 @@ namespace Blackglass.Tests
             yield return TestWorld.WaitUntil(() => dummy.Current < health, 8f);
             Assert.That(dummy.Current, Is.LessThan(health), "After resume the unit finishes repositioning and fires");
         }
+
+        [UnityTest]
+        public IEnumerator Paused_ReservationIsUnchanged_AndTheWalkResumesAfterwards()
+        {
+            yield return StartTheFight();
+            var box = world.CreateObstacle(new Vector3(-6f, 0.45f, -5f), new Vector3(2f, 0.9f, 0.5f));
+            var point = world.CreateCoverPoint(new Vector3(-6f, 0f, -6f), Vector3.forward, box.GetComponent<Collider>());
+            Assert.That(friendly.Issue(new MoveToCoverCommand(point)), Is.True);
+            Assert.That(friendly.Cover.Status, Is.EqualTo(CoverStatus.Reserved));
+
+            pause.Pause();
+            var at = friendly.transform.position;
+            yield return new WaitForSecondsRealtime(1f);
+
+            Assert.That(friendly.Cover.Status, Is.EqualTo(CoverStatus.Reserved), "Pause neither releases nor completes a reservation");
+            Assert.That(point.Claimant, Is.SameAs(friendly.Cover));
+            Assert.That(Vector3.Distance(friendly.transform.position, at), Is.LessThan(0.01f));
+
+            pause.Resume();
+            yield return TestWorld.WaitUntil(() => friendly.Cover.Status == CoverStatus.Occupied, 6f);
+            Assert.That(friendly.Cover.Status, Is.EqualTo(CoverStatus.Occupied), "The walk resumed and arrived");
+        }
     }
 }

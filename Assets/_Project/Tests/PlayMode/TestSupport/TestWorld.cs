@@ -158,10 +158,11 @@ namespace Blackglass.Tests
             return active;
         }
 
-        /// <summary>A friendly fighter with CompanionAI wired to the active character and the encounter.</summary>
-        public CompanionAI CreateCompanion(Vector3 groundPosition, ActiveCharacter active, Encounter encounter, int maxHealth = 100)
+        /// <summary>A friendly fighter with CompanionAI wired to the active character and the encounter (and a cover registry, when given).</summary>
+        public CompanionAI CreateCompanion(Vector3 groundPosition, ActiveCharacter active, Encounter encounter, int maxHealth = 100,
+            CoverRegistry registry = null)
         {
-            var unit = CreateFighter(groundPosition, maxHealth);
+            var unit = CreateFighter(groundPosition, maxHealth, registry: registry);
             unit.name = "TestCompanion";
             unit.gameObject.SetActive(false);
             var ai = unit.gameObject.AddComponent<CompanionAI>();

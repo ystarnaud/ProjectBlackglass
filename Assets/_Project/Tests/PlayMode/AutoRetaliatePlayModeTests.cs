@@ -164,5 +164,85 @@ namespace Blackglass.Tests
             Assert.That(TestWorld.HorizontalDistance(victim.transform.position, aggressor.transform.position), Is.LessThan(3f),
                 "The retaliating unit did not chase");
         }
+
+        // Cover away from the fixture's duel. The loose box is only there so the point has an obstacle; the hold rule
+        // is about the order, not the geometry, and the shooter's roll always hits.
+        (CoverPoint point, CoverRegistry registry) LooseCover(Vector3 standAt)
+        {
+            var box = world.CreateObstacle(standAt + new Vector3(0f, 0.45f, 1f), new Vector3(2f, 0.9f, 0.5f));
+            var point = world.CreateCoverPoint(standAt, Vector3.forward, box.GetComponent<Collider>());
+            return (point, world.CreateRegistry(point));
+        }
+
+        [UnityTest]
+        public IEnumerator UnitHoldingOrderedCover_HitByADistantShooter_StaysPut()
+        {
+            yield return null;
+            var (point, registry) = LooseCover(new Vector3(6f, 0f, 0f));
+            var covered = world.CreateFighter(new Vector3(6f, 0f, -3f), registry: registry);
+            var coveredHealth = covered.GetComponent<Health>();
+            Assert.That(covered.Issue(new MoveToCoverCommand(point)), Is.True);
+            yield return TestWorld.WaitUntil(() => covered.Cover.Status == CoverStatus.Occupied, 5f);
+            Assert.That(covered.Cover.OccupiedByOrder, Is.True, "Precondition: ordered cover");
+            var shooter = world.CreateFighter(new Vector3(6f, 0f, 6f), cooldown: 0.2f, role: CombatRole.Ranged, range: 8f, registry: registry);
+            shooter.GetComponent<UnitAttacker>().HitRoll = () => 0f;
+            yield return new WaitForFixedUpdate();
+
+            shooter.Issue(new AttackCommand(coveredHealth));
+            yield return TestWorld.WaitUntil(() => coveredHealth.Current < coveredHealth.Max, 2f);
+            yield return null;
+
+            Assert.That(coveredHealth.Current, Is.LessThan(coveredHealth.Max), "Precondition: it was hit");
+            Assert.That(covered.CurrentCommand, Is.Null, "A melee unit holding ordered cover does not charge a shooter it cannot reach");
+            Assert.That(covered.Cover.Status, Is.EqualTo(CoverStatus.Occupied));
+        }
+
+        [UnityTest]
+        public IEnumerator UnitHoldingOrderedCover_HitByAnAdjacentMeleeAttacker_FightsBackInPlace()
+        {
+            yield return null;
+            var (point, registry) = LooseCover(new Vector3(6f, 0f, 0f));
+            var covered = world.CreateFighter(new Vector3(6f, 0f, -3f), registry: registry);
+            var coveredHealth = covered.GetComponent<Health>();
+            Assert.That(covered.Issue(new MoveToCoverCommand(point)), Is.True);
+            yield return TestWorld.WaitUntil(() => covered.Cover.Status == CoverStatus.Occupied, 5f);
+            Assert.That(covered.Cover.OccupiedByOrder, Is.True, "Precondition: ordered cover");
+            var brawler = world.CreateFighter(new Vector3(6f, 0f, -1.5f), cooldown: 0.2f, registry: registry);   // 1.5 m away
+            var brawlerHealth = brawler.GetComponent<Health>();
+            yield return null;
+
+            brawler.Issue(new AttackCommand(coveredHealth));
+            yield return TestWorld.WaitUntil(() => coveredHealth.Current < coveredHealth.Max, 2f);
+            yield return null;
+
+            Assert.That(IsAttacking(covered, brawlerHealth), Is.True, "An attacker it can hit from cover is fought back");
+            yield return TestWorld.WaitUntil(() => brawlerHealth.Current < brawlerHealth.Max, 2f);
+            Assert.That(brawlerHealth.Current, Is.LessThan(brawlerHealth.Max));
+            Assert.That(covered.Cover.Status, Is.EqualTo(CoverStatus.Occupied), "...without leaving the point");
+        }
+
+        [UnityTest]
+        public IEnumerator UnitStandingOnAPointByChance_ChargesTheShooterAsBefore()
+        {
+            yield return null;
+            var (point, registry) = LooseCover(new Vector3(6f, 0f, 0f));
+            var standing = world.CreateFighter(new Vector3(6f, 0f, -3f), registry: registry);
+            var standingHealth = standing.GetComponent<Health>();
+            Assert.That(standing.Issue(new MoveCommand(point.Position)), Is.True);
+            yield return TestWorld.WaitUntil(() => standing.Cover.Status == CoverStatus.Occupied, 6f);
+            Assert.That(standing.Cover.OccupiedByOrder, Is.False, "Precondition: incidental cover");
+            var shooter = world.CreateFighter(new Vector3(6f, 0f, 6f), cooldown: 0.2f, role: CombatRole.Ranged, range: 8f, registry: registry);
+            var shooterHealth = shooter.GetComponent<Health>();
+            shooter.GetComponent<UnitAttacker>().HitRoll = () => 0f;
+            yield return new WaitForFixedUpdate();
+
+            shooter.Issue(new AttackCommand(standingHealth));
+            yield return TestWorld.WaitUntil(() => standingHealth.Current < standingHealth.Max, 2f);
+            yield return null;
+
+            Assert.That(IsAttacking(standing, shooterHealth), Is.True, "Cover a unit merely stands on does not change retaliation");
+            yield return TestWorld.WaitUntil(() => standing.Cover.Status == CoverStatus.None, 3f);
+            Assert.That(standing.Cover.Status, Is.EqualTo(CoverStatus.None), "It charged out of the point");
+        }
     }
 }

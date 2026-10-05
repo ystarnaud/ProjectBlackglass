@@ -346,5 +346,101 @@ namespace Blackglass.Tests
             yield return TestWorld.WaitUntil(() => Gap(companion, leader) < 6f, 12f);
             Assert.That(Gap(companion, leader), Is.LessThan(6f), "Then follow resumes");
         }
+
+        static UnitCover CoverOf(Component unit) => unit.GetComponent<UnitCover>();
+
+        // A 0.9 m wall from z -0.25 to 0.25 (x -2..2) with one point 0.75 m south of it, a sturdy leader and a
+        // companion whose UnitCover is wired to the registry.
+        (CommandableUnit leader, ActiveCharacter active, CompanionAI companion, CoverPoint point, CoverRegistry registry) CoverSquad(Vector3 leaderAt, Vector3 companionAt)
+        {
+            var environment = world.CreateEnvironment((new Vector3(0f, 0.45f, 0f), new Vector3(4f, 0.9f, 0.5f)));
+            var point = world.CreateCoverPoint(new Vector3(0f, 0f, -1f), Vector3.forward, TestWorld.ObstacleCollider(environment));
+            var registry = world.CreateRegistry(point);
+            var leader = world.CreateFighter(leaderAt, maxHealth: 300);
+            leader.name = "Leader";
+            var active = world.CreateActiveCharacter(leader);
+            var companion = world.CreateCompanion(companionAt, active, encounter, registry: registry);
+            return (leader, active, companion, point, registry);
+        }
+
+        [UnityTest]
+        public IEnumerator CompanionOrderedIntoCover_HoldsIt_InsteadOfFollowing()
+        {
+            var (leader, _, companion, point, _) = CoverSquad(new Vector3(0f, 0f, -12f), new Vector3(0f, 0f, -4f));
+            Arm(new Health[0], leader, companion);
+            Assert.That(UnitOf(companion).Issue(new MoveToCoverCommand(point)), Is.True);   // same frame as creation: before the first think
+            yield return TestWorld.WaitUntil(() => CoverOf(companion).Status == CoverStatus.Occupied, 5f);
+            Assert.That(CoverOf(companion).OccupiedByOrder, Is.True, "Precondition: ordered cover");
+            yield return new WaitForSeconds(2f);
+
+            Assert.That(UnitOf(companion).CurrentCommand, Is.Null, "No follow move was issued");
+            Assert.That(companion.State, Is.EqualTo(CompanionState.Idle));
+            Assert.That(CoverOf(companion).Status, Is.EqualTo(CoverStatus.Occupied));
+            Assert.That(Gap(companion, leader), Is.GreaterThan(6f), "It stayed 11 m from the leader, well beyond the follow start distance");
+        }
+
+        [UnityTest]
+        public IEnumerator MeleeCompanionHoldingCover_DoesNotAssist_AgainstAHostileItCannotHitFromThere()
+        {
+            // The leader and a hostile fight in melee 7.8 m from the companion's point: engaged and inside assist range.
+            var (leader, _, companion, point, registry) = CoverSquad(new Vector3(6f, 0f, 5.5f), new Vector3(0f, 0f, -4f));
+            var hostile = world.CreateHostile(new Vector3(6f, 0f, 4f), encounter, maxHealth: 300, registry: registry);
+            Arm(new[] { HealthOf(hostile) }, leader, companion);
+            Assert.That(UnitOf(companion).Issue(new MoveToCoverCommand(point)), Is.True);
+            yield return TestWorld.WaitUntil(() => CoverOf(companion).Status == CoverStatus.Occupied, 5f);
+            Assert.That(CoverOf(companion).OccupiedByOrder, Is.True, "Precondition: ordered cover");
+            yield return TestWorld.WaitUntil(() => hostile.Target == HealthOf(leader), 2f);
+            Assert.That(hostile.Target, Is.SameAs(HealthOf(leader)), "Precondition: the hostile is engaged with the leader");
+
+            var everLeft = false;
+            var deadline = Time.realtimeSinceStartup + 2f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                everLeft |= companion.State == CompanionState.Assist || UnitOf(companion).CurrentCommand != null;
+                yield return null;
+            }
+
+            Assert.That(everLeft, Is.False, "A melee companion cannot hit the hostile from its cover, so it holds instead of charging");
+            Assert.That(CoverOf(companion).Status, Is.EqualTo(CoverStatus.Occupied));
+        }
+
+        [UnityTest]
+        public IEnumerator CompanionOrderedAwayFromCover_FollowsAgain()
+        {
+            var (leader, _, companion, point, _) = CoverSquad(new Vector3(0f, 0f, -12f), new Vector3(0f, 0f, -4f));
+            Arm(new Health[0], leader, companion);
+            Assert.That(UnitOf(companion).Issue(new MoveToCoverCommand(point)), Is.True);
+            yield return TestWorld.WaitUntil(() => CoverOf(companion).Status == CoverStatus.Occupied, 5f);
+            yield return new WaitForSeconds(1f);
+            Assert.That(UnitOf(companion).CurrentCommand, Is.Null, "Precondition: holding cover");
+
+            Assert.That(UnitOf(companion).Issue(new MoveCommand(new Vector3(0f, 0f, -3f))), Is.True);   // 2 m off the point
+            yield return TestWorld.WaitUntil(() => Gap(companion, leader) < 6f, 12f);
+
+            Assert.That(Gap(companion, leader), Is.LessThan(6f), "Once it has left its cover, following resumes");
+            Assert.That(CoverOf(companion).Status, Is.EqualTo(CoverStatus.None));
+            Assert.That(point.IsClaimed, Is.False);
+        }
+
+        [UnityTest]
+        public IEnumerator CompanionThatStopsOnAPointByChance_StillFollows()
+        {
+            // A second point exactly where the follow move ends: 3.5 m from the leader on the companion's side.
+            var (leader, _, companion, point, registry) = CoverSquad(new Vector3(0f, 0f, -12f), new Vector3(0f, 0f, 2f));
+            var byChance = world.CreateCoverPoint(new Vector3(0f, 0f, -8.5f), Vector3.forward, point.Obstacle);
+            registry.Initialize(point, byChance);
+            Arm(new Health[0], leader, companion);
+
+            yield return TestWorld.WaitUntil(() => CoverOf(companion).Status == CoverStatus.Occupied, 12f);
+            Assert.That(CoverOf(companion).Point, Is.SameAs(byChance), "The follow move ended on the point and the companion stood still");
+            Assert.That(CoverOf(companion).OccupiedByOrder, Is.False);
+
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, -18f))), Is.True);
+            yield return TestWorld.WaitUntil(() => leader.CurrentCommand == null, 10f);
+            yield return TestWorld.WaitUntil(() => Gap(companion, leader) < 6f && CoverOf(companion).Status == CoverStatus.None, 12f);
+
+            Assert.That(Gap(companion, leader), Is.LessThan(6f), "An incidental occupancy never holds a companion");
+            Assert.That(byChance.IsClaimed, Is.False);
+        }
     }
 }
