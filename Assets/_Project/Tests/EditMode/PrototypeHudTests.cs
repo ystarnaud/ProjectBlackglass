@@ -52,18 +52,39 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void DescribeUnit_NameAndHealth()
+        public void DescribeUnit_NameHealthAndRole()
         {
-            Assert.That(PrototypeHud.DescribeUnit("FriendlyUnit_2", 75, 100), Is.EqualTo("FriendlyUnit_2 75/100"));
+            Assert.That(PrototypeHud.DescribeUnit("FriendlyUnit_2", 75, 100, CombatRole.Melee), Is.EqualTo("FriendlyUnit_2 75/100 [Melee]"));
+            Assert.That(PrototypeHud.DescribeUnit("FriendlyUnit_3", 100, 100, CombatRole.Ranged), Is.EqualTo("FriendlyUnit_3 100/100 [Ranged]"));
         }
 
         [TestCase(EnemyState.Idle, null, 0f, "Idle")]
         [TestCase(EnemyState.Chase, "FriendlyUnit_1", 0f, "Chase -> FriendlyUnit_1")]
         [TestCase(EnemyState.Attack, "FriendlyUnit_1", 0.44f, "Attack -> FriendlyUnit_1 CD 0.4")]
+        [TestCase(EnemyState.Reposition, "FriendlyUnit_3", 0f, "Reposition -> FriendlyUnit_3")]
         [TestCase(EnemyState.Dead, null, 0f, "Dead")]
         public void DescribeEnemy_StateTargetAndCooldown(EnemyState state, string target, float cooldown, string expected)
         {
             Assert.That(PrototypeHud.DescribeEnemy(state, target, cooldown), Is.EqualTo(expected));
+        }
+
+        [TestCase("", CompanionState.Idle, null, "Idle")]
+        [TestCase("", CompanionState.Controlled, null, "Controlled")]
+        [TestCase("Move", CompanionState.Follow, null, "Move | Follow")]
+        [TestCase("Attack", CompanionState.Assist, "HostileUnit_1", "Attack | Assist -> HostileUnit_1")]
+        [TestCase("Attack +1", CompanionState.Orders, null, "Attack +1 | Orders")]
+        [TestCase("", CompanionState.Dead, null, "Dead")]
+        public void DescribeCompanion_OrdersAndState(string orders, CompanionState state, string assistTarget, string expected)
+        {
+            Assert.That(PrototypeHud.DescribeCompanion(orders, state, assistTarget), Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void AppendSight_SaysClearOrBlocked()
+        {
+            Assert.That(PrototypeHud.AppendSight("Attack", true), Is.EqualTo("Attack LOS clear"));
+            Assert.That(PrototypeHud.AppendSight("Reposition -> FriendlyUnit_1", false), Is.EqualTo("Reposition -> FriendlyUnit_1 LOS blocked"));
+            Assert.That(PrototypeHud.AppendSight("", false), Is.EqualTo("LOS blocked"));
         }
 
         [Test]
