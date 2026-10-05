@@ -264,8 +264,7 @@ namespace Blackglass
 
             // Committed to a validated firing position: finish the walk even if the line clears early, so the unit
             // ends clear of the corner rather than on its edge (where a small target move would blind it again).
-            if (attackPhase == AttackPhase.Reposition && !walkingAtTarget && !Mover.HasArrived
-                && !TargetMoved(target.transform.position) && Time.time < searchTime + RepositionWalkTimeout)
+            if (attackPhase == AttackPhase.Reposition && !walkingAtTarget && StillWalking(target))
                 return;
 
             if (Attacker.NeedsLineOfSight && !Attacker.HasLineOfSight(target))
@@ -278,6 +277,8 @@ namespace Blackglass
             {
                 Mover.Stop();
                 attackPhase = AttackPhase.Attack;
+                // The fallback walk (if any) is over; a stale flag would end the order the next time sight is lost.
+                walkingAtTarget = false;
             }
             FaceTowards(target.transform.position);
             if (Attacker.TryAttack(target))
@@ -319,15 +320,17 @@ namespace Blackglass
                 Mover.Stop();
                 attackPhase = AttackPhase.Reposition;
                 lastTargetPosition = target.transform.position;
+                // Stopped, not arrived: until a search starts a new fallback walk, "arrived" must not end the order.
+                walkingAtTarget = false;
             }
             else if (walkingAtTarget && Mover.HasArrived)
             {
                 FinishAttack();
                 return;
             }
-            else if (!Mover.HasArrived && !TargetMoved(target.transform.position) && Time.time < searchTime + RepositionWalkTimeout)
+            else if (StillWalking(target))
             {
-                return;   // still walking to the chosen spot
+                return;   // still on the fallback walk; UpdateAttack ends it the moment the line clears
             }
             if (Time.time >= nextRepositionTime)
                 SearchFiringPosition(target);
@@ -365,6 +368,10 @@ namespace Blackglass
             Mover.TrySnap(candidate, out point)
             && Attacker.CanAttackFrom(point + Vector3.up * Mover.PivotHeight, target)
             && Mover.CanReach(point);
+
+        // A reposition walk goes on until it arrives, the target moves away from where it was planned, or it times out.
+        bool StillWalking(Health target) =>
+            !Mover.HasArrived && !TargetMoved(target.transform.position) && Time.time < searchTime + RepositionWalkTimeout;
 
         bool TargetMoved(Vector3 targetPosition) =>
             (targetPosition - lastTargetPosition).sqrMagnitude > ChaseRepathDistance * ChaseRepathDistance;

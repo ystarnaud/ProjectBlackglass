@@ -183,8 +183,9 @@ namespace Blackglass.Tests
         public IEnumerator RangedFighter_OneMetreFromACrate_StillFindsASideCandidate()
         {
             // A 2 m crate (eroded footprint +-1.5) right in front of the unit, target off to the north-east. The 2 m
-            // ring's north-east point (1.41, -1.09) lands inside the erosion band and must snap onto the mesh edge at
-            // x = 1.5, from where the line to (3, 4) clears the crate's east face. A 1 m snap would have rejected it.
+            // ring's north-east point (1.41, -1.09) lands inside the erosion band beside the crate; the snap moves it
+            // out onto the rounded eroded corner, about (1.58, -1.25), from where the line to (3, 4) clears the
+            // crate's east face. The unit walks there: east of the crate, still south of it.
             world.CreateEnvironment((new Vector3(0f, 1f, 0f), new Vector3(2f, 2f, 2f)));
             var ranged = world.CreateFighter(new Vector3(0f, 0f, -2.5f), role: CombatRole.Ranged, range: 8f);
             var dummy = world.CreateDummy(new Vector3(3f, 0f, 4f));
@@ -199,6 +200,49 @@ namespace Blackglass.Tests
             Assert.That(seen, Has.Member(AttackPhase.Reposition));
             Assert.That(ranged.transform.position.x, Is.GreaterThan(1.2f), "It stepped to the crate's east side");
             Assert.That(ranged.transform.position.z, Is.LessThan(0f), "It did not walk around to the target");
+        }
+
+        [UnityTest]
+        public IEnumerator FallbackWalkThenSightLostAgain_KeepsTheOrder_AndHitsAgain()
+        {
+            // The target starts inside a walled box (no candidate sees in), so the search fails and the unit starts
+            // the fallback walk at it. The target then steps out into view (the unit stops and hits) and back into
+            // the box at once, while the next search is still rate limited. The reachable, in-range order must go on:
+            // a fallback flag left over from the first walk would read the stopped unit as "arrived, still blind".
+            world.CreateEnvironment(
+                (new Vector3(0f, 1f, -1f), new Vector3(4.5f, 2f, 0.5f)),
+                (new Vector3(0f, 1f, 3f), new Vector3(4.5f, 2f, 0.5f)),
+                (new Vector3(-2f, 1f, 1f), new Vector3(0.5f, 2f, 4.5f)),
+                (new Vector3(2f, 1f, 1f), new Vector3(0.5f, 2f, 4.5f)));
+            var ranged = world.CreateFighter(new Vector3(0f, 0f, -6.5f), role: CombatRole.Ranged, range: 8f);
+            var dummy = world.CreateDummy(new Vector3(0f, 0f, 1f));
+            var attacker = ranged.GetComponent<UnitAttacker>();
+            var inBox = dummy.transform.position;
+            var inView = new Vector3(0f, inBox.y, -3f);
+            yield return new WaitForFixedUpdate();
+            Assert.That(attacker.IsInRange(dummy) && !attacker.HasLineOfSight(dummy), Is.True, "Precondition: in range, walled off");
+
+            Assert.That(ranged.Issue(new AttackCommand(dummy)), Is.True);
+            yield return TestWorld.WaitUntil(() => ranged.AttackPhase == AttackPhase.Reposition, 1f);
+            yield return null;
+            Assert.That(ranged.AttackPhase, Is.EqualTo(AttackPhase.Reposition), "Precondition: blind, so it repositions");
+
+            dummy.transform.position = inView;
+            yield return TestWorld.WaitUntil(() => dummy.Current < dummy.Max, 1f);
+            Assert.That(dummy.Current, Is.LessThan(dummy.Max), "Precondition: in view, it stops and hits");
+            var afterFirstHit = dummy.Current;
+
+            dummy.transform.position = inBox;
+            var deadline = Time.time + 0.5f;
+            while (Time.time < deadline)
+            {
+                Assert.That(ranged.CurrentCommand, Is.InstanceOf<AttackCommand>(), "A reachable target in range must not end the order");
+                yield return null;
+            }
+
+            dummy.transform.position = inView;
+            yield return TestWorld.WaitUntil(() => dummy.Current < afterFirstHit, 3f);
+            Assert.That(dummy.Current, Is.LessThan(afterFirstHit), "The order went on and hits again");
         }
     }
 }
