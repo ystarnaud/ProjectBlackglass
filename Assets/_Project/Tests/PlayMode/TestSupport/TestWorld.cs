@@ -92,6 +92,7 @@ namespace Blackglass.Tests
             unit.AddComponent<UnitMover>();
             unit.GetComponent<NavMeshAgent>().baseOffset = 1f;
             unit.AddComponent<UnitAttacker>();
+            unit.AddComponent<UnitCover>();
             return unit.AddComponent<CommandableUnit>();
         }
 
@@ -108,7 +109,7 @@ namespace Blackglass.Tests
         /// the others (CommandableUnit subscribes to its Health there).
         /// </summary>
         public CommandableUnit CreateFighter(Vector3 groundPosition, int maxHealth = 100, int damage = 25, float cooldown = 1f,
-            CombatRole role = CombatRole.Melee, float range = 2f)
+            CombatRole role = CombatRole.Melee, float range = 2f, CoverRegistry registry = null)
         {
             var host = Track(GameObject.CreatePrimitive(PrimitiveType.Capsule));
             host.name = "TestFighter";
@@ -118,6 +119,9 @@ namespace Blackglass.Tests
             host.GetComponent<NavMeshAgent>().baseOffset = 1f;
             host.AddComponent<UnitAttacker>().Initialize(range, damage, cooldown, role);
             host.AddComponent<Health>().Initialize(maxHealth);
+            var cover = host.AddComponent<UnitCover>();
+            if (registry != null)
+                cover.Initialize(registry);
             var unit = host.AddComponent<CommandableUnit>();
             host.AddComponent<AutoRetaliate>();
             host.SetActive(true);

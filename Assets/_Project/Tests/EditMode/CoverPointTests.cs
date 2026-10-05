@@ -10,6 +10,7 @@ namespace Blackglass.Tests
         GameObject host;
         GameObject obstacleHost;
         CoverPoint point;
+        readonly System.Collections.Generic.List<GameObject> extraHosts = new System.Collections.Generic.List<GameObject>();
 
         [SetUp]
         public void SetUp()
@@ -22,6 +23,9 @@ namespace Blackglass.Tests
         [TearDown]
         public void TearDown()
         {
+            foreach (var extra in extraHosts)
+                Object.DestroyImmediate(extra);
+            extraHosts.Clear();
             Object.DestroyImmediate(host);
             Object.DestroyImmediate(obstacleHost);
         }
@@ -63,6 +67,62 @@ namespace Blackglass.Tests
             Assert.That(registry.Points, Is.Empty);
             registry.Initialize(point);
             Assert.That(registry.Points, Is.EqualTo(new[] { point }));
+        }
+
+        UnitCover NewUnit(string name)
+        {
+            var unitHost = new GameObject(name);
+            unitHost.transform.position = host.transform.position + Vector3.up;
+            extraHosts.Add(unitHost);
+            return unitHost.AddComponent<UnitCover>();
+        }
+
+        [Test]
+        public void TryClaim_SucceedsWhenUnclaimedOrOwn_FailsForAnotherUnit()
+        {
+            var a = NewUnit("A");
+            var b = NewUnit("B");
+            Assert.That(point.IsClaimed, Is.False);
+            Assert.That(point.TryClaim(a), Is.True);
+            Assert.That(point.TryClaim(a), Is.True, "Re-claiming an own point is fine");
+            Assert.That(point.TryClaim(b), Is.False, "One unit per point");
+            Assert.That(point.Claimant, Is.SameAs(a));
+            Assert.That(point.IsClaimed, Is.True);
+        }
+
+        [Test]
+        public void Release_ByTheWrongClaimant_IsANoOp()
+        {
+            var a = NewUnit("A");
+            var b = NewUnit("B");
+            point.TryClaim(a);
+            point.Release(b);
+            Assert.That(point.Claimant, Is.SameAs(a));
+            point.Release(a);
+            Assert.That(point.Claimant, Is.Null);
+            Assert.That(point.IsClaimed, Is.False);
+        }
+
+        [Test]
+        public void IsClaimedBy_NamesTheClaimant()
+        {
+            var a = NewUnit("A");
+            var b = NewUnit("B");
+            Assert.That(point.IsClaimedBy(a), Is.False);
+            point.TryClaim(a);
+            Assert.That(point.IsClaimedBy(a), Is.True);
+            Assert.That(point.IsClaimedBy(b), Is.False);
+            Assert.That(point.IsClaimedBy(null), Is.False);
+        }
+
+        [Test]
+        public void IsOccupied_FollowsTheClaimantsStatus()
+        {
+            var a = NewUnit("A");   // standing on the point (same x/z), so TryOccupy is within the radius
+            Assert.That(a.TryReserve(point), Is.True);
+            Assert.That(point.IsOccupied, Is.False, "Reserved is not occupied");
+            Assert.That(a.TryOccupy(), Is.True);
+            Assert.That(point.IsOccupied, Is.True);
         }
     }
 }

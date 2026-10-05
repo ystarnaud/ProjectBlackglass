@@ -5,7 +5,8 @@ namespace Blackglass
     /// <summary>
     /// A place a unit can stand to be protected by one obstacle. Position: the transform (ground level). Forward: the
     /// flat direction into the obstacle, used only to place the marker's direction nub. Protection is geometric: a ray
-    /// from the attacker's eye to the defender's feet must cross the wired obstacle.
+    /// from the attacker's eye to the defender's feet must cross the wired obstacle. Holds its claimant; UnitCover is
+    /// the only writer.
     /// </summary>
     public sealed class CoverPoint : MonoBehaviour
     {
@@ -31,6 +32,34 @@ namespace Blackglass
         public float HitChance => hitChance;
 
         public Collider Obstacle => obstacle;
+
+        /// <summary>The unit that reserved or occupies this point, or null. Written only by UnitCover.</summary>
+        public UnitCover Claimant { get; private set; }
+
+        public bool IsClaimed => Claimant != null;
+
+        public bool IsClaimedBy(UnitCover unit) => unit != null && Claimant == unit;
+
+        /// <summary>Claimed, and the claimant stands on it.</summary>
+        public bool IsOccupied => Claimant != null && Claimant.Status == CoverStatus.Occupied;
+
+        /// <summary>True when the point is unclaimed or already this unit's. A destroyed claimant counts as none.</summary>
+        internal bool TryClaim(UnitCover claimant)
+        {
+            if (claimant == null)
+                throw new System.ArgumentNullException(nameof(claimant));
+            if (Claimant != null && Claimant != claimant)
+                return false;
+            Claimant = claimant;
+            return true;
+        }
+
+        /// <summary>Frees the point if `claimant` holds it; otherwise nothing happens.</summary>
+        internal void Release(UnitCover claimant)
+        {
+            if (Claimant == claimant)
+                Claimant = null;
+        }
 
         /// <summary>
         /// True when the ray from the attacker's eye (pivot + LineOfSight.EyeHeight) to the defender's feet (the
