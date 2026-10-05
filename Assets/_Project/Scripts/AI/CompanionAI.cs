@@ -59,6 +59,7 @@ namespace Blackglass
         UnitAttacker attacker;
         UnitCover coverComponent;
         AutoRetaliate retaliate;
+        bool retaliateLookedUp;
         float nextThinkTime;
         // The order this component issued, while it is still the unit's current order.
         UnitCommand ownCommand;
@@ -216,11 +217,14 @@ namespace Blackglass
             }
         }
 
-        // AutoRetaliate is optional (a plain companion may not carry one); looked up once.
+        // AutoRetaliate is optional (a plain companion may not carry one); looked up once, found or not.
         bool IsRetaliation(UnitCommand command)
         {
-            if (retaliate == null)
+            if (!retaliateLookedUp)
+            {
                 TryGetComponent(out retaliate);
+                retaliateLookedUp = true;
+            }
             return retaliate != null && retaliate.IsRetaliating(command);
         }
 
