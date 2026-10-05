@@ -35,14 +35,14 @@ namespace Blackglass
     /// </summary>
     public sealed class MoveToCoverCommand : UnitCommand
     {
-        public MoveToCoverCommand(CoverPoint point)
+        public MoveToCoverCommand(CoverLocation point)
         {
             if (point == null)
                 throw new ArgumentNullException(nameof(point));
             Point = point;
         }
 
-        public CoverPoint Point { get; }
+        public CoverLocation Point { get; }
     }
 
     /// <summary>Halts the unit and clears all of its orders. Never queued.</summary>

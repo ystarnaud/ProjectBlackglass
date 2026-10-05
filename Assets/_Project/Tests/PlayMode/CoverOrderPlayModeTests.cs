@@ -11,7 +11,7 @@ namespace Blackglass.Tests
     {
         TestWorld world;
         GameObject environment;
-        CoverPoint point;
+        CoverLocation point;
         CoverRegistry registry;
 
         [SetUp]
@@ -262,7 +262,7 @@ namespace Blackglass.Tests
             Assert.That(unit.Issue(next, IssueMode.Append), Is.True);
             yield return null;
 
-            Object.Destroy(point.gameObject);
+            point.Retire();
             yield return TestWorld.WaitUntil(() => unit.CurrentCommand == next, 2f);
 
             Assert.That(unit.CurrentCommand, Is.SameAs(next), "The vanished point ends the cover order and the queue moves on");

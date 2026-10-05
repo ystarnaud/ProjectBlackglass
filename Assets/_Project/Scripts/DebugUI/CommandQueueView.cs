@@ -83,7 +83,7 @@ namespace Blackglass
                     points.Add(destination);
                     ShowMarker(destination);
                     break;
-                case MoveToCoverCommand toCover when toCover.Point != null && toCover.Point.gameObject.activeInHierarchy:
+                case MoveToCoverCommand toCover when toCover.Point != null && toCover.Point.IsValid:
                     var spot = OnGround(toCover.Point.Position);
                     points.Add(spot);
                     ShowMarker(spot);

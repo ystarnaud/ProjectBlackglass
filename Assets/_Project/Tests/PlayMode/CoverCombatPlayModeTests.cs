@@ -9,7 +9,7 @@ namespace Blackglass.Tests
     {
         TestWorld world;
         GameObject environment;
-        CoverPoint point;
+        CoverLocation point;
         CoverRegistry registry;
 
         [SetUp]
@@ -105,7 +105,6 @@ namespace Blackglass.Tests
         {
             // Swap the waist-high wall for a 2 m one, 20 m wide so no firing position within 4 m sees past it.
             Object.Destroy(environment);
-            Object.Destroy(point.gameObject);
             yield return null;
             environment = world.CreateEnvironment((new Vector3(0f, 1f, 0f), new Vector3(20f, 2f, 0.5f)));
             point = world.CreateCoverPoint(new Vector3(0f, 0f, -1f), Vector3.forward, TestWorld.ObstacleCollider(environment));

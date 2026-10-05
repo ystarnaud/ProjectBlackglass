@@ -48,7 +48,7 @@ namespace Blackglass.Tests
             return root;
         }
 
-        /// <summary>The n-th box obstacle CreateEnvironment made (creation order), for wiring a CoverPoint to it.</summary>
+        /// <summary>The n-th box obstacle CreateEnvironment made (creation order), for wiring a CoverLocation to it.</summary>
         public static BoxCollider ObstacleCollider(GameObject environment, int index = 0) =>
             environment.GetComponentsInChildren<BoxCollider>()[index];
 
@@ -66,18 +66,13 @@ namespace Blackglass.Tests
             return box;
         }
 
-        /// <summary>A cover point at exactly the given stand position, facing `forward`, protected by `obstacle`.</summary>
-        public CoverPoint CreateCoverPoint(Vector3 position, Vector3 forward, Collider obstacle, float hitChance = 0.5f)
-        {
-            var host = Track(new GameObject("TestCoverPoint"));
-            host.transform.SetPositionAndRotation(position, Quaternion.LookRotation(forward));
-            var point = host.AddComponent<CoverPoint>();
-            point.Initialize(obstacle, hitChance);
-            return point;
-        }
+        /// <summary>A cover location at exactly the given stand position, facing `forward`, protected by `obstacle`.</summary>
+        public CoverLocation CreateCoverPoint(Vector3 position, Vector3 forward, Collider obstacle, float hitChance = 0.5f,
+            CoverHeight height = CoverHeight.Low) =>
+            new CoverLocation("TestCover", position, forward, obstacle, hitChance, height);
 
-        /// <summary>A registry on its own object listing the given points.</summary>
-        public CoverRegistry CreateRegistry(params CoverPoint[] points)
+        /// <summary>A registry on its own object listing the given locations.</summary>
+        public CoverRegistry CreateRegistry(params CoverLocation[] points)
         {
             var registry = Track(new GameObject("CoverRegistry")).AddComponent<CoverRegistry>();
             registry.Initialize(points);

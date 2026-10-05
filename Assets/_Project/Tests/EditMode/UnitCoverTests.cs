@@ -9,22 +9,16 @@ namespace Blackglass.Tests
     {
         GameObject unitHost;
         GameObject otherHost;
-        GameObject pointHostA;
-        GameObject pointHostB;
         UnitCover cover;
         UnitCover other;
-        CoverPoint pointA;
-        CoverPoint pointB;
+        CoverLocation pointA;
+        CoverLocation pointB;
 
         [SetUp]
         public void SetUp()
         {
-            pointHostA = new GameObject("A");
-            pointHostA.transform.position = new Vector3(0f, 0f, 0f);
-            pointA = pointHostA.AddComponent<CoverPoint>();
-            pointHostB = new GameObject("B");
-            pointHostB.transform.position = new Vector3(5f, 0f, 0f);
-            pointB = pointHostB.AddComponent<CoverPoint>();
+            pointA = new CoverLocation("A", new Vector3(0f, 0f, 0f), Vector3.forward, null);
+            pointB = new CoverLocation("B", new Vector3(5f, 0f, 0f), Vector3.forward, null);
             unitHost = new GameObject("Unit");
             unitHost.transform.position = new Vector3(0f, 1f, 0f);   // on A, at pivot height
             cover = unitHost.AddComponent<UnitCover>();
@@ -38,8 +32,6 @@ namespace Blackglass.Tests
         {
             Object.DestroyImmediate(unitHost);
             Object.DestroyImmediate(otherHost);
-            Object.DestroyImmediate(pointHostA);
-            Object.DestroyImmediate(pointHostB);
         }
 
         [Test]
@@ -134,7 +126,7 @@ namespace Blackglass.Tests
         {
             Assert.That(cover.HitChance, Is.EqualTo(1f));
             Assert.That(cover.IsProtectedFrom(new Vector3(0f, 1f, 5f)), Is.False);
-            pointA.Initialize(null, 0.3f);
+            pointA = new CoverLocation("A", new Vector3(0f, 0f, 0f), Vector3.forward, null, 0.3f);
             cover.TryReserve(pointA);
             Assert.That(cover.HitChance, Is.EqualTo(0.3f));
             Assert.That(cover.IsProtectedFrom(new Vector3(0f, 1f, 5f)), Is.False, "Reserved is not occupied: no protection, and no obstacle ray is cast");

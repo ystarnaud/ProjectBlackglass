@@ -80,7 +80,7 @@ namespace Blackglass.Tests
             Assert.That(view.LinePointCount, Is.EqualTo(2), "unit + the cover point");
             Assert.That(view.ActiveMarkerCount, Is.EqualTo(1));
 
-            Object.Destroy(point.gameObject);
+            point.Retire();
             yield return null;
             yield return null;
 

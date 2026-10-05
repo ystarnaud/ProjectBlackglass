@@ -15,13 +15,13 @@ namespace Blackglass
 
         /// <summary>
         /// The nearest point (flat distance from `from`, within `maxDistance`) that `accept` admits, or false. A
-        /// candidate that is null (destroyed) or inactive in the hierarchy is skipped before its position is read, and
+        /// candidate that is null or invalid (retired, or its obstacle gone) is skipped before its position is read, and
         /// one out of range or not nearer than the best accepted so far is skipped before `accept` is called (as
-        /// EnemyAI.FindTarget does), so the predicate runs only on live points that could win; callers still order
+        /// EnemyAI.FindTarget does), so the predicate runs only on valid points that could win; callers still order
         /// it cheap to dear.
         /// </summary>
-        public static bool TryChooseNearest(IReadOnlyList<CoverPoint> points, Vector3 from, float maxDistance,
-            Func<CoverPoint, bool> accept, out CoverPoint chosen)
+        public static bool TryChooseNearest(IReadOnlyList<CoverLocation> points, Vector3 from, float maxDistance,
+            Func<CoverLocation, bool> accept, out CoverLocation chosen)
         {
             if (points == null)
                 throw new ArgumentNullException(nameof(points));
@@ -33,7 +33,7 @@ namespace Blackglass
             for (var i = 0; i < points.Count; i++)
             {
                 var point = points[i];
-                if (point == null || !point.gameObject.activeInHierarchy)
+                if (point == null || !point.IsValid)
                     continue;
                 var distance = FlatDistance(from, point.Position);
                 if (distance > maxDistance || distance >= bestDistance || !accept(point))

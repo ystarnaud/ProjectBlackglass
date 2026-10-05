@@ -254,7 +254,7 @@ namespace Blackglass.Tests
         // A 0.9 m wall from z -0.25 to 0.25 (x -2..2), one point 0.75 m north of it facing south (into the wall), and a
         // sturdy friendly 5 m south of the wall. From the point a ranged hostile shoots the friendly over the wall
         // (6 m, in range; the 1.5 m eye line clears 0.9 m) while the friendly's eye-to-feet ray crosses the wall.
-        (CoverPoint point, CoverRegistry registry, CommandableUnit friendly) CoverLayout()
+        (CoverLocation point, CoverRegistry registry, CommandableUnit friendly) CoverLayout()
         {
             var environment = world.CreateEnvironment((new Vector3(0f, 0.45f, 0f), new Vector3(4f, 0.9f, 0.5f)));
             var point = world.CreateCoverPoint(new Vector3(0f, 0f, 1f), Vector3.back, TestWorld.ObstacleCollider(environment));

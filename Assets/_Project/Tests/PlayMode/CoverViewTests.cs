@@ -9,8 +9,8 @@ namespace Blackglass.Tests
     {
         TestWorld world;
         TacticalPause pause;
-        CoverPoint a;
-        CoverPoint b;
+        CoverLocation a;
+        CoverLocation b;
         CoverRegistry registry;
         CoverView view;
 

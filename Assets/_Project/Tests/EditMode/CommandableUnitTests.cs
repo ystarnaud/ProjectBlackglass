@@ -288,11 +288,7 @@ namespace Blackglass.Tests
             Assert.That(unit.PendingCommands, Is.Empty);
         }
 
-        CoverPoint NewPoint(string name, out GameObject pointHost)
-        {
-            pointHost = new GameObject(name);
-            return pointHost.AddComponent<CoverPoint>();
-        }
+        CoverLocation NewPoint(string name) => new CoverLocation(name, Vector3.zero, Vector3.forward, null);
 
         [Test]
         public void UnitCover_IsRequired()
@@ -311,7 +307,7 @@ namespace Blackglass.Tests
         [Test]
         public void Issue_MoveToCover_OnAPointAnotherUnitHolds_IsRefused_AndChangesNothing()
         {
-            var point = NewPoint("Cover", out var pointHost);
+            var point = NewPoint("Cover");
             var otherHost = new GameObject("Other");
             var other = otherHost.AddComponent<UnitCover>();
             Assert.That(other.TryReserve(point), Is.True);
@@ -323,19 +319,17 @@ namespace Blackglass.Tests
             Assert.That(point.Claimant, Is.SameAs(other));
             Assert.That(unit.Cover.Status, Is.EqualTo(CoverStatus.None));
             Object.DestroyImmediate(otherHost);
-            Object.DestroyImmediate(pointHost);
         }
 
         [Test]
         public void Issue_MoveToCover_WithoutANavMesh_IsRefusedSilently_AndThePointStaysUnclaimed()
         {
-            var point = NewPoint("Cover", out var pointHost);
+            var point = NewPoint("Cover");
             // CanMoveTo is silent (unlike MoveTo), so no warning is expected here.
             Assert.That(unit.Issue(new MoveToCoverCommand(point)), Is.False);
             Assert.That(unit.CurrentCommand, Is.Null);
             Assert.That(point.IsClaimed, Is.False, "A refused start must not leave a claim behind");
             Assert.That(unit.Cover.Status, Is.EqualTo(CoverStatus.None));
-            Object.DestroyImmediate(pointHost);
         }
 
         [Test]

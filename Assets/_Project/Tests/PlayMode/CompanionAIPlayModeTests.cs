@@ -385,7 +385,7 @@ namespace Blackglass.Tests
 
         // A 0.9 m wall from z -0.25 to 0.25 (x -2..2) with one point 0.75 m south of it, a sturdy leader and a
         // companion whose UnitCover is wired to the registry.
-        (CommandableUnit leader, ActiveCharacter active, CompanionAI companion, CoverPoint point, CoverRegistry registry) CoverSquad(Vector3 leaderAt, Vector3 companionAt)
+        (CommandableUnit leader, ActiveCharacter active, CompanionAI companion, CoverLocation point, CoverRegistry registry) CoverSquad(Vector3 leaderAt, Vector3 companionAt)
         {
             var environment = world.CreateEnvironment((new Vector3(0f, 0.45f, 0f), new Vector3(4f, 0.9f, 0.5f)));
             var point = world.CreateCoverPoint(new Vector3(0f, 0f, -1f), Vector3.forward, TestWorld.ObstacleCollider(environment));

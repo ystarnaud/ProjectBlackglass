@@ -40,7 +40,7 @@ namespace Blackglass
 
         readonly List<CommandableUnit> orderedUnits = new List<CommandableUnit>();
         readonly List<SelectableUnit> boxedUnits = new List<SelectableUnit>();
-        static readonly Func<CoverPoint, bool> acceptAny = _ => true;
+        static readonly Func<CoverLocation, bool> acceptAny = _ => true;
         ClickDragDetector clickDetector;
         Vector2 pressPosition;
 
@@ -169,7 +169,7 @@ namespace Blackglass
                 return;
             }
 
-            CoverPoint cover = null;
+            CoverLocation cover = null;
             if (coverRegistry != null)
                 CoverRules.TryChooseNearest(coverRegistry.Points, hit.point, coverClickRadius, acceptAny, out cover);
             var command = CommandResolver.Resolve(hit.collider.GetComponentInParent<Health>(), hit.point, cover);

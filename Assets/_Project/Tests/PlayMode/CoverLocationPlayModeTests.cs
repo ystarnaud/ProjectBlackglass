@@ -5,7 +5,7 @@ using UnityEngine.TestTools;
 
 namespace Blackglass.Tests
 {
-    public class CoverPointPlayModeTests
+    public class CoverLocationPlayModeTests
     {
         TestWorld world;
 

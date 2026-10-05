@@ -46,7 +46,7 @@ namespace Blackglass
         }
 
         /// <summary>The colour a point's marker shows for its state.</summary>
-        internal static Color ColorFor(CoverPoint point) =>
+        internal static Color ColorFor(CoverLocation point) =>
             !point.IsClaimed ? AvailableColor : point.IsOccupied ? OccupiedColor : ReservedColor;
 
         /// <summary>The colour currently applied to the marker at `index` (tests).</summary>
@@ -80,7 +80,7 @@ namespace Blackglass
             for (var i = 0; i < markers.Count && i < registry.Points.Count; i++)
             {
                 var point = registry.Points[i];
-                var show = point != null && point.gameObject.activeInHierarchy && (paused || point.IsClaimed);
+                var show = point != null && point.IsValid && (paused || point.IsClaimed);
                 if (markers[i].activeSelf != show)
                     markers[i].SetActive(show);
                 if (show)
@@ -89,7 +89,7 @@ namespace Blackglass
         }
 
         // A disc at the stand point plus a nub 0.4 m toward the obstacle. Parented here for cleanup; positions are world.
-        GameObject CreateMarker(CoverPoint point)
+        GameObject CreateMarker(CoverLocation point)
         {
             var root = new GameObject("CoverMarker");
             root.transform.SetParent(transform, false);
@@ -105,7 +105,7 @@ namespace Blackglass
                 nub.name = "Nub";
                 DestroyImmediate(nub.GetComponent<Collider>());
                 nub.transform.SetParent(root.transform, false);
-                nub.transform.SetPositionAndRotation(point.Position + point.Forward * 0.4f + Vector3.up * 0.1f, Quaternion.LookRotation(point.Forward));
+                nub.transform.SetPositionAndRotation(point.Position + point.Facing * 0.4f + Vector3.up * 0.1f, Quaternion.LookRotation(point.Facing));
                 nub.transform.localScale = new Vector3(0.15f, 0.15f, 0.3f);
             }
             var renderers = root.GetComponentsInChildren<Renderer>();

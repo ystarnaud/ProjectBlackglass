@@ -297,8 +297,8 @@ namespace Blackglass
         }
 
         // A point that exists, is active, is unclaimed or ours, and has walkable mesh within the usual 2 m.
-        bool CanTakeCover(CoverPoint point) =>
-            point != null && point.gameObject.activeInHierarchy && (!point.IsClaimed || point.IsClaimedBy(Cover))
+        bool CanTakeCover(CoverLocation point) =>
+            point != null && point.IsValid && (!point.IsClaimed || point.IsClaimedBy(Cover))
             && Mover.CanMoveTo(point.Position);
 
         // Arrival occupies the point. A vanished point ends the order silently, as a vanished attack target does. A
@@ -308,7 +308,7 @@ namespace Blackglass
         void UpdateCover(MoveToCoverCommand order)
         {
             var point = order.Point;
-            if (point == null || !point.gameObject.activeInHierarchy || Cover.Status == CoverStatus.None)
+            if (point == null || !point.IsValid || Cover.Status == CoverStatus.None)
             {
                 Cover.ReleaseReservation();
                 Mover.Stop();
@@ -319,7 +319,7 @@ namespace Blackglass
             {
                 if (!Cover.TryOccupy())
                 {
-                    Debug.LogWarning($"{name} could not occupy {point.name}: the path ended {CoverRules.FlatDistance(transform.position, point.Position):0.0} m from it.", this);
+                    Debug.LogWarning($"{name} could not occupy {point.Name}: the path ended {CoverRules.FlatDistance(transform.position, point.Position):0.0} m from it.", this);
                     Cover.ReleaseReservation();
                 }
                 StartNext();
