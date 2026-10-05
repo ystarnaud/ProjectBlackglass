@@ -362,26 +362,26 @@ namespace Blackglass.Tests
         void MakeActive(SelectableUnit unit) => activeCharacter.Initialize(unit.Unit, pause);
 
         [UnityTest]
-        public IEnumerator RealTimeClickGround_WithAPrimary_OrdersOnlyThePrimary()
+        public IEnumerator RealTimeClickGround_WithASelection_OrdersTheSelectionNotTheActive()
         {
             yield return null;
             MakeActive(unitA);
             yield return LeftClickAt(ScreenPointOf(unitB));
             yield return LeftClickAt(ScreenPointOf(GroundPoint));
 
-            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
-            var destination = ((MoveCommand)unitA.Unit.CurrentCommand).Destination;
+            Assert.That(unitB.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
+            var destination = ((MoveCommand)unitB.Unit.CurrentCommand).Destination;
             Assert.That(TestWorld.HorizontalDistance(destination, GroundPoint), Is.LessThan(0.1f));
-            Assert.That(unitB.Unit.CurrentCommand, Is.Null, "The selection must not be ordered in real time");
-            Assert.That(selection.Selected, Is.EqualTo(new[] { unitB }), "Ordering the primary must not change the selection");
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null, "The active character is not ordered when a selection exists");
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitB }));
         }
 
         [UnityTest]
-        public IEnumerator RealTimeClickDummy_WithAPrimary_ThePrimaryAttacks()
+        public IEnumerator RealTimeClickDummy_WithNothingSelected_TheActiveAttacks()
         {
             yield return null;
             MakeActive(unitA);
-            yield return LeftClickAt(ScreenPointOf(unitB));
+            Assert.That(selection.Selected, Is.Empty, "Precondition: nothing selected");
             yield return LeftClickAt(ScreenPointOf(dummy));
 
             Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<AttackCommand>());
@@ -390,10 +390,27 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator RealTimeShiftClick_WithAPrimary_QueuesForThePrimary()
+        public IEnumerator RealTimeClickGround_WithTheSquadSelected_OrdersAllOfThem()
         {
             yield return null;
             MakeActive(unitA);
+            yield return LeftClickAt(ScreenPointOf(unitA));
+            yield return ShiftLeftClickAt(ScreenPointOf(unitB));
+            yield return ShiftLeftClickAt(ScreenPointOf(unitC));
+            Assert.That(selection.Selected, Is.EquivalentTo(new[] { unitA, unitB, unitC }), "Precondition: the squad is selected");
+
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+
+            foreach (var unit in new[] { unitA, unitB, unitC })
+                Assert.That(unit.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), $"{unit.name} was not ordered in real time");
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeShiftClick_WithNothingSelected_QueuesForTheActive()
+        {
+            yield return null;
+            MakeActive(unitA);
+            Assert.That(selection.Selected, Is.Empty, "Precondition: nothing selected");
             yield return LeftClickAt(ScreenPointOf(GroundPoint));
             yield return ShiftLeftClickAt(ScreenPointOf(OtherGroundPoint));
 
@@ -414,6 +431,32 @@ namespace Blackglass.Tests
 
             Assert.That(unitB.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
             Assert.That(unitA.Unit.CurrentCommand, Is.Null, "Paused clicks must order the selection, not the primary");
+        }
+
+        [UnityTest]
+        public IEnumerator PausedClickGround_WithNothingSelected_OrdersNobody()
+        {
+            yield return null;
+            MakeActive(unitA);
+            pause.Pause();
+            Assert.That(selection.Selected, Is.Empty, "Precondition: nothing selected");
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+
+            foreach (var unit in new[] { unitA, unitB, unitC })
+                Assert.That(unit.Unit.CurrentCommand, Is.Null, $"{unit.name}: Paused clicks order the selection only, never the active character");
+        }
+
+        [UnityTest]
+        public IEnumerator RealTimeClickGround_WithTheActiveUnitDisabled_AndNothingSelected_OrdersNobody()
+        {
+            yield return null;
+            MakeActive(unitA);
+            unitA.Unit.enabled = false;
+            Assert.That(selection.Selected, Is.Empty, "Precondition: nothing selected");
+            yield return LeftClickAt(ScreenPointOf(GroundPoint));
+
+            foreach (var unit in new[] { unitA, unitB, unitC })
+                Assert.That(unit.Unit.CurrentCommand, Is.Null, $"{unit.name} must not be ordered");
         }
 
         [UnityTest]
@@ -472,7 +515,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator RealTimeClick_WithThePrimaryUnitDisabled_OrdersTheSelection()
+        public IEnumerator RealTimeClick_WithTheActiveUnitDisabled_AndASelection_OrdersTheSelection()
         {
             yield return null;
             MakeActive(unitA);
@@ -480,7 +523,7 @@ namespace Blackglass.Tests
             yield return LeftClickAt(ScreenPointOf(unitB));
             yield return LeftClickAt(ScreenPointOf(GroundPoint));
 
-            Assert.That(unitB.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "Without an active primary, clicks must order the selection");
+            Assert.That(unitB.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "With a selection, clicks order the selection whether or not the active unit can act");
             Assert.That(unitA.Unit.CurrentCommand, Is.Null);
         }
 

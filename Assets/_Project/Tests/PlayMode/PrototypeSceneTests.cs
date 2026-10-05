@@ -321,6 +321,23 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator RealTimeBoxSelectSquadThenClickGround_InScene_AllThreeGetMoves()
+        {
+            var mouse = InputSystem.AddDevice<Mouse>();
+            InputSystem.AddDevice<Keyboard>();
+            yield return LoadScene();
+            var squad = PrototypeSceneTests.FindSquad();
+
+            yield return BoxSelect(mouse, squad);
+            Assert.That(Object.FindFirstObjectByType<UnitSelection>().Selected, Has.Count.EqualTo(3));
+
+            yield return LeftClickAt(mouse, Camera.main.WorldToScreenPoint(new Vector3(-6f, 0f, 0f)));
+
+            foreach (var member in squad)
+                Assert.That(member.CurrentCommand, Is.TypeOf<MoveCommand>(), $"{member.name}: real-time group orders must reach every selected unit");
+        }
+
+        [UnityTest]
         public IEnumerator StopAndClearSelection_InScene_UseTheSceneBindings()
         {
             var mouse = InputSystem.AddDevice<Mouse>();

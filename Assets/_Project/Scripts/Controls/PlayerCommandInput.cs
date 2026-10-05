@@ -8,8 +8,8 @@ namespace Blackglass
     /// <summary>
     /// Translates the player's input into requests. Left button: a click on a friendly unit selects it, a click
     /// anywhere else gives an order (attack the clicked target, or move to the clicked point), and a drag box-selects.
-    /// In real time the order goes to the active character; while paused (or without an active character) it goes to
-    /// the selected units. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
+    /// The order goes to the selected units whenever any are selected or the game is paused; with nothing selected in
+    /// real time it goes to the active character. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
     /// selection, Space toggles tactical pause. Contains no movement or combat rules.
     /// </summary>
     public sealed class PlayerCommandInput : MonoBehaviour
@@ -182,12 +182,14 @@ namespace Blackglass
                 selection.SetSelection(boxedUnits);
         }
 
-        // Who a ground or enemy click orders: the active character in real time; the selection while paused or
-        // when there is no active character that can act.
+        // Who a ground or enemy click orders: the selection whenever paused or anything is selected; otherwise the
+        // active character. Paused planning and real-time group orders therefore follow one rule, and a lone click
+        // with nothing selected still drives the controlled character.
         List<CommandableUnit> OrderedUnits()
         {
             var paused = tacticalPause != null && tacticalPause.IsPaused;
-            if (paused || activeCharacter == null || !activeCharacter.HasUnit)
+            var hasSelection = selection != null && selection.Selected.Count > 0;
+            if (paused || hasSelection || activeCharacter == null || !activeCharacter.HasUnit)
                 return SelectedUnits();
             orderedUnits.Clear();
             orderedUnits.Add(activeCharacter.Unit);

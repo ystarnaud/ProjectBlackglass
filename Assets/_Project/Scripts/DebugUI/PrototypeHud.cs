@@ -10,7 +10,7 @@ namespace Blackglass
         const string ControlHints =
             "WASD: pan camera   Q/E: rotate   Right-drag: rotate/tilt   Wheel: zoom   V: takeover (WASD moves character)\n" +
             "Left-click unit: select (Shift: add/remove)   Left-drag: box select   Esc: clear selection\n" +
-            "Left-click ground/enemy: controlled character moves/attacks (paused: selected units)   Shift: queue   X: stop selected\n" +
+            "Left-click ground/enemy: selected units move/attack (nothing selected: controlled character)   Shift: queue   X: stop selected\n" +
             "Space: tactical pause   Tab / Shift+Tab: switch controlled character";
         // Unit labels float this far above a unit's centre (the capsule is 2 m tall).
         const float UnitLabelHeight = 1.5f;
