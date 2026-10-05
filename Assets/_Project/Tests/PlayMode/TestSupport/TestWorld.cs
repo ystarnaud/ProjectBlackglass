@@ -48,6 +48,42 @@ namespace Blackglass.Tests
             return root;
         }
 
+        /// <summary>The n-th box obstacle CreateEnvironment made (creation order), for wiring a CoverPoint to it.</summary>
+        public static BoxCollider ObstacleCollider(GameObject environment, int index = 0) =>
+            environment.GetComponentsInChildren<BoxCollider>()[index];
+
+        /// <summary>
+        /// A box with a collider outside the NavMesh environment (built after the bake, so it carves nothing). For
+        /// geometry tests that only need a collider to raycast against.
+        /// </summary>
+        public GameObject CreateObstacle(Vector3 position, Vector3 scale)
+        {
+            var box = Track(GameObject.CreatePrimitive(PrimitiveType.Cube));
+            box.name = "LooseObstacle";
+            box.transform.position = position;
+            box.transform.localScale = scale;
+            Physics.SyncTransforms();
+            return box;
+        }
+
+        /// <summary>A cover point at exactly the given stand position, facing `forward`, protected by `obstacle`.</summary>
+        public CoverPoint CreateCoverPoint(Vector3 position, Vector3 forward, Collider obstacle, float hitChance = 0.5f)
+        {
+            var host = Track(new GameObject("TestCoverPoint"));
+            host.transform.SetPositionAndRotation(position, Quaternion.LookRotation(forward));
+            var point = host.AddComponent<CoverPoint>();
+            point.Initialize(obstacle, hitChance);
+            return point;
+        }
+
+        /// <summary>A registry on its own object listing the given points.</summary>
+        public CoverRegistry CreateRegistry(params CoverPoint[] points)
+        {
+            var registry = Track(new GameObject("CoverRegistry")).AddComponent<CoverRegistry>();
+            registry.Initialize(points);
+            return registry;
+        }
+
         public CommandableUnit CreateUnit(Vector3 groundPosition)
         {
             var unit = Track(GameObject.CreatePrimitive(PrimitiveType.Capsule));
