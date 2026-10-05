@@ -95,11 +95,16 @@ namespace Blackglass
         public bool IsValid => !retired
             && (!hadObstacle || (obstacle != null && obstacle.enabled && obstacle.gameObject.activeInHierarchy));
 
-        /// <summary>True when the location is unclaimed or already this unit's. A destroyed claimant counts as none.</summary>
+        /// <summary>
+        /// True when the location is valid and unclaimed or already this unit's; a retired or invalid location cannot be
+        /// claimed. A destroyed claimant counts as none.
+        /// </summary>
         internal bool TryClaim(UnitCover claimant)
         {
             if (claimant == null)
                 throw new System.ArgumentNullException(nameof(claimant));
+            if (!IsValid)
+                return false;
             if (Claimant != null && Claimant != claimant)
                 return false;
             Claimant = claimant;

@@ -131,5 +131,32 @@ namespace Blackglass.Tests
             Assert.That(cover.HitChance, Is.EqualTo(0.3f));
             Assert.That(cover.IsProtectedFrom(new Vector3(0f, 1f, 5f)), Is.False, "Reserved is not occupied: no protection, and no obstacle ray is cast");
         }
+
+        [Test]
+        public void IsProtectedFrom_IsFalseTheMomentThePointIsRetired_BeforeAnyUpdateReleasesIt()
+        {
+            // A thin wall across z = 0; the unit stands south of it, the attacker north.
+            var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                wall.transform.localScale = new Vector3(4f, 2f, 0.5f);
+                Physics.SyncTransforms();
+                var point = new CoverLocation("Wall_S", new Vector3(0f, 0f, -1f), Vector3.forward, wall.GetComponent<Collider>());
+                unitHost.transform.position = new Vector3(0f, 1f, -1f);
+                var attacker = new Vector3(0f, 1f, 5f);
+                Assert.That(cover.TryReserve(point), Is.True);
+                Assert.That(cover.TryOccupy(), Is.True);
+                Assert.That(cover.IsProtectedFrom(attacker), Is.True, "Precondition: the wall protects an occupant from the north");
+
+                point.Retire();   // a registry rebuild; UnitCover.Update has not run yet
+
+                Assert.That(cover.Status, Is.EqualTo(CoverStatus.Occupied), "Precondition: nothing has released the unit yet");
+                Assert.That(cover.IsProtectedFrom(attacker), Is.False, "A retired point protects nobody, even before the unit lets go of it");
+            }
+            finally
+            {
+                Object.DestroyImmediate(wall);
+            }
+        }
     }
 }

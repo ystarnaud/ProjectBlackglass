@@ -150,6 +150,18 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void ARetiredLocation_RefusesAClaim_AndNoUnitCanReserveIt()
+        {
+            var a = NewUnit("A");
+            location.Retire();
+            Assert.That(location.TryClaim(a), Is.False);
+            Assert.That(location.Claimant, Is.Null);
+            Assert.That(a.TryReserve(location), Is.False);
+            Assert.That(a.Point, Is.Null);
+            Assert.That(a.Status, Is.EqualTo(CoverStatus.None));
+        }
+
+        [Test]
         public void Release_ByTheWrongClaimant_IsANoOp()
         {
             var a = NewUnit("A");
