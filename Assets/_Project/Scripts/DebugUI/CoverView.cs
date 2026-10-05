@@ -5,29 +5,35 @@ using UnityEngine.Rendering;
 namespace Blackglass
 {
     /// <summary>
-    /// Debug view of the scene's cover points: a flat disc at each stand point and a nub on the obstacle side. Shows
-    /// every point while paused and only claimed points in real time, coloured by state (available white, reserved
-    /// yellow, occupied cyan). Reads the registry every frame and never changes it. Lives on Systems. Markers have no
-    /// colliders, so they never block click raycasts. Works while paused.
+    /// Debug view of the registry's cover locations. Colour is the state: available white, reserved yellow, occupied
+    /// cyan, and green for the location a selected unit is going to or holds. Shape is the type: a disc and a nub
+    /// toward the obstacle for Low cover, a taller nub for Tall cover, and for a corner also a thin arrow along the
+    /// peek direction. Shows every location while paused and only claimed ones in real time. Rebuilds its markers when
+    /// the registry's version changes, and never changes the registry. Lives on Systems. Markers have no colliders, so
+    /// they never block click raycasts. Works while paused.
     /// </summary>
     public sealed class CoverView : MonoBehaviour
     {
         internal static readonly Color AvailableColor = Color.white;
         internal static readonly Color ReservedColor = Color.yellow;
         internal static readonly Color OccupiedColor = Color.cyan;
+        internal static readonly Color SelectedColor = Color.green;
         static readonly int BaseColor = Shader.PropertyToID("_BaseColor");
 
         [SerializeField] CoverRegistry registry;
         [SerializeField] TacticalPause tacticalPause;
+        [SerializeField] UnitSelection selection;
         [SerializeField] Material markerMaterial;
         [SerializeField, Min(0.05f)] float discDiameter = 0.5f;
         // The prototype ground is flat at y = 0; markers float just above it.
         [SerializeField] float groundHeight = 0.05f;
 
-        // One marker per registry point, in registry order (built once in Start).
+        // One marker per registry location, in registry order (rebuilt whenever the registry's version changes).
         readonly List<GameObject> markers = new List<GameObject>();
         readonly List<Renderer[]> markerRenderers = new List<Renderer[]>();
+        readonly HashSet<CoverLocation> destinations = new HashSet<CoverLocation>();
         MaterialPropertyBlock block;
+        int builtVersion = -1;
 
         internal IReadOnlyList<GameObject> Markers => markers;
 
@@ -45,9 +51,12 @@ namespace Blackglass
             }
         }
 
-        /// <summary>The colour a point's marker shows for its state.</summary>
-        internal static Color ColorFor(CoverLocation point) =>
-            !point.IsClaimed ? AvailableColor : point.IsOccupied ? OccupiedColor : ReservedColor;
+        /// <summary>The colour a location's marker shows: green for a selected unit's destination, else its state.</summary>
+        internal static Color ColorFor(CoverLocation point, bool isSelectedDestination = false) =>
+            isSelectedDestination ? SelectedColor
+            : !point.IsClaimed ? AvailableColor
+            : point.IsOccupied ? OccupiedColor
+            : ReservedColor;
 
         /// <summary>The colour currently applied to the marker at `index` (tests).</summary>
         internal Color ShownColor(int index)
@@ -57,25 +66,21 @@ namespace Blackglass
             return block.GetColor(BaseColor);
         }
 
-        internal void Initialize(CoverRegistry coverRegistry, TacticalPause pause, Material material)
+        internal void Initialize(CoverRegistry coverRegistry, TacticalPause pause, Material material, UnitSelection unitSelection = null)
         {
             registry = coverRegistry;
             tacticalPause = pause;
             markerMaterial = material;
-        }
-
-        void Start()
-        {
-            if (registry == null)
-                return;
-            foreach (var point in registry.Points)
-                markers.Add(CreateMarker(point));
+            selection = unitSelection;
         }
 
         void LateUpdate()
         {
             if (registry == null)
                 return;
+            if (registry.Version != builtVersion)
+                RebuildMarkers();
+            CollectDestinations();
             var paused = tacticalPause != null && tacticalPause.IsPaused;
             for (var i = 0; i < markers.Count && i < registry.Points.Count; i++)
             {
@@ -84,11 +89,42 @@ namespace Blackglass
                 if (markers[i].activeSelf != show)
                     markers[i].SetActive(show);
                 if (show)
-                    Paint(i, ColorFor(point));
+                    Paint(i, ColorFor(point, destinations.Contains(point)));
             }
         }
 
-        // A disc at the stand point plus a nub 0.4 m toward the obstacle. Parented here for cleanup; positions are world.
+        void RebuildMarkers()
+        {
+            foreach (var marker in markers)
+            {
+                if (marker != null)
+                    Destroy(marker);
+            }
+            markers.Clear();
+            markerRenderers.Clear();
+            foreach (var point in registry.Points)
+                markers.Add(CreateMarker(point));
+            builtVersion = registry.Version;
+        }
+
+        // The locations the selected units hold or are walking to.
+        void CollectDestinations()
+        {
+            destinations.Clear();
+            if (selection == null)
+                return;
+            foreach (var selected in selection.Selected)
+            {
+                if (selected == null)
+                    continue;
+                var cover = selected.Unit.Cover;
+                if (cover != null && cover.Status != CoverStatus.None && cover.Point != null)
+                    destinations.Add(cover.Point);
+            }
+        }
+
+        // A disc at the stand point plus a nub 0.4 m toward the obstacle (taller for Tall), plus for a corner an arrow
+        // along the peek direction. Parented here for cleanup; positions are world.
         GameObject CreateMarker(CoverLocation point)
         {
             var root = new GameObject("CoverMarker");
@@ -101,12 +137,27 @@ namespace Blackglass
                 disc.transform.SetParent(root.transform, false);
                 disc.transform.position = point.Position + Vector3.up * groundHeight;
                 disc.transform.localScale = new Vector3(discDiameter, 0.01f, discDiameter);
+
+                var nubHeight = point.Height == CoverHeight.Tall ? 0.8f : 0.15f;
                 var nub = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 nub.name = "Nub";
                 DestroyImmediate(nub.GetComponent<Collider>());
                 nub.transform.SetParent(root.transform, false);
-                nub.transform.SetPositionAndRotation(point.Position + point.Facing * 0.4f + Vector3.up * 0.1f, Quaternion.LookRotation(point.Facing));
-                nub.transform.localScale = new Vector3(0.15f, 0.15f, 0.3f);
+                nub.transform.SetPositionAndRotation(point.Position + point.Facing * 0.4f + Vector3.up * (nubHeight * 0.5f + 0.025f),
+                    Quaternion.LookRotation(point.Facing));
+                nub.transform.localScale = new Vector3(0.15f, nubHeight, 0.3f);
+
+                if (point.HasPeek)
+                {
+                    var length = Vector3.Distance(point.Position, point.PeekPoint);
+                    var arrow = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    arrow.name = "Peek";
+                    DestroyImmediate(arrow.GetComponent<Collider>());
+                    arrow.transform.SetParent(root.transform, false);
+                    arrow.transform.SetPositionAndRotation(point.Position + point.PeekDirection * (length * 0.5f) + Vector3.up * 0.1f,
+                        Quaternion.LookRotation(point.PeekDirection));
+                    arrow.transform.localScale = new Vector3(0.08f, 0.05f, length);
+                }
             }
             var renderers = root.GetComponentsInChildren<Renderer>();
             foreach (var markerRenderer in renderers)
