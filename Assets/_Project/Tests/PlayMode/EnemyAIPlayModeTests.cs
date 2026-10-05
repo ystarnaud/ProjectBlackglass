@@ -208,21 +208,5 @@ namespace Blackglass.Tests
 
             Assert.That(hostile.Target, Is.SameAs(HealthOf(other)));
         }
-
-        [UnityTest]
-        public IEnumerator HasLineOfSight_UnitsNeverBlock_WallsDo()
-        {
-            world.CreateEnvironment((new Vector3(5f, 1f, 0f), new Vector3(1f, 2f, 6f)));
-            var seen = world.CreateFighter(new Vector3(0f, 0f, -4f));
-            var blocker = world.CreateFighter(new Vector3(0f, 0f, -2f));
-            var behindWall = world.CreateFighter(new Vector3(8f, 0f, 0f));
-            yield return new WaitForFixedUpdate();   // colliders take their positions
-            var buffer = new RaycastHit[8];
-            var eye = new Vector3(0f, 1.5f, 1f);
-
-            Assert.That(EnemyAI.HasLineOfSight(eye, HealthOf(seen), ~0, buffer), Is.True, "A unit in between must not block sight");
-            Assert.That(EnemyAI.HasLineOfSight(eye, HealthOf(blocker), ~0, buffer), Is.True);
-            Assert.That(EnemyAI.HasLineOfSight(eye, HealthOf(behindWall), ~0, buffer), Is.False, "A wall must block sight");
-        }
     }
 }

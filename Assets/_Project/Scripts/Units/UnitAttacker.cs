@@ -4,15 +4,19 @@ using UnityEngine;
 namespace Blackglass
 {
     /// <summary>
-    /// Prototype melee attack: fixed range, damage and cooldown. Cooldown uses scaled time, so it freezes while
-    /// paused. Reports each hit through Attacked and tells the target which Health hit it.
+    /// Prototype attack: fixed range, damage and cooldown. Cooldown uses scaled time, so it freezes while paused.
+    /// Reports each hit through Attacked and tells the target which Health hit it. Owns the unit's sight test
+    /// (LineOfSight from this unit's eye), which EnemyAI uses for acquisition.
     /// </summary>
     public sealed class UnitAttacker : MonoBehaviour
     {
         [SerializeField, Min(0.1f)] float range = 2f;
         [SerializeField, Min(0)] int damage = 25;
         [SerializeField, Min(0f)] float cooldown = 1f;
+        // Everything blocks sight except units (see LineOfSight). Serialized so a layer scheme can narrow it later.
+        [SerializeField] LayerMask sightBlockers = ~0;
 
+        readonly RaycastHit[] sightHits = new RaycastHit[LineOfSight.HitBufferSize];
         float nextAttackTime;
         Health ownHealth;
 
@@ -45,6 +49,13 @@ namespace Blackglass
             offset.y = 0f;
             return offset.sqrMagnitude <= range * range;
         }
+
+        /// <summary>True when the line from this unit's eye to the target's pivot crosses no world geometry.</summary>
+        public bool HasLineOfSight(Health target) => HasLineOfSightFrom(transform.position, target);
+
+        /// <summary>The same test from the eye a unit would have standing at `pivot`.</summary>
+        public bool HasLineOfSightFrom(Vector3 pivot, Health target) =>
+            target != null && LineOfSight.IsClear(pivot, target, sightBlockers, sightHits);
 
         /// <summary>Hits the target if it is alive, in range and the cooldown has elapsed. Returns whether it hit.</summary>
         public bool TryAttack(Health target)
