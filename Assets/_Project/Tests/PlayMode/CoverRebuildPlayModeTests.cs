@@ -67,6 +67,8 @@ namespace Blackglass.Tests
             var next = new MoveCommand(new Vector3(6f, 0f, -8f));
             Assert.That(unit.Issue(next, IssueMode.Append), Is.True);
             yield return null;
+            Assert.That(unit.CurrentCommand, Is.InstanceOf<MoveToCoverCommand>(), "Precondition: the cover order is current");
+            Assert.That(unit.Cover.Status, Is.EqualTo(CoverStatus.Reserved), "Precondition: the unit has reserved the location");
 
             discovery.Discover();
             yield return TestWorld.WaitUntil(() => unit.CurrentCommand == next, 2f);
@@ -82,9 +84,13 @@ namespace Blackglass.Tests
             yield return new WaitForFixedUpdate();
             discovery.Discover();
             var old = SouthPoint();
+            var stand = new Vector3(0f, 0f, -8f);
+            var control = Fighter(stand);
+            Assert.That(control.Issue(new MoveToCoverCommand(old)), Is.True, "Control: the same order on a live location is accepted");
             discovery.Discover();
-            var unit = Fighter(new Vector3(0f, 0f, -8f));
+            var unit = Fighter(stand);
 
+            Assert.That(old.IsValid, Is.False, "Precondition: the location is retired");
             Assert.That(unit.Issue(new MoveToCoverCommand(old)), Is.False, "A retired location is not a valid destination");
             Assert.That(unit.Cover.Status, Is.EqualTo(CoverStatus.None));
         }
@@ -104,18 +110,26 @@ namespace Blackglass.Tests
                 Assert.That(units[i].Issue(new MoveToCoverCommand(points[i])), Is.True);
             yield return TestWorld.WaitUntil(() => units.All(u => u.Cover.Status == CoverStatus.Occupied), 10f);
 
-            var retired = registry.Points.ToList();
+            Assert.That(units.All(u => u.Cover.Status == CoverStatus.Occupied), Is.True, "Precondition");
+
+            var locationCount = registry.Points.Count;
+            var retired = new System.Collections.Generic.List<CoverLocation>();
             for (var round = 0; round < 5; round++)
             {
+                retired.AddRange(registry.Points);
                 discovery.Discover();
                 yield return null;
                 yield return null;
             }
 
+            // The units may still be settling when the last rebuild lands; a unit claims again once it stands still.
+            yield return TestWorld.WaitUntil(() => units.All(u => u.Cover.Status == CoverStatus.Occupied), 5f);
+
             Assert.That(retired.Any(l => l.IsClaimed), Is.False, "No retired location keeps a claimant");
             var claimed = registry.Points.Where(l => l.IsClaimed).ToList();
-            Assert.That(claimed.Count, Is.LessThanOrEqualTo(units.Length), "Claims never outnumber the units");
+            Assert.That(claimed.Count, Is.EqualTo(units.Length), "Both units re-claimed a live location, and no more claims than units exist");
             Assert.That(claimed.All(l => units.Any(u => u.Cover.Point == l)), Is.True, "Every claim belongs to a unit that points at it");
+            Assert.That(registry.Points.Count, Is.EqualTo(locationCount), "Repeated discovery does not grow the registry");
             Assert.That(registry.Points.Select(l => l.Name).Distinct().Count(), Is.EqualTo(registry.Points.Count), "No duplicated locations");
         }
     }
