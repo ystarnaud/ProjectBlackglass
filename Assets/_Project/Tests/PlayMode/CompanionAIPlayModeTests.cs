@@ -297,5 +297,31 @@ namespace Blackglass.Tests
             Assert.That(UnitOf(companion).CurrentCommand, Is.Null);
             // Any exception logged while the dead companion's object is inactive fails the test on its own.
         }
+
+        [UnityTest]
+        public IEnumerator Paused_CompanionNeitherMovesNorGainsOrders_AndAcceptsOrders()
+        {
+            world.CreateEnvironment();
+            var pause = world.Track(new GameObject("Pause")).AddComponent<TacticalPause>();
+            pause.Pause();
+            var (leader, _, companion) = Squad(new Vector3(0f, 0f, -12f));   // created paused: the first think must wait
+            var start = companion.transform.position;
+
+            yield return new WaitForSecondsRealtime(1f);
+            Assert.That(UnitOf(companion).CurrentCommand, Is.Null, "No autonomous order while paused");
+            Assert.That(companion.transform.position, Is.EqualTo(start));
+
+            var order = new MoveCommand(new Vector3(0f, 0f, -16f));
+            Assert.That(UnitOf(companion).Issue(order), Is.True, "Tactical orders are still accepted while paused");
+            yield return new WaitForSecondsRealtime(0.3f);
+            Assert.That(companion.transform.position, Is.EqualTo(start), "Accepted, but not run until resume");
+
+            pause.Resume();
+            yield return TestWorld.WaitUntil(() => UnitOf(companion).CurrentCommand != order, 8f);
+            Assert.That(TestWorld.HorizontalDistance(companion.transform.position, order.Destination), Is.LessThan(0.5f),
+                "After resume the explicit order runs first, uninterrupted by follow");
+            yield return TestWorld.WaitUntil(() => Gap(companion, leader) < 6f, 12f);
+            Assert.That(Gap(companion, leader), Is.LessThan(6f), "Then follow resumes");
+        }
     }
 }
