@@ -14,7 +14,7 @@ namespace Blackglass
 
     /// <summary>
     /// The smallest hostile brain: while idle, every think tick it looks for the nearest living friendly inside its
-    /// detection radius that it can see, and attacks it through the normal order path. CommandableUnit then chases,
+    /// detection radius that it can see and reach, and attacks it through the normal order path. CommandableUnit then chases,
     /// stops and hits; when the target dies or cannot be reached that order ends on its own and the brain looks
     /// again. Line of sight (UnitAttacker.HasLineOfSight) gates acquisition only: a target once taken is followed
     /// around corners. A ranged hostile stops at its range and repositions when blind, because CommandableUnit does
@@ -29,6 +29,7 @@ namespace Blackglass
 
         CommandableUnit unit;
         UnitAttacker attacker;
+        UnitMover mover;
         float nextThinkTime;
 
         public float DetectionRange => detectionRange;
@@ -41,6 +42,7 @@ namespace Blackglass
 
         CommandableUnit Unit => unit != null ? unit : unit = GetComponent<CommandableUnit>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
+        UnitMover Mover => mover != null ? mover : mover = GetComponent<UnitMover>();
 
         internal void Initialize(Encounter encounterToFight, float range = 12f, float interval = 0.25f)
         {
@@ -84,12 +86,14 @@ namespace Blackglass
             // Busy units are left alone: CommandableUnit runs the chase and the attack.
             if (Unit.CurrentCommand != null || encounter == null)
                 return;
-            var target = FindNearestVisibleFriendly();
+            var target = FindTarget();
             if (target != null)
                 Unit.Issue(new AttackCommand(target));
         }
 
-        Health FindNearestVisibleFriendly()
+        // Nearest friendly that is alive, active, inside the detection radius, in sight and reachable. Distance and
+        // sight are tested first, so the path (the dearest check) is computed only for candidates that could win.
+        Health FindTarget()
         {
             Health best = null;
             var bestDistance = float.PositiveInfinity;
@@ -102,7 +106,7 @@ namespace Blackglass
                 var distance = offset.magnitude;
                 if (distance > detectionRange || distance >= bestDistance)
                     continue;
-                if (!Attacker.HasLineOfSight(candidate))
+                if (!Attacker.HasLineOfSight(candidate) || !Mover.CanReach(candidate.transform.position))
                     continue;
                 best = candidate;
                 bestDistance = distance;
