@@ -1,6 +1,6 @@
 # Tactical Combat: Roles, Line of Sight and Companions (Phase 5) — Design
 
-Date: 2026-10-04 · Branch: `prototype/combat-roles-and-companions` · Status: draft, awaiting owner review
+Date: 2026-10-04 · Branch: `prototype/combat-roles-and-companions` · Status: implemented 2026-10-04 (see Docs/superpowers/plans/2026-10-04-tactical-combat-roles.md)
 
 Builds on Phases 1–4 (see the four earlier specs in this folder and decisions 006–015 in `Docs/Decisions.md`). It does not redesign the control architecture; it adds decision sources and one new shared capability (line of sight) on top of the existing `Issue` path.
 
