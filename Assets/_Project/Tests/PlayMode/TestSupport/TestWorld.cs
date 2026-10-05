@@ -136,15 +136,16 @@ namespace Blackglass.Tests
             return unit.gameObject.AddComponent<SelectableUnit>();
         }
 
-        /// <summary>A fighter with EnemyAI wired to the encounter. Hostile prototype stats by default.</summary>
+        /// <summary>A fighter with EnemyAI wired to the encounter (and a cover registry, when given). Hostile prototype stats by default.</summary>
         public EnemyAI CreateHostile(Vector3 groundPosition, Encounter encounter, int maxHealth = 60, int damage = 10,
-            float cooldown = 1.2f, float detectionRange = 12f, CombatRole role = CombatRole.Melee, float range = 2f)
+            float cooldown = 1.2f, float detectionRange = 12f, CombatRole role = CombatRole.Melee, float range = 2f,
+            CoverRegistry registry = null)
         {
-            var unit = CreateFighter(groundPosition, maxHealth, damage, cooldown, role, range);
+            var unit = CreateFighter(groundPosition, maxHealth, damage, cooldown, role, range, registry);
             unit.name = "TestHostile";
             unit.gameObject.SetActive(false);
             var ai = unit.gameObject.AddComponent<EnemyAI>();
-            ai.Initialize(encounter, detectionRange);
+            ai.Initialize(encounter, detectionRange, registry: registry);
             unit.gameObject.SetActive(true);
             return ai;
         }
