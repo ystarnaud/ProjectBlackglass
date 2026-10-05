@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using System.Collections;
 using NUnit.Framework;
 using UnityEngine;
@@ -98,6 +99,27 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator DyingUnit_ThatIsNotDeactivated_DoesNotReclaimCover()
+        {
+            var unit = world.CreateFighter(new Vector3(0f, 0f, -6f), registry: registry);
+            yield return WalkOntoThePoint(unit);
+            Assert.That(point.IsClaimed, Is.True, "Precondition");
+
+            var health = unit.GetComponent<Health>();
+            var serialized = new UnityEditor.SerializedObject(health);
+            serialized.FindProperty("disableOnDeath").boolValue = false;
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+            health.TakeDamage(1000);
+            yield return null;
+            yield return null;
+
+            Assert.That(unit.gameObject.activeInHierarchy, Is.True, "Precondition: the corpse stays active");
+            Assert.That(CoverOf(unit).Status, Is.EqualTo(CoverStatus.None));
+            Assert.That(point.IsClaimed, Is.False, "A corpse standing on a free point must not claim it again");
+            Assert.That(CoverOf(unit).TryReserve(point), Is.False, "No order can reserve cover for a corpse");
+        }
+
+        [UnityTest]
         public IEnumerator DestroyedPoint_IsReleased()
         {
             var unit = world.CreateFighter(new Vector3(0f, 0f, -6f), registry: registry);
@@ -128,3 +150,4 @@ namespace Blackglass.Tests
         }
     }
 }
+#endif

@@ -50,7 +50,7 @@ namespace Blackglass
         /// <summary>The held point's hit chance, or 1 (every shot lands) without one.</summary>
         public float HitChance => Point != null ? Point.HitChance : 1f;
 
-        // Looked up lazily so a Health added after this component is still found.
+        // A Health present at OnEnable is subscribed to; one added later is found by this lookup only (no Died event).
         Health OwnHealth => ownHealth != null ? ownHealth : ownHealth = GetComponent<Health>();
 
         internal void Initialize(CoverRegistry coverRegistry, float occupy = 0.6f, float leave = 1f, float still = 0.5f)
@@ -71,6 +71,8 @@ namespace Blackglass
         {
             if (point == null)
                 throw new ArgumentNullException(nameof(point));
+            if (OwnHealth != null && !OwnHealth.IsAlive)
+                return false;   // a corpse reserves nothing
             if (point == Point)
                 return true;
             if (!point.TryClaim(this))
@@ -137,10 +139,16 @@ namespace Blackglass
         {
             if (!SimulationTime.IsRunning)
                 return;
+            // Health may deactivate nothing on death, so a dead unit must not claim again after OnDied released its point.
+            if (OwnHealth != null && !OwnHealth.IsAlive)
+                return;
             var flat = transform.position;
             flat.y = 0f;
             // Tracked here rather than read from the mover, so paths, direct steering and avoidance pushes all count.
-            var speed = hasLastPosition ? Vector3.Distance(flat, lastFlatPosition) / Time.deltaTime : float.PositiveInfinity;
+            // Without a previous position or a positive delta the speed is unknown, which counts as not standing still.
+            var speed = hasLastPosition && Time.deltaTime > 0f
+                ? Vector3.Distance(flat, lastFlatPosition) / Time.deltaTime
+                : float.PositiveInfinity;
             lastFlatPosition = flat;
             hasLastPosition = true;
 
