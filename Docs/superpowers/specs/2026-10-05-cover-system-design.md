@@ -368,7 +368,8 @@ Baseline before this phase (measured 2026-10-05 on `main`): EditMode 239/239, Pl
 - Points at tall obstacles never apply `hitChance`: straight on nothing can shoot, from the flanks the unit is exposed. They are hiding spots.
 - Points are hand-placed; new obstacles need new points.
 - The view hides unclaimed points in real time; the player must pause to see them.
-- A unit physically standing on a point but farther than 0.6 m from its centre (agent avoidance) is exposed; a unit jostled more than 1 m away loses it.
+- A unit physically standing on a point but farther than 0.6 m from its centre (agent avoidance) cannot gain cover; an occupant keeps it out to 1 m, and a unit pushed farther loses it.
+- A cover walk gives up silently after 3 s (`CoverWalkTimeout`) without the flat straight-line distance to the point falling by more than 0.05 m, so a very long detour that moves away from the point for that long would be abandoned; the longest arena detour (round `Barrier_I`, about 1.5 s at friendly speed, about 2.1 s at hostile speed) is under the limit, and a path-remaining measure from `UnitMover` is the fix if a real map needs it.
 
 ## 9. Files
 

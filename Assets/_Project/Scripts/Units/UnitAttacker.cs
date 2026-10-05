@@ -52,7 +52,7 @@ namespace Blackglass
         /// <summary>Raised with the target after every shot that cover turned away.</summary>
         public event Action<Health> Missed;
 
-        /// <summary>Shots fired since the component was enabled (debug counter).</summary>
+        /// <summary>Shots fired since creation (debug counter).</summary>
         public int ShotsFired { get; private set; }
 
         /// <summary>Shots that landed (debug counter).</summary>
