@@ -421,6 +421,8 @@ MonoBehaviour:
   encounter: {fileID: 0}
   detectionRange: 12
   thinkInterval: 0.25
+  coverRegistry: {fileID: 0}
+  coverSearchRange: 8
 --- !u!114 &8016659859887484488
 MonoBehaviour:
   m_ObjectHideFlags: 0
