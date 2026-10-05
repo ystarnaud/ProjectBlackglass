@@ -61,22 +61,22 @@ Reachability stays what it is: `Mover.CanReach` at the moment of use (EnemyAI, C
 | Setting | Default | Use |
 |---|---|---|
 | `standOffset` | 0.75 m | Stand point distance from a face (agent radius 0.5 m plus margin). |
-| `spacing` | 2 m | Target gap between face points. |
+| `spacing` | 1 m | Minimum gap between neighbouring face points; points are spread evenly, so every gap is under twice this and no gap can fit another unit one metre wide. |
 | `endMargin` | 0.5 m | Keep face points this far from a face's ends. |
 | `minFaceLength` | 1 m | Shorter faces (a wall's 0.5 m ends) get no points. |
 | `lowMaxHeight` | 1.2 m | Top of box at or below: Low. |
 | `minCornerLength` | 2 m | A box gets corners only if its horizontal length is at least this **and** at least twice its thickness (so crates and pillars are not walls). |
 | `cornerInset` | 0.35 m | How far inside the wall end a corner stands (kept in the wall's shadow). |
 | `peekDistance` | 1.25 m | Stand point to `PeekPoint`. |
-| `mergeDistance` | 1 m | A location within this of an earlier accepted one is dropped. |
+| `mergeDistance` | 0.9 m | A location within this of an earlier accepted one **of the same object** is dropped. Below the 1 m minimum gap so float noise cannot merge neighbours. |
 | `hitChance` | 0.5 | Copied to every location. |
 | `walkableTolerance` | 0.25 m | `NavMesh.SamplePosition` radius used by `CoverDiscovery`. |
 
 **`CoverGenerator.Generate(IReadOnlyList<CoverBox> boxes, CoverGenerationSettings settings, Func<Vector3, bool> isWalkable)`** (pure static, no Unity scene access, EditMode-tested). For each box, in input order:
 
 1. **Corner locations** (Tall boxes passing the corner test). Let the long axis be the box's longer horizontal axis, `L` its length. For each long face (normal `n`) and each end (`t` = +/- long axis): stand = face centre + `n * standOffset` + `t * (L/2 - cornerInset)`; `Facing = -n`; `PeekDirection = t`; `PeekPoint = stand + t * peekDistance` (kept only if walkable, else `PeekDirection` is zero and the location is a plain face-style point). Four corners per wall.
-2. **Face locations.** For each of the four side faces of length `>= minFaceLength`: usable length = face length - 2 * `endMargin`; count = `floor(usable / spacing) + 1`, spread evenly over the usable length (one point sits at the centre). Stand = point on face + `n * standOffset`; `Facing = -n`. This reproduces the hand placement: two points on a 3 m face, one on a 2 m face. Both Low and Tall boxes get face locations.
-3. **Filtering.** A location is dropped if its stand point fails `isWalkable`, or lies within `mergeDistance` of an already accepted location (so a corner supersedes the face point nearest the wall end, and abutting surfaces do not stack points).
+2. **Face locations.** For each of the four side faces of length `>= minFaceLength`: usable length = face length - 2 * `endMargin`; count = `floor(usable / spacing) + 1`, spread evenly over the usable length (one point sits at the centre). Stand = point on face + `n * standOffset`; `Facing = -n`. At the default spacing a 3 m face gets three points, 1 m apart, and a 2 m face gets two (the original 2 m spacing gave two and one, as the hand placement did). Both Low and Tall boxes get face locations.
+3. **Filtering.** A location is dropped if its stand point fails `isWalkable`, or lies within `mergeDistance` of an already accepted location **of the same box** (so a corner supersedes the face point nearest the wall end). Locations of different boxes never remove each other: abutting or overlapping surfaces keep all their points.
 
 Result: Low boxes give face points only; a Tall wall gives four corners plus the face points that survive; a Tall block that is not a wall gives face points only. A typical wall gets single-digit counts, not hundreds. The arena total is a number the plan fixes from measured output.
 
@@ -130,12 +130,12 @@ No new obstacles: the existing set already contains each case.
 | Low barriers | `LowWall_L`, `LowWall_M`, `LowWall_N` (0.9 m). |
 | Tall walls with exposed ends | `Barrier_I` (6 x 1, 2 m) and `Obstacle_CentralWall` (8 x 1, 2 m, **yawed 45 degrees**, which tests oriented boxes). |
 | Tall blocks (face points only) | `Pillar_G`, `Crate_J`. |
-| Fully LOS-blocking structures | All tall obstacles; untagged ones (`Obstacle_A` to `F`, `Pillar_H`, `Crate_K`) give no cover and still block sight. |
+| Fully LOS-blocking structures | All tall obstacles. |
 | Exposed open terrain | Ground away from tagged geometry. |
 | Enemy cover use, reservation conflicts | `LowWall_N` (hostile `HostileUnit_3`), `LowWall_L` and `LowWall_N` (squad and hostiles from opposite sides). |
 
 Scene edits (done by a temporary editor script, never committed):
-- Add `CoverSurface` to `LowWall_L/M/N`, `Pillar_G`, `Crate_J`, `Barrier_I`, `Obstacle_CentralWall`.
+- Add `CoverSurface` to `LowWall_L/M/N`, `Pillar_G`, `Crate_J`, `Barrier_I`, `Obstacle_CentralWall`. Later all fifteen obstacles were tagged (`Obstacle_A` to `F`, `Pillar_H`, `Crate_K` added), the scene's `CoverDiscovery` settings were set to spacing 1 and mergeDistance 0.9, and `PlayerCommandInput.coverClickRadius` was set to 0.5 m. Measured: 141 locations in all (per obstacle: `Barrier_I` 14, `Obstacle_CentralWall` 18, `Obstacle_A` 12, `Obstacle_B` 12, `Obstacle_C` 11, `Obstacle_D` 8, `Obstacle_E` 11, `Obstacle_F` 13, `Pillar_G` 4, `Pillar_H` 4, `Crate_J` 8, `Crate_K` 8, `LowWall_L` 6, `LowWall_M` 8, `LowWall_N` 4); corners: `Barrier_I`, `Obstacle_CentralWall`, `Obstacle_B`, `Obstacle_F` 4 each, `Obstacle_E` 3.
 - Delete the `CoverPoints` root and its 20 `CoverPoint` children.
 - `Systems`: `CoverRegistry` loses its serialized list; add `CoverDiscovery` wired to it; wire `CoverView` to `UnitSelection`.
 - The NavMesh is not rebaked (geometry is unchanged).
@@ -174,4 +174,4 @@ Peek behaviour or animation, non-box geometry, a mission generator, hostiles usi
 
 ## 13. Known limitations
 
-Boxes only, upright; yaw only. Corner data is unused until a peek phase. Discovery assumes the NavMesh is current. `PeekPoint` walkability is checked only at the point itself. Spacing is even-spread, so the gap on long faces is between 2 m and 4 m.
+Boxes only, upright; yaw only. Corner data is unused until a peek phase. Discovery assumes the NavMesh is current. `PeekPoint` walkability is checked only at the point itself. Spacing is even-spread, so a gap on a face is at least `spacing` and under twice that (1 m to under 2 m at the defaults). Because merging is per object, points of different objects can lie closer than a unit is wide (seven pairs in the arena are under 0.9 m apart).
