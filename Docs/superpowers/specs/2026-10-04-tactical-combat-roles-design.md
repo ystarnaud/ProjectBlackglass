@@ -258,8 +258,6 @@ The AI uses `Replace` (steps 4 and 5) and `Stop` (step 2), always on its own ord
 
 Why remembering one command object is enough: `Issue(Replace)` by anyone else makes a different object current; `Issue(Append)` leaves ours current but makes `PendingCommands` non-empty; `Stop`, death and direct control clear the queue. All three cases read as "not ours".
 
-No execution-order attribute: `ActiveCharacter` (−200) and `DirectControlInput` (−100) have already run when companions think.
-
 ### 4.8 `PrototypeHud` — `DebugUI/PrototypeHud.cs` (changed)
 
 - Line 1 of a unit label: `"<name> 75/100 [Melee]"` / `"[Ranged]"` (`DescribeUnit` gains the role).
@@ -334,6 +332,9 @@ Baseline before this phase (measured 2026-10-04): EditMode 208/208, PlayMode 178
 - Companions never start fights with unaware hostiles, even when the player might want them to.
 - A Shift-queued order waits for a companion's current follow move to finish.
 - Autonomy never overrides explicit orders, even for self-preservation.
+- A Stop (X) on a companion more than 6 m from the controlled character is followed by a follow move on the next tick; there is no hold-position order yet.
+- Tab onto a companion that is mid-assist stops its own attack as well as a follow move; the player's orders are never touched.
+- Acquisition requires reachability, so a ranged hostile or companion will not shoot a visible, in-range target standing where no path leads, although an explicit attack order on it works.
 - Follow uses a straight line from the leader; two companions on the same side may jostle through agent avoidance.
 - No formation, no cover system, no crouching, no suppression.
 
