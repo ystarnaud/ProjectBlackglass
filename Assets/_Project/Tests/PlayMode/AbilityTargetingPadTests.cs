@@ -224,6 +224,57 @@ namespace Blackglass.Tests
             Assert.That(rig.Cursor.SoftTarget, Is.Null, "Cycling friendlies never sets the soft target Attack uses");
             Assert.That(rig.Targeting.Preview.Target, Is.SameAs(rig.AllyHealth));
         }
+
+        [UnityTest]
+        public IEnumerator Attack_WhileAnAbilityIsArmed_DisarmsIt_ThenAttacksTheBestHostile()
+        {
+            yield return null;
+            yield return PickWithTheMenu(pad.dpad.up);
+            Assert.That(rig.Targeting.IsArmed, Is.True, "Precondition");
+            rig.Cursor.SetScreenPosition(rig.ScreenPointOf(rig.Hostile.transform.position));
+            yield return null;
+
+            yield return Tap(pad.buttonWest);
+
+            Assert.That(rig.Targeting.IsArmed, Is.False);
+            Assert.That(rig.Cursor.Aiming, Is.False);
+            Assert.That(rig.Cursor.SnapTo, Is.EqualTo(PointerTargetKind.None));
+            Assert.That(rig.Caster.Unit.CurrentCommand, Is.TypeOf<AttackCommand>(), "The plain attack still goes out");
+            Assert.That(((AttackCommand)rig.Caster.Unit.CurrentCommand).Target, Is.SameAs(rig.Hostile));
+            Assert.That(rig.Hostile.Current, Is.EqualTo(rig.Hostile.Max), "No ability was used");
+        }
+
+        [UnityTest]
+        public IEnumerator ChangingTheCaster_WhileArmed_DisarmsAndResetsTheCursor()
+        {
+            yield return null;
+            yield return PickWithTheMenu(pad.dpad.up);
+            Assert.That(rig.Targeting.IsArmed, Is.True, "Precondition");
+
+            rig.Selection.Select(rig.Ally);
+            yield return null;
+            yield return null;
+
+            Assert.That(rig.Targeting.IsArmed, Is.False);
+            Assert.That(rig.Cursor.Aiming, Is.False);
+            Assert.That(rig.Cursor.SnapTo, Is.EqualTo(PointerTargetKind.None));
+        }
+
+        [UnityTest]
+        public IEnumerator TheCasterDying_WhileArmed_DisarmsAndResetsTheCursor()
+        {
+            yield return null;
+            yield return PickWithTheMenu(pad.dpad.up);
+            Assert.That(rig.Targeting.IsArmed, Is.True, "Precondition");
+
+            rig.CasterHealth.TakeDamage(rig.CasterHealth.Max);
+            yield return null;
+            yield return null;
+
+            Assert.That(rig.Targeting.IsArmed, Is.False);
+            Assert.That(rig.Cursor.Aiming, Is.False);
+            Assert.That(rig.Cursor.SnapTo, Is.EqualTo(PointerTargetKind.None));
+        }
     }
 }
 #endif

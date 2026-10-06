@@ -13,11 +13,11 @@ namespace Blackglass.Tests
         [SetUp]
         public void SetUp()
         {
-            aimed = AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit, AbilityTargetSide.Hostile, 14f, true,
+            aimed = AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit, 14f, true,
                 AbilityCoverRule.Applies, 6f, AbilityEffect.Damage, 45);
-            mend = AbilityDefinition.Create("Mend", AbilityTargetMode.Unit, AbilityTargetSide.Friendly, 8f, false,
+            mend = AbilityDefinition.Create("Mend", AbilityTargetMode.Unit, 8f, false,
                 AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40);
-            blast = AbilityDefinition.Create("Blast", AbilityTargetMode.Ground, AbilityTargetSide.Hostile, 12f, true,
+            blast = AbilityDefinition.Create("Blast", AbilityTargetMode.Ground, 12f, true,
                 AbilityCoverRule.Ignored, 10f, AbilityEffect.Damage, 35, 3f);
         }
 

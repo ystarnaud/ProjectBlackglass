@@ -185,6 +185,8 @@ namespace Blackglass
         /// Uses the armed ability on what was clicked or confirmed: builds the command and issues it to the caster (queued
         /// behind its orders when `queue`, else replacing them). Disarms and returns true when the order was accepted. On
         /// a refusal the reason is on CasterAbilities.LastFailure and the ability stays armed, so another target can be tried.
+        /// Call it only from input callbacks (PlayerCommandInput's click and Confirm handlers): companion parking relies on
+        /// CompanionAI (execution order -150) seeing the order before CommandableUnit (0) runs.
         /// </summary>
         public bool Confirm(PointerTarget pointed, bool queue)
         {

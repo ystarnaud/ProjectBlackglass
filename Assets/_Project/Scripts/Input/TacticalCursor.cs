@@ -52,13 +52,13 @@ namespace Blackglass
         public Vector2 ScreenPosition => screenPosition;
 
         /// <summary>True while an ability is armed: the stick is the cursor's whatever else would own it (see StickRole).</summary>
-        public bool Aiming { get; set; }
+        public bool Aiming { get; internal set; }
 
         /// <summary>
         /// What the cursor snaps to. None: the default (a friendly, then a hostile, then a cover location). Friendly or
         /// Hostile: only that side. Ground: nothing, the exact point under the cursor (an area is aimed freely).
         /// </summary>
-        public PointerTargetKind SnapTo { get; set; }
+        public PointerTargetKind SnapTo { get; internal set; }
 
         /// <summary>What the cursor is on as of the last update; None while the cursor is inactive.</summary>
         public PointerTarget Target => target;

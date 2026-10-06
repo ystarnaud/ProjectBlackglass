@@ -96,6 +96,19 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Check_AUnitDamageAbilityStoredAsFriendly_StillRefusesAnAlly()
+        {
+            yield return null;
+            // A hand-edited asset: the stored side says Friendly although the ability deals damage.
+            var field = typeof(AbilityDefinition).GetField("targetSide", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            field.SetValue(aimed, AbilityTargetSide.Friendly);
+            Assert.That(field.GetValue(aimed), Is.EqualTo(AbilityTargetSide.Friendly), "Precondition: the stored side is the unsafe one");
+
+            Assert.That(abilities.Check(aimed, ally, null).Failure, Is.EqualTo(AbilityFailure.WrongSide), "No friendly fire from a hand-edited asset");
+            Assert.That(abilities.Check(aimed, hostile, null).Failure, Is.Not.EqualTo(AbilityFailure.WrongSide));
+        }
+
+        [UnityTest]
         public IEnumerator Check_ARangeAtTheEdgeIsInRange_AndAHairBeyondIsNot()
         {
             yield return null;

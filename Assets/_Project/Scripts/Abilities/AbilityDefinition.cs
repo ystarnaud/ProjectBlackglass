@@ -44,8 +44,9 @@ namespace Blackglass
     {
         [SerializeField] string displayName = "Ability";
         [SerializeField] AbilityTargetMode targetMode = AbilityTargetMode.Unit;
-        // Derived from the effect (Damage = Hostile, Heal = Friendly); Create and OnValidate force it.
-        [SerializeField] AbilityTargetSide targetSide =AbilityTargetSide.Hostile;
+        // Derived from the effect (Damage = Hostile, Heal = Friendly): Create and OnValidate normalise the stored value, and
+        // TargetSide derives it again on every read, so a hand-edited asset cannot change it in a build either.
+        [SerializeField] AbilityTargetSide targetSide = AbilityTargetSide.Hostile;
         [SerializeField, Min(0.5f)] float range = 10f;
         [SerializeField] bool requiresLineOfSight = true;
         [SerializeField] AbilityCoverRule coverRule = AbilityCoverRule.Applies;
@@ -57,20 +58,22 @@ namespace Blackglass
 
         public string DisplayName => displayName;
         public AbilityTargetMode TargetMode => targetMode;
-        public AbilityTargetSide TargetSide => targetSide;
+        /// <summary>Always derived from <see cref="Effect"/>: damage targets hostiles, healing targets friendlies.</summary>
+        public AbilityTargetSide TargetSide => SideFor(Effect);
         /// <summary>Flat distance in metres from the caster to the target or point; inclusive.</summary>
         public float Range => range;
         public bool RequiresLineOfSight => requiresLineOfSight;
         public AbilityCoverRule CoverRule => coverRule;
         /// <summary>Seconds of scaled time before the same unit can use it again.</summary>
         public float Cooldown => cooldown;
-        public AbilityEffect Effect => effect;
+        /// <summary>A ground ability is always area damage, whatever the stored effect says.</summary>
+        public AbilityEffect Effect => targetMode == AbilityTargetMode.Ground ? AbilityEffect.Damage : effect;
         /// <summary>Damage dealt or hit points restored.</summary>
         public int Amount => amount;
         /// <summary>Ground abilities only.</summary>
         public float Radius => radius;
 
-        internal static AbilityDefinition Create(string displayName, AbilityTargetMode mode, AbilityTargetSide side,
+        internal static AbilityDefinition Create(string displayName, AbilityTargetMode mode,
             float range, bool requiresLineOfSight, AbilityCoverRule coverRule, float cooldown, AbilityEffect effect,
             int amount, float radius = 0f)
         {

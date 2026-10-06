@@ -180,7 +180,13 @@ namespace Blackglass
                 AttackBestHostile();
         }
 
-        void OnAttack(InputAction.CallbackContext context) => AttackBestHostile();
+        // Attack is not an ability order: pressing it while an ability is armed disarms it first, then attacks as usual.
+        void OnAttack(InputAction.CallbackContext context)
+        {
+            if (abilityTargeting != null && abilityTargeting.IsArmed)
+                abilityTargeting.Disarm();
+            AttackBestHostile();
+        }
 
         // Attack the cursor's hostile, else the chosen soft target, else the best hostile ahead of whoever is ordered.
         void AttackBestHostile()

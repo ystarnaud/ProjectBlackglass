@@ -174,7 +174,7 @@ namespace Blackglass
         public bool CanQueue(AbilityCommand command) => Accept(command, AbilityCheckScope.Static);
 
         /// <summary>Records a failure found outside this class (a click on nothing), so it shows like any other.</summary>
-        public void ReportFailure(AbilityDefinition ability, AbilityFailure failure) => RecordFailure(ability, failure);
+        internal void ReportFailure(AbilityDefinition ability, AbilityFailure failure) => RecordFailure(ability, failure);
 
         /// <summary>
         /// The living, active units hostile to this unit whose pivot is inside the blast radius at `center`. Used by the

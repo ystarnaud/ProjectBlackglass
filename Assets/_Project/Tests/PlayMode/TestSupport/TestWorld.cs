@@ -189,13 +189,13 @@ namespace Blackglass.Tests
 
         // The three prototype abilities with the shipped numbers, so scene and unit tests agree.
         public AbilityDefinition CreateAimedShot() => Track(AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit,
-            AbilityTargetSide.Hostile, 14f, true, AbilityCoverRule.Applies, 6f, AbilityEffect.Damage, 45));
+            14f, true, AbilityCoverRule.Applies, 6f, AbilityEffect.Damage, 45));
 
         public AbilityDefinition CreateBlast() => Track(AbilityDefinition.Create("Blast", AbilityTargetMode.Ground,
-            AbilityTargetSide.Hostile, 12f, true, AbilityCoverRule.Ignored, 10f, AbilityEffect.Damage, 35, 3f));
+            12f, true, AbilityCoverRule.Ignored, 10f, AbilityEffect.Damage, 35, 3f));
 
         public AbilityDefinition CreateMend() => Track(AbilityDefinition.Create("Mend", AbilityTargetMode.Unit,
-            AbilityTargetSide.Friendly, 8f, false, AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40));
+            8f, false, AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40));
 
         /// <summary>Waits (in real time, so it also works while paused) until the condition holds or the timeout passes.</summary>
         public static IEnumerator WaitUntil(Func<bool> condition, float timeoutSeconds)

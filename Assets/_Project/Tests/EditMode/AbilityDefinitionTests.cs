@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using NUnit.Framework;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -19,7 +20,7 @@ namespace Blackglass.Tests
         [Test]
         public void Create_ExposesEveryConfiguredValue()
         {
-            created = AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit, AbilityTargetSide.Hostile, 14f, true,
+            created = AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit, 14f, true,
                 AbilityCoverRule.Applies, 6f, AbilityEffect.Damage, 45);
 
             Assert.That(created.DisplayName, Is.EqualTo("Aimed Shot"));
@@ -35,9 +36,9 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void Create_AGroundAbility_IsAlwaysHostileAreaDamage()
+        public void Create_AGroundAbility_IsHostileAreaDamage()
         {
-            created = AbilityDefinition.Create("Blast", AbilityTargetMode.Ground, AbilityTargetSide.Friendly, 12f, true,
+            created = AbilityDefinition.Create("Blast", AbilityTargetMode.Ground, 12f, true,
                 AbilityCoverRule.Ignored, 10f, AbilityEffect.Damage, 35, 3f);
 
             Assert.That(created.TargetSide, Is.EqualTo(AbilityTargetSide.Hostile), "Area damage is hostile-only: no friendly fire");
@@ -45,18 +46,18 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void Create_AUnitDamageAbility_IsAlwaysHostile_WhateverSideItWasGiven()
+        public void Create_AUnitDamageAbility_IsHostile()
         {
-            created = AbilityDefinition.Create("Friendly Fire", AbilityTargetMode.Unit, AbilityTargetSide.Friendly, 10f, true,
+            created = AbilityDefinition.Create("Friendly Fire", AbilityTargetMode.Unit, 10f, true,
                 AbilityCoverRule.Applies, 5f, AbilityEffect.Damage, 20);
 
             Assert.That(created.TargetSide, Is.EqualTo(AbilityTargetSide.Hostile), "Damage never reaches the caster's side");
         }
 
         [Test]
-        public void Create_AUnitHealAbility_IsAlwaysFriendly_WhateverSideItWasGiven()
+        public void Create_AUnitHealAbility_IsFriendly()
         {
-            created = AbilityDefinition.Create("Reverse Mend", AbilityTargetMode.Unit, AbilityTargetSide.Hostile, 8f, false,
+            created = AbilityDefinition.Create("Reverse Mend", AbilityTargetMode.Unit, 8f, false,
                 AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40);
 
             Assert.That(created.TargetSide, Is.EqualTo(AbilityTargetSide.Friendly), "Healing never helps the other side");
@@ -65,9 +66,9 @@ namespace Blackglass.Tests
         [Test]
         public void Create_TheShippedAimedShotAndMend_KeepTheirSides()
         {
-            created = AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit, AbilityTargetSide.Hostile, 14f, true,
+            created = AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit, 14f, true,
                 AbilityCoverRule.Applies, 6f, AbilityEffect.Damage, 45);
-            var mend = AbilityDefinition.Create("Mend", AbilityTargetMode.Unit, AbilityTargetSide.Friendly, 8f, false,
+            var mend = AbilityDefinition.Create("Mend", AbilityTargetMode.Unit, 8f, false,
                 AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40);
             try
             {
@@ -84,21 +85,67 @@ namespace Blackglass.Tests
         public void Create_AGroundHeal_IsRejected()
         {
             Assert.Throws<ArgumentException>(() => AbilityDefinition.Create("Aura", AbilityTargetMode.Ground,
-                AbilityTargetSide.Friendly, 8f, false, AbilityCoverRule.Ignored, 5f, AbilityEffect.Heal, 10, 3f));
+                8f, false, AbilityCoverRule.Ignored, 5f, AbilityEffect.Heal, 10, 3f));
         }
 
         [Test]
         public void Create_AGroundAbilityWithoutARadius_IsRejected()
         {
             Assert.Throws<ArgumentException>(() => AbilityDefinition.Create("Blast", AbilityTargetMode.Ground,
-                AbilityTargetSide.Hostile, 12f, true, AbilityCoverRule.Ignored, 10f, AbilityEffect.Damage, 35, 0f));
+                12f, true, AbilityCoverRule.Ignored, 10f, AbilityEffect.Damage, 35, 0f));
         }
 
         [Test]
         public void Create_ARangeThatIsNotPositive_IsRejected()
         {
             Assert.Throws<ArgumentOutOfRangeException>(() => AbilityDefinition.Create("Nothing", AbilityTargetMode.Unit,
-                AbilityTargetSide.Hostile, 0f, false, AbilityCoverRule.Applies, 1f, AbilityEffect.Damage, 1));
+                0f, false, AbilityCoverRule.Applies, 1f, AbilityEffect.Damage, 1));
+        }
+
+        // Writes the STORED fields as a hand-edited asset would hold them. Reflection, not SerializedObject: applying
+        // serialized changes runs OnValidate in the Editor, which would normalise the very values under test.
+        static void WriteStored(AbilityDefinition definition, string field, object value) =>
+            typeof(AbilityDefinition).GetField(field, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(definition, value);
+
+        static object ReadStored(AbilityDefinition definition, string field) =>
+            typeof(AbilityDefinition).GetField(field, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(definition);
+
+        [Test]
+        public void TargetSide_OfAUnitDamageAbility_IsHostile_EvenWhenTheStoredSideSaysFriendly()
+        {
+            created = AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit, 14f, true,
+                AbilityCoverRule.Applies, 6f, AbilityEffect.Damage, 45);
+
+            WriteStored(created, "targetSide", AbilityTargetSide.Friendly);
+
+            Assert.That(ReadStored(created, "targetSide"), Is.EqualTo(AbilityTargetSide.Friendly), "Precondition: the stored side is the unsafe one");
+            Assert.That(created.Effect, Is.EqualTo(AbilityEffect.Damage));
+            Assert.That(created.TargetSide, Is.EqualTo(AbilityTargetSide.Hostile), "The getter derives the side, so a build cannot friendly-fire");
+        }
+
+        [Test]
+        public void Effect_OfAGroundAbility_IsDamage_AndItsSideHostile_EvenWhenTheStoredEffectSaysHeal()
+        {
+            created = AbilityDefinition.Create("Blast", AbilityTargetMode.Ground, 12f, true,
+                AbilityCoverRule.Ignored, 10f, AbilityEffect.Damage, 35, 3f);
+
+            WriteStored(created, "effect", AbilityEffect.Heal);
+
+            Assert.That(ReadStored(created, "effect"), Is.EqualTo(AbilityEffect.Heal), "Precondition: the stored effect is the unsafe one");
+            Assert.That(created.Effect, Is.EqualTo(AbilityEffect.Damage), "A ground ability is always area damage");
+            Assert.That(created.TargetSide, Is.EqualTo(AbilityTargetSide.Hostile));
+        }
+
+        [Test]
+        public void TargetSide_OfAUnitHealAbility_IsFriendly_EvenWhenTheStoredSideSaysHostile()
+        {
+            created = AbilityDefinition.Create("Mend", AbilityTargetMode.Unit, 8f, false,
+                AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40);
+
+            WriteStored(created, "targetSide", AbilityTargetSide.Hostile);
+
+            Assert.That(ReadStored(created, "targetSide"), Is.EqualTo(AbilityTargetSide.Hostile), "Precondition");
+            Assert.That(created.TargetSide, Is.EqualTo(AbilityTargetSide.Friendly));
         }
     }
 }
