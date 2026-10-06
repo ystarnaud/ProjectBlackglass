@@ -201,6 +201,69 @@ namespace Blackglass.Tests
             }
         }
 
+        // Decision 031: at every opening whose jamb is not flush with the room edge, a unit has cover from both directions: a
+        // corner point of a room-frame wall standing on the room side of the mouth and one on the hallway side, each within
+        // 2.5 m of the jamb corner. No room-frame wall has an end-cap column.
+        [UnityTest]
+        public IEnumerator EveryOpeningJamb_HasACornerOnTheRoomSide_AndOneOnTheHallwaySide_AndNoWallHasAColumn()
+        {
+            var jambsChecked = 0;
+            foreach (var seed in new[] { 1, 2, 3, 4, 5, 6, 12345 })
+            {
+                var layout = Layout(seed);
+                mission = MissionBuilder.Build(layout, null, null);
+                yield return null;
+                var points = Discover(mission).Points;
+
+                Assert.That(points.Where(p => p.Placement == CoverPlacement.Column && p.Obstacle.gameObject.name.StartsWith("Wall_")),
+                    Is.Empty, $"seed {seed}: a room-frame wall has no end cap");
+                var wallCorners = points.Where(p => p.Placement == CoverPlacement.Corner && p.Obstacle.gameObject.name.StartsWith("Wall_")).ToList();
+
+                foreach (var connection in layout.Connections)
+                {
+                    var strip = connection.Strip;
+                    var a = layout.Rooms[connection.RoomA];
+                    var b = layout.Rooms[connection.RoomB];
+                    var alongX = a.Cell.y == b.Cell.y;   // the strip runs along x between rooms side by side, else along z
+                    var firstRect = (alongX ? a.Cell.x < b.Cell.x : a.Cell.y < b.Cell.y) ? a.Rect : b.Rect;
+                    var secondRect = firstRect.Equals(a.Rect) ? b.Rect : a.Rect;
+                    for (var mouth = 0; mouth < 2; mouth++)
+                    {
+                        var room = mouth == 0 ? firstRect : secondRect;
+                        // The mouth plane is the room's inner face of the wall the strip passes through: the strip's near
+                        // edge for the first room, its far edge for the second. The room lies on the -1 or +1 side of it.
+                        var plane = alongX ? (mouth == 0 ? strip.xMin : strip.xMax) : (mouth == 0 ? strip.yMin : strip.yMax);
+                        var roomSide = mouth == 0 ? -1f : 1f;
+                        for (var jamb = 0; jamb < 2; jamb++)
+                        {
+                            var lateral = alongX ? (jamb == 0 ? strip.yMin : strip.yMax) : (jamb == 0 ? strip.xMin : strip.xMax);
+                            var gap = alongX ? (jamb == 0 ? strip.yMin - room.yMin : room.yMax - strip.yMax)
+                                : (jamb == 0 ? strip.xMin - room.xMin : room.xMax - strip.xMax);
+                            if (gap == 0)
+                                continue;   // flush with the room edge: the wall just continues, there is no jamb corner (a gap of 1 must fail here)
+                            var jambCorner = alongX ? layout.ToWorld(plane, lateral) : layout.ToWorld(lateral, plane);
+                            bool roomCorner = false, hallwayCorner = false;
+                            foreach (var corner in wallCorners)
+                            {
+                                if (CoverRules.FlatDistance(corner.Position, jambCorner) > 2.5f)
+                                    continue;
+                                var offset = corner.Position - jambCorner;
+                                var side = (alongX ? offset.x : offset.z) * roomSide;   // positive: on the room's side of the mouth
+                                roomCorner |= side > 0.1f;
+                                hallwayCorner |= side < -0.1f;
+                            }
+                            Assert.That(roomCorner, Is.True, $"seed {seed}: strip {strip} mouth {mouth} jamb {jamb} has a room-side corner");
+                            Assert.That(hallwayCorner, Is.True, $"seed {seed}: strip {strip} mouth {mouth} jamb {jamb} has a hallway-side corner");
+                            jambsChecked++;
+                        }
+                    }
+                }
+                DestroyMission();
+                yield return null;
+            }
+            Assert.That(jambsChecked, Is.GreaterThan(40), "the test is not vacuous: many non-flush jambs were checked");
+        }
+
         [UnityTest]
         public IEnumerator EveryLocation_IsReachableFromTheFriendlySpawn()
         {

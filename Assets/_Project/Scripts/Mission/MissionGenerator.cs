@@ -544,7 +544,7 @@ namespace Blackglass
             }
             if (connections.Count != rooms.Count - 1)
             {
-                reason = "the rooms cannot all be connected (corridors need an overlap of at least the corridor width)";
+                reason = "the rooms cannot all be connected (corridors need an overlap of at least the corridor width, or no corridor position that avoids a one-tile step to a room edge)";
                 return false;
             }
             for (var i = 0; i < extra.Count && i < s.extraLoops; i++)

@@ -157,7 +157,7 @@ namespace Blackglass.Tests
                 {
                     if (offset == 0f && sign != 0f || offset > 0f && sign == 0f)
                         continue;
-                    var radius = distance + sign * offset;
+                    var radius = Mathf.Max(1f, distance + sign * offset);   // never the caster's own spot
                     for (var step = 0; step < 16; step++)
                     {
                         var angle = step * Mathf.PI * 2f / 16f;
