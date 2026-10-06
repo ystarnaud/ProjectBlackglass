@@ -41,13 +41,20 @@ namespace Blackglass.Tests
                 foreach (var box in obstacles)
                 {
                     Assert.That(Tiles(box.Footprint).All(t => layout.IsFloor(t.x, t.y)), Is.True, $"{box.Name} floats");
-                    var wallGap = IsLow(box) ? MissionConstants.LowWallClearance : MissionConstants.Clearance;
-                    Assert.That(layout.Rooms.Any(r => Contains(r.Rect, box.Footprint, wallGap)), Is.True,
-                        $"seed {layout.Seed}: {box.Name} is closer than {wallGap} tiles to a wall");
+                    var room = layout.Rooms.Where(r => Contains(r.Rect, box.Footprint, 0)).ToList();
+                    Assert.That(room, Has.Count.EqualTo(1), $"seed {layout.Seed}: {box.Name} stands inside one room");
+                    var gaps = WallGaps(room[0].Rect, box.Footprint).ToList();
+                    for (var wall = 0; wall < 4; wall++)
+                    {
+                        if (gaps[wall] == 0 && MayTouch(box, wall))
+                            continue;
+                        Assert.That(gaps[wall], Is.GreaterThanOrEqualTo(MissionConstants.Clearance),
+                            $"seed {layout.Seed}: {box.Name} stands {gaps[wall]} tile(s) from room wall {wall}");
+                    }
                     foreach (var c in layout.Connections)
                         Assert.That(box.Footprint.Overlaps(c.Strip), Is.False);
                 }
-                // Every pair, low or tall, keeps the full clearance: only the gap to a room wall is relaxed for low objects.
+                // Every pair, low or tall, keeps the full clearance: only the gap to a room wall differs for low objects.
                 for (var i = 0; i < obstacles.Count; i++)
                     for (var j = i + 1; j < obstacles.Count; j++)
                         Assert.That(Inflate(obstacles[i].Footprint, MissionConstants.Clearance).Overlaps(obstacles[j].Footprint), Is.False,
@@ -174,15 +181,67 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void MissionsHaveSignificantLowCover_MedianAtLeastSix_AndAlmostAllAtLeastThree()
+        public void MissionsHaveUsefulLowCover_MedianAtLeastThree_AndMostAtLeastTwo()
         {
+            // Every low object is useful by construction (free-standing, or a wall touching a room wall end-on only), so
+            // the object count is the useful count. Measured over seeds 1 to 60: median 3, 50 seeds with at least 2, 39
+            // with at least 3. The median floor is the owner's minimum (decision 030), not a margin below the measurement.
             var counts = Layouts().Select(l => l.Boxes.Count(IsLow)).OrderBy(n => n).ToList();
             var all = $"low objects per mission, sorted: {string.Join(",", counts)}";
-            Assert.That(counts[counts.Count / 2], Is.GreaterThanOrEqualTo(6), all);
-            Assert.That(counts.Count(n => n >= 3), Is.GreaterThanOrEqualTo(Seeds * 9 / 10), all);
+            Assert.That(counts[counts.Count / 2], Is.GreaterThanOrEqualTo(3), all);
+            Assert.That(counts.Count(n => n >= 2), Is.GreaterThanOrEqualTo(45), all);
+            Assert.That(counts.Count(n => n >= 3), Is.GreaterThanOrEqualTo(33), all);
+        }
+
+        [Test]
+        public void LowCover_KeepsTwoTilesFromRoomWalls_OrTouchesOneWithALowWallsShortEnd()
+        {
+            // Decision 030: a one-tile gap is too narrow for a unit on the eroded NavMesh (dead pockets). A low wall may
+            // touch one room wall with its short end (a peninsula: both long faces keep a lane to the other walls); it never
+            // lies flush along a wall, a crate is never flush, and nothing stands flush in a room corner.
+            var endOn = 0;
+            var low = 0;
+            foreach (var layout in Layouts())
+                foreach (var box in Obstacles(layout).Where(IsLow))
+                {
+                    low++;
+                    var room = layout.Rooms.Single(r => Contains(r.Rect, box.Footprint, 0));
+                    var gaps = WallGaps(room.Rect, box.Footprint).ToList();
+                    var label = $"seed {layout.Seed}: {box.Name} gaps W,E,S,N {string.Join(",", gaps)}";
+                    Assert.That(gaps, Has.None.EqualTo(1), label);
+                    Assert.That(gaps.Count(g => g == 0), Is.LessThanOrEqualTo(1), label + ": flush against two walls");
+                    if (box.Kind == MissionBoxKind.Crate)
+                        Assert.That(gaps, Has.None.EqualTo(0), label + ": a crate is never flush");
+                    for (var wall = 0; wall < 4; wall++)
+                        if (gaps[wall] == 0)
+                            Assert.That(MayTouch(box, wall), Is.True, label + ": a low wall lies flush along a room wall");
+                    if (gaps.Contains(0))
+                        endOn++;
+                }
+            Assert.That(low, Is.GreaterThan(0));
+            Assert.That(endOn, Is.GreaterThan(0), "the relaxed half of the tries does stand low walls end-on against a room wall");
         }
 
         static bool IsLow(MissionBox b) => b.Kind == MissionBoxKind.LowWall || b.Kind == MissionBoxKind.Crate;
+
+        // Whether the box may touch room wall `wall` (0 west, 1 east, 2 south, 3 north, as WallGaps): only a low wall, and
+        // only with its short end: a horizontal (3 x 1) wall the west or east wall, a vertical (1 x 3) one the south or north.
+        static bool MayTouch(MissionBox box, int wall)
+        {
+            if (box.Kind != MissionBoxKind.LowWall)
+                return false;
+            var horizontal = box.Footprint.width > box.Footprint.height;
+            return horizontal ? wall <= 1 : wall >= 2;
+        }
+
+        // The free tiles between the footprint and each of its room's four walls: west, east, south, north.
+        static IEnumerable<int> WallGaps(RectInt room, RectInt footprint)
+        {
+            yield return footprint.xMin - room.xMin;
+            yield return room.xMax - footprint.xMax;
+            yield return footprint.yMin - room.yMin;
+            yield return room.yMax - footprint.yMax;
+        }
 
         static RectInt Inflate(RectInt r, int by) => new RectInt(r.x - by, r.y - by, r.width + 2 * by, r.height + 2 * by);
 

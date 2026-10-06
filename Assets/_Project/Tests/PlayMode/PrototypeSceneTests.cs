@@ -41,16 +41,18 @@ namespace Blackglass.Tests
             "Pillar_G", "Pillar_H", "Barrier_I", "Crate_J", "Crate_K", "LowWall_L", "LowWall_M", "LowWall_N",
         };
 
-        // Decision 027: the locations each obstacle yields (corner count, face count). Low obstacles get face points along
-        // every face; tall walls only corners that open outward (the peek point must be on the NavMesh, which is eroded
-        // around neighbouring obstacles, and the stand point must be walkable: Obstacle_B, Obstacle_E and Obstacle_F keep
-        // three of four corners; Obstacle_E's north-west candidate was already dropped by the stand-point filter before
-        // 027); tall pillars, crates and stubs (Obstacle_A, Obstacle_D, Pillar_G, Pillar_H, Crate_J, Crate_K) none.
-        static readonly (string name, int corners, int faces)[] CoverCountsPerObstacle =
+        // Decisions 027 and 030: the locations each obstacle yields (corner, column and face counts). Low obstacles get
+        // face points along every face; tall walls corners that open outward (the peek point must be on the NavMesh, which
+        // is eroded around neighbouring obstacles, and the stand point must be walkable: Obstacle_B, Obstacle_E and
+        // Obstacle_F keep three of four corners; Obstacle_E's north-west candidate was already dropped by the stand-point
+        // filter before 027) plus one column beyond each 1 m end cap whose stand point is walkable (Obstacle_F's south
+        // one, 0.25 m from Obstacle_C, is not). Tall boxes with no face as narrow as a unit (Obstacle_A, Obstacle_D, the
+        // 1.5 m pillars Pillar_G and Pillar_H, Crate_J, Crate_K) and Obstacle_B's 2 m ends get none.
+        static readonly (string name, int corners, int columns, int faces)[] CoverCountsPerObstacle =
         {
-            ("Barrier_I", 4, 0), ("Obstacle_CentralWall", 4, 0), ("Obstacle_B", 3, 0), ("Obstacle_E", 3, 0), ("Obstacle_F", 3, 0),
-            ("Obstacle_C", 0, 11), ("LowWall_L", 0, 6), ("LowWall_M", 0, 8), ("LowWall_N", 0, 4),
-            ("Obstacle_A", 0, 0), ("Obstacle_D", 0, 0), ("Pillar_G", 0, 0), ("Pillar_H", 0, 0), ("Crate_J", 0, 0), ("Crate_K", 0, 0),
+            ("Barrier_I", 4, 2, 0), ("Obstacle_CentralWall", 4, 2, 0), ("Obstacle_B", 3, 0, 0), ("Obstacle_E", 3, 2, 0), ("Obstacle_F", 3, 1, 0),
+            ("Obstacle_C", 0, 0, 11), ("LowWall_L", 0, 0, 6), ("LowWall_M", 0, 0, 8), ("LowWall_N", 0, 0, 4),
+            ("Obstacle_A", 0, 0, 0), ("Obstacle_D", 0, 0, 0), ("Pillar_G", 0, 0, 0), ("Pillar_H", 0, 0, 0), ("Crate_J", 0, 0, 0), ("Crate_K", 0, 0, 0),
         };
 
         internal static CommandableUnit[] FindSquad() =>
@@ -105,22 +107,24 @@ namespace Blackglass.Tests
                 "east-end corners: locations of different objects never remove each other");
 
             Assert.That(CoverCountsPerObstacle.Select(c => c.name), Is.EquivalentTo(ArenaObstacles), "every obstacle has an expectation");
-            foreach (var (name, corners, faces) in CoverCountsPerObstacle)
+            foreach (var (name, corners, columns, faces) in CoverCountsPerObstacle)
             {
                 var collider = GameObject.Find(name).GetComponent<Collider>();
                 var own = registry.Points.Where(p => p.Obstacle == collider).ToList();
                 Assert.That(own.Count(p => p.Placement == CoverPlacement.Corner), Is.EqualTo(corners), $"{name} corner locations");
+                Assert.That(own.Count(p => p.Placement == CoverPlacement.Column), Is.EqualTo(columns), $"{name} column locations");
                 Assert.That(own.Count(p => p.Placement == CoverPlacement.Face), Is.EqualTo(faces), $"{name} face locations");
             }
-            Assert.That(registry.Points.Where(p => p.Height == CoverHeight.Tall).All(p => p.Placement == CoverPlacement.Corner && p.HasPeek), Is.True,
-                "every Tall location is a corner that opens outward: no cover along a tall wall");
-            Assert.That(registry.Points, Has.Count.EqualTo(CoverCountsPerObstacle.Sum(c => c.corners + c.faces)), "46 locations in all");
+            Assert.That(registry.Points.Where(p => p.Height == CoverHeight.Tall)
+                    .All(p => (p.Placement == CoverPlacement.Corner && p.HasPeek) || (p.Placement == CoverPlacement.Column && !p.HasPeek)), Is.True,
+                "every Tall location is a corner that opens outward or a column: no cover along a tall wall");
+            Assert.That(registry.Points, Has.Count.EqualTo(CoverCountsPerObstacle.Sum(c => c.corners + c.columns + c.faces)), "53 locations in all");
 
             // The scene stores the generation settings on its CoverDiscovery component, which overrides the class
             // defaults: pin them, and pin the gaps they produce (a 3 m wall: usable 2 m, three south points 1 m apart).
             var settings = Object.FindFirstObjectByType<CoverDiscovery>().Settings;
             Assert.That(settings.spacing, Is.EqualTo(1f), "The scene's CoverDiscovery spacing");
-            Assert.That(settings.mergeDistance, Is.EqualTo(0.9f), "The scene's CoverDiscovery mergeDistance");
+            Assert.That(settings.columnMaxWidth, Is.EqualTo(1.1f), "The scene's CoverDiscovery columnMaxWidth");
             var lowWallL = GameObject.Find("LowWall_L").GetComponent<Collider>();
             var south = registry.Points.Where(p => p.Obstacle == lowWallL && p.Facing.z > 0.5f).OrderBy(p => p.Position.x).ToList();
             Assert.That(south, Has.Count.EqualTo(3), "LowWall_L's south face has three points at 1 m spacing");

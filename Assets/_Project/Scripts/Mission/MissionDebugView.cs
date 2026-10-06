@@ -19,7 +19,7 @@ namespace Blackglass
             {
                 text.Append(FormattableString.Invariant($"\n{report.Rooms} rooms, {report.Connections} connections, floor {report.FloorTiles} m2"));
                 text.Append(FormattableString.Invariant($"\nNav {report.NavArea:0} m2, {report.PathsChecked} paths ok"));
-                text.Append(FormattableString.Invariant($"\nCover {report.CoverTotal} (low {report.CoverLow}, tall {report.CoverTall}, corner {report.CoverCorner})"));
+                text.Append(FormattableString.Invariant($"\nCover {report.CoverTotal} (low {report.CoverLow}, tall {report.CoverTall}, corner {report.CoverCorner}, column {report.CoverColumn})"));
                 text.Append(FormattableString.Invariant($"\nSpawns {report.FriendlySpawns} friendly / {report.HostileSpawns} hostile, {report.TeamSeparation:0.0} m apart"));
                 text.Append(FormattableString.Invariant($"\nBounds {report.Bounds.size.x:0} x {report.Bounds.size.z:0} m"));
             }

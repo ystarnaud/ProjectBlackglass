@@ -140,24 +140,52 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator Cover_OnlyWhereItCovers_EveryTallLocationIsAnOutwardOpeningCorner_AndLowCoverStillExists()
+        public IEnumerator Cover_OnlyWhereItCovers_TallLocationsAreOutwardCornersOrColumns_AndLowCoverStillExists()
         {
             foreach (var seed in new[] { 1, 2, 3, 4, 5, 6, 7, 8, 12345 })
             {
-                mission = MissionBuilder.Build(Layout(seed), null, null);
+                var layout = Layout(seed);
+                mission = MissionBuilder.Build(layout, null, null);
                 yield return null;
                 var registry = Discover(mission);
 
                 var tall = registry.Points.Where(p => p.Height == CoverHeight.Tall).ToList();
                 var low = registry.Points.Where(p => p.Height == CoverHeight.Low).ToList();
+                var corners = tall.Where(p => p.Placement == CoverPlacement.Corner).ToList();
+                var columns = tall.Where(p => p.Placement == CoverPlacement.Column).ToList();
                 Assert.That(tall.Any(p => p.Placement == CoverPlacement.Face), Is.False, $"seed {seed}: no cover along a tall wall");
-                Assert.That(tall.All(p => p.Placement == CoverPlacement.Corner && p.HasPeek), Is.True, $"seed {seed}: every tall location is a corner that opens outward");
-                Assert.That(tall, Is.Not.Empty, $"seed {seed}: wall ends give corners");
+                Assert.That(corners.All(p => p.HasPeek), Is.True, $"seed {seed}: every corner opens outward");
+                Assert.That(columns.All(p => !p.HasPeek), Is.True, $"seed {seed}: a column has no peek data");
+                Assert.That(corners.Count + columns.Count, Is.EqualTo(tall.Count), $"seed {seed}: every tall location is a corner or a column");
+                Assert.That(corners, Is.Not.Empty, $"seed {seed}: wall ends give corners");
                 Assert.That(low, Is.Not.Empty, $"seed {seed}: low cover still exists");
                 Assert.That(low.All(p => p.Placement == CoverPlacement.Face), Is.True, $"seed {seed}");
                 // Every corner's peek point is open floor: the whole point of the rule.
-                foreach (var corner in tall)
+                foreach (var corner in corners)
                     Assert.That(NavMesh.SamplePosition(corner.PeekPoint, out _, 0.3f, NavMesh.AllAreas), Is.True, $"seed {seed}: {corner.Name} peek point is walkable");
+
+                // Decision 030: cover belongs to its object. A baffle keeps its four corners and gets a column beyond each
+                // end; a pillar (its sides are always free: obstacles keep 2 tiles of clearance) gets one on every face.
+                foreach (var baffle in layout.Boxes.Where(b => b.Kind == MissionBoxKind.Baffle))
+                {
+                    Assert.That(corners.Count(p => p.Obstacle.gameObject.name == baffle.Name), Is.EqualTo(4), $"seed {seed}: {baffle.Name} corners");
+                    var ends = columns.Where(p => p.Obstacle.gameObject.name == baffle.Name).ToList();
+                    Assert.That(ends, Has.Count.EqualTo(2), $"seed {seed}: {baffle.Name} end-cap columns");
+                    foreach (var end in ends)
+                        Assert.That(NavMesh.SamplePosition(end.Position, out _, 0.25f, NavMesh.AllAreas), Is.True, $"seed {seed}: {end.Name} is on the NavMesh");
+                }
+                foreach (var pillar in layout.Boxes.Where(b => b.Kind == MissionBoxKind.Pillar))
+                    Assert.That(columns.Count(p => p.Obstacle.gameObject.name == pillar.Name), Is.EqualTo(4), $"seed {seed}: {pillar.Name} columns");
+
+                // Every location is reachable from the friendly spawn.
+                NavMesh.SamplePosition(layout.TileCenter(layout.FriendlySpawns[0]), out var start, 1f, NavMesh.AllAreas);
+                var path = new NavMeshPath();
+                foreach (var point in registry.Points)
+                {
+                    Assert.That(NavMesh.SamplePosition(point.Position, out var hit, 0.5f, NavMesh.AllAreas), Is.True, $"seed {seed}: {point.Name}");
+                    Assert.That(NavMesh.CalculatePath(start.position, hit.position, NavMesh.AllAreas, path) && path.status == NavMeshPathStatus.PathComplete,
+                        Is.True, $"seed {seed}: {point.Name} is reachable");
+                }
                 DestroyMission();
                 yield return null;
             }

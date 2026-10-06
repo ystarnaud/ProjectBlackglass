@@ -119,5 +119,24 @@ namespace Blackglass.Tests
             var behind = corner.Position - corner.Facing * 8f + Vector3.up;
             Assert.That(corner.ProtectsFrom(behind, standPivot), Is.False, "From behind the defender the wall is not between them");
         }
+
+        [UnityTest]
+        public IEnumerator AnEndCapColumnProtectsFromAlongTheWall_AndNotFromTheSide()
+        {
+            yield return new WaitForFixedUpdate();
+            discovery.Discover();
+            var wall = TestWorld.ObstacleCollider(environment, 1);
+            var columns = registry.Points.Where(l => l.Obstacle == wall && l.Placement == CoverPlacement.Column).ToList();
+            Assert.That(columns, Has.Count.EqualTo(2), "the 6 m tall wall's two 1 m end caps");
+            var east = columns.Single(l => l.Facing.x < -0.99f);
+            Assert.That(east.Position.x, Is.EqualTo(3.75f).Within(0.01f), "0.75 m beyond the east end, on the wall's axis");
+            Assert.That(east.Position.z, Is.EqualTo(10f).Within(0.01f));
+            var standPivot = east.Position + Vector3.up;
+
+            Assert.That(east.ProtectsFrom(east.Position + east.Facing * 9f + Vector3.up, standPivot), Is.True,
+                "an attacker beyond the far end, in line with the wall, is blocked by the whole wall");
+            Assert.That(east.ProtectsFrom(east.Position + Vector3.forward * 8f + Vector3.up, standPivot), Is.False,
+                "from the side the wall is not between them");
+        }
     }
 }

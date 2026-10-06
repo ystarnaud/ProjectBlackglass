@@ -32,6 +32,7 @@ namespace Blackglass
         public int CoverLow;
         public int CoverTall;
         public int CoverCorner;
+        public int CoverColumn;
         public int FriendlySpawns;
         public int HostileSpawns;
         public float TeamSeparation;
@@ -329,6 +330,8 @@ namespace Blackglass
                     report.CoverTall++;
                 if (point.Placement == CoverPlacement.Corner)
                     report.CoverCorner++;
+                else if (point.Placement == CoverPlacement.Column)
+                    report.CoverColumn++;
             }
         }
 

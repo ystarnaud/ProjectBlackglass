@@ -8,7 +8,7 @@ namespace Blackglass.Tests
         static MissionReport Ready() => new MissionReport
         {
             Seed = 12345, Attempt = 2, AttemptsMade = 2, MaxAttempts = 20, Succeeded = true, Rooms = 6, Connections = 6,
-            FloorTiles = 520, NavArea = 311.4f, PathsChecked = 15, CoverTotal = 180, CoverLow = 70, CoverTall = 110, CoverCorner = 24,
+            FloorTiles = 520, NavArea = 311.4f, PathsChecked = 15, CoverTotal = 180, CoverLow = 70, CoverTall = 110, CoverCorner = 24, CoverColumn = 12,
             FriendlySpawns = 3, HostileSpawns = 3, TeamSeparation = 21.3f, Bounds = new Bounds(Vector3.zero, new Vector3(50f, 3f, 38f)),
         };
 
@@ -17,7 +17,7 @@ namespace Blackglass.Tests
         {
             var text = MissionDebugText.Describe(MissionState.Ready, Ready());
             foreach (var part in new[] { "Seed 12345", "attempt 2/20", "Ready", "6 rooms", "6 connections", "Nav 311", "15 paths ok",
-                         "Cover 180", "low 70", "tall 110", "corner 24", "Spawns 3 friendly / 3 hostile", "21.3 m apart", "50 x 38" })
+                         "Cover 180", "low 70", "tall 110", "corner 24", "column 12", "Spawns 3 friendly / 3 hostile", "21.3 m apart", "50 x 38" })
                 Assert.That(text, Does.Contain(part));
         }
 
