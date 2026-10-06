@@ -109,6 +109,68 @@ namespace Blackglass.Tests
             }
         }
 
+        [Test]
+        public void Attempt_IsAPureFunctionOfSeedAndAttemptNumber()
+        {
+            var settings = new MissionSettings { seed = 99 }.Validated();
+            Assert.That(MissionGenerator.TryAttempt(settings, 3, out var a, out var ra), Is.EqualTo(MissionGenerator.TryAttempt(settings, 3, out var b, out var rb)));
+            Assert.That(ra, Is.EqualTo(rb));
+            if (a != null)
+                Assert.That(a.Hash, Is.EqualTo(b.Hash));
+            // The final layout does not depend on how often the generator was called before.
+            MissionGenerator.Generate(new MissionSettings { seed = 5 });
+            Assert.That(Make(99).Hash, Is.EqualTo(Make(99).Hash));
+        }
+
+        [Test]
+        public void Generate_DoesNotTouchUnityEngineRandom()
+        {
+            UnityEngine.Random.InitState(2024);
+            var expected = new[] { UnityEngine.Random.value, UnityEngine.Random.value };
+            UnityEngine.Random.InitState(2024);
+            MissionGenerator.Generate(new MissionSettings { seed = 321 });
+            var actual = new[] { UnityEngine.Random.value, UnityEngine.Random.value };
+            Assert.That(actual, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void Generate_FailsCleanlyWhenTheTeamsCannotBeSeparated()
+        {
+            // A 2x2 grid of 12 m cells is 24 m across, so 60 m between the teams is impossible by construction.
+            var result = MissionGenerator.Generate(new MissionSettings { seed = 1, gridColumns = 2, gridRows = 2, cellSize = 12, roomCount = 4, minTeamSeparation = 60f, maxAttempts = 5 });
+            Assert.That(result.Succeeded, Is.False);
+            Assert.That(result.Failures, Has.Count.EqualTo(5), "exactly maxAttempts attempts, then it stops");
+            Assert.That(result.Describe(), Does.Contain("seed=1").And.Contain("attempts=5").And.Contain("attempt 5:"));
+        }
+
+        [Test]
+        public void Generate_ClampsDegenerateSettings_InsteadOfThrowingOrHanging()
+        {
+            var result = MissionGenerator.Generate(new MissionSettings
+            {
+                gridColumns = 1, gridRows = 1, cellSize = 1, roomCount = 99, corridorWidth = 0, maxAttempts = 1000,
+                hostileCount = 0, friendlyCount = 0,
+            });
+            Assert.That(result.Settings.maxAttempts, Is.EqualTo(100));
+            Assert.That(result.Settings.roomCount, Is.EqualTo(4));
+            Assert.That(result.Succeeded || result.Failures.Count == 100, Is.True);
+        }
+
+        // Golden layouts: the hashes pin determinism across code changes. Change the generator on purpose and these
+        // move: update them in the same commit and say so in the message.
+        static readonly Dictionary<int, ulong> Golden = new Dictionary<int, ulong>
+        {
+            { 12345, 14220562657028375764UL },
+            { 1, 15988972723325530631UL },
+            { 2, 12956403701679257756UL },
+        };
+
+        [TestCase(12345)]
+        [TestCase(1)]
+        [TestCase(2)]
+        public void GoldenSeeds_KeepTheirLayoutHash(int seed) =>
+            Assert.That(Make(seed).Hash, Is.EqualTo(Golden[seed]), $"seed {seed}");
+
         static IEnumerable<Vector2Int> Tiles(RectInt r)
         {
             for (var x = r.xMin; x < r.xMax; x++)
