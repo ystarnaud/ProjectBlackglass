@@ -55,6 +55,7 @@ New code lives in `Scripts/Abilities/`. Input and view code only ask; they hold 
 | `AbilityTargeting` | MonoBehaviour on `Systems` | armed slot, caster, pointer resolution, live `Preview`, `Confirm` |
 | `AbilityTargetingView`, `AbilityBarView` | debug views | range/AOE circles, validity colour, ability bar, debug lines |
 | `CombatArchetype` | ScriptableObject | weapon preset: role, range, damage, attack interval |
+| `AbilityMenuGate` | MonoBehaviour on `Systems` | while the ability-menu action is held, disables the plain D-pad actions that would clash with the ability chord |
 
 `CommandableUnit` gains an `AbilityCommand` case and a call into `UnitAbilities`. Small, additive changes elsewhere: `Health.Heal`, `Encounter.AreHostile`, `UnitAttacker.ApplyArchetype`, `StickRole` (armed overload), `TacticalCursor` (snap side), `PlayerCommandInput.Act`/Cancel diversion, `PromptResolver` (composite prompts), `CommandQueueView`, `PrototypeHud`, the Input Actions asset, the scene.
 
@@ -145,10 +146,10 @@ While armed, `AbilityTargeting` resolves a `PointerTarget` every frame: the mous
 
 ## 7. Input
 
-New semantic actions `Ability1`–`Ability4` in the Commands map. Keyboard/mouse: keys 1–4. Pad, in all four families: a `ButtonWithOneModifier` chord of the right trigger (R2 / RT / ZR) with D-pad up, right, down, left. Nothing in gameplay code names a device or button (the existing scan test keeps passing).
+New semantic actions `Ability1`–`Ability4` and `AbilityMenu` in the Commands map. Keyboard/mouse: keys 1–4. Pad, in all four families: a `ButtonWithOneModifier` chord of the right trigger (R2 / RT / ZR) with D-pad up, right, down, left. Nothing in gameplay code names a device or button (the existing scan test keeps passing).
 
 - Per decision 024, every new action is bound in all four pad groups and every binding, composite parts included, has a group; the asset tests enforce it.
-- The chord must not also fire the plain D-pad actions (Stop on down, Follow on up, target cycling left/right). Input System shortcut-key consumption does this when `shortcutKeysConsumeInput` is on, which the package documents as the default. A PlayMode test holds R2 and presses D-pad down on a simulated pad and asserts that the ability arms and **no Stop is issued**. If the setting is not already on, the plan turns it on, and the test decides.
+- The chord must not also fire the plain D-pad actions (Stop on down, Follow on up, target cycling left/right). Input System shortcut-key consumption would do this, but in Input System 1.20 `shortcutKeysConsumeInput` is **off** by default (the package source calls it an opt-in feature), and turning it on is a project-wide change. Instead a small `AbilityMenuGate` component disables the conflicting plain actions (a serialized list of action references) while a semantic `AbilityMenu` action (bound to the same trigger) is held, and re-enables them on release, on cancellation (a family switch or an unplugged pad) and every frame as a reconcile. A PlayMode test holds R2 and presses D-pad down on a simulated pad and asserts that the ability arms and **no Stop is issued**, and that Stop works again after R2 is released. *(Amended 2026-10-06 while planning: this spec first said the setting was on by default, which is wrong.)*
 - `PromptResolver` is extended to describe a composite binding by its parts ("RT + D-pad Up"), with a test; prompts stay derived from the bindings, so rebinding changes them.
 - R2 held also keeps its existing meaning in `TacticalCameraController` and `TacticalCursor` (the stick swap) when nothing is armed; arming flips the stick to the cursor at once.
 
