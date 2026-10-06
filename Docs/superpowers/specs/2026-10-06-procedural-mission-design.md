@@ -59,10 +59,10 @@ Coordinates are tiles of 1 m; the mission rectangle is centred on the world orig
 1. **Choose rooms.** From a `gridColumns × gridRows` grid of `cellSize` cells, grow a connected set of `roomCount` cells from a seeded start cell (add a random neighbour of the set each step). Inside each chosen cell, the room is a rectangle of 7–10 tiles per side, inset at least 2 tiles from the cell edge (so the gutter between neighbouring rooms is at least 4 m) and placed at a seeded integer offset.
 2. **Connect.** A spanning tree over the adjacent chosen cells, plus up to `extraLoops` additional adjacent pairs. Each connection is a corridor strip `corridorWidth` wide that runs between the two rooms across the gutter, placed at a seeded offset inside the rooms' overlap on the shared axis. Both ends sit fully inside the rooms, so the room wall gets a door gap exactly as wide as the corridor. A pair whose overlap is smaller than `corridorWidth` is not a legal connection; if the tree cannot be completed the attempt fails.
 3. **Rasterise.** Floor mask = union of rooms and corridor strips.
-4. **Tall obstacles.** Per room, up to `bafflesPerRoom` free-standing tall wall segments (3–5 tiles long, 1 thick, axis-aligned) and up to one pillar (1×1, tall). A candidate is placed only if it keeps a clear gap of at least 2 tiles to every wall, door gap, other obstacle and spawn region, and if the walkable area stays connected (below). Tries are bounded per room.
+4. **Tall obstacles.** Per room, up to `bafflesPerRoom` free-standing tall wall segments (3–5 tiles long, 1 thick, axis-aligned) and up to one pillar (1×1, tall). A candidate is placed only if it keeps a clear gap of at least 2 tiles to every wall, door gap and other obstacle, and if the walkable area stays connected (below). Tries are bounded per room.
 5. **Low cover.** Total target = `lowCoverDensity` per 100 m² of floor, spread over rooms in seeded order: low walls 3×1 and crates 1×1, height 1 m, same clearance and connectivity rules, never in a door gap or corridor.
 6. **Walls.** Wall tiles are the void tiles 8-adjacent to a floor tile. They are decomposed into boxes by a deterministic greedy rectangle cover (maximal runs first, merged when stacked with identical extent), so the room frame becomes a few long boxes. A door gap therefore ends the wall in a clean end face, and free-standing baffles and corridor sides give more ends. Those ends are exactly what the cover generator turns into corner locations.
-7. **Spawn regions.** Build the room graph; BFS distances give the room pair with the greatest graph distance (ties by the seeded RNG): the friendly room and the main hostile room. The friendly region is that room's interior shrunk by 2 tiles; hostiles fill the farthest room's region first and then the next-farthest room's (at most two rooms). Spawn tiles are shuffled by the RNG and accepted if clear of obstacles by the clearance rule, at least 2.5 m from every already chosen unit, and at least `minTeamSeparation` (16 m) straight-line from every unit of the other team. If a region cannot supply all its points, the attempt fails.
+7. **Spawn regions.** Build the room graph; BFS distances give the room pair with the greatest graph distance (ties by the seeded RNG): the friendly room and the main hostile room. The friendly region is that room's interior shrunk by 2 tiles; hostiles fill the farthest room's region first and then the next-farthest room's (at most two rooms). Spawn tiles are shuffled by the RNG and accepted if at least 1 tile from every obstacle and inside the room walls by 1 tile (the region), at least 2.5 m from every already chosen unit, and at least `minTeamSeparation` (16 m) straight-line from every unit of the other team. If a region cannot supply all its points, the attempt fails.
 8. **Output.** `MissionLayout`: settings echo, seed, attempt, mask, rooms, connections, wall boxes, obstacle boxes (each tagged tall or low), spawn regions, friendly and hostile spawn tiles, bounds (`Bounds`, world space) and `Hash`.
 
 **Connectivity (grid level).** A 4-connected flood fill over floor tiles not covered by an obstacle must reach every floor tile from a friendly spawn tile, every room must contain a reachable tile, and every hostile spawn tile must be reachable. It runs after each obstacle placement (rejecting the candidate) and once more on the final layout (failing the attempt). The 2-tile clearance rule keeps paths at least 2 m wide; `corridorWidth` is clamped to at least 3.
@@ -78,11 +78,11 @@ Coordinates are tiles of 1 m; the mission rectangle is centred on the world orig
 
 A `NavMeshSurface` (collect objects: Children, agent type 0, the project's agent radius 0.5 and height) sits on `Geometry` and `BuildNavMesh()` runs synchronously after `Physics.SyncTransforms()`. `Blackglass.asmdef` gains a reference to `Unity.AI.Navigation` (the package is already in the manifest; no new package).
 
-**Navigation validation** runs after the build: the surface has data; the NavMesh triangulation area is at least a fraction (50%) of the floor area; a complete path (`NavMeshPathStatus.PathComplete`) exists from the friendly spawn point to the centre of every room and to every hostile spawn point; every spawn point snaps to the NavMesh within 1 m. A failure ends the attempt (the root is torn down) and the next attempt starts.
+**Navigation validation** runs after the build: the surface has data; the NavMesh triangulation area is at least a fraction (30%) of the floor area; a complete path (`NavMeshPathStatus.PathComplete`) exists from the friendly spawn point to the centre of every room and to every hostile spawn point; every spawn point snaps to the NavMesh within 1 m. A failure ends the attempt (the root is torn down) and the next attempt starts.
 
 ## 6. Cover
 
-`CoverDiscovery` gains `Discover(Transform root, Func<Vector3, bool> isReachable = null)`. It collects `CoverSurface`s under `root` only (the no-argument `Discover()` is unchanged, so the arena and its tests are unaffected), runs the existing `CoverGenerator` and feeds the walkable predicate with the existing `SamplePosition` test **and** the optional reachability test. The mission passes "a complete path exists from the friendly spawn" so unreachable locations never reach the registry. The discovery result also reports how many candidates the reachability filter dropped (debug only).
+`CoverDiscovery` gains `Discover(Transform root, Func<Vector3, bool> isReachable = null)`. It collects `CoverSurface`s under `root` only (the no-argument `Discover()` is unchanged, so the arena and its tests are unaffected), runs the existing `CoverGenerator` and feeds the walkable predicate with the existing `SamplePosition` test **and** the optional reachability test. The mission passes "a complete path exists from the friendly spawn" so unreachable locations never reach the registry.
 
 No second cover representation exists. AI, `MoveToCover`, the cover view and the controller cursor consume the same `CoverLocation`s. Teardown calls `registry.Rebuild(empty)` before destroying anything: every old location is retired, its claim dropped, and it reads as invalid.
 
@@ -95,7 +95,7 @@ Wiring uses narrow internal `Wire(...)` methods so prefab-tuned values are not o
 - friendly: `CompanionAI` (`ActiveCharacter`, `Encounter`), `UnitCover` (`CoverRegistry`), `UnitAbilities` (`Encounter`, definitions from the squad slot), `UnitAttacker.ApplyArchetype`;
 - hostile: `EnemyAI` (`Encounter`, `CoverRegistry`), `UnitCover`, optional archetype.
 
-The persistent systems are then updated: `Encounter.SetSides(friendlies, hostiles)`, `UnitSelection` roster replaced and selection cleared, `ActiveCharacter.SetUnit(first friendly)`, takeover and follow flags reset to their defaults, pause resumed.
+The persistent systems are then updated: `Encounter.Initialize(friendlies, hostiles)` (existing, internal), `UnitSelection` roster replaced and selection cleared, `ActiveCharacter.SetUnit(first friendly)`, takeover and follow flags reset to their defaults, pause resumed.
 
 `MissionSlot` data on the director (serialized): friendly slots (`prefab`, `archetype`, `abilities[]`, with the Prototype's trio: Melee, Marksman, Ranged, all with Aimed Shot, Blast, Mend) and hostile slots (`prefab`, optional `archetype`); hostile `i` uses slot `i mod slots`.
 
@@ -113,11 +113,11 @@ The persistent systems are then updated: `Encounter.SetSides(friendlies, hostile
 
 On exhausting the attempts: `State = Failed`, one `Debug.LogError` with the seed, every attempt's failure reason and `settings.Describe()`; no units are spawned; the pause service is left running. There are no static registries or singletons, so nothing else can go stale. `TacticalCameraController` gains `SetBounds(Rect)` (the clamp uses it instead of the fixed ±25) and `FocusOn(Vector3)` (a snap, no glide).
 
-**Developer input.** A `Developer` action map with `RegenerateSame` (F6) and `RegenerateNew` (F7), keyboard only, read by `MissionDeveloperInput`, which calls the director and nothing else. If the asset test that demands bindings in every pad group enumerates all maps, it is changed to say explicitly that the developer map is exempt (the plan checks this first). A new-seed request uses `Environment.TickCount`-derived seed (not `UnityEngine.Random`), then writes it to the director's `seed` field so it shows in the Inspector and HUD.
+**Developer input.** A `Developer` action map with `RegenerateSame` (F6) and `RegenerateNew` (F7), keyboard only, read by `MissionDeveloperInput`, which calls the director and nothing else. The input asset tests use an explicit list of pad actions, so the keyboard-only `Developer` map needs no test change. A new-seed request uses `Environment.TickCount`-derived seed (not `UnityEngine.Random`), then writes it to the director's `seed` field so it shows in the Inspector and HUD.
 
 ## 9. Debug
 
-`MissionDebugView` (IMGUI, like `PrototypeHud`; debug only) shows: seed, attempt number and `maxAttempts`, state (and the failure text), rooms, connections, floor area, nav status (built, area ratio, paths valid), cover total / low / corner / dropped-unreachable, friendly and hostile spawn counts and the separation, mission bounds, and the key hints F6/F7. A `MissionGizmoView` draws, with the existing line-material approach, room rectangles, the room connection graph, the two spawn regions and the mission bounds, toggled by a serialized flag (default on). No production UI.
+`MissionDebugView` (IMGUI, like `PrototypeHud`; debug only) shows: seed, attempt number and `maxAttempts`, state (and the failure text), rooms, connections, floor area, nav status (built, area ratio, paths valid), cover total / low / tall / corner, friendly and hostile spawn counts and the separation, mission bounds, and the key hints F6/F7. A `MissionGizmoView` draws, with the existing line-material approach, room rectangles, the room connection graph, the two spawn regions and the mission bounds, toggled by a serialized flag (default on). No production UI.
 
 ## 10. Configuration (`MissionSettings`)
 
@@ -131,11 +131,12 @@ On exhausting the attempts: `State = Failed`, one `Debug.LogError` with the seed
 | `extraLoops` | 1 | extra connections beyond the tree |
 | `bafflesPerRoom` | 1 | max tall wall segments per room |
 | `lowCoverDensity` | 3 | low-cover objects per 100 m² of floor |
+| `friendlyCount` | 3 | set by the director from the number of friendly slots; clamped 1–6 |
 | `hostileCount` | 3 | clamped 1–8 |
 | `minTeamSeparation` | 16 | metres, straight line, between teams |
 | `maxAttempts` | 20 | clamped 1–100 |
 
-Fixed constants, not exposed: tile 1 m, wall height 3 m and thickness 1 m, low-cover height 1 m, clearance 2 tiles, spawn spacing 2.5 m, minimum walkable area ratio 0.5.
+Fixed constants, not exposed: tile 1 m, wall height 3 m and thickness 1 m, low-cover height 1 m, clearance 2 tiles, spawn spacing 2.5 m, minimum walkable area ratio 0.3 (a sanity check against an empty or broken build, not a quality bar).
 
 ## 11. Testing
 
