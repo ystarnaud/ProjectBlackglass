@@ -11,7 +11,8 @@ namespace Blackglass
     /// PlayerCommandInput; the cursor itself issues no orders. It is active whenever a controller is in use and the
     /// camera does not own the right stick (see StickRole). Also holds the "soft target" that NextTarget and
     /// PreviousTarget cycle through living hostiles (only they set it: hovering a hostile or an Attack's fallback does
-    /// not), and picks the hostile an Attack should use. Lives on Systems.
+    /// not), and picks the hostile an Attack should use. While an ability is armed (`Aiming`) it owns the stick whatever
+    /// the game is doing, and `SnapTo` narrows what it snaps to. Lives on Systems.
     /// </summary>
     public sealed class TacticalCursor : MonoBehaviour
     {
@@ -50,6 +51,15 @@ namespace Blackglass
 
         public Vector2 ScreenPosition => screenPosition;
 
+        /// <summary>True while an ability is armed: the stick is the cursor's whatever else would own it (see StickRole).</summary>
+        public bool Aiming { get; set; }
+
+        /// <summary>
+        /// What the cursor snaps to. None: the default (a friendly, then a hostile, then a cover location). Friendly or
+        /// Hostile: only that side. Ground: nothing, the exact point under the cursor (an area is aimed freely).
+        /// </summary>
+        public PointerTargetKind SnapTo { get; set; }
+
         /// <summary>What the cursor is on as of the last update; None while the cursor is inactive.</summary>
         public PointerTarget Target => target;
 
@@ -58,7 +68,7 @@ namespace Blackglass
 
         public bool IsActive =>
             (inputDevice == null || inputDevice.Family.IsController())
-            && !StickRole.CameraOwnsRightStick(activeCharacter, InputActionUtility.IsPressed(cameraModifierAction));
+            && !StickRole.CameraOwnsRightStick(activeCharacter, InputActionUtility.IsPressed(cameraModifierAction), Aiming);
 
         internal void Initialize(Camera camera, ActiveCharacter active, UnitSelection unitSelection,
             Encounter currentEncounter, CoverRegistry registry, ActiveInputDevice device,
@@ -149,13 +159,35 @@ namespace Blackglass
         {
             if (encounter == null)
                 return;
+            if (SnapTo == PointerTargetKind.Friendly)
+            {
+                CycleFriendly(direction);
+                return;
+            }
             var next = HostileTargets.Cycle(encounter.Hostiles, CycleOrigin(), SoftTarget, direction);
             if (next == null)
                 return;
             softTarget = next;
+            MoveOnto(next);
+        }
+
+        // Aiming at a friend (a heal): walk the living friendlies by distance and put the cursor on the next one. The
+        // soft target stays hostile-only, so an Attack can never pick a friendly.
+        void CycleFriendly(int direction)
+        {
+            var current = target.Kind == PointerTargetKind.Friendly && target.Friendly != null
+                ? target.Friendly.GetComponent<Health>()
+                : null;
+            var next = HostileTargets.Cycle(encounter.Friendlies, CycleOrigin(), current, direction);
+            if (next != null)
+                MoveOnto(next);
+        }
+
+        void MoveOnto(Health unit)
+        {
             if (!IsActive || viewCamera == null)
                 return;
-            var screen = viewCamera.WorldToScreenPoint(next.transform.position);
+            var screen = viewCamera.WorldToScreenPoint(unit.transform.position);
             if (screen.z > 0f)
                 SetScreenPosition(new Vector2(screen.x, screen.y));
         }
@@ -176,6 +208,22 @@ namespace Blackglass
                 return raw;
 
             var ground = raw.Point;
+            switch (SnapTo)
+            {
+                case PointerTargetKind.Ground:
+                    return raw;
+                case PointerTargetKind.Friendly:
+                {
+                    var onlyFriendly = NearestFriendly(ground);
+                    return onlyFriendly != null ? PointerTarget.OnFriendly(onlyFriendly, ground) : raw;
+                }
+                case PointerTargetKind.Hostile:
+                {
+                    var onlyHostile = NearestHostile(ground);
+                    return onlyHostile != null ? PointerTarget.OnHostile(onlyHostile, ground) : raw;
+                }
+            }
+
             var friendly = NearestFriendly(ground);
             if (friendly != null)
                 return PointerTarget.OnFriendly(friendly, ground);
