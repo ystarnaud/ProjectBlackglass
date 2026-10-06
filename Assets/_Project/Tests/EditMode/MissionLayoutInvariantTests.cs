@@ -72,6 +72,40 @@ namespace Blackglass.Tests
                             $"seed {layout.Seed}: {box.Name} is within 2 tiles of a corridor");
         }
 
+        // The lateral gaps of a strip to one room: how far each room edge lies beyond the strip's edge (low side, high side).
+        static (int low, int high) LateralGaps(RectInt strip, RectInt room, bool alongX) =>
+            alongX ? (strip.yMin - room.yMin, room.yMax - strip.yMax) : (strip.xMin - room.xMin, room.xMax - strip.xMax);
+
+        [Test]
+        public void ACorridorStripsEdges_AreFlushWithEachRoomEdge_OrAtLeastTwoTilesIn_NeverExactlyOne()
+        {
+            // Decision 031: a room edge exactly one tile beyond a strip edge leaves a 1 m wall stub beside the mouth, which
+            // has no corner point. Checked for both rooms and both sides of every strip.
+            int flush = 0, deep = 0;
+            foreach (var layout in Layouts())
+                foreach (var c in layout.Connections)
+                {
+                    var a = layout.Rooms[c.RoomA];
+                    var b = layout.Rooms[c.RoomB];
+                    var alongX = a.Cell.y == b.Cell.y;
+                    foreach (var room in new[] { a, b })
+                    {
+                        var (low, high) = LateralGaps(c.Strip, room.Rect, alongX);
+                        foreach (var gap in new[] { low, high })
+                        {
+                            Assert.That(gap, Is.GreaterThanOrEqualTo(0), $"seed {layout.Seed}: strip {c.Strip} lies inside the overlap of its rooms");
+                            Assert.That(gap, Is.Not.EqualTo(1), $"seed {layout.Seed}: strip {c.Strip} is one tile from an edge of room {room.Index} {room.Rect}");
+                            if (gap == 0)
+                                flush++;
+                            else if (gap >= 2)
+                                deep++;
+                        }
+                    }
+                }
+            Assert.That(flush, Is.GreaterThan(0), "some strip edges are flush with a room edge");
+            Assert.That(deep, Is.GreaterThan(0), "some strip edges sit two or more tiles inside a room edge");
+        }
+
         [Test]
         public void ObstacleHeightsAndSizes_MatchTheirKind()
         {
