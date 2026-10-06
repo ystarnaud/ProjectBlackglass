@@ -23,7 +23,9 @@ namespace Blackglass
     /// UnitAttacker. A held move intent (direct control) takes precedence: while it is non-zero the unit drops its
     /// orders and steers instead. An attack order runs in phases: approach until in range, reposition while a ranged
     /// unit has no line of sight, attack otherwise. A MoveToCover order reserves its point when it starts, occupies it
-    /// on arrival, and gives up after CoverWalkTimeout without progress.
+    /// on arrival, and gives up after CoverWalkTimeout without progress. An AbilityCommand is instant: it becomes current
+    /// without doing anything and runs (UnitAbilities.TryUse, which validates again) on the first running frame, before
+    /// steering is considered, whether it then succeeds or fails the queue moves on.
     /// </summary>
     [RequireComponent(typeof(UnitMover), typeof(UnitAttacker), typeof(UnitCover))]
     public sealed class CommandableUnit : MonoBehaviour
@@ -55,6 +57,7 @@ namespace Blackglass
         Vector3 moveIntent;
         Health ownHealth;
         UnitCover cover;
+        UnitAbilities abilities;
         float coverBestDistance;
         float coverLastProgressTime;
 
@@ -113,6 +116,7 @@ namespace Blackglass
             }
         }
 
+        UnitAbilities Abilities => abilities != null ? abilities : abilities = GetComponent<UnitAbilities>();
         UnitMover Mover => mover != null ? mover : mover = GetComponent<UnitMover>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
 
@@ -144,6 +148,7 @@ namespace Blackglass
                 case MoveCommand _:
                 case AttackCommand _:
                 case MoveToCoverCommand _:
+                case AbilityCommand _:
                     break;
                 default:
                     throw new ArgumentException($"Unsupported command type {command.GetType().Name}.", nameof(command));
@@ -163,6 +168,11 @@ namespace Blackglass
                 queue.Replace(attack);
                 return true;
             }
+
+            // An ability that would start now is checked in full now (cooldown, range, sight); behind other orders only
+            // its target is, because the caster will have moved on by the time it runs.
+            if (command is AbilityCommand startingAbility && !CanStartAbility(startingAbility, AbilityCheckScope.Full))
+                return false;
 
             if (!TryStart(command))
                 return false;
@@ -203,6 +213,8 @@ namespace Blackglass
             if (!SimulationTime.IsRunning)
                 return;
 
+            RunAbilities();
+
             if (moveIntent != Vector3.zero)
             {
                 if (queue.Current != null)
@@ -240,6 +252,8 @@ namespace Blackglass
                     return IsAttackable(attack.Target);
                 case MoveToCoverCommand toCover:
                     return CanTakeCover(toCover.Point);
+                case AbilityCommand ability:
+                    return CanStartAbility(ability, AbilityCheckScope.Static);
                 default:
                     return false;
             }
@@ -273,8 +287,36 @@ namespace Blackglass
                     coverBestDistance = float.PositiveInfinity;
                     coverLastProgressTime = Time.time;
                     return true;
+                case AbilityCommand _:
+                    Mover.Stop();
+                    Cover.ReleaseReservation();
+                    ResetAttack();
+                    return true;
                 default:
                     return false;
+            }
+        }
+
+        bool CanStartAbility(AbilityCommand ability, AbilityCheckScope scope)
+        {
+            var owned = Abilities;
+            if (owned == null)
+                return false;
+            return scope == AbilityCheckScope.Full ? owned.CanStartNow(ability) : owned.CanQueue(ability);
+        }
+
+        // Abilities are instant: each one succeeds or fails on the frame it becomes current, then the queue moves on, so a
+        // refused ability never leaves the unit stuck. It runs before steering is considered, so an ability that direct
+        // control just issued is not dropped by a held move key. The guard bounds the loop by the queue length.
+        void RunAbilities()
+        {
+            var guard = queue.Pending.Count + 1;
+            while (guard-- > 0 && queue.Current is AbilityCommand ability)
+            {
+                var owned = Abilities;
+                if (owned != null)
+                    owned.TryUse(ability);
+                StartNext();
             }
         }
 
