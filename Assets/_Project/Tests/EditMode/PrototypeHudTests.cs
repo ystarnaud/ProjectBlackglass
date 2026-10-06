@@ -91,6 +91,16 @@ namespace Blackglass.Tests
             Assert.That(PrototypeHud.DescribeCompanion(orders, state, assistTarget, true), Is.EqualTo(expected));
         }
 
+        [TestCase("", CompanionState.Idle, null, false, "Idle [held]")]
+        [TestCase("", CompanionState.Idle, null, true, "Idle [parked] [held]")]
+        [TestCase("Attack", CompanionState.Assist, "HostileUnit_1", false, "Attack | Assist -> HostileUnit_1 [held]")]
+        [TestCase("", CompanionState.Dead, null, false, "Dead")]
+        [TestCase("", CompanionState.Controlled, null, true, "Controlled")]
+        public void DescribeCompanion_Held_IsMarkedExceptForDeadAndControlled(string orders, CompanionState state, string assistTarget, bool parked, string expected)
+        {
+            Assert.That(PrototypeHud.DescribeCompanion(orders, state, assistTarget, parked, true), Is.EqualTo(expected));
+        }
+
         [Test]
         public void DescribeCompanion_NotParked_HasNoMarker()
         {

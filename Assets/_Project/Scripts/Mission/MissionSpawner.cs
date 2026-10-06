@@ -48,6 +48,7 @@ namespace Blackglass
                 if (slot.abilities != null && slot.abilities.Length > 0)
                     unit.gameObject.AddComponent<UnitAbilities>().Initialize(systems.encounter, slot.abilities);
                 unit.GetComponent<CompanionAI>().Wire(systems.activeCharacter, systems.encounter);
+                unit.GetComponent<CompanionAI>().HoldUntilLeaderMoves();   // no squad-up walk at spawn (decision 028)
                 unit.GetComponent<UnitCover>().Wire(systems.coverRegistry);
                 result.Friendlies.Add(unit);
                 grounds.Add((unit, ground));

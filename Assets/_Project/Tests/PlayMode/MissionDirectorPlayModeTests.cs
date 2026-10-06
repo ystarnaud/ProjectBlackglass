@@ -84,6 +84,62 @@ namespace Blackglass.Tests
             }
         }
 
+        // A walkable point as far from the unit as possible, at most 9 m and never under 7 m (beyond the 6 m follow start
+        // distance), with a clear straight NavMesh line to it. `direction` points from the unit to the spot.
+        static bool TryFindClearSpot(CommandableUnit from, out Vector3 spot, out Vector3 direction)
+        {
+            var origin = from.transform.position - Vector3.up;
+            foreach (var distance in new[] { 9f, 8f, 7.5f, 7f })
+                for (var i = 0; i < 32; i++)
+                {
+                    direction = Quaternion.Euler(0f, i * 11.25f, 0f) * Vector3.forward;
+                    if (NavMesh.SamplePosition(origin + direction * distance, out var hit, 0.4f, NavMesh.AllAreas)
+                        && TestWorld.HorizontalDistance(hit.position, origin) >= 7f
+                        && !NavMesh.Raycast(origin, hit.position, out _, NavMesh.AllAreas))
+                    {
+                        spot = hit.position;
+                        return true;
+                    }
+                }
+            spot = default;
+            direction = default;
+            return false;
+        }
+
+        [UnityTest]
+        public IEnumerator Spawn_HoldsEveryCompanion_UntilTheControlledCharacterMoves()
+        {
+            rig = new MissionRig();
+            yield return rig.Generate(12345);
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
+            var leader = rig.Director.Friendlies[0];
+            Assert.That(rig.Director.Friendlies.Select(f => f.GetComponent<CompanionAI>().IsHeld), Is.All.True, "every friendly is held at spawn");
+
+            var companion = rig.Director.Friendlies[1];
+            var ai = companion.GetComponent<CompanionAI>();
+            Assert.That(TryFindClearSpot(leader, out var spot, out var toward), Is.True, "an open spot 7 to 9 m from the leader");
+            companion.GetComponent<NavMeshAgent>().Warp(spot);
+            var warped = companion.transform.position;
+            var everOrdered = false;
+            var deadline = Time.realtimeSinceStartup + 2f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                everOrdered |= companion.CurrentCommand != null;
+                yield return null;
+            }
+            Assert.That(everOrdered, Is.False, "A companion spawned apart does not squad up by itself");
+            Assert.That(TestWorld.HorizontalDistance(companion.transform.position, warped), Is.LessThan(0.1f));
+            Assert.That(ai.IsHeld, Is.True);
+
+            // The leader walks toward it along the clear line: the hold ends and the companion (still beyond 6 m) follows.
+            leader.SetMoveIntent(toward);
+            yield return TestWorld.WaitUntil(() => !ai.IsHeld, 2f);
+            leader.SetMoveIntent(Vector3.zero);
+            Assert.That(ai.IsHeld, Is.False, "the controlled character moved");
+            yield return TestWorld.WaitUntil(() => ai.IsFollowing, 2f);
+            Assert.That(ai.IsFollowing, Is.True, "released: the normal follow rules apply");
+        }
+
         [UnityTest]
         public IEnumerator SameSeedTwice_GivesTheSameLayoutAndTheSameCover()
         {
