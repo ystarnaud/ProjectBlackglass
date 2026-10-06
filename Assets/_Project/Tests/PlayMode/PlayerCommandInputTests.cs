@@ -65,10 +65,10 @@ namespace Blackglass.Tests
             input.Initialize(viewCamera, selection, pause,
                 TestControls.Ref(actions, "Commands/Command"),
                 TestControls.Ref(actions, "Commands/PointerPosition"),
-                TestControls.Ref(actions, "Commands/TogglePause"),
-                TestControls.Ref(actions, "Commands/Modifier"),
+                TestControls.Ref(actions, "Commands/ToggleTacticalPause"),
+                TestControls.Ref(actions, "Commands/QueueModifier"),
                 TestControls.Ref(actions, "Commands/Stop"),
-                TestControls.Ref(actions, "Commands/ClearSelection"),
+                TestControls.Ref(actions, "Commands/Cancel"),
                 activeCharacter, registry);
             systems.SetActive(true);
         }

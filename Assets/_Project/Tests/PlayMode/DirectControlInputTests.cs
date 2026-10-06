@@ -47,9 +47,9 @@ namespace Blackglass.Tests
             input = systems.AddComponent<DirectControlInput>();
             input.Initialize(active, viewCamera,
                 TestControls.Ref(actions, "Character/Move"),
-                TestControls.Ref(actions, "Character/Takeover"),
+                TestControls.Ref(actions, "Character/ToggleCharacterControl"),
                 selection,
-                TestControls.Ref(actions, "Character/CycleCharacter"),
+                TestControls.Ref(actions, "Character/NextCharacter"),
                 TestControls.Ref(actions, "Character/CycleReverse"),
                 TestControls.Ref(actions, "Character/ToggleFollow"));
             systems.SetActive(true);
