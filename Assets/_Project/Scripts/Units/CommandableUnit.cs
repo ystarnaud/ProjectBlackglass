@@ -127,7 +127,9 @@ namespace Blackglass
         /// Gives the unit an order. Replace drops the current and pending orders and starts this one now; Append runs
         /// it after the pending ones (now, if the unit is idle). A Stop always halts the unit and clears every order.
         /// Returns false if the order cannot be carried out (this unit is dead, no walkable point within 2 m of the
-        /// destination, dead or inactive target, a cover point another unit holds); the unit's orders are then unchanged.
+        /// destination, dead or inactive target, a cover point another unit holds, an ability the unit has no UnitAbilities
+        /// for or does not own, or whose target is dead or on the wrong side, and, when the order would start now, one that
+        /// is on cooldown, out of range or out of sight); the unit's orders are then unchanged.
         /// Re-issuing an attack on the current target keeps the unit moving instead of restarting its chase.
         /// </summary>
         public bool Issue(UnitCommand command, IssueMode mode = IssueMode.Replace)
@@ -183,8 +185,8 @@ namespace Blackglass
         /// <summary>
         /// Sets the direction direct control steers the unit in: flattened, length clamped to 1, zero for none. Held
         /// until set again. While it is non-zero and simulation time runs, the unit drops all of its orders (as Stop
-        /// does) and steers instead, so manual control always wins over queued orders. Orders issued meanwhile are
-        /// accepted and then dropped on the next simulation frame.
+        /// does) and steers instead, so manual control always wins over queued orders. An ability issued meanwhile runs
+        /// on the next simulation frame instead of being dropped; other orders are accepted and then dropped on that frame.
         /// </summary>
         public void SetMoveIntent(Vector3 direction)
         {
@@ -297,6 +299,7 @@ namespace Blackglass
             }
         }
 
+        // Whether an ability order passes its checks: Full (everything) when it would start now, Static (who and what) when queued.
         bool CanStartAbility(AbilityCommand ability, AbilityCheckScope scope)
         {
             var owned = Abilities;
