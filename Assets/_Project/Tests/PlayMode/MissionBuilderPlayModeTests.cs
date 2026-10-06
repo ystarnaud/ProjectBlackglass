@@ -140,6 +140,31 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Cover_OnlyWhereItCovers_EveryTallLocationIsAnOutwardOpeningCorner_AndLowCoverStillExists()
+        {
+            foreach (var seed in new[] { 1, 2, 3, 4, 5, 6, 7, 8, 12345 })
+            {
+                mission = MissionBuilder.Build(Layout(seed), null, null);
+                yield return null;
+                var registry = Discover(mission);
+
+                var tall = registry.Points.Where(p => p.Height == CoverHeight.Tall).ToList();
+                var low = registry.Points.Where(p => p.Height == CoverHeight.Low).ToList();
+                Debug.Log($"COVERCOUNT seed={seed} low={low.Count} tallCorners={tall.Count}");
+                Assert.That(tall.Any(p => p.Placement == CoverPlacement.Face), Is.False, $"seed {seed}: no cover along a tall wall");
+                Assert.That(tall.All(p => p.Placement == CoverPlacement.Corner && p.HasPeek), Is.True, $"seed {seed}: every tall location is a corner that opens outward");
+                Assert.That(tall, Is.Not.Empty, $"seed {seed}: wall ends give corners");
+                Assert.That(low, Is.Not.Empty, $"seed {seed}: low cover still exists");
+                Assert.That(low.All(p => p.Placement == CoverPlacement.Face), Is.True, $"seed {seed}");
+                // Every corner's peek point is open floor: the whole point of the rule.
+                foreach (var corner in tall)
+                    Assert.That(NavMesh.SamplePosition(corner.PeekPoint, out _, 0.3f, NavMesh.AllAreas), Is.True, $"seed {seed}: {corner.Name} peek point is walkable");
+                DestroyMission();
+                yield return null;
+            }
+        }
+
+        [UnityTest]
         public IEnumerator EveryLocation_IsReachableFromTheFriendlySpawn()
         {
             mission = MissionBuilder.Build(Layout(12345), null, null);

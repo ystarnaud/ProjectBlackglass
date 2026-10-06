@@ -34,11 +34,22 @@ namespace Blackglass.Tests
             encounter = Object.FindFirstObjectByType<Encounter>();
         }
 
-        // Every obstacle of the arena: all of them generate cover.
+        // Every obstacle of the arena: all of them are cover surfaces (not all of them yield cover, see CoverCountsPerObstacle).
         static readonly string[] ArenaObstacles =
         {
             "Obstacle_A", "Obstacle_B", "Obstacle_C", "Obstacle_D", "Obstacle_E", "Obstacle_F", "Obstacle_CentralWall",
             "Pillar_G", "Pillar_H", "Barrier_I", "Crate_J", "Crate_K", "LowWall_L", "LowWall_M", "LowWall_N",
+        };
+
+        // Decision 027: the locations each obstacle yields (corner count, face count). Low obstacles get face points along
+        // every face; tall walls only corners that open outward (the peek point must be on the NavMesh, which is eroded
+        // around neighbouring obstacles: Obstacle_B, Obstacle_E and Obstacle_F each lose one); tall pillars, crates and
+        // stubs (Obstacle_A, Obstacle_D, Pillar_G, Pillar_H, Crate_J, Crate_K) none.
+        static readonly (string name, int corners, int faces)[] CoverCountsPerObstacle =
+        {
+            ("Barrier_I", 4, 0), ("Obstacle_CentralWall", 4, 0), ("Obstacle_B", 3, 0), ("Obstacle_E", 3, 0), ("Obstacle_F", 3, 0),
+            ("Obstacle_C", 0, 11), ("LowWall_L", 0, 6), ("LowWall_M", 0, 8), ("LowWall_N", 0, 4),
+            ("Obstacle_A", 0, 0), ("Obstacle_D", 0, 0), ("Pillar_G", 0, 0), ("Pillar_H", 0, 0), ("Crate_J", 0, 0), ("Crate_K", 0, 0),
         };
 
         internal static CommandableUnit[] FindSquad() =>
@@ -89,14 +100,20 @@ namespace Blackglass.Tests
             var central = GameObject.Find("Obstacle_CentralWall").GetComponent<Collider>();
             var centralCorners = registry.Points.Where(p => p.Obstacle == central && p.Placement == CoverPlacement.Corner).ToList();
             Assert.That(centralCorners.Count, Is.EqualTo(4),
-                "The 45-degree central wall keeps all four corners, including the one next to Barrier_I's end-face point: " +
-                "points of different objects never remove each other");
+                "The 45-degree central wall keeps all four corners, including the one 0.84 m from Barrier_I's east-end corner: " +
+                "locations of different objects never remove each other");
 
-            foreach (var name in ArenaObstacles)
+            Assert.That(CoverCountsPerObstacle.Select(c => c.name), Is.EquivalentTo(ArenaObstacles), "every obstacle has an expectation");
+            foreach (var (name, corners, faces) in CoverCountsPerObstacle)
             {
                 var collider = GameObject.Find(name).GetComponent<Collider>();
-                Assert.That(registry.Points.Any(p => p.Obstacle == collider), Is.True, $"{name} produced at least one cover location");
+                var own = registry.Points.Where(p => p.Obstacle == collider).ToList();
+                Assert.That(own.Count(p => p.Placement == CoverPlacement.Corner), Is.EqualTo(corners), $"{name} corner locations");
+                Assert.That(own.Count(p => p.Placement == CoverPlacement.Face), Is.EqualTo(faces), $"{name} face locations");
             }
+            Assert.That(registry.Points.Where(p => p.Height == CoverHeight.Tall).All(p => p.Placement == CoverPlacement.Corner && p.HasPeek), Is.True,
+                "every Tall location is a corner that opens outward: no cover along a tall wall");
+            Assert.That(registry.Points, Has.Count.EqualTo(CoverCountsPerObstacle.Sum(c => c.corners + c.faces)), "46 locations in all");
 
             // The scene stores the generation settings on its CoverDiscovery component, which overrides the class
             // defaults: pin them, and pin the gaps they produce (a 3 m wall: usable 2 m, three south points 1 m apart).
