@@ -71,7 +71,8 @@
                 { "name": "Ability2", "type": "Button", "id": "a395bca4-0b88-4674-ac98-9c9fa396176f", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
                 { "name": "Ability3", "type": "Button", "id": "6ab92ec7-d7ee-4543-a352-86e9f6f8c4de", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
                 { "name": "Ability4", "type": "Button", "id": "f6a24a0a-2a06-4999-b743-49844fe39816", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
-                { "name": "AbilityMenu", "type": "Button", "id": "44d60cbf-cd34-449c-a7ba-d1a5a57fb1fd", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+                { "name": "AbilityMenu", "type": "Button", "id": "44d60cbf-cd34-449c-a7ba-d1a5a57fb1fd", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "Interact", "type": "Button", "id": "5b8e0a3c-72d1-4f64-9a3e-0c6d2b8f41a7", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
             ],
             "bindings": [
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e11", "path": "<Mouse>/leftButton", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Command", "isComposite": false, "isPartOfComposite": false },
@@ -80,6 +81,7 @@
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e14", "path": "<Keyboard>/leftShift", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "QueueModifier", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e15", "path": "<Keyboard>/rightShift", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "QueueModifier", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e16", "path": "<Keyboard>/x", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Stop", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "c2f7d914-3e68-4b0a-8d15-7a9e4c3b6f20", "path": "<Keyboard>/r", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Interact", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "6b0e3c1a-5d2f-4a8b-9e10-1c3a5e7b9e17", "path": "<Keyboard>/escape", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Cancel", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "a5ace6ca-8f43-4268-9a2c-e683c8a9228d", "path": "<Gamepad>/rightStick", "interactions": "", "processors": "stickDeadzone(min=0.2,max=0.925)", "groups": "Xbox", "action": "CursorMove", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "b888a720-d6c1-4b6f-addb-2ee6d2815ae7", "path": "<Gamepad>/rightStick", "interactions": "", "processors": "stickDeadzone(min=0.2,max=0.925)", "groups": "PlayStation", "action": "CursorMove", "isComposite": false, "isPartOfComposite": false },

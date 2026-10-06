@@ -24,6 +24,8 @@ namespace Blackglass
                     return $"Hostile {target.Hostile.name}";
                 case PointerTargetKind.Cover:
                     return $"Cover {target.Cover.Name}";
+                case PointerTargetKind.Interactable:
+                    return $"Interact {target.Interactable.DisplayName}";
                 case PointerTargetKind.Ground:
                     return "Ground";
                 default:

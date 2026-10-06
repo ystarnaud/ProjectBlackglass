@@ -8,12 +8,12 @@ namespace Blackglass
 {
     /// <summary>
     /// Translates the player's input into requests. Left button: a click on a friendly unit selects it, a click
-    /// anywhere else gives an order (attack the clicked target, move into the cover point within coverClickRadius of the click, or move to the clicked point), and a drag box-selects.
+    /// anywhere else gives an order (attack the clicked target, work the clicked terminal, move into the cover point within coverClickRadius of the click, or move to the clicked point), and a drag box-selects.
     /// The order goes to the selected units whenever any are selected or the game is paused; with nothing selected in
     /// real time it goes to the active character. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
     /// selection, Space toggles tactical pause. A controller does the same through the tactical cursor: Confirm acts on what
     /// it is on (the same Act path) while the cursor is shown and attacks like Attack while it is hidden, Attack orders an attack on the cursor's, the chosen or the best hostile, the queue
-    /// modifier (Shift / LT) queues, Cancel (Esc / the family's cancel button) clears the selection. While an ability is armed (AbilityTargeting) a click or the cursor's Confirm picks its target instead of giving an order, and Cancel disarms before it clears the selection. Contains no movement or combat rules.
+    /// modifier (Shift / LT) queues, Cancel (Esc / the family's cancel button) clears the selection. While an ability is armed (AbilityTargeting) a click or the cursor's Confirm picks its target instead of giving an order, and Cancel disarms before it clears the selection. A terminal under the pointer is an Interact order (CommandResolver); the Interact action (keyboard) and a controller Confirm with the cursor hidden interact with the terminal in reach, else Confirm attacks as before. Contains no movement or combat rules.
     /// </summary>
     public sealed class PlayerCommandInput : MonoBehaviour
     {
@@ -27,6 +27,8 @@ namespace Blackglass
         [SerializeField] TacticalCursor cursor;
         // Optional. While an ability is armed, a click or the cursor's Confirm picks its target instead of giving an order.
         [SerializeField] AbilityTargeting abilityTargeting;
+        // Optional. The mission's terminals: Interact and a context Confirm look here for one within reach.
+        [SerializeField] InteractableRegistry interactables;
 
         [Header("Input")]
         [SerializeField] InputActionReference commandAction;
@@ -37,6 +39,7 @@ namespace Blackglass
         [SerializeField] InputActionReference clearSelectionAction;
         [SerializeField] InputActionReference confirmAction;
         [SerializeField] InputActionReference attackAction;
+        [SerializeField] InputActionReference interactAction;
 
         [Header("Tuning")]
         // A press that moves further than this is a box-selection drag, not a click.
@@ -46,6 +49,8 @@ namespace Blackglass
         [SerializeField, Min(0.5f)] float groupSpacing = GroupOrders.DefaultSpacing;
         // A ground click this close to a cover point orders the unit into that point instead of onto the ground.
         [SerializeField, Min(0f)] float coverClickRadius = 0.5f;
+        // How close the active character must be for Interact or a context Confirm to find a terminal.
+        [SerializeField, Min(0.5f)] float contextInteractRadius = 3f;
 
         readonly List<CommandableUnit> orderedUnits = new List<CommandableUnit>();
         readonly List<SelectableUnit> boxedUnits = new List<SelectableUnit>();
@@ -83,12 +88,28 @@ namespace Blackglass
             abilityTargeting = targeting;
         }
 
+        /// <summary>Wires terminal interaction: the registry Interact looks in, and the Interact action. Call before enabling.</summary>
+        internal void WireInteraction(InteractableRegistry registry, InputActionReference interact)
+        {
+            interactables = registry;
+            interactAction = interact;
+        }
+
+        /// <summary>
+        /// The available terminal within reach of the character being played (what Interact and a context Confirm would work
+        /// on), or null. The HUD uses it to show the prompt.
+        /// </summary>
+        public MissionInteractable NearbyInteractable =>
+            interactables != null && activeCharacter != null && activeCharacter.HasUnit
+                ? interactables.NearestAvailable(activeCharacter.Unit.transform.position, contextInteractRadius)
+                : null;
+
         void Awake() => clickDetector = new ClickDragDetector(dragThresholdPixels);
 
         void OnEnable()
         {
             InputActionUtility.SetEnabled(true, commandAction, pointerPositionAction, togglePauseAction,
-                modifierAction, stopAction, clearSelectionAction, confirmAction, attackAction);
+                modifierAction, stopAction, clearSelectionAction, confirmAction, attackAction, interactAction);
             if (commandAction != null)
             {
                 commandAction.action.started += OnCommandPressed;
@@ -104,6 +125,8 @@ namespace Blackglass
                 confirmAction.action.performed += OnConfirm;
             if (attackAction != null)
                 attackAction.action.performed += OnAttack;
+            if (interactAction != null)
+                interactAction.action.performed += OnInteract;
         }
 
         void OnDisable()
@@ -123,8 +146,10 @@ namespace Blackglass
                 confirmAction.action.performed -= OnConfirm;
             if (attackAction != null)
                 attackAction.action.performed -= OnAttack;
+            if (interactAction != null)
+                interactAction.action.performed -= OnInteract;
             InputActionUtility.SetEnabled(false, commandAction, pointerPositionAction, togglePauseAction,
-                modifierAction, stopAction, clearSelectionAction, confirmAction, attackAction);
+                modifierAction, stopAction, clearSelectionAction, confirmAction, attackAction, interactAction);
         }
 
         void Update()
@@ -176,7 +201,7 @@ namespace Blackglass
                 return;
             if (cursor.IsActive)
                 Act(cursor.Refresh());
-            else
+            else if (!TryInteractNearby())
                 AttackBestHostile();
         }
 
@@ -186,6 +211,33 @@ namespace Blackglass
             if (abilityTargeting != null && abilityTargeting.IsArmed)
                 abilityTargeting.Disarm();
             AttackBestHostile();
+        }
+
+        // The Interact action (keyboard): the same order a click on the terminal gives, for the terminal in reach. An armed
+        // ability owns the next press, so Interact waits.
+        void OnInteract(InputAction.CallbackContext context)
+        {
+            if (abilityTargeting != null && abilityTargeting.IsArmed)
+                return;
+            TryInteractNearby();
+        }
+
+        // Interact with the nearest available terminal within reach of whoever is ordered (the character being played, else the
+        // first ordered unit); the queue modifier appends. True when a terminal was found, so a context Confirm that finds one
+        // never also attacks, whether or not the unit could take the order.
+        bool TryInteractNearby()
+        {
+            if (interactables == null)
+                return false;
+            var units = OrderedUnits();
+            var anchor = AttackAnchor(units);
+            if (anchor == null)
+                return false;
+            var terminal = interactables.NearestAvailable(anchor.transform.position, contextInteractRadius);
+            if (terminal == null)
+                return false;
+            GroupOrders.Issue(units, new InteractCommand(terminal), ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
+            return true;
         }
 
         // Attack the cursor's hostile, else the chosen soft target, else the best hostile ahead of whoever is ordered.
@@ -263,7 +315,7 @@ namespace Blackglass
                         selection.Select(target.Friendly);
                     return;
                 default:
-                    var command = CommandResolver.Resolve(target.Hostile, target.Point, target.Cover);
+                    var command = CommandResolver.Resolve(target.Hostile, target.Point, target.Cover, target.Interactable);
                     GroupOrders.Issue(OrderedUnits(), command, ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
                     return;
             }
