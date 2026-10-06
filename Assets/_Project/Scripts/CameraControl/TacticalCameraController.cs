@@ -9,6 +9,8 @@ namespace Blackglass
     /// tactical pause. Lives on the pivot; the camera is a child. While the active character is being driven
     /// (takeover, not paused) the pivot follows it and pan input is ignored; otherwise WASD pans freely. When the active
     /// character changes, the pivot glides once to where the new one stands; any pan input ends the glide.
+    /// A controller's right stick looks around while driving (and, with the camera modifier held, while planning); the
+    /// left stick pans; the stick clicks zoom.
     /// </summary>
     public sealed class TacticalCameraController : MonoBehaviour
     {
@@ -24,6 +26,8 @@ namespace Blackglass
         [SerializeField] InputActionReference rotateDragAction;
         [SerializeField] InputActionReference pointerPositionAction;
         [SerializeField] InputActionReference zoomAction;
+        [SerializeField] InputActionReference lookAction;
+        [SerializeField] InputActionReference cameraModifierAction;
 
         [Header("Tuning")]
         [SerializeField, Min(0f)] float panSpeed = 12f;
@@ -31,6 +35,10 @@ namespace Blackglass
         [SerializeField, Min(0f)] float keyRotateSpeed = 90f;
         [SerializeField] float dragRotateDegreesPerPixel = 0.25f;
         [SerializeField] float dragTiltDegreesPerPixel = 0.25f;
+        // Right-stick look (controller): degrees per second at full deflection, after the response curve.
+        [SerializeField, Min(0f)] float lookYawDegreesPerSecond = 120f;
+        [SerializeField, Min(0f)] float lookTiltDegreesPerSecond = 60f;
+        [SerializeField, Min(1f)] float lookResponseExponent = 1.5f;
         // Small accidental movements during a right-click don't move the camera.
         [SerializeField, Min(0f)] float dragThresholdPixels = ClickDragDetector.DefaultThresholdPixels;
         [SerializeField, Min(0f)] float zoomStep = 2f;
@@ -59,7 +67,7 @@ namespace Blackglass
 
         internal void Initialize(Camera camera, InputActionReference pan, InputActionReference rotate,
             InputActionReference rotateDrag, InputActionReference pointerPosition, InputActionReference zoom,
-            ActiveCharacter active = null)
+            ActiveCharacter active = null, InputActionReference look = null, InputActionReference cameraModifier = null)
         {
             viewCamera = camera;
             panAction = pan;
@@ -68,6 +76,8 @@ namespace Blackglass
             pointerPositionAction = pointerPosition;
             zoomAction = zoom;
             activeCharacter = active;
+            lookAction = look;
+            cameraModifierAction = cameraModifier;
             lastSeenUnit = CurrentUnit;
         }
 
@@ -78,7 +88,8 @@ namespace Blackglass
 
         void OnEnable()
         {
-            InputActionUtility.SetEnabled(true, panAction, rotateAction, rotateDragAction, pointerPositionAction, zoomAction);
+            InputActionUtility.SetEnabled(true, panAction, rotateAction, rotateDragAction, pointerPositionAction, zoomAction,
+                lookAction, cameraModifierAction);
             if (zoomAction != null)
                 zoomAction.action.performed += OnZoom;
             if (rotateDragAction != null)
@@ -101,7 +112,8 @@ namespace Blackglass
                 rotateDragAction.action.started -= OnRotateDragStarted;
                 rotateDragAction.action.canceled -= OnRotateDragEnded;
             }
-            InputActionUtility.SetEnabled(false, panAction, rotateAction, rotateDragAction, pointerPositionAction, zoomAction);
+            InputActionUtility.SetEnabled(false, panAction, rotateAction, rotateDragAction, pointerPositionAction, zoomAction,
+                lookAction, cameraModifierAction);
         }
 
         void Update()
@@ -115,6 +127,15 @@ namespace Blackglass
             }
 
             var yaw = transform.eulerAngles.y + InputActionUtility.Read<float>(rotateAction) * keyRotateSpeed * deltaTime;
+            // Right stick: look around while driving, or while the camera modifier hands it over in tactical mode.
+            var cameraOwnsStick = StickRole.CameraOwnsRightStick(activeCharacter != null && activeCharacter.IsDriving,
+                InputActionUtility.IsPressed(cameraModifierAction));
+            if (cameraOwnsStick)
+            {
+                var look = StickResponse.Curve(InputActionUtility.Read<Vector2>(lookAction), lookResponseExponent);
+                yaw += look.x * lookYawDegreesPerSecond * deltaTime;
+                pitch = Mathf.Clamp(pitch - look.y * lookTiltDegreesPerSecond * deltaTime, minPitch, maxPitch);
+            }
             if (dragDetector.IsPressed)
             {
                 var pointer = InputActionUtility.Read<Vector2>(pointerPositionAction);
