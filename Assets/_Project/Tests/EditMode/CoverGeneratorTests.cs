@@ -76,7 +76,7 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void TwoMetreHighCrate_AtTheLowThreshold_StillGetsFacePoints()
+        public void ALowCrateAtTheThreshold_StillGetsFacePoints()
         {
             var result = Generate(Box("Crate", P(0f, 0.6f, 0f), P(2f, 1.2f, 2f)), settings: Original());
             Assert.That(result, Has.Count.EqualTo(4));
@@ -266,8 +266,8 @@ namespace Blackglass.Tests
         [Test]
         public void ACornerWhosePeekPointIsNotWalkable_IsDropped_AndOnlyThatEndsCandidates()
         {
-            // Reject only the points past the east end (x above -5 along the south side, z 0.75 and 2.25 are the stand
-            // lines, the peek points lie 1.25 m further east than the stands at x -5.35).
+            // Reject every point east of x -5 on both sides of the wall (the south and north stand lines are at z 0.75 and
+            // z 3.25; the east peek points lie 1.25 m further east than the stands at x -5.35).
             Func<Vector3, bool> walkable = p => !(p.x > -5f);
             var result = Generate(Barrier(), walkable, Original());
 
@@ -326,7 +326,7 @@ namespace Blackglass.Tests
         [Test]
         public void ANonWalkableCornerStandPoint_DropsTheCorner()
         {
-            var result = Generate(Barrier(), p => p.x > -9f, Original());   // only the east half is walkable
+            var result = Generate(Barrier(), p => p.x > -9f || p.x < -11.5f, Original());   // the west stand points (x -10.65) are not walkable, the west peek points (x -11.9) are
             Assert.That(result.Count(l => l.Placement == CoverPlacement.Corner), Is.EqualTo(2), "Only the two east corners remain");
         }
 

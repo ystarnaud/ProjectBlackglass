@@ -150,7 +150,6 @@ namespace Blackglass.Tests
 
                 var tall = registry.Points.Where(p => p.Height == CoverHeight.Tall).ToList();
                 var low = registry.Points.Where(p => p.Height == CoverHeight.Low).ToList();
-                Debug.Log($"COVERCOUNT seed={seed} low={low.Count} tallCorners={tall.Count}");
                 Assert.That(tall.Any(p => p.Placement == CoverPlacement.Face), Is.False, $"seed {seed}: no cover along a tall wall");
                 Assert.That(tall.All(p => p.Placement == CoverPlacement.Corner && p.HasPeek), Is.True, $"seed {seed}: every tall location is a corner that opens outward");
                 Assert.That(tall, Is.Not.Empty, $"seed {seed}: wall ends give corners");

@@ -43,7 +43,8 @@ namespace Blackglass.Tests
 
         // Decision 027: the locations each obstacle yields (corner count, face count). Low obstacles get face points along
         // every face; tall walls only corners that open outward (the peek point must be on the NavMesh, which is eroded
-        // around neighbouring obstacles: Obstacle_B, Obstacle_E and Obstacle_F each lose one); tall pillars, crates and
+        // around neighbouring obstacles, and the stand point must be walkable: Obstacle_B, Obstacle_E and Obstacle_F keep
+        // three of four corners; Obstacle_E's north-west candidate was already dropped by the stand-point filter before 027); tall pillars, crates and
         // stubs (Obstacle_A, Obstacle_D, Pillar_G, Pillar_H, Crate_J, Crate_K) none.
         static readonly (string name, int corners, int faces)[] CoverCountsPerObstacle =
         {
@@ -100,7 +101,7 @@ namespace Blackglass.Tests
             var central = GameObject.Find("Obstacle_CentralWall").GetComponent<Collider>();
             var centralCorners = registry.Points.Where(p => p.Obstacle == central && p.Placement == CoverPlacement.Corner).ToList();
             Assert.That(centralCorners.Count, Is.EqualTo(4),
-                "The 45-degree central wall keeps all four corners, including the one 0.84 m from Barrier_I's east-end corner: " +
+                "The 45-degree central wall keeps all four corners, including the one about 2.1 m from Barrier_I's east-end corners:" +
                 "locations of different objects never remove each other");
 
             Assert.That(CoverCountsPerObstacle.Select(c => c.name), Is.EquivalentTo(ArenaObstacles), "every obstacle has an expectation");
