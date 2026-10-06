@@ -14,12 +14,15 @@ namespace Blackglass
     /// <summary>
     /// The two sides of the prototype encounter, as lists of Health, and its outcome. The only place that knows who
     /// is friendly and who is hostile: enemy AI reads Friendlies from here and the HUD reads Outcome. Holds state
-    /// only; everything is computed on read. No faction system.
+    /// only; everything is computed on read. No faction system. AreHostile, AreAllied and OpponentsOf answer side
+    /// questions for abilities.
     /// </summary>
     public sealed class Encounter : MonoBehaviour
     {
         [SerializeField] List<Health> friendlies = new List<Health>();
         [SerializeField] List<Health> hostiles = new List<Health>();
+
+        static readonly IReadOnlyList<Health> NoUnits = Array.Empty<Health>();
 
         public IReadOnlyList<Health> Friendlies => friendlies;
         public IReadOnlyList<Health> Hostiles => hostiles;
@@ -30,6 +33,43 @@ namespace Blackglass
         public int LivingHostiles => CountLiving(hostiles);
 
         public EncounterOutcome Outcome => Resolve(friendlies.Count, LivingFriendlies, hostiles.Count, LivingHostiles);
+
+        /// <summary>
+        /// The units that fight `unit`: the hostiles for a friendly, the friendlies for a hostile, nobody for a unit
+        /// that is on neither side (or null).
+        /// </summary>
+        public IReadOnlyList<Health> OpponentsOf(Health unit)
+        {
+            if (unit == null)
+                return NoUnits;
+            if (friendlies.Contains(unit))
+                return hostiles;
+            return hostiles.Contains(unit) ? friendlies : NoUnits;
+        }
+
+        /// <summary>True when `a` and `b` are on opposite sides. False for the same unit, a stranger or a null.</summary>
+        public bool AreHostile(Health a, Health b)
+        {
+            if (a == null || b == null)
+                return false;
+            var opponents = OpponentsOf(a);
+            for (var i = 0; i < opponents.Count; i++)
+            {
+                if (opponents[i] == b)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>True when `a` and `b` are the same unit or on the same side. False for a stranger or a null.</summary>
+        public bool AreAllied(Health a, Health b)
+        {
+            if (a == null || b == null)
+                return false;
+            if (a == b)
+                return true;
+            return (friendlies.Contains(a) && friendlies.Contains(b)) || (hostiles.Contains(a) && hostiles.Contains(b));
+        }
 
         internal void Initialize(IEnumerable<Health> friendlyUnits, IEnumerable<Health> hostileUnits)
         {
