@@ -45,6 +45,42 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Create_AUnitDamageAbility_IsAlwaysHostile_WhateverSideItWasGiven()
+        {
+            created = AbilityDefinition.Create("Friendly Fire", AbilityTargetMode.Unit, AbilityTargetSide.Friendly, 10f, true,
+                AbilityCoverRule.Applies, 5f, AbilityEffect.Damage, 20);
+
+            Assert.That(created.TargetSide, Is.EqualTo(AbilityTargetSide.Hostile), "Damage never reaches the caster's side");
+        }
+
+        [Test]
+        public void Create_AUnitHealAbility_IsAlwaysFriendly_WhateverSideItWasGiven()
+        {
+            created = AbilityDefinition.Create("Reverse Mend", AbilityTargetMode.Unit, AbilityTargetSide.Hostile, 8f, false,
+                AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40);
+
+            Assert.That(created.TargetSide, Is.EqualTo(AbilityTargetSide.Friendly), "Healing never helps the other side");
+        }
+
+        [Test]
+        public void Create_TheShippedAimedShotAndMend_KeepTheirSides()
+        {
+            created = AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit, AbilityTargetSide.Hostile, 14f, true,
+                AbilityCoverRule.Applies, 6f, AbilityEffect.Damage, 45);
+            var mend = AbilityDefinition.Create("Mend", AbilityTargetMode.Unit, AbilityTargetSide.Friendly, 8f, false,
+                AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40);
+            try
+            {
+                Assert.That(created.TargetSide, Is.EqualTo(AbilityTargetSide.Hostile));
+                Assert.That(mend.TargetSide, Is.EqualTo(AbilityTargetSide.Friendly));
+            }
+            finally
+            {
+                Object.DestroyImmediate(mend);
+            }
+        }
+
+        [Test]
         public void Create_AGroundHeal_IsRejected()
         {
             Assert.Throws<ArgumentException>(() => AbilityDefinition.Create("Aura", AbilityTargetMode.Ground,

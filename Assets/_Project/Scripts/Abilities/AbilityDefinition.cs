@@ -10,7 +10,7 @@ namespace Blackglass
         Ground,
     }
 
-    /// <summary>For a unit-targeted ability, whose side the target must be on, relative to the caster.</summary>
+    /// <summary>For a unit-targeted ability, whose side the target must be on, relative to the caster. Derived from the effect.</summary>
     public enum AbilityTargetSide
     {
         Hostile,
@@ -35,15 +35,17 @@ namespace Blackglass
     /// <summary>
     /// One ability's rules as shared, immutable data: how it is aimed, how far, whether it needs line of sight, how it
     /// treats cover, its cooldown and its effect. Never holds runtime state: cooldowns and the last failure live on the
-    /// unit (UnitAbilities), so two units sharing one definition never share a cooldown. A ground ability is always
-    /// area damage to the caster's hostiles (no friendly fire, decision 025).
+    /// unit (UnitAbilities), so two units sharing one definition never share a cooldown. The target side follows the
+    /// effect: damage always targets hostiles (no friendly fire, decision 025) and healing always targets friendlies,
+    /// whatever a definition is authored with. A ground ability is always area damage.
     /// </summary>
     [CreateAssetMenu(menuName = "Blackglass/Ability", fileName = "Ability")]
     public sealed class AbilityDefinition : ScriptableObject
     {
         [SerializeField] string displayName = "Ability";
         [SerializeField] AbilityTargetMode targetMode = AbilityTargetMode.Unit;
-        [SerializeField] AbilityTargetSide targetSide = AbilityTargetSide.Hostile;
+        // Derived from the effect (Damage = Hostile, Heal = Friendly); Create and OnValidate force it.
+        [SerializeField] AbilityTargetSide targetSide =AbilityTargetSide.Hostile;
         [SerializeField, Min(0.5f)] float range = 10f;
         [SerializeField] bool requiresLineOfSight = true;
         [SerializeField] AbilityCoverRule coverRule = AbilityCoverRule.Applies;
@@ -80,13 +82,12 @@ namespace Blackglass
                     throw new ArgumentException("A ground ability is area damage; it cannot heal.", nameof(effect));
                 if (radius <= 0f)
                     throw new ArgumentException("A ground ability needs a positive radius.", nameof(radius));
-                side = AbilityTargetSide.Hostile;
             }
 
             var definition = CreateInstance<AbilityDefinition>();
             definition.displayName = displayName;
             definition.targetMode = mode;
-            definition.targetSide = side;
+            definition.targetSide = SideFor(effect);
             definition.range = range;
             definition.requiresLineOfSight = requiresLineOfSight;
             definition.coverRule = coverRule;
@@ -97,15 +98,20 @@ namespace Blackglass
             return definition;
         }
 
+        // The side is never a free choice: harmful effects reach only hostiles, helpful ones only friendlies.
+        static AbilityTargetSide SideFor(AbilityEffect effect) =>
+            effect == AbilityEffect.Damage ? AbilityTargetSide.Hostile : AbilityTargetSide.Friendly;
+
         // Keeps an asset edited in the Inspector inside the rules Create enforces.
         void OnValidate()
         {
-            if (targetMode != AbilityTargetMode.Ground)
-                return;
-            effect = AbilityEffect.Damage;
-            targetSide = AbilityTargetSide.Hostile;
-            if (radius <= 0f)
-                radius = 1f;
+            if (targetMode == AbilityTargetMode.Ground)
+            {
+                effect = AbilityEffect.Damage;
+                if (radius <= 0f)
+                    radius = 1f;
+            }
+            targetSide = SideFor(effect);
         }
     }
 }
