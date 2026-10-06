@@ -2001,6 +2001,9 @@ GameObject:
   - component: {fileID: 1021927387}
   - component: {fileID: 1021927388}
   - component: {fileID: 1021927389}
+  - component: {fileID: 1021927392}
+  - component: {fileID: 1021927391}
+  - component: {fileID: 1021927390}
   m_Layer: 0
   m_Name: Systems
   m_TagString: Untagged
@@ -2026,6 +2029,8 @@ MonoBehaviour:
   selection: {fileID: 1021927383}
   commandInput: {fileID: 1021927380}
   activeCharacter: {fileID: 1021927385}
+  inputDevice: {fileID: 1021927392}
+  controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
 --- !u!114 &1021927380
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2043,12 +2048,15 @@ MonoBehaviour:
   tacticalPause: {fileID: 1021927381}
   activeCharacter: {fileID: 1021927385}
   coverRegistry: {fileID: 1021927387}
+  cursor: {fileID: 1021927391}
   commandAction: {fileID: -7655432171402092998, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   pointerPositionAction: {fileID: -226529708325634134, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   togglePauseAction: {fileID: 7531348965491062000, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   modifierAction: {fileID: 3622529144628067995, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   stopAction: {fileID: 2324457746282716579, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   clearSelectionAction: {fileID: 1827706152267695989, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  confirmAction: {fileID: -9117388939999025853, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  attackAction: {fileID: 8182434138458065465, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   dragThresholdPixels: 6
   maxClickDistance: 500
   clickableLayers:
@@ -2119,6 +2127,7 @@ MonoBehaviour:
   cycleAction: {fileID: 2406061088517015284, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   reverseAction: {fileID: -789005813888026758, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   toggleFollowAction: {fileID: 7467027872341685976, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  previousAction: {fileID: -1320488574872247935, guid: 052faaac586de48259a63d0c4782560b, type: 3}
 --- !u!114 &1021927385
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2210,6 +2219,64 @@ MonoBehaviour:
     hitChance: 0.5
     walkableTolerance: 0.25
   discoverOnStart: 1
+--- !u!114 &1021927390
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1021927378}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3d59a0b6d36956847b8d319be943609c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.TacticalCursorView
+  cursor: {fileID: 1021927391}
+  viewCamera: {fileID: 678505232}
+  crosshairSize: 28
+--- !u!114 &1021927391
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1021927378}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4d68ab35bd6a99d419f4240f5f8f63cf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.TacticalCursor
+  viewCamera: {fileID: 678505232}
+  activeCharacter: {fileID: 1021927385}
+  selection: {fileID: 1021927383}
+  encounter: {fileID: 1021927386}
+  coverRegistry: {fileID: 1021927387}
+  inputDevice: {fileID: 1021927392}
+  cursorMoveAction: {fileID: 4528992505967548537, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  cameraModifierAction: {fileID: -1192274556771156902, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  nextTargetAction: {fileID: 2648920459111585107, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  previousTargetAction: {fileID: 5738628712326979479, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  speedPixelsPerSecond: 900
+  responseExponent: 1.5
+  unitSnapRadius: 1.2
+  coverSnapRadius: 0.75
+  maxDistance: 500
+  clickableLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+--- !u!114 &1021927392
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1021927378}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a4324887b0c6537468d24032fb961dfc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.ActiveInputDevice
+  controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
 --- !u!1 &1189556992
 GameObject:
   m_ObjectHideFlags: 0
@@ -2846,11 +2913,16 @@ MonoBehaviour:
   rotateDragAction: {fileID: -2104869791773163696, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   pointerPositionAction: {fileID: 2642575763980487262, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   zoomAction: {fileID: -7656590848099952634, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  lookAction: {fileID: -4432166217812206670, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  cameraModifierAction: {fileID: -1192274556771156902, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   panSpeed: 12
   panReferenceDistance: 20
   keyRotateSpeed: 90
   dragRotateDegreesPerPixel: 0.25
   dragTiltDegreesPerPixel: 0.25
+  lookYawDegreesPerSecond: 120
+  lookTiltDegreesPerSecond: 60
+  lookResponseExponent: 1.5
   dragThresholdPixels: 6
   zoomStep: 2
   minDistance: 5

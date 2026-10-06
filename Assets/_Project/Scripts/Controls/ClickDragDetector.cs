@@ -51,5 +51,12 @@ namespace Blackglass
             IsDragging = false;
             return wasClick;
         }
+
+        /// <summary>Abandons the press without reporting a click or a drag (the press was interrupted, not released).</summary>
+        public void Cancel()
+        {
+            IsPressed = false;
+            IsDragging = false;
+        }
     }
 }

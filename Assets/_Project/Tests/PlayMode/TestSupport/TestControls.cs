@@ -19,6 +19,19 @@ namespace Blackglass.Tests
 
         public static InputActionReference Ref(InputActionAsset asset, string actionPath) =>
             InputActionReference.Create(asset.FindAction(actionPath, throwIfNotFound: true));
+
+        /// <summary>Activates one binding group only, like ActiveInputDevice does in the game.</summary>
+        public static void UseGroup(InputActionAsset asset, string group) =>
+            asset.bindingMask = InputBinding.MaskByGroup(group);
+
+        /// <summary>Puts the shared project asset back to a clean state; call it from TearDown before base.TearDown().</summary>
+        public static void Reset(InputActionAsset asset)
+        {
+            asset.bindingMask = null;
+            asset.devices = null;
+            asset.RemoveAllBindingOverrides();
+            asset.Disable();
+        }
     }
 }
 #endif

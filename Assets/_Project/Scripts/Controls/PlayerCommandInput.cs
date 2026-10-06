@@ -1,7 +1,7 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using UnityEngine.Serialization;
 
 namespace Blackglass
@@ -11,7 +11,9 @@ namespace Blackglass
     /// anywhere else gives an order (attack the clicked target, move into the cover point within coverClickRadius of the click, or move to the clicked point), and a drag box-selects.
     /// The order goes to the selected units whenever any are selected or the game is paused; with nothing selected in
     /// real time it goes to the active character. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
-    /// selection, Space toggles tactical pause. Contains no movement or combat rules.
+    /// selection, Space toggles tactical pause. A controller does the same through the tactical cursor: Confirm acts on what
+    /// it is on (the same Act path) while the cursor is shown and attacks like Attack while it is hidden, Attack orders an attack on the cursor's, the chosen or the best hostile, the queue
+    /// modifier (Shift / LT) queues, Cancel (Esc / the family's cancel button) clears the selection. Contains no movement or combat rules.
     /// </summary>
     public sealed class PlayerCommandInput : MonoBehaviour
     {
@@ -20,6 +22,9 @@ namespace Blackglass
         [SerializeField] TacticalPause tacticalPause;
         [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
         [SerializeField] CoverRegistry coverRegistry;
+        // The controller's pointer. Without it Confirm and Attack do nothing; while it is inactive both
+        // attack the chosen or best hostile; mouse clicks never use it.
+        [SerializeField] TacticalCursor cursor;
 
         [Header("Input")]
         [SerializeField] InputActionReference commandAction;
@@ -28,6 +33,8 @@ namespace Blackglass
         [SerializeField] InputActionReference modifierAction;
         [SerializeField] InputActionReference stopAction;
         [SerializeField] InputActionReference clearSelectionAction;
+        [SerializeField] InputActionReference confirmAction;
+        [SerializeField] InputActionReference attackAction;
 
         [Header("Tuning")]
         // A press that moves further than this is a box-selection drag, not a click.
@@ -40,7 +47,6 @@ namespace Blackglass
 
         readonly List<CommandableUnit> orderedUnits = new List<CommandableUnit>();
         readonly List<SelectableUnit> boxedUnits = new List<SelectableUnit>();
-        static readonly Func<CoverLocation, bool> acceptAny = _ => true;
         ClickDragDetector clickDetector;
         Vector2 pressPosition;
 
@@ -55,7 +61,8 @@ namespace Blackglass
         internal void Initialize(Camera camera, UnitSelection unitSelection, TacticalPause pause,
             InputActionReference command, InputActionReference pointerPosition, InputActionReference togglePause,
             InputActionReference modifier, InputActionReference stop, InputActionReference clearSelection,
-            ActiveCharacter active = null, CoverRegistry registry = null)
+            ActiveCharacter active = null, CoverRegistry registry = null, TacticalCursor tacticalCursor = null,
+            InputActionReference confirm = null, InputActionReference attack = null)
         {
             viewCamera = camera;
             selection = unitSelection;
@@ -68,6 +75,9 @@ namespace Blackglass
             clearSelectionAction = clearSelection;
             activeCharacter = active;
             coverRegistry = registry;
+            cursor = tacticalCursor;
+            confirmAction = confirm;
+            attackAction = attack;
         }
 
         void Awake() => clickDetector = new ClickDragDetector(dragThresholdPixels);
@@ -75,7 +85,7 @@ namespace Blackglass
         void OnEnable()
         {
             InputActionUtility.SetEnabled(true, commandAction, pointerPositionAction, togglePauseAction,
-                modifierAction, stopAction, clearSelectionAction);
+                modifierAction, stopAction, clearSelectionAction, confirmAction, attackAction);
             if (commandAction != null)
             {
                 commandAction.action.started += OnCommandPressed;
@@ -87,6 +97,10 @@ namespace Blackglass
                 stopAction.action.performed += OnStop;
             if (clearSelectionAction != null)
                 clearSelectionAction.action.performed += OnClearSelection;
+            if (confirmAction != null)
+                confirmAction.action.performed += OnConfirm;
+            if (attackAction != null)
+                attackAction.action.performed += OnAttack;
         }
 
         void OnDisable()
@@ -102,8 +116,12 @@ namespace Blackglass
                 stopAction.action.performed -= OnStop;
             if (clearSelectionAction != null)
                 clearSelectionAction.action.performed -= OnClearSelection;
+            if (confirmAction != null)
+                confirmAction.action.performed -= OnConfirm;
+            if (attackAction != null)
+                attackAction.action.performed -= OnAttack;
             InputActionUtility.SetEnabled(false, commandAction, pointerPositionAction, togglePauseAction,
-                modifierAction, stopAction, clearSelectionAction);
+                modifierAction, stopAction, clearSelectionAction, confirmAction, attackAction);
         }
 
         void Update()
@@ -123,6 +141,13 @@ namespace Blackglass
 
         void OnCommandReleased(InputAction.CallbackContext context)
         {
+            // A cancel while the button is still physically down is not a release: changing the input family re-resolves
+            // the bindings and cancels the action under a held button. Abandon the press instead of issuing a click.
+            if (context.control is ButtonControl button && button.isPressed)
+            {
+                clickDetector.Cancel();
+                return;
+            }
             var wasPressed = clickDetector.IsPressed;
             var pointer = PointerPosition;
             if (clickDetector.Release(pointer))
@@ -140,6 +165,53 @@ namespace Blackglass
         void OnStop(InputAction.CallbackContext context) =>
             GroupOrders.Issue(SelectedUnits(), new StopCommand(), IssueMode.Replace);
 
+        // Controller counterpart of a left click: with the cursor shown, acts on what it is on through the same Act path.
+        // With the cursor hidden (the camera owns the right stick) there is nothing to point at, so it attacks like Attack.
+        void OnConfirm(InputAction.CallbackContext context)
+        {
+            if (cursor == null)
+                return;
+            if (cursor.IsActive)
+                Act(cursor.Refresh());
+            else
+                AttackBestHostile();
+        }
+
+        void OnAttack(InputAction.CallbackContext context) => AttackBestHostile();
+
+        // Attack the cursor's hostile, else the chosen soft target, else the best hostile ahead of whoever is ordered.
+        void AttackBestHostile()
+        {
+            if (cursor == null)
+                return;
+            var units = OrderedUnits();
+            var anchor = AttackAnchor(units);
+            if (anchor == null)
+                return;
+            var hostile = cursor.PickAttackTarget(anchor.transform.position, AttackFacing(anchor));
+            if (hostile == null)
+                return;
+            GroupOrders.Issue(units, new AttackCommand(hostile), ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
+        }
+
+        // Whose position "nearest" is measured from: the character being played, else the first unit being ordered.
+        CommandableUnit AttackAnchor(List<CommandableUnit> units)
+        {
+            if (activeCharacter != null && activeCharacter.HasUnit)
+                return activeCharacter.Unit;
+            return units.Count > 0 ? units[0] : null;
+        }
+
+        // "Ahead": the direction the unit is being steered, else where the camera looks.
+        Vector3 AttackFacing(CommandableUnit anchor)
+        {
+            var facing = anchor.MoveIntent;
+            if (facing == Vector3.zero && viewCamera != null)
+                facing = viewCamera.transform.forward;
+            facing.y = 0f;
+            return facing;
+        }
+
         void OnClearSelection(InputAction.CallbackContext context)
         {
             if (selection != null)
@@ -150,30 +222,31 @@ namespace Blackglass
         {
             if (viewCamera == null)
                 return;
+            Act(PointerTargetResolver.Resolve(viewCamera, screenPoint, maxClickDistance, clickableLayers, coverRegistry,
+                coverClickRadius));
+        }
 
-            // While paused no physics steps run, so push moved transforms to physics before raycasting.
-            Physics.SyncTransforms();
-            var ray = viewCamera.ScreenPointToRay(screenPoint);
-            if (!Physics.Raycast(ray, out var hit, maxClickDistance, clickableLayers, QueryTriggerInteraction.Ignore))
-                return;
-
-            var friendly = hit.collider.GetComponentInParent<SelectableUnit>();
-            if (friendly != null)
+        // The one "do what the player pointed at" path: a mouse click and the controller cursor both end here. A friendly
+        // unit is selected (the queue modifier adds or removes it); anything else is an order, queued with the modifier.
+        internal void Act(PointerTarget target)
+        {
+            switch (target.Kind)
             {
-                if (selection == null)
+                case PointerTargetKind.None:
                     return;
-                if (ModifierHeld)
-                    selection.Toggle(friendly);
-                else
-                    selection.Select(friendly);
-                return;
+                case PointerTargetKind.Friendly:
+                    if (selection == null)
+                        return;
+                    if (ModifierHeld)
+                        selection.Toggle(target.Friendly);
+                    else
+                        selection.Select(target.Friendly);
+                    return;
+                default:
+                    var command = CommandResolver.Resolve(target.Hostile, target.Point, target.Cover);
+                    GroupOrders.Issue(OrderedUnits(), command, ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
+                    return;
             }
-
-            CoverLocation cover = null;
-            if (coverRegistry != null)
-                CoverRules.TryChooseNearest(coverRegistry.Points, hit.point, coverClickRadius, acceptAny, out cover);
-            var command = CommandResolver.Resolve(hit.collider.GetComponentInParent<Health>(), hit.point, cover);
-            GroupOrders.Issue(OrderedUnits(), command, ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
         }
 
         void SelectInBox(Rect box)
