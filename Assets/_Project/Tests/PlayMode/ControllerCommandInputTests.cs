@@ -112,6 +112,7 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator Confirm_OnAFriendly_SelectsIt()
         {
+            pause.Pause();
             yield return CursorOn(unitB.transform.position);
             yield return Tap(pad.buttonSouth);
 
@@ -122,6 +123,7 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator QueueModifierPlusConfirm_BuildsAMultiSelection_AndTogglesOneOut()
         {
+            pause.Pause();
             yield return CursorOn(unitA.transform.position);
             yield return Tap(pad.buttonSouth);
             Press(pad.leftTrigger);
@@ -228,22 +230,80 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator ToggleTacticalPause_PausesAndResumes_FromTheController()
         {
-            yield return Tap(pad.selectButton);
+            yield return Tap(pad.startButton);
             Assert.That(pause.IsPaused, Is.True);
-            yield return Tap(pad.selectButton);
+            yield return Tap(pad.startButton);
             Assert.That(pause.IsPaused, Is.False);
         }
 
+        // Real time with the camera owning the right stick: the cursor is hidden, so Confirm (Cross) attacks like Attack.
         [UnityTest]
-        public IEnumerator Confirm_WhileTheCameraOwnsTheStick_DoesNothing()
+        public IEnumerator Confirm_WhileTheCameraOwnsTheStick_AttacksTheBestHostileForTheActiveCharacter()
         {
             DriveUnitA();
-            selection.Select(unitB);
-            yield return CursorOn(GroundPoint);
+            yield return null;
+            Assert.That(cursor.IsActive, Is.False);
             yield return Tap(pad.buttonSouth);
 
-            Assert.That(unitB.Unit.CurrentCommand, Is.Null);
-            Assert.That(selection.Selected, Is.EquivalentTo(new[] { unitB }));
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<AttackCommand>());
+            Assert.That(((AttackCommand)unitA.Unit.CurrentCommand).Target, Is.SameAs(nearDummy), "The nearer one, two metres away");
+        }
+
+        [UnityTest]
+        public IEnumerator Confirm_WhileTheCameraOwnsTheStick_AttacksInRealTimeWithTakeoverOff()
+        {
+            selection.Select(unitA);
+            yield return null;
+            Assert.That(cursor.IsActive, Is.False);
+            yield return Tap(pad.buttonSouth);
+
+            Assert.That(pause.IsPaused, Is.False);
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<AttackCommand>());
+        }
+
+        [UnityTest]
+        public IEnumerator Confirm_WhileTheCameraOwnsTheStick_WithTheQueueModifier_Appends()
+        {
+            DriveUnitA();
+            Assert.That(unitA.Unit.Issue(new MoveCommand(GroundPoint)), Is.True);
+            var move = unitA.Unit.CurrentCommand;
+            Press(pad.leftTrigger);
+            yield return null;
+            yield return Tap(pad.buttonSouth);
+            Release(pad.leftTrigger);
+            yield return null;
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.SameAs(move));
+            Assert.That(unitA.Unit.PendingCommands, Has.Count.EqualTo(1));
+            Assert.That(unitA.Unit.PendingCommands[0], Is.TypeOf<AttackCommand>());
+        }
+
+        [UnityTest]
+        public IEnumerator Confirm_WhileTheCameraOwnsTheStick_WithNoLivingHostiles_DoesNothing()
+        {
+            DriveUnitA();
+            nearDummy.TakeDamage(1000);
+            farDummy.TakeDamage(1000);
+            yield return null;
+            yield return Tap(pad.buttonSouth);
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator Confirm_WithTheCursorActive_StillActsAtTheCursor_NotOnTheBestHostile()
+        {
+            selection.Select(unitA);
+            pause.Pause();
+            yield return CursorOn(GroundPoint);
+            Assert.That(cursor.IsActive, Is.True);
+            yield return Tap(pad.buttonSouth);
+
+            Assert.That(unitA.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "The cursor is on the ground, not on a hostile");
+
+            yield return CursorOn(unitB.transform.position);
+            yield return Tap(pad.buttonSouth);
+            Assert.That(selection.Selected, Is.EquivalentTo(new[] { unitB }), "The cursor is on a friendly: it selects");
         }
 
         [UnityTest]
@@ -328,6 +388,7 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator Nintendo_ConfirmIsEast_CancelIsSouth()
         {
+            pause.Pause();
             InputSystem.RemoveDevice(pad);
             pad = InputSystem.AddDevice<SwitchProControllerHID>();
             TestControls.UseGroup(actions, "Nintendo");

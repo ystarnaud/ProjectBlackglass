@@ -12,7 +12,7 @@ namespace Blackglass
     /// The order goes to the selected units whenever any are selected or the game is paused; with nothing selected in
     /// real time it goes to the active character. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
     /// selection, Space toggles tactical pause. A controller does the same through the tactical cursor: Confirm acts on what
-    /// it is on (the same Act path), Attack orders an attack on the cursor's, the chosen or the best hostile, the queue
+    /// it is on (the same Act path) while the cursor is shown and attacks like Attack while it is hidden, Attack orders an attack on the cursor's, the chosen or the best hostile, the queue
     /// modifier (Shift / LT) queues, Cancel (Esc / the family's cancel button) clears the selection. Contains no movement or combat rules.
     /// </summary>
     public sealed class PlayerCommandInput : MonoBehaviour
@@ -22,8 +22,8 @@ namespace Blackglass
         [SerializeField] TacticalPause tacticalPause;
         [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
         [SerializeField] CoverRegistry coverRegistry;
-        // The controller's pointer. Without it (or while it is inactive) Confirm does nothing and Attack falls back to the
-        // chosen or best hostile; mouse clicks never use it.
+        // The controller's pointer. Without it Confirm and Attack do nothing; while it is inactive both
+        // attack the chosen or best hostile; mouse clicks never use it.
         [SerializeField] TacticalCursor cursor;
 
         [Header("Input")]
@@ -165,16 +165,22 @@ namespace Blackglass
         void OnStop(InputAction.CallbackContext context) =>
             GroupOrders.Issue(SelectedUnits(), new StopCommand(), IssueMode.Replace);
 
-        // Controller counterpart of a left click: acts on what the tactical cursor is on, through the same Act path.
+        // Controller counterpart of a left click: with the cursor shown, acts on what it is on through the same Act path.
+        // With the cursor hidden (the camera owns the right stick) there is nothing to point at, so it attacks like Attack.
         void OnConfirm(InputAction.CallbackContext context)
         {
-            if (cursor == null || !cursor.IsActive)
+            if (cursor == null)
                 return;
-            Act(cursor.Refresh());
+            if (cursor.IsActive)
+                Act(cursor.Refresh());
+            else
+                AttackBestHostile();
         }
 
+        void OnAttack(InputAction.CallbackContext context) => AttackBestHostile();
+
         // Attack the cursor's hostile, else the chosen soft target, else the best hostile ahead of whoever is ordered.
-        void OnAttack(InputAction.CallbackContext context)
+        void AttackBestHostile()
         {
             if (cursor == null)
                 return;

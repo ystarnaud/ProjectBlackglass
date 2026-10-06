@@ -65,6 +65,8 @@ namespace Blackglass.Tests
                 TestControls.Ref(actions, "Commands/NextTarget"),
                 TestControls.Ref(actions, "Commands/PreviousTarget"));
             systems.SetActive(true);
+            // The cursor owns the right stick only while paused (or with RT held); most tests need it, so start paused.
+            pause.Pause();
         }
 
         public override void TearDown()
@@ -133,23 +135,39 @@ namespace Blackglass.Tests
         public IEnumerator IsActive_FollowsTheRightStickRole()
         {
             yield return null;
-            Assert.That(cursor.IsActive, Is.True, "Tactical mode: the cursor owns the right stick");
+            Assert.That(cursor.IsActive, Is.True, "Paused: the cursor owns the right stick");
+
+            Press(pad.rightTrigger);
+            yield return null;
+            Assert.That(cursor.IsActive, Is.False, "Paused with RT held: the camera owns it");
+            Release(pad.rightTrigger);
+            yield return null;
+            Assert.That(cursor.IsActive, Is.True);
+
+            pause.Resume();
+            yield return null;
+            Assert.That(cursor.IsActive, Is.False, "Running with takeover off: the camera owns it");
+            Assert.That(cursor.Target.Kind, Is.EqualTo(PointerTargetKind.None), "An inactive cursor points at nothing");
+
+            Press(pad.rightTrigger);
+            yield return null;
+            Assert.That(cursor.IsActive, Is.True, "RT hands the stick to the cursor while the game runs");
+            Release(pad.rightTrigger);
+            yield return null;
+            Assert.That(cursor.IsActive, Is.False);
 
             active.SetTakeover(true);
             yield return null;
-            Assert.That(cursor.IsActive, Is.False, "Driving: the camera owns it");
-            Assert.That(cursor.Target.Kind, Is.EqualTo(PointerTargetKind.None), "An inactive cursor points at nothing");
-
+            Assert.That(cursor.IsActive, Is.False, "Running with takeover on: the camera owns it");
             Press(pad.rightTrigger);
             yield return null;
             Assert.That(cursor.IsActive, Is.True, "RT hands the stick to the cursor while driving");
             Release(pad.rightTrigger);
             yield return null;
-            Assert.That(cursor.IsActive, Is.False);
 
             pause.Pause();
             yield return null;
-            Assert.That(cursor.IsActive, Is.True, "Paused is tactical mode");
+            Assert.That(cursor.IsActive, Is.True, "Paused with takeover on: the cursor owns it");
         }
 
         [UnityTest]

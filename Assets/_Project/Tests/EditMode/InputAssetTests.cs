@@ -162,7 +162,7 @@ namespace Blackglass.Tests
                 ["Character/PreviousCharacter"] = "<Gamepad>/leftShoulder",
                 ["Commands/QueueModifier"] = "<Gamepad>/leftTrigger",
                 ["Camera/CameraModifier"] = "<Gamepad>/rightTrigger",
-                ["Commands/ToggleTacticalPause"] = "<Gamepad>/select",
+                ["Commands/ToggleTacticalPause"] = "<Gamepad>/start",
                 ["Character/ToggleFollow"] = "<Gamepad>/dpad/up",
                 ["Commands/Stop"] = "<Gamepad>/dpad/down",
                 ["Commands/PreviousTarget"] = "<Gamepad>/dpad/left",
@@ -180,9 +180,9 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void MenuButton_IsReserved_AndUnbound()
+        public void SelectButton_IsReserved_AndUnbound()
         {
-            Assert.That(Load().bindings.Any(b => b.path == "<Gamepad>/start"), Is.False);
+            Assert.That(Load().bindings.Any(b => b.path == "<Gamepad>/select"), Is.False);
         }
 
         [Test]

@@ -119,8 +119,8 @@ namespace Blackglass.Tests
             yield return null;
         }
 
-        // Tapping Menu (start) is the harmless "wake" input: it is unbound, so it only announces the device.
-        IEnumerator Wake(Gamepad pad) => Tap(pad, PadKey.Start);
+        // Tapping View/Create (select) is the harmless "wake" input: it is unbound (Menu/Options/start pauses), so it only announces the device.
+        IEnumerator Wake(Gamepad pad) => Tap(pad, PadKey.Select);
 
         IEnumerator WakeKeyboard()
         {
@@ -220,8 +220,8 @@ namespace Blackglass.Tests
             var pad = InputSystem.AddDevice<XInputController>();
             yield return Wake(pad);
 
-            yield return Tap(pad, PadKey.Select);
-            Assert.That(pause.IsPaused, Is.True, "View pauses");
+            yield return Tap(pad, PadKey.Start);
+            Assert.That(pause.IsPaused, Is.True, "Start (Menu/Options) pauses");
 
             var unit = squad[0];
             yield return CursorOn(unit.transform.position);
@@ -254,13 +254,46 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Scene_RightStickBelongsToTheCameraWhileRunning_AndToTheCursorWhilePaused()
+        {
+            yield return LoadScene();
+            var pad = InputSystem.AddDevice<XInputController>();
+            yield return Wake(pad);
+
+            Assert.That(active.IsTakeoverOn, Is.False);
+            Assert.That(cursor.IsActive, Is.False, "Running with takeover off: the camera owns the right stick");
+            Press(pad.rightTrigger);
+            yield return null;
+            Assert.That(cursor.IsActive, Is.True, "RT hands it to the cursor");
+            Release(pad.rightTrigger);
+            yield return null;
+
+            yield return Tap(pad, PadKey.Start);
+            Assert.That(pause.IsPaused, Is.True);
+            Assert.That(cursor.IsActive, Is.True, "Paused: the cursor owns the right stick");
+        }
+
+        [UnityTest]
+        public IEnumerator Scene_CrossAttacksTheBestHostile_WhileTheCursorIsHidden()
+        {
+            yield return LoadScene();
+            var pad = InputSystem.AddDevice<XInputController>();
+            yield return Wake(pad);
+            Assert.That(cursor.IsActive, Is.False);
+
+            yield return Tap(pad, PadKey.South);
+            Assert.That(active.Unit.CurrentCommand, Is.TypeOf<AttackCommand>(), "Cross attacks in real time");
+            Assert.That(pause.IsPaused, Is.False);
+        }
+
+        [UnityTest]
         public IEnumerator Scene_PadCover_CursorSnapsToGeneratedCover_AndMoveToCoverQueues()
         {
             yield return LoadScene();
             yield return TestWorld.WaitUntil(() => registry.Points.Count > 0, 2f);
             var pad = InputSystem.AddDevice<XInputController>();
             yield return Wake(pad);
-            yield return Tap(pad, PadKey.Select);
+            yield return Tap(pad, PadKey.Start);
 
             var unit = squad[0];
             yield return CursorOn(unit.transform.position);
@@ -378,7 +411,7 @@ namespace Blackglass.Tests
             yield return Wake(pad);
             Assert.That(family.Family, Is.EqualTo(expected));
 
-            yield return Tap(pad, PadKey.Select);
+            yield return Tap(pad, PadKey.Start);
             Assert.That(pause.IsPaused, Is.True, "The pause button works on every family");
 
             var unit = squad[1];

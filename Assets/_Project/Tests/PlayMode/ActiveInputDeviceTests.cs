@@ -43,25 +43,25 @@ namespace Blackglass.Tests
             base.TearDown();
         }
 
-        // Tapping Menu (start) is the harmless "wake" input: it is unbound, so it only announces the device.
+        // Tapping View/Create (select) is the harmless "wake" input: it is unbound (Menu/Options/start pauses), so it only announces the device.
         IEnumerator Wake(Gamepad pad)
         {
-            PressStart(pad, true);
+            PressSelect(pad, true);
             yield return null;
-            PressStart(pad, false);
+            PressSelect(pad, false);
             yield return null;
         }
 
         // The DualSense layout's event pre-processor discards delta state events (a real pad only sends whole reports),
         // so Press/Set cannot drive it; these helpers queue a whole DualSense report for it instead.
-        void PressStart(Gamepad pad, bool down)
+        void PressSelect(Gamepad pad, bool down)
         {
             if (pad is DualSenseGamepadHID)
                 InputSystem.QueueStateEvent(pad, DualSenseReport(Vector2.zero, down));
             else if (down)
-                Press(pad.startButton);
+                Press(pad.selectButton);
             else
-                Release(pad.startButton);
+                Release(pad.selectButton);
         }
 
         void SetLeftStick(Gamepad pad, Vector2 value)
@@ -72,14 +72,14 @@ namespace Blackglass.Tests
                 Set(pad.leftStick, value);
         }
 
-        static DualSenseHIDInputReport DualSenseReport(Vector2 leftStick, bool start) => new DualSenseHIDInputReport
+        static DualSenseHIDInputReport DualSenseReport(Vector2 leftStick, bool select) => new DualSenseHIDInputReport
         {
             leftStickX = (byte)Mathf.RoundToInt(127.5f + leftStick.x * 127.5f),
             leftStickY = (byte)Mathf.RoundToInt(127.5f - leftStick.y * 127.5f), // HID Y points down
             rightStickX = 128,
             rightStickY = 128,
             buttons0 = 8, // d-pad released
-            buttons1 = (byte)(start ? 1 << 5 : 0), // Options, the layout's start button
+            buttons1 = (byte)(select ? 1 << 4 : 0), // Share, the layout's select button
         };
 
         IEnumerator WakeKeyboard()

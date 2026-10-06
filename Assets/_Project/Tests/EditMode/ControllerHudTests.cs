@@ -26,6 +26,13 @@ namespace Blackglass.Tests
             Assert.That(PrototypeHud.DescribePauseBanner("Space"), Is.EqualTo("TACTICAL PAUSE - Space to resume"));
 
         [Test]
+        public void CursorView_NamesWhoOwnsTheRightStick()
+        {
+            Assert.That(TacticalCursorView.DescribeRightStick(true), Is.EqualTo("Right stick: Cursor"));
+            Assert.That(TacticalCursorView.DescribeRightStick(false), Is.EqualTo("Right stick: Camera"));
+        }
+
+        [Test]
         public void CursorView_DescribesWhatTheCursorIsOn()
         {
             var host = new GameObject("Raider");

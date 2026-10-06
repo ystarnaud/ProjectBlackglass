@@ -28,7 +28,14 @@ namespace Blackglass.Tests
         [TestCase(true, false, true)]
         [TestCase(false, true, true)]
         [TestCase(true, true, false)]
-        public void RightStickRole_IsDrivingXorModifier(bool driving, bool modifier, bool cameraOwns) =>
-            Assert.That(StickRole.CameraOwnsRightStick(driving, modifier), Is.EqualTo(cameraOwns));
+        public void RightStickRole_IsRunningXorModifier(bool running, bool modifier, bool cameraOwns) =>
+            Assert.That(StickRole.CameraOwnsRightStick(running, modifier), Is.EqualTo(cameraOwns));
+
+        [Test]
+        public void RightStickRole_WithNoActiveCharacter_TreatsTheGameAsRunning()
+        {
+            Assert.That(StickRole.CameraOwnsRightStick((ActiveCharacter)null, false), Is.True);
+            Assert.That(StickRole.CameraOwnsRightStick((ActiveCharacter)null, true), Is.False);
+        }
     }
 }

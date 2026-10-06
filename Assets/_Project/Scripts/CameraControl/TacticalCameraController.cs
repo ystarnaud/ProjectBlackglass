@@ -127,8 +127,8 @@ namespace Blackglass
             }
 
             var yaw = transform.eulerAngles.y + InputActionUtility.Read<float>(rotateAction) * keyRotateSpeed * deltaTime;
-            // Right stick: look around while driving, or while the camera modifier hands it over in tactical mode.
-            var cameraOwnsStick = StickRole.CameraOwnsRightStick(activeCharacter != null && activeCharacter.IsDriving,
+            // Right stick: look around while the game runs, or while the camera modifier hands it over during a pause.
+            var cameraOwnsStick = StickRole.CameraOwnsRightStick(activeCharacter,
                 InputActionUtility.IsPressed(cameraModifierAction));
             if (cameraOwnsStick)
             {

@@ -88,7 +88,7 @@ namespace Blackglass.Tests
             Press(mouse.leftButton);
             yield return null;
 
-            yield return Tap(pad.startButton); // wakes the pad: the bindings are re-resolved on the next frame
+            yield return Tap(pad.selectButton); // wakes the pad: the bindings are re-resolved on the next frame
             yield return null;
             yield return null;
             Assert.That(unit.Unit.CurrentCommand, Is.Null, "The cancel caused by the switch is not a click");
@@ -111,7 +111,7 @@ namespace Blackglass.Tests
         {
             selection.Select(unit);
             Set(mouse.position, (Vector2)viewCamera.WorldToScreenPoint(GroundPoint));
-            yield return Tap(pad.startButton);
+            yield return Tap(pad.selectButton);
             yield return null;
             yield return Tap(keyboard.f12Key);
             yield return null;

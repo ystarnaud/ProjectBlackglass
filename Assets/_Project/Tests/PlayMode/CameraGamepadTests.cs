@@ -88,9 +88,38 @@ namespace Blackglass.Tests
             Assert.That(controller.Pitch, Is.LessThan(start - 5f));
         }
 
-        [UnityTest]
-        public IEnumerator RightStick_InTacticalMode_LeavesTheCameraAlone()
+        void PauseWithoutAUnit()
         {
+            activeCharacter.Initialize(null, pause);
+            pause.Pause();
+        }
+
+        [UnityTest]
+        public IEnumerator RightStickX_InRealTimeWithTakeoverOff_RotatesTheCamera()
+        {
+            var start = controller.Yaw;
+            yield return HoldStick(new Vector2(1f, 0f), 0.3f);
+
+            Assert.That(Mathf.Abs(Mathf.DeltaAngle(start, controller.Yaw)), Is.GreaterThan(15f));
+        }
+
+        [UnityTest]
+        public IEnumerator RightStick_InRealTimeWithTakeoverOff_AndRightTriggerHeld_HandsTheStickToTheCursor()
+        {
+            var start = controller.Yaw;
+            Press(pad.rightTrigger);
+            yield return null;
+            yield return HoldStick(new Vector2(1f, 0f), 0.3f);
+            Release(pad.rightTrigger);
+            yield return null;
+
+            Assert.That(controller.Yaw, Is.EqualTo(start).Within(0.01f));
+        }
+
+        [UnityTest]
+        public IEnumerator RightStick_WhilePaused_LeavesTheCameraAlone()
+        {
+            PauseWithoutAUnit();
             var start = controller.Yaw;
             var startPitch = controller.Pitch;
             yield return HoldStick(new Vector2(1f, 1f), 0.3f);
@@ -100,8 +129,9 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator RightTriggerHeld_InTacticalMode_LetsTheRightStickRotateTheCamera()
+        public IEnumerator RightTriggerHeld_WhilePaused_LetsTheRightStickRotateTheCamera()
         {
+            PauseWithoutAUnit();
             var start = controller.Yaw;
             Press(pad.rightTrigger);
             yield return null;

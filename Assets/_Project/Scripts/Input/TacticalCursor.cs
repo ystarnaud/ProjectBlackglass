@@ -58,8 +58,7 @@ namespace Blackglass
 
         public bool IsActive =>
             (inputDevice == null || inputDevice.Family.IsController())
-            && !StickRole.CameraOwnsRightStick(activeCharacter != null && activeCharacter.IsDriving,
-                InputActionUtility.IsPressed(cameraModifierAction));
+            && !StickRole.CameraOwnsRightStick(activeCharacter, InputActionUtility.IsPressed(cameraModifierAction));
 
         internal void Initialize(Camera camera, ActiveCharacter active, UnitSelection unitSelection,
             Encounter currentEncounter, CoverRegistry registry, ActiveInputDevice device,

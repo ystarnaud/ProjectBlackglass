@@ -31,9 +31,17 @@ namespace Blackglass
             }
         }
 
+        /// <summary>Who owns the right stick right now, for the debug HUD.</summary>
+        internal static string DescribeRightStick(bool cursorActive) =>
+            cursorActive ? "Right stick: Cursor" : "Right stick: Camera";
+
         void OnGUI()
         {
-            if (cursor == null || viewCamera == null)
+            if (cursor == null)
+                return;
+            // Below the HUD's prompt lines (y = 10, 30, 50).
+            GUI.Label(new Rect(Screen.width - 560f, 70f, 550f, 22f), DescribeRightStick(cursor.IsActive));
+            if (viewCamera == null)
                 return;
 
             var soft = cursor.SoftTarget;
