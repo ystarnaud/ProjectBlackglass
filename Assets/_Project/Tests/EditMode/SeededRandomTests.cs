@@ -28,6 +28,33 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void ForAttempt_AdjacentSeeds_DoNotShareAShiftedStream()
+        {
+            const int length = 8;
+            ulong[] Draw(int seed, int attempt)
+            {
+                var rng = SeededRandom.ForAttempt(seed, attempt);
+                var values = new ulong[length];
+                for (var i = 0; i < length; i++)
+                    values[i] = rng.NextULong();
+                return values;
+            }
+
+            for (var seed = 1; seed <= 50; seed++)
+            for (var attempt = 1; attempt <= 3; attempt++)
+            {
+                var a = Draw(seed, attempt);
+                var b = Draw(seed + 1, attempt);
+                Assert.That(a[0], Is.Not.EqualTo(b[0]), $"seed {seed} attempt {attempt}");
+                for (var k = 1; k < length; k++)
+                {
+                    Assert.That(a[k], Is.Not.EqualTo(b[0]), $"seed {seed} attempt {attempt} shift {k}");
+                    Assert.That(b[k], Is.Not.EqualTo(a[0]), $"seed {seed} attempt {attempt} shift -{k}");
+                }
+            }
+        }
+
+        [Test]
         public void NextInt_StaysInRange_AndCoversIt()
         {
             var rng = new SeededRandom(7UL);

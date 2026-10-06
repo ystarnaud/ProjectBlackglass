@@ -17,8 +17,14 @@ namespace Blackglass
         public SeededRandom(ulong seed) => state = seed;
 
         /// <summary>The generator for one attempt of one seed: attempt n always gets the same stream.</summary>
-        public static SeededRandom ForAttempt(int seed, int attempt) =>
-            new SeededRandom(Finish(unchecked((ulong)(uint)seed) * Gamma + Finish(unchecked((ulong)(uint)attempt) + 0x632BE59BD9B4E019UL)));
+        public static SeededRandom ForAttempt(int seed, int attempt)
+        {
+            unchecked
+            {
+                // The outer Finish hashes the seed too: without it, seed + 1 would start one step into the stream of seed.
+                return new SeededRandom(Finish((ulong)(uint)seed * Gamma + Finish((ulong)(uint)attempt + 0x632BE59BD9B4E019UL)));
+            }
+        }
 
         static ulong Finish(ulong z)
         {
