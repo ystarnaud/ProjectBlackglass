@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -40,7 +39,6 @@ namespace Blackglass
 
         readonly List<CommandableUnit> orderedUnits = new List<CommandableUnit>();
         readonly List<SelectableUnit> boxedUnits = new List<SelectableUnit>();
-        static readonly Func<CoverLocation, bool> acceptAny = _ => true;
         ClickDragDetector clickDetector;
         Vector2 pressPosition;
 
@@ -150,30 +148,31 @@ namespace Blackglass
         {
             if (viewCamera == null)
                 return;
+            Act(PointerTargetResolver.Resolve(viewCamera, screenPoint, maxClickDistance, clickableLayers, coverRegistry,
+                coverClickRadius));
+        }
 
-            // While paused no physics steps run, so push moved transforms to physics before raycasting.
-            Physics.SyncTransforms();
-            var ray = viewCamera.ScreenPointToRay(screenPoint);
-            if (!Physics.Raycast(ray, out var hit, maxClickDistance, clickableLayers, QueryTriggerInteraction.Ignore))
-                return;
-
-            var friendly = hit.collider.GetComponentInParent<SelectableUnit>();
-            if (friendly != null)
+        // The one "do what the player pointed at" path: a mouse click and the controller cursor both end here. A friendly
+        // unit is selected (the queue modifier adds or removes it); anything else is an order, queued with the modifier.
+        internal void Act(PointerTarget target)
+        {
+            switch (target.Kind)
             {
-                if (selection == null)
+                case PointerTargetKind.None:
                     return;
-                if (ModifierHeld)
-                    selection.Toggle(friendly);
-                else
-                    selection.Select(friendly);
-                return;
+                case PointerTargetKind.Friendly:
+                    if (selection == null)
+                        return;
+                    if (ModifierHeld)
+                        selection.Toggle(target.Friendly);
+                    else
+                        selection.Select(target.Friendly);
+                    return;
+                default:
+                    var command = CommandResolver.Resolve(target.Hostile, target.Point, target.Cover);
+                    GroupOrders.Issue(OrderedUnits(), command, ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
+                    return;
             }
-
-            CoverLocation cover = null;
-            if (coverRegistry != null)
-                CoverRules.TryChooseNearest(coverRegistry.Points, hit.point, coverClickRadius, acceptAny, out cover);
-            var command = CommandResolver.Resolve(hit.collider.GetComponentInParent<Health>(), hit.point, cover);
-            GroupOrders.Issue(OrderedUnits(), command, ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
         }
 
         void SelectInBox(Rect box)
