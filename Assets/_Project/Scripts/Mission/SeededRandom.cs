@@ -17,12 +17,20 @@ namespace Blackglass
         public SeededRandom(ulong seed) => state = seed;
 
         /// <summary>The generator for one attempt of one seed: attempt n always gets the same stream.</summary>
-        public static SeededRandom ForAttempt(int seed, int attempt)
+        public static SeededRandom ForAttempt(int seed, int attempt) => ForStream(seed, attempt, 0x632BE59BD9B4E019UL);
+
+        /// <summary>
+        /// The objective placer's stream for one attempt of one seed: independent of the layout stream, so the layout never
+        /// depends on where objectives go and the placement never depends on any layout draw count.
+        /// </summary>
+        public static SeededRandom ForObjectives(int seed, int attempt) => ForStream(seed, attempt, 0x0B1EC71F0C0FFEE1UL);
+
+        static SeededRandom ForStream(int seed, int attempt, ulong salt)
         {
             unchecked
             {
                 // The outer Finish hashes the seed too: without it, seed + 1 would start one step into the stream of seed.
-                return new SeededRandom(Finish((ulong)(uint)seed * Gamma + Finish((ulong)(uint)attempt + 0x632BE59BD9B4E019UL)));
+                return new SeededRandom(Finish((ulong)(uint)seed * Gamma + Finish((ulong)(uint)attempt + salt)));
             }
         }
 
