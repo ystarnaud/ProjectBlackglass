@@ -428,6 +428,44 @@ namespace Blackglass.Tests
             Assert.That(TestWorld.HorizontalDistance(controller.transform.position, settled), Is.LessThan(0.01f),
                 "In free mode the camera kept following the character after its one glide");
         }
+
+        [UnityTest]
+        public IEnumerator SetBounds_ClampsPanningToTheGivenRectangle()
+        {
+            controller.SetBounds(new Rect(-2f, -2f, 4f, 4f));
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(0.6f);
+            Release(keyboard.wKey);
+            yield return null;
+
+            Assert.That(controller.transform.position.z, Is.EqualTo(2f).Within(0.01f));
+        }
+
+        [UnityTest]
+        public IEnumerator FocusOn_SnapsAtOnce_ClampedToTheBounds_AndKeepsTheHeight()
+        {
+            controller.SetBounds(new Rect(10f, 10f, 20f, 20f));
+            var height = controller.transform.position.y;
+            controller.FocusOn(new Vector3(100f, 0f, 15f));
+            var snapped = controller.transform.position;
+            yield return null;
+
+            Assert.That(snapped.x, Is.EqualTo(30f).Within(0.001f));
+            Assert.That(snapped.z, Is.EqualTo(15f).Within(0.001f));
+            Assert.That(snapped.y, Is.EqualTo(height).Within(0.001f));
+            Assert.That(controller.transform.position, Is.EqualTo(snapped), "no glide after a snap");
+        }
+
+        [UnityTest]
+        public IEnumerator WithoutSetBounds_TheOriginalSquareStillApplies()
+        {
+            Press(keyboard.wKey);
+            yield return new WaitForSecondsRealtime(2.8f);
+            Release(keyboard.wKey);
+            yield return null;
+
+            Assert.That(controller.transform.position.z, Is.EqualTo(25f).Within(0.01f));
+        }
     }
 }
 #endif

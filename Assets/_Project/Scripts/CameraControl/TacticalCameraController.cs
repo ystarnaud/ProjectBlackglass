@@ -62,6 +62,7 @@ namespace Blackglass
         // Where the active character stood when it became active. The glide eases here and never reads the unit again,
         // so it ends even if the unit walks on (no follow in free mode) or is destroyed.
         Vector3 focusPoint;
+        Rect? customBounds;
 
         public float Distance => distance;
         public float Yaw => transform.eulerAngles.y;
@@ -207,8 +208,28 @@ namespace Blackglass
         Vector3 EaseTowards(Vector3 target, float deltaTime) =>
             Vector3.Lerp(transform.position, target, 1f - Mathf.Exp(-followSharpness * deltaTime));
 
+        /// <summary>Limits panning and focusing to this rectangle (x/y = world x/z minimum) instead of the square of `boundsHalfSize`.</summary>
+        public void SetBounds(Rect flat) => customBounds = flat;
+
+        /// <summary>Puts the camera over a ground point at once (clamped to the bounds), with no glide.</summary>
+        public void FocusOn(Vector3 point)
+        {
+            point.y = transform.position.y;
+            transform.position = ClampToBounds(point);
+            lastSeenUnit = CurrentUnit;
+            isFocusing = false;
+            ApplyCameraPose();
+        }
+
         Vector3 ClampToBounds(Vector3 position)
         {
+            if (customBounds.HasValue)
+            {
+                var bounds = customBounds.Value;
+                position.x = Mathf.Clamp(position.x, bounds.xMin, bounds.xMax);
+                position.z = Mathf.Clamp(position.z, bounds.yMin, bounds.yMax);
+                return position;
+            }
             position.x = Mathf.Clamp(position.x, -boundsHalfSize, boundsHalfSize);
             position.z = Mathf.Clamp(position.z, -boundsHalfSize, boundsHalfSize);
             return position;

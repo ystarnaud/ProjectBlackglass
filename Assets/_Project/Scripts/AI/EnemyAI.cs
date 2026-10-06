@@ -67,6 +67,12 @@ namespace Blackglass
             coverRegistry = registry;
         }
 
+        internal void Wire(Encounter encounterToFight, CoverRegistry registry)
+        {
+            encounter = encounterToFight;
+            coverRegistry = registry;
+        }
+
         /// <summary>
         /// Dead beats everything; a cover order is Cover; an attack order maps its phase to Chase, Reposition or
         /// Attack; otherwise Idle.

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
@@ -32,14 +33,27 @@ namespace Blackglass
         }
 
         /// <summary>Scans, generates and rebuilds the registry. Returns the number of locations now listed.</summary>
-        public int Discover()
+        public int Discover() => DiscoverFrom(FindObjectsByType<CoverSurface>(FindObjectsSortMode.None), null);
+
+        /// <summary>
+        /// Like Discover(), but only the CoverSurfaces under `root` count, and when `isReachable` is given a location
+        /// is kept only if it also passes it (a mission uses "reachable from the friendly spawn").
+        /// </summary>
+        public int Discover(Transform root, Func<Vector3, bool> isReachable = null)
+        {
+            if (root == null)
+                throw new ArgumentNullException(nameof(root));
+            return DiscoverFrom(root.GetComponentsInChildren<CoverSurface>(), isReachable);
+        }
+
+        int DiscoverFrom(IEnumerable<CoverSurface> found, Func<Vector3, bool> isReachable)
         {
             if (registry == null)
             {
                 Debug.LogWarning($"{name}: CoverDiscovery has no registry wired, so nothing was discovered.", this);
                 return 0;
             }
-            var surfaces = new List<CoverSurface>(FindObjectsByType<CoverSurface>(FindObjectsSortMode.None));
+            var surfaces = new List<CoverSurface>(found);
             // A stable order makes names and tests repeatable whatever order Unity returns the objects in.
             surfaces.Sort(CompareSurfaces);
             var boxes = new List<CoverBox>(surfaces.Count);
@@ -48,7 +62,7 @@ namespace Blackglass
 
             var tolerance = settings.walkableTolerance;
             var locations = CoverGenerator.Generate(boxes, settings,
-                point => NavMesh.SamplePosition(point, out _, tolerance, NavMesh.AllAreas));
+                point => NavMesh.SamplePosition(point, out _, tolerance, NavMesh.AllAreas) && (isReachable == null || isReachable(point)));
             registry.Rebuild(locations);
             return locations.Count;
         }

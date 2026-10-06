@@ -61,6 +61,8 @@ namespace Blackglass
             stillSpeed = still;
         }
 
+        internal void Wire(CoverRegistry coverRegistry) => registry = coverRegistry;
+
         /// <summary>
         /// Claims the point as reserved. If another unit holds it: false, nothing changes (including any point this
         /// unit already holds). If it is this unit's own point: the status is kept (an occupied point stays occupied).
