@@ -79,15 +79,15 @@ New tests: `Tests/EditMode/{SeededRandomTests,MissionSettingsTests,MissionGenera
 | After task | EditMode | PlayMode |
 |---|---|---|
 | baseline | 517 | 513 |
-| 1 | 527 | 513 |
-| 2 | 533 | 513 |
-| 3 | 548 | 513 |
-| 4 | 548 | 519 |
-| 5 | 548 | 526 |
-| 6 | 548 | 534 |
-| 7 | 552 | 536 |
-| 8 | 552 | 546 |
-| 9 | 552 | 546 |
+| 1 | 528 | 513 |
+| 2 | 534 | 513 |
+| 3 | 549 | 513 |
+| 4 | 549 | 519 |
+| 5 | 549 | 526 |
+| 6 | 549 | 534 |
+| 7 | 553 | 536 |
+| 8 | 553 | 546 |
+| 9 | 553 | 546 |
 
 (Task 3's golden-hash test uses 3 `TestCase`s, each counted. Recount with a real run after each task and correct this table in the same commit if a count differs.)
 
