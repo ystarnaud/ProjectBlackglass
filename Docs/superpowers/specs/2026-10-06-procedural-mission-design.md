@@ -1,6 +1,6 @@
 # Phase 8 — First procedurally generated combat mission: design
 
-Date: 2026-10-06. Status: approved in brainstorming, awaiting written-spec review. Branch: `procedural-mission`.
+Date: 2026-10-06. Status: implemented on branch procedural-mission (see Docs/Decisions.md record 026). Where the build differs from this text, record 026 is authoritative: low cover may stand 1 tile from a room wall and no obstacle stands within 2 tiles of a corridor (section 4, step 5); a spawn region is its room shrunk by 1 tile, not 2 (step 7); teardown also destroys each bake's `NavMeshData` and `Clear()`/`OnDisable` cancel a running generation (section 8).
 
 ## 1. Goal and scope
 
