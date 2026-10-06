@@ -8,9 +8,9 @@ namespace Blackglass
     /// Debug view of the registry's cover locations. Colour is the state: available white, reserved yellow, occupied
     /// cyan, and green for the location a selected unit is going to or holds. Shape is the type: a disc and a nub
     /// toward the obstacle for Low cover, a taller nub for Tall cover (a column: disc and tall nub only), and for a
-    /// corner also a thin arrow along the peek direction. Shows every location while paused and only claimed ones in real time. Rebuilds its markers when
-    /// the registry's version changes, and never changes the registry. Lives on Systems. Markers have no colliders, so
-    /// they never block click raycasts. Works while paused.
+    /// corner also a thin arrow along the peek direction. Shows every location while paused and only claimed ones in
+    /// real time. Rebuilds its markers when the registry's version changes, and never changes the registry. Lives on
+    /// Systems. Markers have no colliders, so they never block click raycasts. Works while paused.
     /// </summary>
     public sealed class CoverView : MonoBehaviour
     {

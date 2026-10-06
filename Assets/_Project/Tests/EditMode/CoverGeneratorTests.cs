@@ -150,6 +150,36 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void ColumnMaxWidth_IsInclusive_WithinTheGeneratorsTolerance()
+        {
+            // The generator admits a face up to columnMaxWidth + 1e-4 m, so float noise on a 1.1 m face cannot drop it.
+            Assert.That(Generate(Box("AtLimit", P(0f, 1.5f, 0f), P(4f, 3f, 1.1f))).Count(l => l.Placement == CoverPlacement.Column),
+                Is.EqualTo(2), "1.1 m end caps are columns");
+            Assert.That(Generate(Box("Over", P(0f, 1.5f, 0f), P(4f, 3f, 1.1002f))).Count(l => l.Placement == CoverPlacement.Column),
+                Is.Zero, "1.1002 m end caps are beyond the tolerance");
+        }
+
+        [Test]
+        public void AOneByOneTallPillarTurnedFortyFiveDegrees_GetsAColumnInFrontOfEachRotatedFace()
+        {
+            var centre = P(2f, 1.5f, -1f);
+            var rotation = Quaternion.Euler(0f, 45f, 0f);
+            var result = Generate(Box("Pillar", centre, P(1f, 3f, 1f), 45f));
+
+            Assert.That(result, Has.Count.EqualTo(4));
+            Assert.That(result.All(l => l.Placement == CoverPlacement.Column && l.Height == CoverHeight.Tall && !l.HasPeek), Is.True);
+            var normals = new[] { rotation * Vector3.right, rotation * Vector3.left, rotation * Vector3.forward, rotation * Vector3.back };
+            foreach (var normal in normals)
+            {
+                var expected = P(centre.x, 0f, centre.z) + normal * 1.25f;
+                var match = result.OrderBy(l => Vector3.Distance(l.Position, expected)).First();
+                Assert.That(Vector3.Distance(match.Position, expected), Is.LessThan(1e-4f), $"a column 0.75 m in front of the face with normal {normal}");
+                Assert.That(Vector3.Distance(match.Facing, -normal), Is.LessThan(1e-4f), $"{match.Name} faces into its face");
+            }
+            Assert.That(result.Select(l => l.Position).Distinct().Count(), Is.EqualTo(4), "one per face");
+        }
+
+        [Test]
         public void ALowOneByOneCrate_GetsFaceLocations_NotColumns()
         {
             var result = Generate(Box("Crate", P(0f, 0.5f, 0f), P(1f, 1f, 1f)));

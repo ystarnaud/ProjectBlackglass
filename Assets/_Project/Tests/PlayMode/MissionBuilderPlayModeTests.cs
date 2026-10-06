@@ -142,7 +142,6 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator Cover_OnlyWhereItCovers_TallLocationsAreOutwardCornersOrColumns_AndLowCoverStillExists()
         {
-            var counts = new System.Text.StringBuilder("Cover per seed (Low / Tall corners / Columns):");
             foreach (var seed in new[] { 1, 2, 3, 4, 5, 6, 7, 8, 12345 })
             {
                 var layout = Layout(seed);
@@ -154,7 +153,6 @@ namespace Blackglass.Tests
                 var low = registry.Points.Where(p => p.Height == CoverHeight.Low).ToList();
                 var corners = tall.Where(p => p.Placement == CoverPlacement.Corner).ToList();
                 var columns = tall.Where(p => p.Placement == CoverPlacement.Column).ToList();
-                counts.Append($" {seed}: {low.Count}/{corners.Count}/{columns.Count} (room-wall columns {columns.Count(p => p.Obstacle.gameObject.name.StartsWith("Wall_"))});");
                 Assert.That(tall.Any(p => p.Placement == CoverPlacement.Face), Is.False, $"seed {seed}: no cover along a tall wall");
                 Assert.That(corners.All(p => p.HasPeek), Is.True, $"seed {seed}: every corner opens outward");
                 Assert.That(columns.All(p => !p.HasPeek), Is.True, $"seed {seed}: a column has no peek data");
@@ -191,8 +189,6 @@ namespace Blackglass.Tests
                 DestroyMission();
                 yield return null;
             }
-            Debug.Log(counts.ToString());
-            TestContext.WriteLine(counts.ToString());
         }
 
         [UnityTest]
