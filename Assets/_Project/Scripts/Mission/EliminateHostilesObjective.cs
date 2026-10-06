@@ -1,0 +1,46 @@
+using System;
+using System.Collections.Generic;
+
+namespace Blackglass
+{
+    /// <summary>
+    /// Complete when every unit of its own group is dead. The group is a list of Health the mission hands it, not the
+    /// Encounter's hostile side, so a mission may hold hostiles that are not this objective's concern. A destroyed or null
+    /// member counts as dead, and an empty group is already done.
+    /// </summary>
+    public sealed class EliminateHostilesObjective : MissionObjective
+    {
+        readonly IReadOnlyList<Health> group;
+
+        public EliminateHostilesObjective(string id, string title, IReadOnlyList<Health> group, bool isRequired = true)
+            : base(id, ObjectiveType.EliminateHostiles, title, isRequired)
+        {
+            this.group = group ?? throw new ArgumentNullException(nameof(group));
+        }
+
+        public IReadOnlyList<Health> Group => group;
+
+        public int Living
+        {
+            get
+            {
+                var living = 0;
+                foreach (var unit in group)
+                {
+                    if (unit != null && unit.IsAlive)
+                        living++;
+                }
+                return living;
+            }
+        }
+
+        public override string Describe() =>
+            State == ObjectiveState.Completed ? Title : $"{Title} ({Living}/{group.Count})";
+
+        protected override void OnEvaluate()
+        {
+            if (Living == 0)
+                Complete();
+        }
+    }
+}
