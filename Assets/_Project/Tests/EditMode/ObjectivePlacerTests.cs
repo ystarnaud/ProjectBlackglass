@@ -8,9 +8,9 @@ namespace Blackglass.Tests
 {
     public class ObjectivePlacerTests
     {
-        const ulong Golden12345 = 5995876134338628503UL;
-        const ulong Golden1 = 17565384373153914697UL;
-        const ulong Golden2 = 16059835604954800266UL;
+        const ulong Golden12345 = 18368419039347052969UL;
+        const ulong Golden1 = 1731673444590866448UL;
+        const ulong Golden2 = 705921155356568738UL;
 
         // The pipeline's loop in miniature: the first attempt whose layout also takes a placement.
         static (MissionLayout layout, ObjectivePlan plan, MissionSettings settings, int attempt) Build(int seed, Action<MissionSettings> tweak = null)
@@ -147,6 +147,7 @@ namespace Blackglass.Tests
         public void EveryPlan_ObeysThePlacementRules()
         {
             var inFriendlyRoom = 0;
+            var withGuards = 0;
             for (var seed = 1; seed <= 60; seed++)
             {
                 var (layout, plan, settings, _) = Build(seed);
@@ -161,12 +162,29 @@ namespace Blackglass.Tests
                 foreach (var spawn in spawns)
                     Assert.That(Vector2.Distance(plan.TerminalTile, spawn), Is.GreaterThanOrEqualTo(MissionConstants.SpawnSpacing), $"seed {seed}");
 
+                // The whole 3x3 block lies inside the room, so a terminal never stands in a doorway mouth (decision 030).
+                var interior = rooms[plan.TerminalRoom].Rect;
+                interior = new RectInt(interior.x + ObjectivePlacer.FreeRadius, interior.y + ObjectivePlacer.FreeRadius,
+                    interior.width - 2 * ObjectivePlacer.FreeRadius, interior.height - 2 * ObjectivePlacer.FreeRadius);
+                Assert.That(interior.Contains(plan.TerminalTile), Is.True, $"seed {seed}: terminal inside the room inset by the free radius");
+                for (var dy = -ObjectivePlacer.FreeRadius; dy <= ObjectivePlacer.FreeRadius; dy++)
+                    for (var dx = -ObjectivePlacer.FreeRadius; dx <= ObjectivePlacer.FreeRadius; dx++)
+                        foreach (var connection in layout.Connections)
+                            Assert.That(connection.Strip.Contains(new Vector2Int(plan.TerminalTile.x + dx, plan.TerminalTile.y + dy)), Is.False,
+                                $"seed {seed}: no corridor tile in the terminal's block");
+
                 Assert.That(plan.GuardTiles.Count, Is.LessThanOrEqualTo(settings.guardCount));
+                if (plan.GuardTiles.Count > 0)
+                    withGuards++;
                 foreach (var guard in plan.GuardTiles)
                 {
                     Assert.That(rooms[plan.TerminalRoom].Rect.Contains(guard), Is.True, $"seed {seed}: guard in the terminal room");
                     Assert.That(Chebyshev(guard, plan.TerminalTile), Is.InRange(ObjectivePlacer.GuardMinReach, ObjectivePlacer.GuardMaxReach), $"seed {seed}");
                     Assert.That(FreeBlock(layout, guard, 0), Is.True, $"seed {seed}: guard on free floor");
+                    foreach (var box in layout.Boxes.Where(b => b.Kind != MissionBoxKind.Wall))
+                        for (var dy = -1; dy <= 1; dy++)
+                            for (var dx = -1; dx <= 1; dx++)
+                                Assert.That(box.Footprint.Contains(new Vector2Int(guard.x + dx, guard.y + dy)), Is.False, $"seed {seed}: guard keeps one tile from every obstacle");
                     foreach (var friendly in layout.FriendlySpawns)
                         Assert.That(Vector2.Distance(guard, friendly), Is.GreaterThanOrEqualTo(settings.minTeamSeparation), $"seed {seed}");
                     foreach (var other in spawns.Concat(plan.GuardTiles.Where(g => g != guard)))
@@ -182,6 +200,7 @@ namespace Blackglass.Tests
                     inFriendlyRoom++;
             }
             Assert.That(inFriendlyRoom, Is.LessThanOrEqualTo(2), "the friendly room is only the last-resort extraction room");
+            Assert.That(withGuards, Is.GreaterThanOrEqualTo(30), "guards are really placed with the default guardCount");
         }
 
         [Test]
@@ -189,6 +208,8 @@ namespace Blackglass.Tests
         {
             Assert.That(Build(11, s => s.guardCount = 0).plan.GuardTiles, Is.Empty);
             Assert.That(Build(11, s => s.guardCount = 4).plan.GuardTiles.Count, Is.InRange(0, 4));
+            var most = Enumerable.Range(1, 20).Max(seed => Build(seed, s => s.guardCount = 4).plan.GuardTiles.Count);
+            Assert.That(most, Is.InRange(3, 4), "guardCount 4 really yields guards (not vacuous)");
         }
 
         [Test]

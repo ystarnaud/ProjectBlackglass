@@ -15,7 +15,7 @@ namespace Blackglass
         {
             TerminalRoom = terminalRoom;
             TerminalTile = terminalTile;
-            GuardTiles = guardTiles;
+            GuardTiles = new List<Vector2Int>(guardTiles).AsReadOnly();
             ExtractionRoom = extractionRoom;
             ExtractionTile = extractionTile;
             Hash = ComputeHash();

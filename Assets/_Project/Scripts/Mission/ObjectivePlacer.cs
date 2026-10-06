@@ -32,6 +32,7 @@ namespace Blackglass
             spawns.AddRange(layout.HostileSpawns);
 
             // Terminal room: not the friendly room, in the deeper half of the room graph, rooms with obstacles first.
+            // Terminal tiles come from the room inset by FreeRadius, so its whole block lies inside the room and it never stands in a doorway.
             var fromFriendly = RoomDistances(layout, layout.FriendlyRoom);
             var farthest = 0;
             foreach (var distance in fromFriendly)
@@ -53,7 +54,7 @@ namespace Blackglass
             var terminalTile = default(Vector2Int);
             foreach (var r in withObstacles)
             {
-                var tiles = FreeTiles(layout, blocked, rooms[r].Rect, spawns, MissionConstants.SpawnSpacing);
+                var tiles = FreeTiles(layout, blocked, Shrink(rooms[r].Rect, FreeRadius), spawns, MissionConstants.SpawnSpacing);
                 if (tiles.Count == 0)
                     continue;
                 terminalRoom = r;
