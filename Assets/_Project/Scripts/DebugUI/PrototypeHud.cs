@@ -1,5 +1,6 @@
 using System.Globalization;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.Serialization;
 
 namespace Blackglass
@@ -22,6 +23,9 @@ namespace Blackglass
         [SerializeField] UnitSelection selection;
         [SerializeField] PlayerCommandInput commandInput;
         [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
+        [SerializeField] ActiveInputDevice inputDevice;
+        // Where the HUD looks up the bindings it shows for the active controller family.
+        [SerializeField] InputActionAsset controls;
 
         GUIStyle pausedStyle;
         GUIStyle outcomeStyle;
@@ -65,6 +69,20 @@ namespace Blackglass
 
         /// <summary>The follow flag line, e.g. "Follow: ON (F)".</summary>
         internal static string DescribeFollow(bool on) => $"Follow: {(on ? "ON" : "OFF")} (F)";
+
+        /// <summary>The active input family line, e.g. "Input: Xbox".</summary>
+        internal static string DescribeInput(InputFamily family) => $"Input: {family.DisplayName()}";
+
+        /// <summary>One line of "label: prompt" pairs, e.g. "Confirm: A | Cancel: B". Empty without entries.</summary>
+        internal static string DescribePromptLine(params (string label, string prompt)[] entries)
+        {
+            var parts = new string[entries.Length];
+            for (var i = 0; i < entries.Length; i++)
+                parts[i] = $"{entries[i].label}: {entries[i].prompt}";
+            return string.Join(" | ", parts);
+        }
+
+        internal static string DescribePauseBanner(string resumePrompt) => $"TACTICAL PAUSE - {resumePrompt} to resume";
 
         /// <summary>
         /// A companion's line: its orders (if any) and what its autonomy is doing, e.g. "Attack | Assist -> HostileUnit_1".
@@ -136,6 +154,7 @@ namespace Blackglass
         void OnGUI()
         {
             GUI.Label(new Rect(10f, 10f, 820f, 80f), ControlHints);
+            DrawInputInfo();
 
             if (encounter != null)
             {
@@ -169,7 +188,9 @@ namespace Blackglass
                     fontSize = 22,
                     fontStyle = FontStyle.Bold,
                 };
-                GUI.Label(new Rect(0f, 165f, Screen.width, 40f), "TACTICAL PAUSE - Space to resume", pausedStyle);
+                var resumePrompt = inputDevice != null && controls != null
+                    ? Prompt("Commands/ToggleTacticalPause", inputDevice.Family) : "Space";
+                GUI.Label(new Rect(0f, 165f, Screen.width, 40f), DescribePauseBanner(resumePrompt), pausedStyle);
             }
 
             if (encounter != null)
@@ -186,6 +207,30 @@ namespace Blackglass
                     GUI.Label(new Rect(0f, 205f, Screen.width, 50f), outcome, outcomeStyle);
                 }
             }
+        }
+
+        string Prompt(string actionPath, InputFamily family) =>
+            controls != null ? PromptResolver.GetPrompt(controls.FindAction(actionPath), family) : "-";
+
+        // The active family and, for a controller, the bindings of the main actions. Debug text, rebuilt each frame.
+        void DrawInputInfo()
+        {
+            if (inputDevice == null)
+                return;
+            var family = inputDevice.Family;
+            var left = Screen.width - 560f;
+            GUI.Label(new Rect(left, 10f, 550f, 22f), DescribeInput(family));
+            if (!family.IsController() || controls == null)
+                return;
+            GUI.Label(new Rect(left, 30f, 550f, 22f), DescribePromptLine(
+                ("Confirm", Prompt("Commands/Confirm", family)), ("Cancel", Prompt("Commands/Cancel", family)),
+                ("Attack", Prompt("Commands/Attack", family)), ("Pause", Prompt("Commands/ToggleTacticalPause", family)),
+                ("Control", Prompt("Character/ToggleCharacterControl", family)), ("Follow", Prompt("Character/ToggleFollow", family))));
+            GUI.Label(new Rect(left, 50f, 550f, 22f), DescribePromptLine(
+                ("Prev/Next", Prompt("Character/PreviousCharacter", family) + " / " + Prompt("Character/NextCharacter", family)),
+                ("Queue", Prompt("Commands/QueueModifier", family)), ("Stick swap", Prompt("Camera/CameraModifier", family)),
+                ("Target", Prompt("Commands/PreviousTarget", family) + " / " + Prompt("Commands/NextTarget", family)),
+                ("Stop", Prompt("Commands/Stop", family))));
         }
 
         void DrawUnitLabels()
