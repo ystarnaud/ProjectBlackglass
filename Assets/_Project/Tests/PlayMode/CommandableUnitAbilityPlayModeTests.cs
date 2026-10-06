@@ -44,7 +44,7 @@ namespace Blackglass.Tests
             Time.timeScale = 1f;
         }
 
-        IEnumerator WaitUntilIdle() => TestWorld.WaitUntil(() => caster.CurrentCommand == null, 15f);
+        IEnumerator WaitUntilIdle(float seconds = 15f) => TestWorld.WaitUntil(() => caster.CurrentCommand == null, seconds);
 
         [UnityTest]
         public IEnumerator AnAbilityOnAnIdleUnit_RunsOnTheNextFrame_AndTheUnitIsIdleAgain()
@@ -78,18 +78,22 @@ namespace Blackglass.Tests
             Assert.That(hostile.Current, Is.EqualTo(hostile.Max - 45));
         }
 
+        // Decision 029: out of range is no longer a refusal (the unit walks), so the part of the full check that applies
+        // only when the order would start now is shown with the cooldown.
         [UnityTest]
         public IEnumerator AnAbilityThatCannotStartNow_IsRejectedWithItsReason_AndTheOrdersAreUnchanged()
         {
             yield return null;
             var far = world.CreateDummy(new Vector3(15f, 0f, 15f));
             encounter.Initialize(new[] { casterHealth, ally }, new[] { hostile, far });
+            Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, hostile)), Is.True);
+            yield return WaitUntilIdle();
             var move = new MoveCommand(new Vector3(-6f, 0f, -6f));
             Assert.That(caster.Issue(move), Is.True);
 
             Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, far), IssueMode.Replace), Is.False);
 
-            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.OutOfRange));
+            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.OnCooldown));
             Assert.That(caster.CurrentCommand, Is.SameAs(move));
             Assert.That(caster.PendingCommands, Is.Empty);
         }
@@ -126,22 +130,26 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator AnAbilityQueuedBehindAMove_IsAcceptedEvenOutOfRangeNow_AndFailsCleanlyWhenItRuns_ThenTheNextOrderStillRuns()
+        public IEnumerator AnAbilityQueuedBehindAMove_OutOfRangeWhenItsTurnComes_WalksIntoRangeAndFires_ThenTheNextOrderStillRuns()
         {
             yield return null;
             var far = world.CreateDummy(new Vector3(15f, 0f, 15f));
             encounter.Initialize(new[] { casterHealth, ally }, new[] { hostile, far });
             var first = new Vector3(-6f, 0f, -6f);
             var last = new Vector3(6f, 0f, -10f);
+            var distanceWhenUsed = -1f;
+            abilities.Used += _ => distanceWhenUsed = CoverRules.FlatDistance(caster.transform.position, far.transform.position);
 
             Assert.That(caster.Issue(new MoveCommand(first)), Is.True);
             Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, far), IssueMode.Append), Is.True, "Only the static checks apply behind other orders");
             Assert.That(caster.Issue(new MoveCommand(last), IssueMode.Append), Is.True);
-            yield return WaitUntilIdle();
+            yield return TestWorld.WaitUntil(() => caster.CurrentCommand is AbilityCommand, 5f);
+            Assert.That(abilities.Check(aimed, far, null).Failure, Is.EqualTo(AbilityFailure.OutOfRange), "Precondition: out of range when its turn came");
+            yield return WaitUntilIdle(25f);
 
-            Assert.That(far.Current, Is.EqualTo(far.Max), "It was out of range when it ran");
-            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.OutOfRange));
-            Assert.That(abilities.IsReady(0), Is.True, "A failure costs no cooldown");
+            Assert.That(far.Current, Is.EqualTo(far.Max - 45), "It walked into range and fired (decision 029)");
+            Assert.That(distanceWhenUsed, Is.LessThanOrEqualTo(14f));
+            Assert.That(abilities.IsReady(0), Is.False);
             Assert.That(TestWorld.HorizontalDistance(caster.transform.position, last), Is.LessThan(0.5f), "The next order still ran");
         }
 
@@ -163,7 +171,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator AQueuedAbility_WhoseTargetWalksOutOfRange_FailsWithOutOfRange()
+        public IEnumerator AQueuedAbility_WhoseTargetWalksOutOfRange_FollowsItIntoRange_AndHits()
         {
             yield return null;
             var last = new Vector3(6f, 0f, -10f);
@@ -172,27 +180,34 @@ namespace Blackglass.Tests
             Assert.That(caster.Issue(new MoveCommand(last), IssueMode.Append), Is.True);
 
             hostile.transform.position = new Vector3(15f, 1f, 15f);
-            yield return WaitUntilIdle();
+            yield return WaitUntilIdle(25f);
 
-            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.OutOfRange));
-            Assert.That(hostile.Current, Is.EqualTo(hostile.Max));
+            Assert.That(hostile.Current, Is.EqualTo(hostile.Max - 45), "Out of range when it ran: it walked into range (decision 029)");
+            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.None));
             Assert.That(TestWorld.HorizontalDistance(caster.transform.position, last), Is.LessThan(0.5f));
         }
 
         [UnityTest]
-        public IEnumerator AQueuedAbility_WhoseLineGetsBlocked_FailsWithNoLineOfSight()
+        public IEnumerator AQueuedAbility_WhoseLineGetsBlocked_RepositionsAndHits()
         {
             yield return null;
             var last = new Vector3(6f, 0f, -10f);
+            var attacker = caster.GetComponent<UnitAttacker>();
+            var sightWhenUsed = false;
+            abilities.Used += _ => sightWhenUsed = attacker.HasLineOfSight(hostile);
             Assert.That(caster.Issue(new MoveCommand(new Vector3(3f, 0f, -6f))), Is.True);
             Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, hostile), IssueMode.Append), Is.True);
             Assert.That(caster.Issue(new MoveCommand(last), IssueMode.Append), Is.True);
 
-            world.CreateObstacle(new Vector3(3f, 1.5f, -2f), new Vector3(4f, 3f, 0.5f));
+            // A narrow wall halfway to the hostile, not baked into the NavMesh. It blocks the line from the move's end
+            // (3, -6) and from the nearer firing candidates, but not from the 4 m ring (no candidate lies inside it).
+            world.CreateObstacle(new Vector3(3f, 1.5f, 0f), new Vector3(1.5f, 3f, 0.5f));
+            yield return TestWorld.WaitUntil(() => caster.CurrentCommand is AbilityCommand, 5f);
+            Assert.That(abilities.Check(aimed, hostile, null).Failure, Is.EqualTo(AbilityFailure.NoLineOfSight), "Precondition");
             yield return WaitUntilIdle();
 
-            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.NoLineOfSight));
-            Assert.That(hostile.Current, Is.EqualTo(hostile.Max));
+            Assert.That(hostile.Current, Is.EqualTo(hostile.Max - 45), "Blind when it ran: it repositioned (decision 029)");
+            Assert.That(sightWhenUsed, Is.True);
             Assert.That(TestWorld.HorizontalDistance(caster.transform.position, last), Is.LessThan(0.5f));
         }
 

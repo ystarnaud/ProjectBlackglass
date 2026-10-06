@@ -122,19 +122,25 @@ namespace Blackglass.Tests
             Assert.That(rig.Selection.Selected, Is.Empty, "While armed a click on a friendly does not select it");
         }
 
+        // Decision 029 (the mouse path): out of range is accepted and the caster walks into range, as a click on a hostile
+        // makes a unit walk to attack it.
         [UnityTest]
-        public IEnumerator AHostileOutOfRange_IsRefusedWithItsReason_AndNothingHappens()
+        public IEnumerator AHostileOutOfRange_IsAccepted_TheCasterWalksIntoRange_AndFires()
         {
             yield return null;
+            rig.Pause.Pause();   // the click lands while paused, so the order can be seen before anything moves
             yield return Tap(keyboard.digit1Key);
 
             yield return LeftClickAt(rig.ScreenPointOf(rig.FarHostile.transform.position));
-            yield return new WaitForSeconds(0.2f);
 
-            Assert.That(rig.Abilities.LastFailure, Is.EqualTo(AbilityFailure.OutOfRange));
-            Assert.That(rig.FarHostile.Current, Is.EqualTo(rig.FarHostile.Max));
-            Assert.That(rig.Targeting.IsArmed, Is.True, "Still armed: try another target");
-            Assert.That(rig.Caster.Unit.CurrentCommand, Is.Null);
+            Assert.That(rig.Targeting.IsArmed, Is.False, "Accepted: disarmed");
+            Assert.That(rig.Caster.Unit.CurrentCommand, Is.TypeOf<AbilityCommand>());
+            Assert.That(rig.Abilities.LastFailure, Is.EqualTo(AbilityFailure.None), "Not refused");
+            rig.Pause.Resume();
+            yield return TestWorld.WaitUntil(() => rig.FarHostile.Current < rig.FarHostile.Max, 5f);
+
+            Assert.That(rig.FarHostile.Current, Is.EqualTo(rig.FarHostile.Max - 45));
+            Assert.That(TestWorld.HorizontalDistance(rig.Caster.transform.position, AbilityRig.CasterGround), Is.GreaterThan(1f), "It walked");
         }
 
         [UnityTest]
@@ -270,6 +276,7 @@ namespace Blackglass.Tests
             yield return null;
             Assert.That(rig.Targeting.Preview.IsValid, Is.False);
             Assert.That(rig.Targeting.Preview.Failure, Is.EqualTo(AbilityFailure.OutOfRange));
+            Assert.That(rig.Targeting.Preview.WillApproach, Is.True, "Not usable from here, but confirming walks into range");
 
             Set(mouse.position, rig.ScreenPointOf(new Vector3(8f, 0f, -2f)));
             yield return null;
@@ -302,6 +309,7 @@ namespace Blackglass.Tests
 
             Assert.That(preview.Failure, Is.EqualTo(AbilityFailure.NoLineOfSight));
             Assert.That(preview.Check.SightClear, Is.False);
+            Assert.That(preview.WillApproach, Is.True, "Confirming walks to a firing position");
         }
 
         [UnityTest]

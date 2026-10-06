@@ -23,9 +23,11 @@ namespace Blackglass
     /// UnitAttacker. A held move intent (direct control) takes precedence: while it is non-zero the unit drops its
     /// orders and steers instead. An attack order runs in phases: approach until in range, reposition while a ranged
     /// unit has no line of sight, attack otherwise. A MoveToCover order reserves its point when it starts, occupies it
-    /// on arrival, and gives up after CoverWalkTimeout without progress. An AbilityCommand is instant: it becomes current
-    /// without doing anything and runs (UnitAbilities.TryUse, which validates again) on the first running frame, before
-    /// steering is considered, whether it then succeeds or fails the queue moves on.
+    /// on arrival, and gives up after CoverWalkTimeout without progress. An AbilityCommand becomes current without doing
+    /// anything and runs (UnitAbilities.TryUse, which validates again) on the first running frame it is usable, before
+    /// steering is considered; whether it then succeeds or fails the queue moves on. While its only problem is range or
+    /// line of sight it walks into position first with the attack's approach and reposition steps (decision 029), and
+    /// gives up when that walk makes no progress for AbilityStallTimeout or the place cannot be reached.
     /// </summary>
     [RequireComponent(typeof(UnitMover), typeof(UnitAttacker), typeof(UnitCover))]
     public sealed class CommandableUnit : MonoBehaviour
@@ -41,6 +43,8 @@ namespace Blackglass
         const float CoverWalkTimeout = 3f;
         // The least the flat distance to the point must fall for the walk to count as progressing.
         const float CoverProgressStep = 0.05f;
+        // An ability's walk into position gives up after the same time without progress as a cover walk.
+        const float AbilityStallTimeout = CoverWalkTimeout;
 
         readonly CommandQueue queue = new CommandQueue();
         readonly Vector3[] firingCandidates = new Vector3[FiringPositionFinder.CandidateCount];
@@ -60,6 +64,10 @@ namespace Blackglass
         UnitAbilities abilities;
         float coverBestDistance;
         float coverLastProgressTime;
+        // Where the current approach or reposition walk leads, and the ability's progress toward it.
+        Vector3 walkGoal;
+        float walkBestDistance;
+        float walkProgressTime;
 
         /// <summary>The order being carried out, or null when idle.</summary>
         public UnitCommand CurrentCommand => queue.Current;
@@ -92,6 +100,12 @@ namespace Blackglass
                 return attackPhase == AttackPhase.None ? AttackPhase.Approach : attackPhase;
             }
         }
+
+        /// <summary>
+        /// Approach or Reposition while the current ability order walks into range or to a firing position (decision
+        /// 029); None for any other order, and for an ability that has not needed to walk (yet).
+        /// </summary>
+        public AttackPhase AbilityPhase => queue.Current is AbilityCommand ? attackPhase : AttackPhase.None;
 
         /// <summary>The unit's cover state; AI and views read cover through the unit.</summary>
         public UnitCover Cover => cover != null ? cover : cover = GetComponent<UnitCover>();
@@ -129,7 +143,8 @@ namespace Blackglass
         /// Returns false if the order cannot be carried out (this unit is dead, no walkable point within 2 m of the
         /// destination, dead or inactive target, a cover point another unit holds, an ability the unit has no UnitAbilities
         /// for or does not own, or whose target is dead or on the wrong side, and, when the order would start now, one that
-        /// is on cooldown, out of range or out of sight); the unit's orders are then unchanged.
+        /// is on cooldown); the unit's orders are then unchanged. An ability out of range or out of sight is accepted: the
+        /// unit walks into position first (decision 029).
         /// Re-issuing an attack on the current target keeps the unit moving instead of restarting its chase.
         /// </summary>
         public bool Issue(UnitCommand command, IssueMode mode = IssueMode.Replace)
@@ -171,8 +186,9 @@ namespace Blackglass
                 return true;
             }
 
-            // An ability that would start now is checked in full now (cooldown, range, sight); behind other orders only
-            // its target is, because the caster will have moved on by the time it runs.
+            // An ability that would start now is checked in full now, but range and sight only decide whether it walks
+            // first (decision 029); behind other orders only its target is, because the caster will have moved on by the
+            // time it runs.
             if (command is AbilityCommand startingAbility && !CanStartAbility(startingAbility, AbilityCheckScope.Full))
                 return false;
 
@@ -215,7 +231,7 @@ namespace Blackglass
             if (!SimulationTime.IsRunning)
                 return;
 
-            RunAbilities();
+            var abilityBlocker = RunAbilities();
 
             if (moveIntent != Vector3.zero)
             {
@@ -236,6 +252,9 @@ namespace Blackglass
                     break;
                 case MoveToCoverCommand toCover:
                     UpdateCover(toCover);
+                    break;
+                case AbilityCommand ability:
+                    UpdateAbility(ability, abilityBlocker);
                     break;
             }
         }
@@ -305,22 +324,79 @@ namespace Blackglass
             var owned = Abilities;
             if (owned == null)
                 return false;
-            return scope == AbilityCheckScope.Full ? owned.CanStartNow(ability) : owned.CanQueue(ability);
+            return scope == AbilityCheckScope.Full ? owned.CanOrderNow(ability) : owned.CanQueue(ability);
         }
 
-        // Abilities are instant: each one succeeds or fails on the frame it becomes current, then the queue moves on, so a
-        // refused ability never leaves the unit stuck. It runs before steering is considered, so an ability that direct
-        // control just issued is not dropped by a held move key. The guard bounds the loop by the queue length.
-        void RunAbilities()
+        // Abilities are instant once usable: each one succeeds or fails on the first running frame it is usable or refused,
+        // then the queue moves on, so a refused ability never leaves the unit stuck. It runs before steering is considered,
+        // so an ability that direct control just issued is not dropped by a held move key. One that is only out of range
+        // or out of sight stops the loop and its failure is returned: Update then walks the unit into position
+        // (UpdateAbility), unless a held move key drops the order. The guard bounds the loop by the queue length.
+        AbilityFailure RunAbilities()
         {
             var guard = queue.Pending.Count + 1;
             while (guard-- > 0 && queue.Current is AbilityCommand ability)
             {
                 var owned = Abilities;
                 if (owned != null)
+                {
+                    var failure = owned.CheckOrder(ability).Failure;
+                    if (AbilityRules.IsApproachable(failure))
+                        return failure;
                     owned.TryUse(ability);
-                StartNext();
+                }
+                Finish();
             }
+            return AbilityFailure.None;
+        }
+
+        // Out of range or out of sight (RunAbilities has just checked): walk into position with the attack's approach and
+        // reposition steps, judged by the ability's own range and sight rule. The ability fires from RunAbilities on the
+        // first frame it is usable, so the unit stops at the edge of range or as soon as the line clears. A walk that has
+        // not come closer to where it leads for AbilityStallTimeout gives up (scaled time, so a pause is not a stall).
+        void UpdateAbility(AbilityCommand order, AbilityFailure blocker)
+        {
+            if (!AbilityRules.IsApproachable(blocker))
+                return;   // defensive: RunAbilities hands over only an ability it could not use for range or sight
+            var aim = Aim.Ability(order, blocker);
+            if (attackPhase == AttackPhase.None)
+            {
+                walkProgressTime = Time.time;
+            }
+            else if (WalkStalled())
+            {
+                GiveUp(aim);
+                return;
+            }
+
+            if (AbilityRules.ApproachPhase(blocker) == AttackPhase.Approach)
+                Approach(aim);
+            else
+                Reposition(aim);
+        }
+
+        // Starts a walk for an attack or ability order and remembers where it leads, for the ability's progress check. The
+        // best distance starts at the current one, so a new walk alone is never counted as progress.
+        bool WalkTo(Vector3 point)
+        {
+            if (!Mover.MoveTo(point))
+                return false;
+            walkGoal = point;
+            walkBestDistance = CoverRules.FlatDistance(transform.position, point);
+            return true;
+        }
+
+        // True once the walk has not come closer to where it leads for AbilityStallTimeout (the cover walk's rule).
+        bool WalkStalled()
+        {
+            var distance = CoverRules.FlatDistance(transform.position, walkGoal);
+            if (distance < walkBestDistance - CoverProgressStep)
+            {
+                walkBestDistance = distance;
+                walkProgressTime = Time.time;
+                return false;
+            }
+            return Time.time >= walkProgressTime + AbilityStallTimeout;
         }
 
         // The current order is finished: start the next pending order that can still be carried out.
@@ -397,24 +473,25 @@ namespace Blackglass
         {
             if (!IsAttackable(target))
             {
-                FinishAttack();
+                Finish();
                 return;
             }
 
+            var aim = Aim.Attack(target);
             if (!Attacker.IsInRange(target))
             {
-                Approach(target);
+                Approach(aim);
                 return;
             }
 
             // Committed to a validated firing position: finish the walk even if the line clears early, so the unit
             // ends clear of the corner rather than on its edge (where a small target move would blind it again).
-            if (attackPhase == AttackPhase.Reposition && !walkingAtTarget && StillWalking(target))
+            if (attackPhase == AttackPhase.Reposition && !walkingAtTarget && StillWalking(aim))
                 return;
 
             if (Attacker.NeedsLineOfSight && !Attacker.HasLineOfSight(target))
             {
-                Reposition(target);
+                Reposition(aim);
                 return;
             }
 
@@ -430,19 +507,19 @@ namespace Blackglass
             if (Attacker.TryAttack(target))
                 repositionsWithoutShot = 0;
             if (!target.IsAlive)
-                FinishAttack();
+                Finish();
         }
 
         // Out of range: walk toward the target, re-pathing when it has moved. Arriving while still out of range
         // means the path was partial (a complete path ends at the target, inside range): the target cannot be reached.
-        void Approach(Health target)
+        void Approach(Aim aim)
         {
-            var targetPosition = target.transform.position;
+            var targetPosition = aim.Position;
             if (attackPhase != AttackPhase.Approach || TargetMoved(targetPosition))
             {
-                if (!Mover.MoveTo(targetPosition))
+                if (!WalkTo(targetPosition))
                 {
-                    FinishAttack();
+                    GiveUp(aim);
                     return;
                 }
                 attackPhase = AttackPhase.Approach;
@@ -450,51 +527,52 @@ namespace Blackglass
             }
             else if (Mover.HasArrived)
             {
-                FinishAttack();
+                GiveUp(aim);
             }
         }
 
-        // In range but blind (ranged only): stand, then at most twice a second look for a nearby firing position
-        // and walk there. UpdateAttack keeps the unit on a walk to a validated spot until it arrives; only the
-        // fallback walk at the target ends the moment the line clears, since it has no validated endpoint.
+        // In range but blind (a ranged attack, or an ability that needs sight): stand, then at most twice a second look
+        // for a nearby firing position and walk there. UpdateAttack keeps the unit on a walk to a validated spot until it
+        // arrives; only the fallback walk at the target ends the moment the line clears, since it has no validated
+        // endpoint. An ability casts the moment its line clears (RunAbilities), on either walk.
         // Arriving at the end of a fallback walk still blind means the path was partial: the target cannot be
         // reached from anywhere in sight, so the order ends as Approach's does for an unreachable target.
-        void Reposition(Health target)
+        void Reposition(Aim aim)
         {
             if (attackPhase != AttackPhase.Reposition)
             {
                 Mover.Stop();
                 attackPhase = AttackPhase.Reposition;
-                lastTargetPosition = target.transform.position;
+                lastTargetPosition = aim.Position;
                 // Stopped, not arrived: until a search starts a new fallback walk, "arrived" must not end the order.
                 walkingAtTarget = false;
             }
             else if (walkingAtTarget && Mover.HasArrived)
             {
-                FinishAttack();
+                GiveUp(aim);
                 return;
             }
-            else if (StillWalking(target))
+            else if (StillWalking(aim))
             {
-                return;   // still on the fallback walk; UpdateAttack ends it the moment the line clears
+                return;   // still walking; the line clearing ends a fallback walk (UpdateAttack) or casts (RunAbilities)
             }
             if (Time.time >= nextRepositionTime)
-                SearchFiringPosition(target);
+                SearchFiringPosition(aim);
         }
 
-        void SearchFiringPosition(Health target)
+        void SearchFiringPosition(Aim aim)
         {
             searchTime = Time.time;
             nextRepositionTime = Time.time + RepositionInterval;
-            lastTargetPosition = target.transform.position;
+            lastTargetPosition = aim.Position;
             if (repositionsWithoutShot < MaxRepositionsWithoutShot)
             {
                 // Candidates start on the ground, so the 2 m snap only has to absorb the erosion band beside walls.
                 var count = FiringPositionFinder.Candidates(transform.position - Vector3.up * Mover.PivotHeight, firingCandidates);
                 // The closure allocates once per search (at most twice a second per blind unit); acceptable.
                 if (FiringPositionFinder.TryChoose(firingCandidates, count,
-                        (Vector3 candidate, out Vector3 accepted) => IsFiringPosition(candidate, target, out accepted), out var spot)
-                    && Mover.MoveTo(spot))
+                        (Vector3 candidate, out Vector3 accepted) => IsFiringPosition(candidate, aim, out accepted), out var spot)
+                    && WalkTo(spot))
                 {
                     repositionsWithoutShot++;
                     walkingAtTarget = false;
@@ -502,22 +580,26 @@ namespace Blackglass
                 }
             }
             // Fallback: walk at the target until the line clears. No walkable point near it means it is unreachable.
-            if (Mover.MoveTo(lastTargetPosition))
+            if (WalkTo(lastTargetPosition))
                 walkingAtTarget = true;
             else
-                FinishAttack();
+                GiveUp(aim);
         }
 
         // On the NavMesh, in range and in sight from the eye a unit would have there (snapped point + pivot height,
         // then LineOfSight adds the eye height), and reachable. Returns the snapped point as the place to walk to.
-        bool IsFiringPosition(Vector3 candidate, Health target, out Vector3 point) =>
+        bool IsFiringPosition(Vector3 candidate, Aim aim, out Vector3 point) =>
             Mover.TrySnap(candidate, out point)
-            && Attacker.CanAttackFrom(point + Vector3.up * Mover.PivotHeight, target)
+            && CanActFrom(aim, point + Vector3.up * Mover.PivotHeight)
             && Mover.CanReach(point);
 
+        // The attack's range and sight test, or the ability's (its own range, and sight only when it needs it).
+        bool CanActFrom(Aim aim, Vector3 pivot) =>
+            aim.Order != null ? Abilities.CanUseFrom(aim.Order, pivot) : Attacker.CanAttackFrom(pivot, aim.Target);
+
         // A reposition walk goes on until it arrives, the target moves away from where it was planned, or it times out.
-        bool StillWalking(Health target) =>
-            !Mover.HasArrived && !TargetMoved(target.transform.position) && Time.time < searchTime + RepositionWalkTimeout;
+        bool StillWalking(Aim aim) =>
+            !Mover.HasArrived && !TargetMoved(aim.Position) && Time.time < searchTime + RepositionWalkTimeout;
 
         bool TargetMoved(Vector3 targetPosition) =>
             (targetPosition - lastTargetPosition).sqrMagnitude > ChaseRepathDistance * ChaseRepathDistance;
@@ -525,11 +607,21 @@ namespace Blackglass
         // A target that is missing, dead, or deactivated while still alive can no longer be attacked.
         static bool IsAttackable(Health target) => target != null && target.IsAlive && target.gameObject.activeInHierarchy;
 
-        void FinishAttack()
+        // The attack or ability order is over: stop, forget its phases, start the next order.
+        void Finish()
         {
             Mover.Stop();
             ResetAttack();
             StartNext();
+        }
+
+        // The order cannot be carried out from anywhere reachable, so it ends as an unreachable attack does. An ability
+        // records why (still out of range or out of sight) on its unit, so it shows like any refusal; no cooldown is spent.
+        void GiveUp(Aim aim)
+        {
+            if (aim.Order != null && Abilities != null)
+                Abilities.ReportFailure(aim.Order.Definition, aim.Blocker);
+            Finish();
         }
 
         void FaceTowards(Vector3 point)
@@ -538,6 +630,26 @@ namespace Blackglass
             direction.y = 0f;
             if (direction.sqrMagnitude > 0.0001f)
                 transform.rotation = Quaternion.LookRotation(direction);
+        }
+
+        // What the shared approach and reposition steps aim at: an attack's target, or an ability order (a unit or a
+        // ground point) together with the reason it cannot be used yet, which is reported if the order gives up.
+        readonly struct Aim
+        {
+            Aim(Health target, AbilityCommand order, AbilityFailure blocker)
+            {
+                Target = target;
+                Order = order;
+                Blocker = blocker;
+            }
+
+            public static Aim Attack(Health target) => new Aim(target, null, AbilityFailure.None);
+            public static Aim Ability(AbilityCommand order, AbilityFailure blocker) => new Aim(null, order, blocker);
+
+            public Health Target { get; }
+            public AbilityCommand Order { get; }
+            public AbilityFailure Blocker { get; }
+            public Vector3 Position => Order != null ? Order.AimPoint : Target.transform.position;
         }
     }
 }

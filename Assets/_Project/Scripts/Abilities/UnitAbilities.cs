@@ -150,7 +150,7 @@ namespace Blackglass
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
             var ability = command.Definition;
-            var check = CheckCommand(command, AbilityCheckScope.Full);
+            var check = CheckOrder(command);
             if (!check.IsValid)
             {
                 RecordFailure(ability, check.Failure);
@@ -167,8 +167,20 @@ namespace Blackglass
             return true;
         }
 
-        /// <summary>The order would start now: the full check passes. Records the reason when it does not.</summary>
-        public bool CanStartNow(AbilityCommand command) => Accept(command, AbilityCheckScope.Full);
+        /// <summary>
+        /// The order may start now: the full check passes, or fails only on range or line of sight, which the unit fixes by
+        /// walking into position first (decision 029). Records the reason when it is refused; a walk is not a failure.
+        /// </summary>
+        public bool CanOrderNow(AbilityCommand command)
+        {
+            if (command == null)
+                throw new ArgumentNullException(nameof(command));
+            var check = CheckOrder(command);
+            if (check.IsValid || AbilityRules.IsApproachable(check.Failure))
+                return true;
+            RecordFailure(command.Definition, check.Failure);
+            return false;
+        }
 
         /// <summary>The order may wait behind others: only who and what are checked. Records the reason when it fails.</summary>
         public bool CanQueue(AbilityCommand command) => Accept(command, AbilityCheckScope.Static);
@@ -194,7 +206,8 @@ namespace Blackglass
             }
         }
 
-        AbilityCheck CheckCommand(AbilityCommand command, AbilityCheckScope scope)
+        /// <summary>Check for an order: its target (unit abilities) or its point (ground abilities).</summary>
+        public AbilityCheck CheckOrder(AbilityCommand command, AbilityCheckScope scope = AbilityCheckScope.Full)
         {
             var ability = command.Definition;
             var unitMode = ability.TargetMode == AbilityTargetMode.Unit;
@@ -205,11 +218,29 @@ namespace Blackglass
         {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
-            var check = CheckCommand(command, scope);
+            var check = CheckOrder(command, scope);
             if (check.IsValid)
                 return true;
             RecordFailure(command.Definition, check.Failure);
             return false;
+        }
+
+        /// <summary>
+        /// Range and, when the ability needs it, line of sight as they would be for a unit standing at `pivot` (sight from
+        /// the eye it would have there): the test for choosing a firing position while the unit walks into position. Who,
+        /// what and the cooldown are Check's.
+        /// </summary>
+        internal bool CanUseFrom(AbilityCommand command, Vector3 pivot)
+        {
+            var ability = command.Definition;
+            var aim = command.AimPoint;
+            if (!AbilityRules.IsInRange(CoverRules.FlatDistance(pivot, aim), ability.Range))
+                return false;
+            if (!ability.RequiresLineOfSight)
+                return true;
+            return ability.TargetMode == AbilityTargetMode.Unit
+                ? Attacker.HasLineOfSightFrom(pivot, command.Target)
+                : Attacker.HasLineOfSightToPointFrom(pivot, aim + Vector3.up * GroundAimHeight);
         }
 
         void Apply(AbilityDefinition ability, Health target, Vector3 aim)

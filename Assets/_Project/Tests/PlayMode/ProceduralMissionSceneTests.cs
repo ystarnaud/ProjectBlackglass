@@ -325,7 +325,10 @@ namespace Blackglass.Tests
             var far = BringHostileNear(hostiles[2], squad[0], 17f, needSight: false);
             var farCheck = ready.Check(ready.Definition(0), far, null);
             Assert.That(farCheck.Distance, Is.GreaterThan(ready.Definition(0).Range));
-            Assert.That(farCheck.Failure, Is.EqualTo(AbilityFailure.OutOfRange), "a hostile beyond Aimed Shot's range is refused for the range");
+            Assert.That(farCheck.Failure, Is.EqualTo(AbilityFailure.OutOfRange), "a hostile beyond Aimed Shot's range fails the range check");
+            // Decision 029: that is not a refusal: the order is accepted and the leader walks into range.
+            Assert.That(squad[0].Issue(AbilityCommand.OnUnit(ready.Definition(0), far)), Is.True, "accepted: the leader approaches");
+            Assert.That(squad[0].CurrentCommand, Is.TypeOf<AbilityCommand>());
         }
 
         [UnityTest]
@@ -485,6 +488,9 @@ namespace Blackglass.Tests
             Assert.That(attacker.HasLineOfSightToPoint(hostile.transform.position), Is.False, "the wall blocks sight to the hostile");
             Assert.That(check.Distance, Is.LessThanOrEqualTo(abilities.Definition(0).Range), "in range: only the sight can refuse it");
             Assert.That(check.Failure, Is.EqualTo(AbilityFailure.NoLineOfSight));
+            // Decision 029: not a refusal either: the order is accepted and the leader repositions.
+            Assert.That(leader.Issue(AbilityCommand.OnUnit(abilities.Definition(0), HealthOf(hostile))), Is.True, "accepted: the leader repositions");
+            Assert.That(leader.CurrentCommand, Is.TypeOf<AbilityCommand>());
         }
 
         [UnityTest]

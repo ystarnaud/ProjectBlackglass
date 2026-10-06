@@ -124,8 +124,11 @@ namespace Blackglass
             target != null && LineOfSight.IsClear(pivot, target, sightBlockers, sightHits);
 
         /// <summary>True when the line from this unit's eye to the point crosses no world geometry (units never block).</summary>
-        public bool HasLineOfSightToPoint(Vector3 point) =>
-            LineOfSight.IsClear(transform.position + Vector3.up * LineOfSight.EyeHeight, point, sightBlockers, sightHits);
+        public bool HasLineOfSightToPoint(Vector3 point) => HasLineOfSightToPointFrom(transform.position, point);
+
+        /// <summary>The same test from the eye a unit would have standing at `pivot`.</summary>
+        public bool HasLineOfSightToPointFrom(Vector3 pivot, Vector3 point) =>
+            LineOfSight.IsClear(pivot + Vector3.up * LineOfSight.EyeHeight, point, sightBlockers, sightHits);
 
         /// <summary>The one "could I hit it from here" test: in range, and for a ranged unit in sight.</summary>
         public bool CanAttack(Health target) => CanAttackFrom(transform.position, target);
