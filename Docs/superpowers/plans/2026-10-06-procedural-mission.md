@@ -1315,7 +1315,8 @@ Append to `MissionGeneratorTests.cs`:
         [Test]
         public void Generate_FailsCleanlyWhenTheTeamsCannotBeSeparated()
         {
-            var result = MissionGenerator.Generate(new MissionSettings { seed = 1, minTeamSeparation = 60f, maxAttempts = 5 });
+            // A 2x2 grid of 12 m cells is 24 m across, so 60 m between the teams is impossible by construction.
+            var result = MissionGenerator.Generate(new MissionSettings { seed = 1, gridColumns = 2, gridRows = 2, cellSize = 12, roomCount = 4, minTeamSeparation = 60f, maxAttempts = 5 });
             Assert.That(result.Succeeded, Is.False);
             Assert.That(result.Failures, Has.Count.EqualTo(5), "exactly maxAttempts attempts, then it stops");
             Assert.That(result.Describe(), Does.Contain("seed=1").And.Contain("attempts=5").And.Contain("attempt 5:"));
@@ -2588,7 +2589,7 @@ namespace Blackglass.Tests
             foreach (var hostile in d.Hostiles)
             {
                 Assert.That(hostile.GetComponent<EnemyAI>().IsCoverWired, Is.True);
-                Assert.That(hostile.GetComponent<UnitAbilities>(), Is.Null);
+                Assert.That(hostile.TryGetComponent<UnitAbilities>(out _), Is.False, "hostiles have no abilities");
             }
             Assert.That(d.Friendlies[1].GetComponent<UnitAttacker>().Archetype.DisplayName, Is.EqualTo("Marksman"));
         }
@@ -2708,7 +2709,7 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator ImpossibleSettings_FailCleanly_NoUnitsNoEncounter_AndTheErrorNamesTheSeed()
         {
-            rig = new MissionRig(new MissionSettings { minTeamSeparation = 60f, maxAttempts = 3 });
+            rig = new MissionRig(new MissionSettings { gridColumns = 2, gridRows = 2, cellSize = 12, roomCount = 4, minTeamSeparation = 60f, maxAttempts = 3 });
             LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(@"Mission generation failed.*seed=77.*attempts=3", System.Text.RegularExpressions.RegexOptions.Singleline));
             yield return rig.Generate(77);
 
@@ -3640,13 +3641,11 @@ namespace Blackglass.Tests
 
         static Health HealthOf(Component unit) => unit.GetComponent<Health>();
 
-        // Stands a hostile `distance` metres from the caster on open ground in sight of it, with its AI off.
-        Health BringHostileNear(CommandableUnit hostile, CommandableUnit caster, float distance)
+        // An open NavMesh spot `distance` metres from `from` that `from` can see (its AI-free line of sight).
+        bool TryFindVisibleSpot(CommandableUnit from, float distance, out Vector3 spot)
         {
-            hostile.GetComponent<EnemyAI>().enabled = false;
-            hostile.Issue(new StopCommand());
-            var attacker = caster.GetComponent<UnitAttacker>();
-            var ground = caster.transform.position - Vector3.up;
+            var attacker = from.GetComponent<UnitAttacker>();
+            var ground = from.transform.position - Vector3.up;
             for (var step = 0; step < 16; step++)
             {
                 var angle = step * Mathf.PI * 2f / 16f;
@@ -3655,11 +3654,33 @@ namespace Blackglass.Tests
                     continue;
                 if (!attacker.HasLineOfSightToPoint(hit.position + Vector3.up))
                     continue;
-                hostile.GetComponent<NavMeshAgent>().Warp(hit.position);
-                return HealthOf(hostile);
+                spot = hit.position;
+                return true;
             }
-            Assert.Fail($"No open, visible spot {distance} m from {caster.name}");
-            return null;
+            spot = default;
+            return false;
+        }
+
+        // Stands a hostile `distance` metres from the caster on open ground in sight of it, with its AI off.
+        Health BringHostileNear(CommandableUnit hostile, CommandableUnit caster, float distance)
+        {
+            hostile.GetComponent<EnemyAI>().enabled = false;
+            hostile.Issue(new StopCommand());
+            if (!TryFindVisibleSpot(caster, distance, out var spot))
+            {
+                Assert.Fail($"No open, visible spot {distance} m from {caster.name}");
+                return null;
+            }
+            hostile.GetComponent<NavMeshAgent>().Warp(spot);
+            return HealthOf(hostile);
+        }
+
+        // Stands a friendly `distance` metres from the caster in sight of it (spawn spacing alone does not guarantee Mend range).
+        void BringFriendlyNear(CommandableUnit friendly, CommandableUnit caster, float distance)
+        {
+            friendly.Issue(new StopCommand());
+            Assert.That(TryFindVisibleSpot(caster, distance, out var spot), Is.True, $"No open, visible spot {distance} m from {caster.name}");
+            friendly.GetComponent<NavMeshAgent>().Warp(spot);
         }
 
         [UnityTest]
@@ -3729,6 +3750,7 @@ namespace Blackglass.Tests
             Assert.That(second.Current, Is.LessThan(secondBefore), "ground-targeted ability");
             Assert.That(squad.Select(u => HealthOf(u).Current).ToArray(), Is.EqualTo(friendlyBefore), "no friendly fire");
 
+            BringFriendlyNear(squad[2], caster, 3f);
             HealthOf(squad[2]).TakeDamage(50);
             var hurt = HealthOf(squad[2]).Current;
             Assert.That(caster.Issue(AbilityCommand.OnUnit(abilities.Definition(2), HealthOf(squad[2]))), Is.True,
@@ -3760,9 +3782,8 @@ namespace Blackglass.Tests
         {
             yield return LoadMission();
             var hostile = hostiles[0];
-            var warp = squad[0].transform.position - Vector3.up;
-            NavMesh.SamplePosition(warp + new Vector3(6f, 0f, 0f), out var near, 4f, NavMesh.AllAreas);
-            hostile.GetComponent<NavMeshAgent>().Warp(near.position);
+            Assert.That(TryFindVisibleSpot(squad[0], 8f, out var spot), Is.True, "an open spot in sight of the leader");
+            hostile.GetComponent<NavMeshAgent>().Warp(spot);   // its AI stays on: it must acquire the leader itself
             yield return TestWorld.WaitUntil(() => hostile.CurrentCommand is AttackCommand || hostile.CurrentCommand is MoveToCoverCommand, 5f);
             Assert.That(hostile.CurrentCommand, Is.Not.Null, "a hostile within detection range and sight acts");
 
@@ -4050,7 +4071,7 @@ Manual test sequence to include in the report:
 6. Controller (DualSense or Xbox): cursor snapping to cover, enemies and friendlies; Confirm to order; R2 + D-pad abilities with cursor aiming; right stick camera; pause and plan.
 7. Regenerate during combat, while paused, with an ability armed and orders queued: nothing stale (no old enemies, markers or cover claims).
 8. Play to Victory and to Defeat on two different seeds, then F6 again.
-9. Break it on purpose: set `Min Team Separation` to 60 and `Max Attempts` to 3 in the Inspector, press F6: one clear error with the seed and settings, no units, no frozen game; restore the values.
+9. Break it on purpose: in the `MissionDirector` Inspector set `Grid Columns` 2, `Grid Rows` 2, `Cell Size` 12, `Room Count` 4, `Min Team Separation` 60 and `Max Attempts` 3 (a 24 m mission cannot separate the teams by 60 m), press F6: one clear error with the seed and settings, no units, no frozen game; restore the values.
 
 ## Plan self-review (done at writing time)
 
