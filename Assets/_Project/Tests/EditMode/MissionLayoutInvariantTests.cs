@@ -41,13 +41,20 @@ namespace Blackglass.Tests
                 foreach (var box in obstacles)
                 {
                     Assert.That(Tiles(box.Footprint).All(t => layout.IsFloor(t.x, t.y)), Is.True, $"{box.Name} floats");
-                    var wallGap = IsLow(box) ? MissionConstants.LowWallClearance : MissionConstants.Clearance;
-                    Assert.That(layout.Rooms.Any(r => Contains(r.Rect, box.Footprint, wallGap)), Is.True,
-                        $"seed {layout.Seed}: {box.Name} is closer than {wallGap} tiles to a wall");
+                    var room = layout.Rooms.Where(r => Contains(r.Rect, box.Footprint, 0)).ToList();
+                    Assert.That(room, Has.Count.EqualTo(1), $"seed {layout.Seed}: {box.Name} stands inside one room");
+                    foreach (var gap in WallGaps(room[0].Rect, box.Footprint))
+                    {
+                        if (IsLow(box))
+                            Assert.That(gap == 0 || gap >= MissionConstants.Clearance, Is.True,
+                                $"seed {layout.Seed}: {box.Name} stands {gap} tile(s) from a room wall: flush or at least {MissionConstants.Clearance}, never 1");
+                        else
+                            Assert.That(gap, Is.GreaterThanOrEqualTo(MissionConstants.Clearance), $"seed {layout.Seed}: {box.Name} is too close to a wall");
+                    }
                     foreach (var c in layout.Connections)
                         Assert.That(box.Footprint.Overlaps(c.Strip), Is.False);
                 }
-                // Every pair, low or tall, keeps the full clearance: only the gap to a room wall is relaxed for low objects.
+                // Every pair, low or tall, keeps the full clearance: only the gap to a room wall differs for low objects.
                 for (var i = 0; i < obstacles.Count; i++)
                     for (var j = i + 1; j < obstacles.Count; j++)
                         Assert.That(Inflate(obstacles[i].Footprint, MissionConstants.Clearance).Overlaps(obstacles[j].Footprint), Is.False,
@@ -182,7 +189,37 @@ namespace Blackglass.Tests
             Assert.That(counts.Count(n => n >= 3), Is.GreaterThanOrEqualTo(Seeds * 9 / 10), all);
         }
 
+        [Test]
+        public void LowCover_IsFlushWithARoomWall_OrAtLeastTwoTilesFromIt_NeverOne()
+        {
+            // Decision 030: a one-tile gap is too narrow for a unit on the eroded NavMesh, so it only made dead pockets
+            // whose cover points were dropped. The relaxed placement stands low cover flush against the wall instead.
+            var flush = 0;
+            var low = 0;
+            foreach (var layout in Layouts())
+                foreach (var box in Obstacles(layout).Where(IsLow))
+                {
+                    low++;
+                    var room = layout.Rooms.Single(r => Contains(r.Rect, box.Footprint, 0));
+                    var gaps = WallGaps(room.Rect, box.Footprint).ToList();
+                    Assert.That(gaps, Has.None.EqualTo(1), $"seed {layout.Seed}: {box.Name} gaps {string.Join(",", gaps)}");
+                    if (gaps.Contains(0))
+                        flush++;
+                }
+            Assert.That(low, Is.GreaterThan(0));
+            Assert.That(flush, Is.GreaterThan(0), "the relaxed half of the tries does place low cover flush against a wall");
+        }
+
         static bool IsLow(MissionBox b) => b.Kind == MissionBoxKind.LowWall || b.Kind == MissionBoxKind.Crate;
+
+        // The free tiles between the footprint and each of its room's four walls: west, east, south, north.
+        static IEnumerable<int> WallGaps(RectInt room, RectInt footprint)
+        {
+            yield return footprint.xMin - room.xMin;
+            yield return room.xMax - footprint.xMax;
+            yield return footprint.yMin - room.yMin;
+            yield return room.yMax - footprint.yMax;
+        }
 
         static RectInt Inflate(RectInt r, int by) => new RectInt(r.x - by, r.y - by, r.width + 2 * by, r.height + 2 * by);
 

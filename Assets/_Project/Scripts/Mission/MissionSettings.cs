@@ -13,13 +13,12 @@ namespace Blackglass
         public const int RoomMax = 10;
         /// <summary>Tiles between a cell edge and its room, so the gutter between rooms is at least twice this.</summary>
         public const int RoomInset = 2;
-        /// <summary>Free tiles kept between an obstacle and any wall or other obstacle.</summary>
-        public const int Clearance = 2;
         /// <summary>
-        /// Free tiles between a low-cover object and a room wall (tall obstacles keep Clearance). One tile is too narrow for
-        /// the NavMesh agent: it only ever forms a dead-end pocket, because no obstacle may stand within Clearance of a door.
+        /// Free tiles kept between an obstacle and any wall or other obstacle. Low-cover objects may instead stand flush
+        /// against a room wall (gap 0), never one tile from it: a one-tile gap is too narrow for the NavMesh agent and only
+        /// formed dead pockets whose cover points were dropped (decision 030).
         /// </summary>
-        public const int LowWallClearance = 1;
+        public const int Clearance = 2;
         public const float SpawnSpacing = 2.5f;
         /// <summary>The eroded NavMesh must cover at least this share of the floor: a sanity check, not a quality bar.</summary>
         public const float MinNavAreaRatio = 0.3f;

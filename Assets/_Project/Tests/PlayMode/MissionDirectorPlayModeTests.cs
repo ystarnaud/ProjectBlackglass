@@ -84,23 +84,34 @@ namespace Blackglass.Tests
             }
         }
 
-        // A walkable point as far from the unit as possible, at most 9 m and never under 7 m (beyond the 6 m follow start
-        // distance), with a clear straight NavMesh line to it. `direction` points from the unit to the spot.
-        static bool TryFindClearSpot(CommandableUnit from, out Vector3 spot, out Vector3 direction)
+        // A walkable point as far from the unit as possible, at most 9 m and never under 7 m in a straight line (beyond the
+        // 6 m follow start distance), that the unit can reach. `direction` is the first straight leg of the path to it (at
+        // least 1 m of clear NavMesh), so a held move key along it walks the unit toward the spot. A small, cluttered
+        // spawn room may have no clear straight line of 7 m, so the spot need not be in a straight line.
+        static bool TryFindFarSpot(CommandableUnit from, out Vector3 spot, out Vector3 direction)
         {
             var origin = from.transform.position - Vector3.up;
-            foreach (var distance in new[] { 9f, 8f, 7.5f, 7f })
-                for (var i = 0; i < 32; i++)
-                {
-                    direction = Quaternion.Euler(0f, i * 11.25f, 0f) * Vector3.forward;
-                    if (NavMesh.SamplePosition(origin + direction * distance, out var hit, 0.4f, NavMesh.AllAreas)
-                        && TestWorld.HorizontalDistance(hit.position, origin) >= 7f
-                        && !NavMesh.Raycast(origin, hit.position, out _, NavMesh.AllAreas))
+            var path = new NavMeshPath();
+            if (NavMesh.SamplePosition(origin, out var start, 1f, NavMesh.AllAreas))
+            {
+                foreach (var distance in new[] { 9f, 8.5f, 8f, 7.5f, 7f })
+                    for (var i = 0; i < 64; i++)
                     {
+                        var heading = Quaternion.Euler(0f, i * 5.625f, 0f) * Vector3.forward;
+                        if (!NavMesh.SamplePosition(origin + heading * distance, out var hit, 0.4f, NavMesh.AllAreas)
+                            || TestWorld.HorizontalDistance(hit.position, origin) < 7f
+                            || !NavMesh.CalculatePath(start.position, hit.position, NavMesh.AllAreas, path)
+                            || path.status != NavMeshPathStatus.PathComplete || path.corners.Length < 2)
+                            continue;
+                        var leg = path.corners[1] - path.corners[0];
+                        leg.y = 0f;
+                        if (leg.magnitude < 1f)
+                            continue;
                         spot = hit.position;
+                        direction = leg.normalized;
                         return true;
                     }
-                }
+            }
             spot = default;
             direction = default;
             return false;
@@ -122,7 +133,7 @@ namespace Blackglass.Tests
 
             var companion = rig.Director.Friendlies[1];
             var ai = companion.GetComponent<CompanionAI>();
-            Assert.That(TryFindClearSpot(leader, out var spot, out var toward), Is.True, "an open spot 7 to 9 m from the leader");
+            Assert.That(TryFindFarSpot(leader, out var spot, out var toward), Is.True, "a reachable open spot 7 to 9 m from the leader");
             companion.GetComponent<NavMeshAgent>().Warp(spot);
             var warped = companion.transform.position;
             var everOrdered = false;
@@ -136,7 +147,8 @@ namespace Blackglass.Tests
             Assert.That(TestWorld.HorizontalDistance(companion.transform.position, warped), Is.LessThan(0.1f));
             Assert.That(ai.IsHeld, Is.True);
 
-            // The leader walks toward it along the clear line: the hold ends and the companion (still beyond 6 m) follows.
+            // The leader walks toward it along the first leg of the path: the hold ends and the companion (still beyond
+            // 6 m) follows.
             leader.SetMoveIntent(toward);
             yield return TestWorld.WaitUntil(() => !ai.IsHeld, 2f);
             leader.SetMoveIntent(Vector3.zero);

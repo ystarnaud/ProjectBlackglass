@@ -276,6 +276,11 @@ namespace Blackglass.Tests
             yield return LoadMission();
             var caster = squad[1];   // the Marksman
             var abilities = caster.GetComponent<UnitAbilities>();
+            // The shot hostiles must not fight back: a retaliation would change the squad's health during the
+            // "no friendly fire" check below, which is about the Blast alone.
+            foreach (var target in hostiles.Take(2))
+                if (target.TryGetComponent<AutoRetaliate>(out var hostileRetaliate))
+                    hostileRetaliate.enabled = false;
             var hostile = BringHostileNear(hostiles[0], caster, 9f);
             var before = hostile.Current;
 
@@ -337,8 +342,9 @@ namespace Blackglass.Tests
             yield return LoadMission();
             var unit = squad[0];
             var start = unit.transform.position;
+            Assert.That(TryFindOrderPoint(unit, 2f, out var destination, mustBeSeen: false), Is.True, "reachable open floor 2 m away");
             pause.Pause();
-            Assert.That(unit.Issue(new MoveCommand(start - Vector3.up + new Vector3(2f, 0f, 0f))), Is.True);
+            Assert.That(unit.Issue(new MoveCommand(destination)), Is.True);
             yield return new WaitForSecondsRealtime(0.3f);
             Assert.That(Vector3.Distance(unit.transform.position, start), Is.LessThan(0.05f), "frozen while paused");
 
@@ -369,9 +375,12 @@ namespace Blackglass.Tests
             var companion = squad[2].GetComponent<CompanionAI>();
             var far = squad[2].transform.position;
             var leaderStart = squad[0].transform.position;
-            // Away from the companion, so it ends up beyond its follow start distance.
-            Assert.That(TryFindOrderPoint(squad[0], 8f, out var destination, mustBeSeen: false, awayFrom: far), Is.True,
-                "reachable open floor 8 m from the leader");
+            // Away from the companion, so it ends up beyond its follow start distance (6 m): in a small spawn room the
+            // nearest such floor can be in the next room, so farther distances are tried too.
+            var destination = default(Vector3);
+            var foundDestination = new[] { 8f, 10f, 12f, 14f }.Any(d =>
+                TryFindOrderPoint(squad[0], d, out destination, mustBeSeen: false, awayFrom: far) && TestWorld.HorizontalDistance(destination, far) > 7f);
+            Assert.That(foundDestination, Is.True, "reachable open floor 8 to 14 m from the leader and over 7 m from the companion");
             Assert.That(squad[0].Issue(new MoveCommand(destination)), Is.True);
             var followed = false;
             yield return TestWorld.WaitUntil(() =>

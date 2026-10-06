@@ -160,9 +160,9 @@ namespace Blackglass.Tests
         // move: update them in the same commit and say so in the message.
         static readonly Dictionary<int, ulong> Golden = new Dictionary<int, ulong>
         {
-            { 12345, 9633028606151322677UL },
-            { 1, 13989501395899663125UL },
-            { 2, 17962529147652951836UL },
+            { 12345, 44352989029601680UL },
+            { 1, 5574292740439711470UL },
+            { 2, 17346705782062213496UL },
         };
 
         [TestCase(12345)]

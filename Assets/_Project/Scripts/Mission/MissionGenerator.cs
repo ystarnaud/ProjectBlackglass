@@ -101,7 +101,8 @@ namespace Blackglass
         const int PlacementTries = 8;
         // Free spots are scarce once the tall obstacles stand (the clearance leaves a room 3 to 6 tiles of space), so
         // low cover keeps looking across the rooms for longer. The first half of the tries keeps the full wall clearance
-        // (free-standing cover you can walk around); only the second half may stand one tile from a wall.
+        // (free-standing cover you can walk around); only the second half may also stand flush against a room wall. A
+        // one-tile gap is never used: it is too narrow for a unit on the eroded NavMesh (decision 030).
         const int LowCoverTries = 40;
 
         static void PlaceTallObstacles(MissionSettings s, SeededRandom rng, List<MissionRoom> rooms, ObstaclePlacer placer)
@@ -148,7 +149,7 @@ namespace Blackglass
                     var w = wall ? (horizontal ? 3 : 1) : 1;
                     var h = wall ? (horizontal ? 1 : 3) : 1;
                     if (placer.TryPlaceRandom(rng, room, w, h, wall ? MissionBoxKind.LowWall : MissionBoxKind.Crate, MissionConstants.LowHeight,
-                            attempt < LowCoverTries / 2 ? MissionConstants.Clearance : MissionConstants.LowWallClearance))
+                            MissionConstants.Clearance, mayStandFlush: attempt >= LowCoverTries / 2))
                         break;
                 }
             }
@@ -228,23 +229,48 @@ namespace Blackglass
             public bool[] Blocked { get; }
             public List<MissionBox> Boxes { get; } = new List<MissionBox>();
 
-            public bool TryPlaceRandom(SeededRandom rng, MissionRoom room, int w, int h, MissionBoxKind kind, float boxHeight, int wallClearance)
+            // A random footprint inside the room whose gap to each room wall is at least `wallClearance` tiles or, with
+            // `mayStandFlush`, zero (flush against that wall); any other gap is never drawn.
+            public bool TryPlaceRandom(SeededRandom rng, MissionRoom room, int w, int h, MissionBoxKind kind, float boxHeight,
+                int wallClearance, bool mayStandFlush = false)
             {
-                var c = wallClearance;
-                var minX = room.Rect.xMin + c;
-                var maxX = room.Rect.xMax - c - w;
-                var minY = room.Rect.yMin + c;
-                var maxY = room.Rect.yMax - c - h;
-                if (maxX < minX || maxY < minY)
+                var xCount = CountStarts(room.Rect.xMin, room.Rect.xMax - w, wallClearance, mayStandFlush);
+                var yCount = CountStarts(room.Rect.yMin, room.Rect.yMax - h, wallClearance, mayStandFlush);
+                if (xCount == 0 || yCount == 0)
                     return false;
-                var x = rng.NextInt(minX, maxX + 1);
-                var y = rng.NextInt(minY, maxY + 1);
+                var x = NthStart(room.Rect.xMin, room.Rect.xMax - w, wallClearance, mayStandFlush, rng.NextInt(xCount));
+                var y = NthStart(room.Rect.yMin, room.Rect.yMax - h, wallClearance, mayStandFlush, rng.NextInt(yCount));
                 return TryPlace(new RectInt(x, y, w, h), kind, boxHeight);
             }
 
-            // Callers keep the footprint inside a room with a wall gap of at least LowWallClearance. A footprint closer
-            // than Clearance to a corridor strip is refused here, so no obstacle ever narrows a door; the rest is the gap
-            // to earlier obstacles and the connectivity check.
+            // Start coordinates along one axis run from `lo` (touching the low wall) to `hi` (touching the high wall).
+            // Without flush placement the allowed starts are lo + clearance .. hi - clearance in order, so drawing the
+            // n-th one is the same draw as a plain range.
+            static bool AllowedGap(int gap, int clearance, bool mayStandFlush) => gap >= clearance || (mayStandFlush && gap == 0);
+
+            static bool AllowedStart(int start, int lo, int hi, int clearance, bool mayStandFlush) =>
+                AllowedGap(start - lo, clearance, mayStandFlush) && AllowedGap(hi - start, clearance, mayStandFlush);
+
+            static int CountStarts(int lo, int hi, int clearance, bool mayStandFlush)
+            {
+                var count = 0;
+                for (var start = lo; start <= hi; start++)
+                    if (AllowedStart(start, lo, hi, clearance, mayStandFlush))
+                        count++;
+                return count;
+            }
+
+            static int NthStart(int lo, int hi, int clearance, bool mayStandFlush, int n)
+            {
+                for (var start = lo; start <= hi; start++)
+                    if (AllowedStart(start, lo, hi, clearance, mayStandFlush) && n-- == 0)
+                        return start;
+                throw new ArgumentOutOfRangeException(nameof(n));
+            }
+
+            // Callers keep the footprint inside a room with an allowed wall gap (TryPlaceRandom). A footprint closer than
+            // Clearance to a corridor strip is refused here, so no obstacle ever narrows a door; the rest is the gap to
+            // earlier obstacles and the connectivity check.
             bool TryPlace(RectInt rect, MissionBoxKind kind, float boxHeight)
             {
                 var c = MissionConstants.Clearance;
