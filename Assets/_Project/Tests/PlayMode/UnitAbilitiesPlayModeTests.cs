@@ -371,18 +371,27 @@ namespace Blackglass.Tests
             Assert.That(hostile.Current, Is.EqualTo(hostile.Max));
         }
 
+        // Decision 029: an order that would start now is refused for everything except range and sight, which the unit
+        // fixes by walking into position first.
         [UnityTest]
-        public IEnumerator CanQueue_ChecksOnlyWhoAndWhat_AndCanStartNow_ChecksEverything()
+        public IEnumerator CanQueue_ChecksOnlyWhoAndWhat_AndCanOrderNow_AlsoTheCooldown_ButNotRangeOrSight()
         {
             yield return null;
             var far = world.CreateDummy(new Vector3(15f, 0f, 15f));
-            encounter.Initialize(new[] { casterHealth, ally }, new[] { hostile, far });
+            var walled = world.CreateDummy(new Vector3(-4f, 0f, 2f));
+            encounter.Initialize(new[] { casterHealth, ally }, new[] { hostile, far, walled });
 
             Assert.That(abilities.CanQueue(AbilityCommand.OnUnit(aimed, far)), Is.True);
-            Assert.That(abilities.CanStartNow(AbilityCommand.OnUnit(aimed, far)), Is.False);
-            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.OutOfRange));
+            Assert.That(abilities.CanOrderNow(AbilityCommand.OnUnit(aimed, far)), Is.True, "Out of range: the unit walks");
+            Assert.That(abilities.CanOrderNow(AbilityCommand.OnUnit(aimed, walled)), Is.True, "Out of sight: the unit repositions");
+            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.None), "Neither is reported as a failure");
             Assert.That(abilities.CanQueue(AbilityCommand.OnUnit(aimed, ally)), Is.False);
             Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.WrongSide));
+
+            Assert.That(abilities.TryUse(AbilityCommand.OnUnit(aimed, hostile)), Is.True);
+            Assert.That(abilities.CanQueue(AbilityCommand.OnUnit(aimed, far)), Is.True, "Queued: the cooldown is judged when it runs");
+            Assert.That(abilities.CanOrderNow(AbilityCommand.OnUnit(aimed, far)), Is.False);
+            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.OnCooldown));
         }
 
         [UnityTest]

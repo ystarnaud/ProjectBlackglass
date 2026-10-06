@@ -63,10 +63,14 @@ namespace Blackglass
     }
 
     /// <summary>
-    /// Turns boxes into cover locations. Pure: no scene access, the NavMesh arrives as a predicate. Per box, corner
-    /// candidates come first (so they win a merge), then face candidates; candidates that are not walkable or lie
-    /// within mergeDistance of an earlier accepted candidate of the same box are dropped; the survivors are named and
-    /// returned. Locations of different boxes never remove each other.
+    /// Turns boxes into cover locations. Pure: no scene access, the NavMesh arrives as a predicate. Cover exists only
+    /// where it covers. Low boxes (top at or below <see cref="CoverGenerationSettings.lowMaxHeight"/>) get face
+    /// locations along every usable face: a unit crouches behind them anywhere. Tall boxes get no face locations at
+    /// all: a unit cannot hide against the middle of a wall, so a long tall wall offers cover only at its ends, and
+    /// only at an end that opens outward (the peek point past the end is walkable); an end that runs into another wall,
+    /// a closed room corner or the map edge gets nothing. Tall boxes that are not long walls (pillars, stubs) get
+    /// nothing. Candidates that are not walkable or lie within mergeDistance of an earlier accepted candidate of the
+    /// same box are dropped; the survivors are named and returned. Locations of different boxes never remove each other.
     /// </summary>
     public static class CoverGenerator
     {
@@ -112,7 +116,7 @@ namespace Blackglass
             {
                 var candidates = new List<Candidate>();
                 AddCorners(box, settings, isWalkable, candidates);
-                AddFaces(box, settings, candidates);
+                AddFaces(box, settings, candidates);   // Low boxes only
 
                 var accepted = new List<Candidate>();
                 foreach (var candidate in candidates)
@@ -144,8 +148,11 @@ namespace Blackglass
 
         static Vector3 OnGround(CoverBox box, Vector3 point) => new Vector3(point.x, box.GroundY, point.z);
 
+        // Low boxes only: a tall box gets no face locations (see the class summary).
         static void AddFaces(CoverBox box, CoverGenerationSettings settings, List<Candidate> candidates)
         {
+            if (box.Height > settings.lowMaxHeight)
+                return;
             foreach (var face in FacesOf(box))
             {
                 var length = face.HalfLength * 2f;
@@ -167,7 +174,9 @@ namespace Blackglass
             }
         }
 
-        // Tall walls only: one corner at each end of each long face, inset into the wall's shadow, peeking out past the end.
+        // Tall walls only: one corner at each end of each long face, inset into the wall's shadow, peeking out past the
+        // end. An end whose peek point is not walkable does not open outward (a closed corner, a junction with another
+        // wall, the map edge) and gets no candidate.
         static void AddCorners(CoverBox box, CoverGenerationSettings settings, Func<Vector3, bool> isWalkable, List<Candidate> candidates)
         {
             if (box.Height <= settings.lowMaxHeight)
@@ -188,14 +197,15 @@ namespace Blackglass
                     var stand = OnGround(box, box.Center + face.Normal * (face.Depth + settings.standOffset)
                         + along * (face.HalfLength - settings.cornerInset));
                     var peek = stand + along * settings.peekDistance;
-                    var hasPeek = isWalkable(peek);
+                    if (!isWalkable(peek))
+                        continue;
                     candidates.Add(new Candidate
                     {
                         Position = stand,
                         Facing = -face.Normal,
                         Placement = CoverPlacement.Corner,
-                        PeekDirection = hasPeek ? along : Vector3.zero,
-                        PeekPoint = hasPeek ? peek : Vector3.zero,
+                        PeekDirection = along,
+                        PeekPoint = peek,
                     });
                 }
             }

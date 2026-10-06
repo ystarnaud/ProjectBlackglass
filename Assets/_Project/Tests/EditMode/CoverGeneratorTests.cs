@@ -61,25 +61,26 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void Pillar_GetsOnePointPerFace_AllTall_NoneWithPeek()
+        public void TallPillar_GetsNoCover_AtAll()
         {
-            var result = Generate(Box("Pillar_G", P(-2f, 1.5f, -6f), P(1.5f, 3f, 1.5f)), settings: Original());
-            Assert.That(result, Has.Count.EqualTo(4));
-            Assert.That(result.All(l => l.Height == CoverHeight.Tall && l.Placement == CoverPlacement.Face && !l.HasPeek), Is.True);
-            var south = result.Single(l => l.Name == "Cover_Pillar_G_S1");
-            Assert.That(south.Position.x, Is.EqualTo(-2f).Within(0.001f));
-            Assert.That(south.Position.z, Is.EqualTo(-7.5f).Within(0.001f), "0.75 m from the face at -6.75");
-            var west = result.Single(l => l.Name == "Cover_Pillar_G_W1");
-            Assert.That(west.Position.x, Is.EqualTo(-3.5f).Within(0.001f));
-            Assert.That(west.Facing.x, Is.EqualTo(1f).Within(0.001f));
+            // Pillar_G of the prototype arena: 1.5 x 1.5, 3 m tall. A pillar does not hide a unit.
+            Assert.That(Generate(Box("Pillar_G", P(-2f, 1.5f, -6f), P(1.5f, 3f, 1.5f)), settings: Original()), Is.Empty);
+            Assert.That(Generate(Box("Pillar_1x1", P(0f, 1.5f, 0f), P(1f, 3f, 1f))), Is.Empty, "a 1 x 1 pillar at the defaults too");
         }
 
         [Test]
-        public void Crate_TwoByTwo_IsNotAWall_FourFacePointsNoCorners()
+        public void TallCrate_TwoByTwo_IsNotAWall_GetsNoCover()
         {
             var result = Generate(Box("Crate_J", P(10f, 1f, -5f), P(2f, 2f, 2f)), settings: Original());
+            Assert.That(result, Is.Empty, "2 m tall: no face points, and not twice as long as thick: no corners");
+        }
+
+        [Test]
+        public void ALowCrateAtTheThreshold_StillGetsFacePoints()
+        {
+            var result = Generate(Box("Crate", P(0f, 0.6f, 0f), P(2f, 1.2f, 2f)), settings: Original());
             Assert.That(result, Has.Count.EqualTo(4));
-            Assert.That(result.Any(l => l.Placement == CoverPlacement.Corner), Is.False);
+            Assert.That(result.All(l => l.Height == CoverHeight.Low && l.Placement == CoverPlacement.Face), Is.True);
         }
 
         [Test]
@@ -168,13 +169,15 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void ACorner_SupersedesTheFacePointNearestTheWallEnd()
+        public void TallWall_HasNoFaceLocations_OnlyItsFourCorners()
         {
             var result = Generate(Barrier(), settings: Original());
-            var southFace = result.Where(l => l.Facing.z > 0.5f).ToList();
-            Assert.That(southFace.Count(l => l.Placement == CoverPlacement.Face), Is.EqualTo(1), "Only the centre face point survives");
-            Assert.That(southFace.Single(l => l.Placement == CoverPlacement.Face).Position.x, Is.EqualTo(-8f).Within(0.001f));
-            Assert.That(result, Has.Count.EqualTo(8), "4 corners + 2 centre points + 2 end-face points");
+            Assert.That(result.Count(l => l.Placement == CoverPlacement.Face), Is.Zero, "no cover along a tall wall");
+            Assert.That(result, Has.Count.EqualTo(4));
+            Assert.That(result.All(l => l.Placement == CoverPlacement.Corner && l.Height == CoverHeight.Tall && l.HasPeek), Is.True);
+            var atDefaults = Generate(Barrier());
+            Assert.That(atDefaults, Has.Count.EqualTo(4), "also at the current defaults");
+            Assert.That(atDefaults.All(l => l.Placement == CoverPlacement.Corner), Is.True);
         }
 
         [Test]
@@ -185,10 +188,11 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void ATallBoxThatIsNotMuchLongerThanItIsThick_GetsNoCorners()
+        public void ATallBoxThatIsNotMuchLongerThanItIsThick_GetsNoCover()
         {
-            Assert.That(Generate(Box("Stubby", P(0f, 1f, 0f), P(3f, 2f, 2f)), settings: Original()).Any(l => l.Placement == CoverPlacement.Corner), Is.False, "3 x 2 is not twice as long as thick");
-            Assert.That(Generate(Box("Short", P(0f, 1f, 0f), P(1.5f, 2f, 0.5f)), settings: Original()).Any(l => l.Placement == CoverPlacement.Corner), Is.False, "1.5 m is under minCornerLength");
+            Assert.That(Generate(Box("Stubby", P(0f, 1f, 0f), P(3f, 2f, 2f)), settings: Original()), Is.Empty, "3 x 2 is not twice as long as thick");
+            Assert.That(Generate(Box("Short", P(0f, 1f, 0f), P(1.5f, 2f, 0.5f)), settings: Original()), Is.Empty, "1.5 m is under minCornerLength");
+            Assert.That(Generate(Box("Short", P(0f, 1f, 0f), P(1.5f, 2f, 0.5f))), Is.Empty, "also at the current defaults");
         }
 
         [Test]
@@ -260,24 +264,69 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void ACornerWhosePeekPointIsOffTheNavMesh_StaysACornerWithoutPeekData()
+        public void ACornerWhosePeekPointIsNotWalkable_IsDropped_AndOnlyThatEndsCandidates()
         {
-            // Reject only the south side's peek points (z 0.75, more than 3.5 m from the wall centre along x).
-            Func<Vector3, bool> walkable = p => !(Mathf.Abs(p.x + 8f) > 3.5f && Mathf.Abs(p.z - 0.75f) < 0.1f);
+            // Reject every point east of x -5 on both sides of the wall (the south and north stand lines are at z 0.75 and
+            // z 3.25; the east peek points lie 1.25 m further east than the stands at x -5.35).
+            Func<Vector3, bool> walkable = p => !(p.x > -5f);
             var result = Generate(Barrier(), walkable, Original());
 
-            var southCorners = result.Where(l => l.Placement == CoverPlacement.Corner && l.Facing.z > 0.5f).ToList();
-            Assert.That(southCorners, Has.Count.EqualTo(2), "The corners themselves are still walkable");
-            Assert.That(southCorners.All(l => !l.HasPeek && l.PeekPoint == Vector3.zero), Is.True);
-            var northCorners = result.Where(l => l.Placement == CoverPlacement.Corner && l.Facing.z < -0.5f).ToList();
-            Assert.That(northCorners, Has.Count.EqualTo(2));
-            Assert.That(northCorners.All(l => l.HasPeek), Is.True);
+            Assert.That(result.Select(l => l.Name), Is.EquivalentTo(new[] { "Cover_Barrier_I_NCorner1", "Cover_Barrier_I_SCorner1" }),
+                "the two west ends open outward, both east ends do not");
+            Assert.That(result.All(l => l.Placement == CoverPlacement.Corner && l.HasPeek && l.PeekDirection.x < -0.99f), Is.True);
+            Assert.That(result.All(l => walkable(l.PeekPoint)), Is.True);
+        }
+
+        static bool InsideBox(CoverBox b, Vector3 p) =>
+            Mathf.Abs(p.x - b.Center.x) < b.HalfExtents.x && Mathf.Abs(p.z - b.Center.z) < b.HalfExtents.z;
+
+        [Test]
+        public void ATallWallsEnd_ThatRunsIntoAnotherWall_GetsNoCorner_AtATJunction()
+        {
+            // A T: the x wall (x -4..4, z -0.5..0.5) ends against the middle of the z wall (x -5..-4, z -4..4). Walkable is
+            // outside both boxes. The x wall's west candidates peek west into the z wall: dropped. Its east end is open.
+            var xWall = Box("WallX", P(0f, 1.5f, 0f), P(8f, 3f, 1f));
+            var zWall = Box("WallZ", P(-4.5f, 1.5f, 0f), P(1f, 3f, 8f));
+            Func<Vector3, bool> walkable = p => !InsideBox(xWall, p) && !InsideBox(zWall, p);
+            var result = CoverGenerator.Generate(new[] { xWall, zWall }, new CoverGenerationSettings(), walkable);
+
+            Assert.That(result.Where(l => l.Name.StartsWith("Cover_WallX_")).All(l => l.PeekDirection.x > 0.99f), Is.True, "only the east end remains");
+            Assert.That(result.Count(l => l.Name.StartsWith("Cover_WallX_")), Is.EqualTo(2), "one per long face at the open east end");
+            Assert.That(result.Count(l => l.Name.StartsWith("Cover_WallZ_")), Is.EqualTo(4), "the z wall's ends are both open");
+        }
+
+        [Test]
+        public void TwoTallWallsMeetingAtAClosedCorner_GetNoLocationAtTheClosedCorner()
+        {
+            // An L: the z wall (x -5..-4, z -0.5..7.5) closes the x wall's west end on the inside of the L (north side).
+            // The inside corner is a room corner: both walls are fully exposed there, so neither wall offers cover in it.
+            // (The x wall's south-west candidate stands outside the L and stays; it opens to the open floor south of it.)
+            var xWall = Box("WallX", P(0f, 1.5f, 0f), P(8f, 3f, 1f));
+            var zWall = Box("WallZ", P(-4.5f, 1.5f, 3.5f), P(1f, 3f, 8f));
+            Func<Vector3, bool> walkable = p => !InsideBox(xWall, p) && !InsideBox(zWall, p);
+            var result = CoverGenerator.Generate(new[] { xWall, zWall }, new CoverGenerationSettings(), walkable);
+
+            var closedCorner = P(-3.5f, 0f, 0.5f);   // the inside corner of the L, where the two walls meet
+            Assert.That(result.Where(l => CoverRules.FlatDistance(l.Position, closedCorner) < 1.6f), Is.Empty,
+                "no location of either wall in the closed room corner");
+            Assert.That(result.Where(l => l.Name.StartsWith("Cover_WallX_")).All(l => l.PeekDirection.x > 0.99f || l.Facing.z > 0.5f), Is.True,
+                "the x wall keeps its east end and its south-west end, which stands outside the L");
+        }
+
+        [Test]
+        public void ATallWallAgainstTheMapEdge_GetsNoCornerAtThatEnd()
+        {
+            // Nothing is walkable west of x -11.5: the wall's west end (x -11) is at the edge of the map, so the peek
+            // points 1.25 m past it (x about -11.9) are off the map.
+            var result = Generate(Barrier(), p => p.x > -11.5f, Original());
+            Assert.That(result.Count(l => l.PeekDirection.x < -0.5f), Is.Zero);
+            Assert.That(result.Select(l => l.Name), Is.EquivalentTo(new[] { "Cover_Barrier_I_NCorner1", "Cover_Barrier_I_SCorner1" }), "the two east ends stay");
         }
 
         [Test]
         public void ANonWalkableCornerStandPoint_DropsTheCorner()
         {
-            var result = Generate(Barrier(), p => p.x > -9f, Original());   // only the east half is walkable
+            var result = Generate(Barrier(), p => p.x > -9f || p.x < -11.5f, Original());   // the west stand points (x -10.65) are not walkable, the west peek points (x -11.9) are
             Assert.That(result.Count(l => l.Placement == CoverPlacement.Corner), Is.EqualTo(2), "Only the two east corners remain");
         }
 
@@ -339,35 +388,46 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void ATallWallsCorner_AndANeighbouringObjectsEndFacePoint_BothSurvive_InEitherOrder()
+        public void ATallWallsCorner_AndANeighbouringLowObjectsFacePoint_BothSurvive_InEitherOrder()
         {
-            // Barrier_I's east end-face point is at (-4.25, 0, 2); the central wall (8 x 1, turned 45 degrees about
-            // (0, 1, 0)) has its south-west corner at (-3.46, 0, 1.70): 0.84 m apart, inside the 0.9 m merge distance.
-            var barrier = Barrier();
+            // The central wall (8 x 1, turned 45 degrees about (0, 1, 0)) has its south-west corner at (-3.46, 0, 1.70). A
+            // low wall whose south face points sit at (-4.25, 0, 2) and (-3.25, 0, 2) is within the 0.9 m merge
+            // distance of it: 0.84 and 0.37 m. Different objects never remove each other.
             var wall = Box("Barrier_Central", P(0f, 1f, 0f), P(8f, 2f, 1f), 45f);
-            var barrierEnd = P(-4.25f, 0f, 2f);
+            var low = Box("Low_Neighbour", P(-4.25f, 0.45f, 3f), P(3f, 0.9f, 0.5f));
             var wallCorner = P(-3.46f, 0f, 1.70f);
-            Assert.That(CoverRules.FlatDistance(barrierEnd, wallCorner), Is.LessThan(0.9f), "the scenario is inside the merge distance");
+            var lowPoint = P(-4.25f, 0f, 2f);
+            Assert.That(CoverRules.FlatDistance(lowPoint, wallCorner), Is.LessThan(0.9f), "the scenario is inside the merge distance");
 
-            foreach (var boxes in new[] { new[] { barrier, wall }, new[] { wall, barrier } })
+            foreach (var boxes in new[] { new[] { low, wall }, new[] { wall, low } })
             {
                 var result = CoverGenerator.Generate(boxes, new CoverGenerationSettings(), Everywhere);
                 var order = string.Join(", ", boxes.Select(b => b.Name));
                 Assert.That(result.Any(l => l.Name.StartsWith("Cover_Barrier_Central_") && l.Placement == CoverPlacement.Corner
                     && CoverRules.FlatDistance(l.Position, wallCorner) < 0.05f), Is.True, "central wall corner kept, order " + order);
-                Assert.That(result.Any(l => l.Name.StartsWith("Cover_Barrier_I_") && l.Placement == CoverPlacement.Face
-                    && CoverRules.FlatDistance(l.Position, barrierEnd) < 0.05f), Is.True, "Barrier_I end-face point kept, order " + order);
+                Assert.That(result.Any(l => l.Name.StartsWith("Cover_Low_Neighbour_") && l.Placement == CoverPlacement.Face
+                    && CoverRules.FlatDistance(l.Position, lowPoint) < 0.05f), Is.True, "low wall face point kept, order " + order);
             }
         }
 
         [Test]
-        public void WithinOneObject_ACornerStillBeatsTheFacePointNextToIt_AtDefaults()
+        public void ATwoMetreTallWall_KeepsAllFourCorners_AtDefaults()
         {
-            // Barrier_I: south face points at spacing 1 start 0.15 m from the corner and are merged into it.
-            var southFace = Generate(Barrier()).Where(l => l.Facing.z > 0.5f).OrderBy(l => l.Position.x).ToList();
-            Assert.That(southFace.Count(l => l.Placement == CoverPlacement.Corner), Is.EqualTo(2));
-            for (var i = 1; i < southFace.Count; i++)
-                Assert.That(southFace[i].Position.x - southFace[i - 1].Position.x, Is.GreaterThanOrEqualTo(0.9f), southFace[i].Name);
+            // The shortest wall that gets corners: its two corners per face stand 2 - 2 * 0.35 = 1.3 m apart, over the
+            // 0.9 m merge distance.
+            var result = Generate(Box("Short", P(0f, 1f, 0f), P(2f, 2f, 0.5f)));
+            Assert.That(result, Has.Count.EqualTo(4));
+            Assert.That(result.All(l => l.Placement == CoverPlacement.Corner), Is.True);
+        }
+
+        [Test]
+        public void LowWall_AtDefaults_KeepsFacePointsAlongEveryFace_AsBefore()
+        {
+            // 8 x 1, 0.9 m: usable 7 m gives 8 points per long face; the 1 m end faces get one point each.
+            var result = Generate(Box("Low", P(0f, 0.45f, 0f), P(8f, 0.9f, 1f)));
+            Assert.That(result.Count(l => l.Facing.z > 0.5f), Is.EqualTo(8));
+            Assert.That(result.Count(l => l.Facing.z < -0.5f), Is.EqualTo(8));
+            Assert.That(result.Any(l => l.Placement == CoverPlacement.Corner), Is.False);
         }
     }
 }

@@ -7,9 +7,9 @@ namespace Blackglass
     /// <summary>
     /// Debug-only on-screen text (IMGUI) for abilities, bottom-left, working while paused: who casts, each slot with its
     /// prompt, name and readiness or cooldown (the armed one marked), the preview of what the pointer is on (target,
-    /// range, sight, cover, hits, OK or why not), the ability orders running or queued, and the last failure for a few
-    /// seconds. With a controller, holding the menu trigger says so. Not production UI. The text itself is built by
-    /// AbilityDescriptions and BuildLines so tests can read it.
+    /// range, sight, cover, hits, OK, the walk into position or why not), the ability orders running (with the walk, if
+    /// any) or queued, and the last failure for a few seconds. With a controller, holding the menu trigger says so. Not
+    /// production UI. The text itself is built by AbilityDescriptions and BuildLines so tests can read it.
     /// </summary>
     public sealed class AbilityBarView : MonoBehaviour
     {
@@ -72,7 +72,7 @@ namespace Blackglass
                 lines.Add(AbilityDescriptions.Preview(targeting.Preview, targeting.AreaHits));
 
             if (caster.CurrentCommand is AbilityCommand casting)
-                lines.Add("Casting: " + AbilityDescriptions.Order(casting));
+                lines.Add(AbilityDescriptions.Running(casting, caster.AbilityPhase));
             for (var i = 0; i < caster.PendingCommands.Count; i++)
             {
                 if (caster.PendingCommands[i] is AbilityCommand queued)

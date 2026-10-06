@@ -86,15 +86,17 @@ namespace Blackglass
 
         /// <summary>
         /// A companion's line: its orders (if any) and what its autonomy is doing, e.g. "Attack | Assist -> HostileUnit_1".
-        /// A parked companion (see CompanionAI) gets " [parked]", except a dead or controlled one.
+        /// A parked companion (see CompanionAI) gets " [parked]", a held one " [held]", except a dead or controlled one.
         /// </summary>
-        internal static string DescribeCompanion(string orders, CompanionState state, string assistTargetName, bool parked = false)
+        internal static string DescribeCompanion(string orders, CompanionState state, string assistTargetName, bool parked = false, bool held = false)
         {
             var text = state == CompanionState.Assist && !string.IsNullOrEmpty(assistTargetName)
                 ? $"{state} -> {assistTargetName}"
                 : state.ToString();
             text = string.IsNullOrEmpty(orders) ? text : $"{orders} | {text}";
-            return parked && state != CompanionState.Dead && state != CompanionState.Controlled ? text + " [parked]" : text;
+            if (state == CompanionState.Dead || state == CompanionState.Controlled)
+                return text;
+            return (parked ? text + " [parked]" : text) + (held ? " [held]" : "");
         }
 
         /// <summary>Appends the line-of-sight verdict for a ranged unit with an attack order.</summary>
@@ -259,7 +261,7 @@ namespace Blackglass
                 activity = DescribeEnemy(ai.State, ai.Target != null ? ai.Target.name : null, cooldown);
             else if (unit != null && health.TryGetComponent<CompanionAI>(out var companion))
                 activity = AppendCooldown(DescribeCompanion(DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count),
-                    companion.State, companion.AssistTarget != null ? companion.AssistTarget.name : null, companion.IsParked), cooldown);
+                    companion.State, companion.AssistTarget != null ? companion.AssistTarget.name : null, companion.IsParked, companion.IsHeld), cooldown);
             else if (unit != null)
                 activity = AppendCooldown(DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count), cooldown);
             else

@@ -53,7 +53,10 @@ namespace Blackglass.Tests
             base.TearDown();
         }
 
-        // The scene's director generates its own seed at start; wait for it, then bind the scene's systems.
+        // The scene's director draws a fresh seed at start (decision 026), so it opens on a different level every time.
+        // The tests need a known layout: wait for that first mission, then regenerate seed 12345 and bind to it. The
+        // first generation's state is not asserted on, but a drawn seed that exhausts every attempt calls Debug.LogError,
+        // which fails the test anyway (unlikely: seeds 1 to 200 all generate within 6 attempts). The second must succeed.
         IEnumerator LoadMission()
         {
             var loading = SceneManager.LoadSceneAsync("ProceduralMission", LoadSceneMode.Single);
@@ -62,10 +65,15 @@ namespace Blackglass.Tests
             director = Object.FindFirstObjectByType<MissionDirector>();
             Assert.That(director, Is.Not.Null, "The scene has no MissionDirector: run the scene builder");
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
+            Assert.That(director.Generate(DeterministicSeed), Is.True,
+                $"the first, drawn-seed mission is still {director.State} after 20 s, so Generate was refused");
+            yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
             Assert.That(director.State, Is.EqualTo(MissionState.Ready), director.Report.Failure);
             Bind();
             yield return null;
         }
+
+        const int DeterministicSeed = 12345;
 
         void Bind()
         {
@@ -192,6 +200,27 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Scene_OpensOnADrawnSeed_NotOnTheInspectorSeed_EveryTime()
+        {
+            // Two Plays (two loads). Only facts that cannot collide: the flag is on in the scene (it takes the field's
+            // default, the scene file does not store it) and the seed in use is not the stored one, which a clock draw
+            // never equals in practice (one value in 2^31). Two loads drawing different seeds is not asserted: the
+            // clock could repeat.
+            for (var load = 1; load <= 2; load++)
+            {
+                var loading = SceneManager.LoadSceneAsync("ProceduralMission", LoadSceneMode.Single);
+                yield return loading;
+                var sceneDirector = Object.FindFirstObjectByType<MissionDirector>();
+                Assert.That(sceneDirector, Is.Not.Null, $"load {load}");
+                Assert.That(sceneDirector.NewSeedAtStart, Is.True, $"load {load}: the scene draws a new seed at start");
+                yield return TestWorld.WaitUntil(() => sceneDirector.State == MissionState.Ready || sceneDirector.State == MissionState.Failed, 20f);
+                Assert.That(sceneDirector.Report.Seed, Is.Not.EqualTo(DeterministicSeed), $"load {load}");
+                Assert.That(sceneDirector.Settings.seed, Is.EqualTo(sceneDirector.Report.Seed), $"load {load}: the Inspector shows the seed in use");
+                PrototypeSceneTests.DestroySceneObjects();
+            }
+        }
+
+        [UnityTest]
         public IEnumerator Scene_Move_ThenAttack_ThenTheHostileDies()
         {
             yield return LoadMission();
@@ -296,7 +325,10 @@ namespace Blackglass.Tests
             var far = BringHostileNear(hostiles[2], squad[0], 17f, needSight: false);
             var farCheck = ready.Check(ready.Definition(0), far, null);
             Assert.That(farCheck.Distance, Is.GreaterThan(ready.Definition(0).Range));
-            Assert.That(farCheck.Failure, Is.EqualTo(AbilityFailure.OutOfRange), "a hostile beyond Aimed Shot's range is refused for the range");
+            Assert.That(farCheck.Failure, Is.EqualTo(AbilityFailure.OutOfRange), "a hostile beyond Aimed Shot's range fails the range check");
+            // Decision 029: that is not a refusal: the order is accepted and the leader walks into range.
+            Assert.That(squad[0].Issue(AbilityCommand.OnUnit(ready.Definition(0), far)), Is.True, "accepted: the leader approaches");
+            Assert.That(squad[0].CurrentCommand, Is.TypeOf<AbilityCommand>());
         }
 
         [UnityTest]
@@ -456,6 +488,9 @@ namespace Blackglass.Tests
             Assert.That(attacker.HasLineOfSightToPoint(hostile.transform.position), Is.False, "the wall blocks sight to the hostile");
             Assert.That(check.Distance, Is.LessThanOrEqualTo(abilities.Definition(0).Range), "in range: only the sight can refuse it");
             Assert.That(check.Failure, Is.EqualTo(AbilityFailure.NoLineOfSight));
+            // Decision 029: not a refusal either: the order is accepted and the leader repositions.
+            Assert.That(leader.Issue(AbilityCommand.OnUnit(abilities.Definition(0), HealthOf(hostile))), Is.True, "accepted: the leader repositions");
+            Assert.That(leader.CurrentCommand, Is.TypeOf<AbilityCommand>());
         }
 
         [UnityTest]

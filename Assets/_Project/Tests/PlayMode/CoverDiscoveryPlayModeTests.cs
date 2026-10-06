@@ -14,7 +14,8 @@ namespace Blackglass.Tests
         CoverRegistry registry;
         CoverDiscovery discovery;
 
-        // Obstacle 0: a 4 m low wall at the origin. Obstacle 1: a 6 m tall wall at z 10. Obstacle 2: an untagged box.
+        // Obstacle 0: a 4 m low wall at the origin. Obstacle 1: a 6 m tall wall at z 10. Obstacle 2: an untagged low crate
+        // (a tall crate would give no cover, so it could not show that tagging it adds locations).
         [SetUp]
         public void SetUp()
         {
@@ -22,7 +23,7 @@ namespace Blackglass.Tests
             environment = world.CreateEnvironment(
                 (new Vector3(0f, 0.45f, 0f), new Vector3(4f, 0.9f, 0.5f)),
                 (new Vector3(0f, 1f, 10f), new Vector3(6f, 2f, 1f)),
-                (new Vector3(-12f, 1f, -8f), new Vector3(2f, 2f, 2f)));
+                (new Vector3(-12f, 0.45f, -8f), new Vector3(2f, 0.9f, 2f)));
             Tag(0);
             Tag(1);
             var systems = world.Track(new GameObject("Systems"));

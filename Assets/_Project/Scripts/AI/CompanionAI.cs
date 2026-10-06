@@ -29,7 +29,9 @@ namespace Blackglass
     /// conditions (decision 022): the follow flag on ActiveCharacter is on, and the companion is attached rather than
     /// parked. It is parked by a switch of the controlled character that leaves it farther than the follow start
     /// distance from the new leader, by an explicit order (not a retaliation) and by a Stop, and it is attached again
-    /// when the controlled character walks up to it (the magnet). Decides only what to do; CommandableUnit does it.
+    /// when the controlled character walks up to it (the magnet). A freshly spawned mission squad is held (decision
+    /// 028): a held companion does not start a follow move until the controlled character first moves, so units
+    /// spawned a little apart do not squad up on their own. Decides only what to do; CommandableUnit does it.
     /// Runs on simulation time.
     /// </summary>
     // After ActiveCharacter (-200) refreshes who is controlled and before DirectControlInput (-100) hands over, so a
@@ -73,6 +75,13 @@ namespace Blackglass
         int seenStopCount;
         // Whether the controlled character was inside the magnet radius last frame: the magnet fires on entering.
         bool inMagnet;
+        // Held at spawn: no follow move until the controlled character first moves (decision 028).
+        bool isHeld;
+        // Where the controlled character was last frame, for the hold's release test; re-seeded on a leader change.
+        Vector3 lastLeaderPosition;
+        bool hasLeaderPosition;
+        // The controlled character counts as moving above this flat speed (the same figure as UnitCover's still speed).
+        const float LeaderMovingSpeed = 0.5f;
         Func<Vector3, bool> canReach;
         // The method group converted once; passing IsEngaged directly would allocate a new delegate on every tick.
         static readonly Func<Health, bool> isEngaged = IsEngaged;
@@ -91,6 +100,12 @@ namespace Blackglass
         /// character walks up to it. The controlled character itself is never parked.
         /// </summary>
         public bool IsParked => isParked;
+
+        /// <summary>
+        /// True while this companion is held at spawn: it starts no follow move until the controlled character first
+        /// moves. Assist, retaliation and explicit orders are unaffected.
+        /// </summary>
+        public bool IsHeld => isHeld;
 
         /// <summary>True when the scene wired both references this component needs.</summary>
         public bool IsWired => activeCharacter != null && encounter != null;
@@ -133,6 +148,16 @@ namespace Blackglass
         {
             activeCharacter = active;
             encounter = encounterToAssist;
+        }
+
+        /// <summary>
+        /// Holds this companion where it stands until the controlled character first moves (flat speed above 0.5 m/s,
+        /// or a non-zero move intent). A switch of the controlled character does not release it; the new one has to move.
+        /// </summary>
+        internal void HoldUntilLeaderMoves()
+        {
+            isHeld = true;
+            hasLeaderPosition = false;
         }
 
         void OnEnable()
@@ -197,8 +222,12 @@ namespace Blackglass
             {
                 isParked = false;
                 inMagnet = false;
+                isHeld = false;   // the player's unit now
                 return;
             }
+
+            if (isHeld)
+                TrackLeaderMotion(leaderUnit, leaderChanged);
 
             var distance = leaderUnit != null ? FlatDistance(leaderUnit.transform.position, transform.position) : float.PositiveInfinity;
             var inMagnetNow = distance <= magnetRadius;
@@ -221,6 +250,36 @@ namespace Blackglass
                 ownCommand = null;
                 seenStopCount = Unit.StopCount;   // our own Stop must not park us
             }
+        }
+
+        // Releases the spawn hold when the controlled character moves. Its speed is measured from its position change
+        // between simulation frames (it counts a held move key, a path and a push alike); the frame of a leader change
+        // only seeds the new leader's position.
+        void TrackLeaderMotion(CommandableUnit leaderUnit, bool leaderChanged)
+        {
+            if (leaderUnit == null)
+            {
+                hasLeaderPosition = false;
+                return;
+            }
+            var position = leaderUnit.transform.position;
+            if (LeaderMoved(hasLeaderPosition && !leaderChanged, lastLeaderPosition, position, Time.deltaTime, leaderUnit.MoveIntent, LeaderMovingSpeed))
+                isHeld = false;
+            lastLeaderPosition = position;
+            hasLeaderPosition = true;
+        }
+
+        /// <summary>
+        /// Whether the controlled character moved since the last frame: its flat speed over `deltaTime` is above
+        /// `speedThreshold`, or it has a non-zero move intent. With no previous position (the first frame, or the frame
+        /// of a leader change) or no elapsed time, it is not moving.
+        /// </summary>
+        internal static bool LeaderMoved(bool hasLastPosition, Vector3 lastPosition, Vector3 position, float deltaTime,
+            Vector3 moveIntent, float speedThreshold)
+        {
+            if (!hasLastPosition || deltaTime <= 0f)
+                return false;
+            return moveIntent != Vector3.zero || FlatDistance(lastPosition, position) / deltaTime > speedThreshold;
         }
 
         // AutoRetaliate is optional (a plain companion may not carry one); looked up once, found or not.
@@ -259,8 +318,8 @@ namespace Blackglass
             if (Cover.OccupiedByOrder)
                 return;
 
-            // Following needs the flag on and an attached unit; assist and cover above never look at either.
-            if (activeCharacter == null || !activeCharacter.IsFollowOn || isParked || !activeCharacter.HasUnit || !activeCharacter.Unit.IsAlive)
+            // Following needs the flag on, an attached unit and no spawn hold; assist and cover above never look at any.
+            if (activeCharacter == null || !activeCharacter.IsFollowOn || isParked || isHeld || !activeCharacter.HasUnit || !activeCharacter.Unit.IsAlive)
                 return;
             var leader = activeCharacter.Unit.transform;
             var distanceToLeader = FlatDistance(leader.position, transform.position);

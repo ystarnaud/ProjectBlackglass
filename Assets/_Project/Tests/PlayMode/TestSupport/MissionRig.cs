@@ -61,6 +61,18 @@ namespace Blackglass.Tests
         public void SetHostileSlots(HostileSlot[] slots) =>
             Director.Initialize(settings, FriendlySlots(), slots, systems, ground, obstacle, generateAtStart: false);
 
+        /// <summary>
+        /// Makes the director generate when it starts, like the scene's. Call it before the first yield: Start has not
+        /// run yet then. `seedSource` replaces the clock seed a new-seed start draws.
+        /// </summary>
+        public void GenerateAtStart(bool randomSeed, Func<int> seedSource = null)
+        {
+            Director.Initialize(settings, FriendlySlots(), HostileSlots(), systems, ground, obstacle, generateAtStart: true,
+                randomSeedAtStart: randomSeed);
+            if (seedSource != null)
+                Director.seedSource = seedSource;
+        }
+
         static T Load<T>(string path) where T : UnityEngine.Object
         {
             var asset = AssetDatabase.LoadAssetAtPath<T>("Assets/_Project/" + path);

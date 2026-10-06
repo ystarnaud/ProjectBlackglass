@@ -84,6 +84,67 @@ namespace Blackglass.Tests
             }
         }
 
+        // A walkable point as far from the unit as possible, at most 9 m and never under 7 m (beyond the 6 m follow start
+        // distance), with a clear straight NavMesh line to it. `direction` points from the unit to the spot.
+        static bool TryFindClearSpot(CommandableUnit from, out Vector3 spot, out Vector3 direction)
+        {
+            var origin = from.transform.position - Vector3.up;
+            foreach (var distance in new[] { 9f, 8f, 7.5f, 7f })
+                for (var i = 0; i < 32; i++)
+                {
+                    direction = Quaternion.Euler(0f, i * 11.25f, 0f) * Vector3.forward;
+                    if (NavMesh.SamplePosition(origin + direction * distance, out var hit, 0.4f, NavMesh.AllAreas)
+                        && TestWorld.HorizontalDistance(hit.position, origin) >= 7f
+                        && !NavMesh.Raycast(origin, hit.position, out _, NavMesh.AllAreas))
+                    {
+                        spot = hit.position;
+                        return true;
+                    }
+                }
+            spot = default;
+            direction = default;
+            return false;
+        }
+
+        [UnityTest]
+        public IEnumerator Spawn_HoldsEveryCompanion_UntilTheControlledCharacterMoves()
+        {
+            rig = new MissionRig();
+            yield return rig.Generate(12345);
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
+            var leader = rig.Director.Friendlies[0];
+            // The controlled character's own hold is cleared on its first Update (it is the leader), so only the
+            // companions are asserted held; the leader is checked after one frame.
+            Assert.That(rig.Director.Friendlies.Skip(1).Select(f => f.GetComponent<CompanionAI>().IsHeld), Is.All.True,
+                "every companion is held at spawn");
+            yield return null;
+            Assert.That(leader.GetComponent<CompanionAI>().IsHeld, Is.False, "the controlled character is never held");
+
+            var companion = rig.Director.Friendlies[1];
+            var ai = companion.GetComponent<CompanionAI>();
+            Assert.That(TryFindClearSpot(leader, out var spot, out var toward), Is.True, "an open spot 7 to 9 m from the leader");
+            companion.GetComponent<NavMeshAgent>().Warp(spot);
+            var warped = companion.transform.position;
+            var everOrdered = false;
+            var deadline = Time.realtimeSinceStartup + 2f;
+            while (Time.realtimeSinceStartup < deadline)
+            {
+                everOrdered |= companion.CurrentCommand != null;
+                yield return null;
+            }
+            Assert.That(everOrdered, Is.False, "A companion spawned apart does not squad up by itself");
+            Assert.That(TestWorld.HorizontalDistance(companion.transform.position, warped), Is.LessThan(0.1f));
+            Assert.That(ai.IsHeld, Is.True);
+
+            // The leader walks toward it along the clear line: the hold ends and the companion (still beyond 6 m) follows.
+            leader.SetMoveIntent(toward);
+            yield return TestWorld.WaitUntil(() => !ai.IsHeld, 2f);
+            leader.SetMoveIntent(Vector3.zero);
+            Assert.That(ai.IsHeld, Is.False, "the controlled character moved");
+            yield return TestWorld.WaitUntil(() => ai.IsFollowing, 2f);
+            Assert.That(ai.IsFollowing, Is.True, "released: the normal follow rules apply");
+        }
+
         [UnityTest]
         public IEnumerator SameSeedTwice_GivesTheSameLayoutAndTheSameCover()
         {
@@ -322,6 +383,86 @@ namespace Blackglass.Tests
                 Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), $"seed {seed}");
                 Assert.That(Resources.FindObjectsOfTypeAll<NavMeshData>().Length, Is.EqualTo(baseline), $"NavMeshData objects after seed {seed}");
             }
+        }
+
+        // ---- A different level on every Play: the seed at start ----
+
+        [UnityTest]
+        public IEnumerator Start_WithNewSeedAtStart_DrawsTheSeedSource_AndTheSettingsShowIt()
+        {
+            rig = new MissionRig(new MissionSettings { seed = 4321 });
+            rig.GenerateAtStart(randomSeed: true, () => 777);
+
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready || rig.Director.State == MissionState.Failed, 20f);
+
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
+            Assert.That(rig.Director.Report.Seed, Is.EqualTo(777), "the first generation used the drawn seed, not the Inspector's");
+            Assert.That(rig.Director.Settings.seed, Is.EqualTo(777), "the HUD and the Inspector show the seed in use");
+        }
+
+        [UnityTest]
+        public IEnumerator Start_WithoutNewSeedAtStart_UsesTheInspectorSeed_AndNeverDrawsOne()
+        {
+            rig = new MissionRig(new MissionSettings { seed = 4321 });
+            rig.GenerateAtStart(randomSeed: false, () => throw new System.InvalidOperationException("the seed source must not be used"));
+
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready || rig.Director.State == MissionState.Failed, 20f);
+
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
+            Assert.That(rig.Director.Report.Seed, Is.EqualTo(4321));
+        }
+
+        [UnityTest]
+        public IEnumerator TwoPlays_WithDifferentDrawnSeeds_GiveDifferentLevels()
+        {
+            rig = new MissionRig();
+            rig.GenerateAtStart(randomSeed: true, () => 101);
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready));
+            var first = rig.Director.Report.LayoutHash;
+            rig.Dispose();
+
+            rig = new MissionRig();
+            rig.GenerateAtStart(randomSeed: true, () => 202);
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready));
+
+            Assert.That(rig.Director.Report.LayoutHash, Is.Not.EqualTo(first));
+        }
+
+        [UnityTest]
+        public IEnumerator F6AfterARandomStart_RepeatsTheDrawnSeed_AndF7DrawsAnother()
+        {
+            rig = new MissionRig();
+            var draws = new System.Collections.Generic.Queue<int>(new[] { 303, 404 });
+            rig.GenerateAtStart(randomSeed: true, () => draws.Dequeue());
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            var first = rig.Director.Report.LayoutHash;
+
+            Assert.That(rig.Director.RegenerateSame(), Is.True);
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            Assert.That(rig.Director.Report.Seed, Is.EqualTo(303));
+            Assert.That(rig.Director.Report.LayoutHash, Is.EqualTo(first), "F6 repeats the displayed seed");
+
+            Assert.That(rig.Director.GenerateNew(), Is.True);
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            Assert.That(rig.Director.Report.Seed, Is.EqualTo(404), "F7 draws from the seed source");
+            Assert.That(rig.Director.Settings.seed, Is.EqualTo(404));
+        }
+
+        [Test]
+        public void TheDefaultSeedSource_IsNonNegative_AndDoesNotTouchUnityRandom()
+        {
+            rig = new MissionRig();
+            Random.InitState(5);
+            var expected = new[] { Random.value, Random.value };
+            Random.InitState(5);
+
+            var seed = rig.Director.seedSource();
+            var actual = new[] { Random.value, Random.value };
+
+            Assert.That(seed, Is.GreaterThanOrEqualTo(0));
+            Assert.That(actual, Is.EqualTo(expected), "drawing a mission seed must not disturb combat randomness");
         }
     }
 }

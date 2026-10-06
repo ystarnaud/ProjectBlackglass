@@ -978,6 +978,134 @@ namespace Blackglass.Tests
             Assert.That(companion.IsFollowing, Is.True, "It rejoins the squad");
         }
 
+        // ---- Spawn hold (decision 028) ----
+
+        [UnityTest]
+        public IEnumerator HeldCompanion_NineMetresFromTheLeader_DoesNotMove()
+        {
+            world.CreateEnvironment();
+            var (_, _, companion) = Squad(new Vector3(0f, 0f, -9f));
+            companion.HoldUntilLeaderMoves();
+            var start = companion.transform.position;
+            var everOrdered = false;
+
+            yield return ForSeconds(2f, () => everOrdered |= UnitOf(companion).CurrentCommand != null);
+
+            Assert.That(everOrdered, Is.False, "Beyond the start distance, but held: no follow move");
+            Assert.That(TestWorld.HorizontalDistance(companion.transform.position, start), Is.LessThan(0.05f));
+            Assert.That(companion.IsHeld, Is.True, "The leader never moved");
+            Assert.That(companion.State, Is.EqualTo(CompanionState.Idle));
+        }
+
+        [UnityTest]
+        public IEnumerator HeldCompanion_FollowsOnceTheLeaderStartsAnOrder()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companion) = Squad(new Vector3(0f, 0f, -9f));
+            companion.HoldUntilLeaderMoves();
+            yield return ForSeconds(0.6f, () => Assert.That(UnitOf(companion).CurrentCommand, Is.Null));
+
+            Assert.That(leader.Issue(new MoveCommand(new Vector3(0f, 0f, 6f))), Is.True);
+            yield return TestWorld.WaitUntil(() => companion.IsFollowing, 3f);
+
+            Assert.That(companion.IsHeld, Is.False, "The leader moved: released");
+            Assert.That(companion.IsFollowing, Is.True, "Released and farther than the start distance: normal rules apply");
+        }
+
+        [UnityTest]
+        public IEnumerator HeldCompanion_IsReleasedByAHeldMoveKey_EvenBeforeTheLeaderHasMoved()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companion) = Squad(new Vector3(0f, 0f, -9f));
+            companion.HoldUntilLeaderMoves();
+            yield return null;
+            yield return null;
+            Assert.That(companion.IsHeld, Is.True, "Precondition");
+
+            // One frame only: CompanionAI (order -150) reads the intent before the leader's CommandableUnit (0) steers,
+            // so the leader has not moved when the hold is judged and only the move-intent clause can release it.
+            leader.SetMoveIntent(Vector3.forward);
+            yield return null;
+            var released = !companion.IsHeld;
+            leader.SetMoveIntent(Vector3.zero);
+
+            Assert.That(released, Is.True, "The held key releases the hold on the next simulation frame");
+        }
+
+        [UnityTest]
+        public IEnumerator ASwitchOfTheControlledCharacter_DoesNotReleaseTheHold_TheNewLeaderHasToMove()
+        {
+            world.CreateEnvironment();
+            var (_, active, companions) = SquadOf(new Vector3(0f, 0f, -9f), new Vector3(3f, 0f, 0f));
+            var (held, newLeader) = (companions[0], companions[1]);
+            held.HoldUntilLeaderMoves();
+            yield return null;
+            yield return null;
+
+            active.SetUnit(UnitOf(newLeader));   // the new leader stands 3 m from the old one: a naive position diff would see a jump
+            yield return ForSeconds(1f, () => Assert.That(held.IsHeld, Is.True, "A switch alone releases nothing"));
+
+            Assert.That(UnitOf(newLeader).Issue(new MoveCommand(new Vector3(3f, 0f, 6f))), Is.True);
+            yield return TestWorld.WaitUntil(() => !held.IsHeld, 3f);
+            Assert.That(held.IsHeld, Is.False, "The new leader moved: released");
+        }
+
+        [UnityTest]
+        public IEnumerator HeldCompanion_StillRetaliatesWhenShot()
+        {
+            world.CreateEnvironment();
+            var (leader, _, companions) = SquadOf(new Vector3(0f, 0f, -9f));
+            var companion = companions[0];
+            companion.HoldUntilLeaderMoves();
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, -12f), encounter, detectionRange: 0f);   // never notices anyone
+            Arm(new[] { HealthOf(hostile) }, leader, companion);
+            yield return null;
+            yield return null;
+
+            HealthOf(companion).TakeDamage(5, HealthOf(hostile));
+            var fought = false;
+            yield return ForSeconds(1.5f, () => fought |= UnitOf(companion).CurrentCommand is AttackCommand);
+
+            Assert.That(fought, Is.True, "Holding position does not stop a companion from hitting back");
+            Assert.That(companion.IsHeld, Is.True, "Retaliating is not the leader moving");
+        }
+
+        [UnityTest]
+        public IEnumerator HeldCompanion_StillAssistsAgainstAnEngagedHostile()
+        {
+            world.CreateEnvironment();
+            var leader = world.CreateFighter(Vector3.zero);
+            var active = world.CreateActiveCharacter(leader);
+            // 7 m from the leader (beyond the start distance) and 9.2 m from the hostile (inside the 10 m assist range).
+            var companion = world.CreateCompanion(new Vector3(7f, 0f, 0f), active, encounter);
+            var hostile = world.CreateHostile(new Vector3(0f, 0f, 6f), encounter);
+            Arm(new[] { HealthOf(hostile) }, leader, companion);
+            companion.HoldUntilLeaderMoves();
+
+            yield return TestWorld.WaitUntil(() => companion.State == CompanionState.Assist, 3f);
+
+            Assert.That(companion.State, Is.EqualTo(CompanionState.Assist), "Assist is not a follow move");
+            Assert.That(companion.AssistTarget, Is.SameAs(HealthOf(hostile)));
+            Assert.That(companion.IsHeld, Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator HeldCompanion_ThatBecomesControlled_IsNoLongerHeld()
+        {
+            world.CreateEnvironment();
+            var (_, active, companion) = Squad(new Vector3(0f, 0f, -9f));
+            companion.HoldUntilLeaderMoves();
+            yield return null;
+            yield return null;
+            Assert.That(companion.IsHeld, Is.True, "Precondition");
+
+            active.SetUnit(UnitOf(companion));
+            yield return null;
+
+            Assert.That(companion.State, Is.EqualTo(CompanionState.Controlled));
+            Assert.That(companion.IsHeld, Is.False, "It is the player's unit now");
+        }
+
         [UnityTest]
         public IEnumerator Paused_FollowToggleAndLeaderSwitchAreAccepted_AndTakeEffectAfterResume()
         {

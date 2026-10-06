@@ -90,22 +90,46 @@ namespace Blackglass.Tests
             Assert.That(bar.BuildLines().ToArray()[1], Does.Contain("CD "));
         }
 
+        // Decision 029: out of range is no longer a refusal, so the refusal is shown with a click on the wrong side, and
+        // the out-of-range click shows the walk instead.
         [UnityTest]
         public IEnumerator ARefusedClick_ShowsItsReasonOnTheBar()
         {
             yield return null;
             yield return Tap(keyboard.digit1Key);
-            Set(mouse.position, rig.ScreenPointOf(rig.FarHostile.transform.position));
+            Set(mouse.position, rig.ScreenPointOf(rig.Ally.transform.position));
             yield return null;
             yield return null;
-            Assert.That(bar.BuildLines().Last(), Does.Contain("out of range"), "The preview already says why");
+            Assert.That(bar.BuildLines().Last(), Does.EndWith("wrong side for this ability"), "The preview already says why");
 
             Press(mouse.leftButton);
             yield return null;
             Release(mouse.leftButton);
             yield return null;
 
-            Assert.That(bar.BuildLines().ToArray(), Has.Member("Aimed Shot: out of range"));
+            Assert.That(bar.BuildLines().ToArray(), Has.Member("Aimed Shot: wrong side for this ability"));
+        }
+
+        [UnityTest]
+        public IEnumerator AnOutOfRangeClick_IsPreviewedAsMovingIntoRange_AndTheBarShowsTheWalk()
+        {
+            yield return null;
+            rig.Pause.Pause();
+            yield return Tap(keyboard.digit1Key);
+            Set(mouse.position, rig.ScreenPointOf(rig.FarHostile.transform.position));
+            yield return null;
+            yield return null;
+            Assert.That(bar.BuildLines().Last(), Does.EndWith("| moving into range"));
+
+            Press(mouse.leftButton);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            Assert.That(bar.BuildLines().ToArray(), Has.Member($"Casting: Aimed Shot -> {rig.FarHostile.name}"), "Paused: not walking yet");
+
+            rig.Pause.Resume();
+            yield return TestWorld.WaitUntil(() => rig.Caster.Unit.AbilityPhase == AttackPhase.Approach, 2f);
+            Assert.That(bar.BuildLines().ToArray(), Has.Member($"Casting: Aimed Shot -> {rig.FarHostile.name} (moving into range)"));
         }
 
         [UnityTest]
@@ -130,7 +154,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator TheAimRing_IsGreenWhenValid_AndRedWhenNot()
+        public IEnumerator TheAimRing_IsGreenWhenUsable_AmberWhenItWouldApproach_AndRedWhenRefused()
         {
             yield return null;
             yield return Tap(keyboard.digit1Key);
@@ -144,7 +168,33 @@ namespace Blackglass.Tests
             Set(mouse.position, rig.ScreenPointOf(rig.FarHostile.transform.position));
             yield return null;
             yield return null;
+            Assert.That(view.AimColor, Is.EqualTo(AbilityTargetingView.ApproachColor), "Out of range: it would walk into range");
+
+            Set(mouse.position, rig.ScreenPointOf(rig.Ally.transform.position));
+            yield return null;
+            yield return null;
+            Assert.That(view.AimColor, Is.EqualTo(AbilityTargetingView.InvalidColor), "The wrong side: refused");
+        }
+
+        // Ruling R10: while the caster is steered an order that would have to walk is refused, so it previews red with its
+        // reason; released, the same aim previews amber.
+        [UnityTest]
+        public IEnumerator WhileSteering_AFarTarget_IsRedWithItsReason_AndAmberOnceReleased()
+        {
+            yield return null;
+            rig.Caster.Unit.SetMoveIntent(Vector3.left);
+            yield return Tap(keyboard.digit1Key);
+            Set(mouse.position, rig.ScreenPointOf(rig.FarHostile.transform.position));
+            yield return null;
+            yield return null;
             Assert.That(view.AimColor, Is.EqualTo(AbilityTargetingView.InvalidColor));
+            Assert.That(bar.BuildLines().Last(), Does.EndWith("| out of range"));
+
+            rig.Caster.Unit.SetMoveIntent(Vector3.zero);
+            yield return null;
+            yield return null;
+            Assert.That(view.AimColor, Is.EqualTo(AbilityTargetingView.ApproachColor));
+            Assert.That(bar.BuildLines().Last(), Does.EndWith("| moving into range"));
         }
 
         [UnityTest]

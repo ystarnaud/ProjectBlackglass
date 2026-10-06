@@ -226,20 +226,38 @@ namespace Blackglass.Tests
             Assert.That(ally.Current, Is.EqualTo(ally.Max - 10));
         }
 
+        // Decision 029: an ability out of range is accepted and the caster walks into range and fires, in the real arena
+        // (the hostile stands still, its AI off, so only the approach can bring it into range).
         [UnityTest]
-        public IEnumerator Scene_AnAbilityOutOfRange_IsRefusedWithItsReason_AndNothingHappens()
+        public IEnumerator Scene_AnAbilityOutOfRange_IsAccepted_TheCasterWalksIntoRange_AndFires()
         {
             yield return LoadScene();
             Select(0);
+            // Every hostile's AI is off, so none of them engages the caster during its walk.
+            foreach (var enemy in hostiles)
+            {
+                enemy.enabled = false;
+                enemy.GetComponent<CommandableUnit>().Issue(new StopCommand());
+            }
             var hostile = HealthOf(hostiles[0]);
+            var abilities = AbilitiesOf(squad[0]);
+            var aimed = abilities.Definition(0);
+            Assert.That(abilities.Check(aimed, hostile, null).Failure, Is.EqualTo(AbilityFailure.OutOfRange), "Precondition: about 28 m away");
+            var distanceWhenUsed = -1f;
+            abilities.Used += _ => distanceWhenUsed = CoverRules.FlatDistance(squad[0].transform.position, hostile.transform.position);
             yield return null;
             yield return Tap(keyboard.digit1Key);
 
-            Assert.That(targeting.Confirm(PointerTarget.OnHostile(hostile, hostile.transform.position), false), Is.False);
+            Assert.That(targeting.Confirm(PointerTarget.OnHostile(hostile, hostile.transform.position), false), Is.True);
 
-            Assert.That(AbilitiesOf(squad[0]).LastFailure, Is.EqualTo(AbilityFailure.OutOfRange));
-            Assert.That(hostile.Current, Is.EqualTo(hostile.Max));
-            Assert.That(targeting.IsArmed, Is.True);
+            Assert.That(targeting.IsArmed, Is.False);
+            Assert.That(squad[0].CurrentCommand, Is.TypeOf<AbilityCommand>());
+            yield return TestWorld.WaitUntil(() => squad[0].CurrentCommand == null, 20f);
+
+            Assert.That(hostile.Current, Is.EqualTo(hostile.Max - 45).Or.EqualTo(hostile.Max), "the shot may meet cover");
+            Assert.That(abilities.UsedCount, Is.EqualTo(1), "it walked into range and fired");
+            Assert.That(distanceWhenUsed, Is.LessThanOrEqualTo(aimed.Range));
+            Assert.That(abilities.IsReady(0), Is.False);
         }
 
         [UnityTest]

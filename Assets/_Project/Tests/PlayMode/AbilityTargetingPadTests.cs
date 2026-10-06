@@ -118,6 +118,24 @@ namespace Blackglass.Tests
             Assert.That(rig.Cursor.IsActive, Is.False, "Running again with nothing armed: the camera has its stick back");
         }
 
+        // Decision 029 (the pad path): Confirm on a hostile out of range is accepted and the caster walks into range.
+        [UnityTest]
+        public IEnumerator Confirm_OnAHostileOutOfRange_IsAccepted_AndTheCasterWalksIntoRangeAndFires()
+        {
+            yield return null;
+            yield return PickWithTheMenu(pad.dpad.up);
+            rig.Cursor.SetScreenPosition(rig.ScreenPointOf(rig.FarHostile.transform.position));
+            yield return null;
+            Assert.That(rig.Targeting.Preview.WillApproach, Is.True, "Precondition: out of range, so it would approach");
+
+            yield return Tap(pad.buttonSouth);
+            Assert.That(rig.Targeting.IsArmed, Is.False, "Accepted: disarmed");
+            yield return TestWorld.WaitUntil(() => rig.FarHostile.Current < rig.FarHostile.Max, 5f);
+
+            Assert.That(rig.FarHostile.Current, Is.EqualTo(rig.FarHostile.Max - 45));
+            Assert.That(TestWorld.HorizontalDistance(rig.Caster.transform.position, AbilityRig.CasterGround), Is.GreaterThan(1f), "It walked");
+        }
+
         [UnityTest]
         public IEnumerator Blast_OnAPad_UsesTheExactCursorPoint()
         {

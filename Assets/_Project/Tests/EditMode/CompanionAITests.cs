@@ -153,6 +153,57 @@ namespace Blackglass.Tests
             Assert.That(point.z, Is.EqualTo(0f).Within(0.001f));
         }
 
+        // --- Spawn hold (decision 028) ---
+
+        [Test]
+        public void LeaderMoved_IsTrueAboveTheSpeedThreshold_FalseAtOrBelowIt()
+        {
+            var last = new Vector3(1f, 0f, 1f);
+            Assert.That(CompanionAI.LeaderMoved(true, last, last + new Vector3(0.1f, 0f, 0f), 0.1f, Vector3.zero, 0.5f), Is.True, "1 m/s");
+            Assert.That(CompanionAI.LeaderMoved(true, last, last + new Vector3(0.04f, 0f, 0f), 0.1f, Vector3.zero, 0.5f), Is.False, "0.4 m/s");
+            Assert.That(CompanionAI.LeaderMoved(true, last, last, 0.1f, Vector3.zero, 0.5f), Is.False, "standing still");
+        }
+
+        [Test]
+        public void LeaderMoved_ScalesWithTheFrameTime()
+        {
+            var last = Vector3.zero;
+            var moved = new Vector3(0.06f, 0f, 0f);
+            Assert.That(CompanionAI.LeaderMoved(true, last, moved, 0.1f, Vector3.zero, 0.5f), Is.True, "0.6 m/s");
+            Assert.That(CompanionAI.LeaderMoved(true, last, moved, 0.2f, Vector3.zero, 0.5f), Is.False, "0.3 m/s");
+        }
+
+        [Test]
+        public void LeaderMoved_IgnoresHeight()
+        {
+            Assert.That(CompanionAI.LeaderMoved(true, Vector3.zero, new Vector3(0f, 5f, 0f), 0.1f, Vector3.zero, 0.5f), Is.False);
+        }
+
+        [Test]
+        public void LeaderMoved_ANonZeroMoveIntent_CountsEvenWhileBlocked()
+        {
+            Assert.That(CompanionAI.LeaderMoved(true, Vector3.zero, Vector3.zero, 0.02f, Vector3.forward, 0.5f), Is.True);
+        }
+
+        [Test]
+        public void LeaderMoved_WithoutAPreviousPosition_OrWithoutTime_IsFalse()
+        {
+            // The first frame, or the frame of a leader change: the new leader's position is only seeded.
+            Assert.That(CompanionAI.LeaderMoved(false, Vector3.zero, new Vector3(5f, 0f, 0f), 0.1f, Vector3.forward, 0.5f), Is.False);
+            Assert.That(CompanionAI.LeaderMoved(true, Vector3.zero, new Vector3(5f, 0f, 0f), 0f, Vector3.zero, 0.5f), Is.False);
+        }
+
+        [Test]
+        public void ACompanion_IsNotHeldUntilToldTo()
+        {
+            var host = new GameObject("Companion");
+            hosts.Add(host);
+            var ai = host.AddComponent<CompanionAI>();
+            Assert.That(ai.IsHeld, Is.False);
+            ai.HoldUntilLeaderMoves();
+            Assert.That(ai.IsHeld, Is.True);
+        }
+
         // --- Component ---
 
         [Test]

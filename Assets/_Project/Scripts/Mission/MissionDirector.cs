@@ -54,6 +54,8 @@ namespace Blackglass
         [SerializeField] Material groundMaterial;
         [SerializeField] Material obstacleMaterial;
         [SerializeField] bool generateOnStart = true;
+        // At Play, draw a fresh seed (the Inspector then shows it, F6 repeats it) instead of reusing the serialized one.
+        [SerializeField] bool newSeedAtStart = true;
         [SerializeField, Min(0f)] float cameraMargin = 2f;
 
         readonly List<CommandableUnit> friendlies = new List<CommandableUnit>();
@@ -64,13 +66,16 @@ namespace Blackglass
         public MissionReport Report { get; private set; } = new MissionReport();
         public GeneratedMission Current { get; private set; }
         public MissionSettings Settings => settings;
+        internal bool NewSeedAtStart => newSeedAtStart;
+        /// <summary>Where a new seed comes from; the clock by default, replaceable by tests.</summary>
+        internal Func<int> seedSource = ClockSeed;
         public IReadOnlyList<CommandableUnit> Friendlies => friendlies;
         public IReadOnlyList<CommandableUnit> Hostiles => hostiles;
 
         public event Action<MissionState> StateChanged;
 
         internal void Initialize(MissionSettings missionSettings, FriendlySlot[] friendly, HostileSlot[] hostile, MissionSystems persistent,
-            Material ground, Material obstacle, bool generateAtStart)
+            Material ground, Material obstacle, bool generateAtStart, bool randomSeedAtStart = false)
         {
             settings = missionSettings;
             friendlySlots = friendly;
@@ -79,11 +84,16 @@ namespace Blackglass
             groundMaterial = ground;
             obstacleMaterial = obstacle;
             generateOnStart = generateAtStart;
+            newSeedAtStart = randomSeedAtStart;
         }
 
         void Start()
         {
-            if (generateOnStart)
+            if (!generateOnStart)
+                return;
+            if (newSeedAtStart)
+                GenerateNew();
+            else
                 Generate(settings.seed);
         }
 
@@ -102,8 +112,10 @@ namespace Blackglass
 
         public bool RegenerateSame() => Generate(settings.seed);
 
-        /// <summary>A fresh seed from the clock, never from UnityEngine.Random (generation must not disturb combat randomness).</summary>
-        public bool GenerateNew() => Generate(unchecked(Environment.TickCount * 397) & 0x7FFFFFFF);
+        /// <summary>A fresh seed from `seedSource` (the clock; never UnityEngine.Random, so generation cannot disturb combat randomness).</summary>
+        public bool GenerateNew() => Generate(seedSource());
+
+        static int ClockSeed() => unchecked(Environment.TickCount * 397) & 0x7FFFFFFF;
 
         /// <summary>Destroys the current mission and resets the persistent systems. Takes effect at the end of the frame.</summary>
         public void Clear()
