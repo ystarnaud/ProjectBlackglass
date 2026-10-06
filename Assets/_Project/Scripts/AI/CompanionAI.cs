@@ -129,6 +129,12 @@ namespace Blackglass
             magnetRadius = magnet;
         }
 
+        internal void Wire(ActiveCharacter active, Encounter encounterToAssist)
+        {
+            activeCharacter = active;
+            encounter = encounterToAssist;
+        }
+
         void OnEnable()
         {
             if (!IsWired)
