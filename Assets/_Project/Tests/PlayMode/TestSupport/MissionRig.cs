@@ -1,0 +1,101 @@
+#if UNITY_EDITOR
+using System;
+using System.Linq;
+using UnityEditor;
+using UnityEngine;
+
+namespace Blackglass.Tests
+{
+    /// <summary>The persistent systems a MissionDirector needs, plus a director, built from the project's real prefabs and data.</summary>
+    internal sealed class MissionRig : IDisposable
+    {
+        public readonly TestWorld World = new TestWorld();
+        public readonly TacticalPause Pause;
+        public readonly Encounter Encounter;
+        public readonly UnitSelection Selection;
+        public readonly ActiveCharacter Active;
+        public readonly CoverRegistry Registry;
+        public readonly CoverDiscovery Discovery;
+        public readonly TacticalCameraController Camera;
+        public readonly MissionDirector Director;
+
+        public MissionRig(MissionSettings settings = null, bool withCamera = false)
+        {
+            Pause = World.Track(new GameObject("Pause")).AddComponent<TacticalPause>();
+            Encounter = World.CreateEncounter();
+            Selection = World.Track(new GameObject("Selection")).AddComponent<UnitSelection>();
+            Active = World.Track(new GameObject("ActiveCharacter")).AddComponent<ActiveCharacter>();
+            Active.Initialize(null, Pause, Selection);
+            Registry = World.CreateRegistry();
+            Discovery = World.Track(new GameObject("Discovery")).AddComponent<CoverDiscovery>();
+            Discovery.Initialize(Registry, discoverAtStart: false);
+            if (withCamera)
+            {
+                var rig = World.Track(new GameObject("CameraRig"));
+                rig.SetActive(false);
+                var cameraObject = new GameObject("Camera");
+                cameraObject.transform.SetParent(rig.transform, false);
+                var viewCamera = cameraObject.AddComponent<UnityEngine.Camera>();
+                Camera = rig.AddComponent<TacticalCameraController>();
+                Camera.Initialize(viewCamera, null, null, null, null, null, Active);
+                rig.SetActive(true);
+            }
+
+            var systems = new MissionSystems
+            {
+                encounter = Encounter, selection = Selection, activeCharacter = Active, coverRegistry = Registry,
+                coverDiscovery = Discovery, pause = Pause, camera = Camera,
+            };
+            Director = World.Track(new GameObject("Director")).AddComponent<MissionDirector>();
+            Director.Initialize(settings ?? new MissionSettings(), FriendlySlots(), HostileSlots(), systems,
+                Load<Material>("Materials/Ground.mat"), Load<Material>("Materials/Obstacle.mat"), generateAtStart: false);
+        }
+
+        static T Load<T>(string path) where T : UnityEngine.Object
+        {
+            var asset = AssetDatabase.LoadAssetAtPath<T>("Assets/_Project/" + path);
+            if (asset == null)
+                throw new InvalidOperationException("Missing asset " + path);
+            return asset;
+        }
+
+        public static FriendlySlot[] FriendlySlots()
+        {
+            var prefab = Load<GameObject>("Prefabs/FriendlyUnit.prefab");
+            var abilities = new[] { Load<AbilityDefinition>("Data/Abilities/AimedShot.asset"),
+                Load<AbilityDefinition>("Data/Abilities/Blast.asset"), Load<AbilityDefinition>("Data/Abilities/Mend.asset") };
+            return new[]
+            {
+                new FriendlySlot { prefab = prefab, archetype = Load<CombatArchetype>("Data/Archetypes/Melee.asset"), abilities = abilities },
+                new FriendlySlot { prefab = prefab, archetype = Load<CombatArchetype>("Data/Archetypes/Marksman.asset"), abilities = abilities },
+                new FriendlySlot { prefab = prefab, archetype = Load<CombatArchetype>("Data/Archetypes/Ranged.asset"), abilities = abilities },
+            };
+        }
+
+        public static HostileSlot[] HostileSlots()
+        {
+            var prefab = Load<GameObject>("Prefabs/HostileUnit.prefab");
+            return new[]
+            {
+                new HostileSlot { prefab = prefab },
+                new HostileSlot { prefab = prefab, archetype = Load<CombatArchetype>("Data/Archetypes/Ranged.asset") },
+                new HostileSlot { prefab = prefab },
+            };
+        }
+
+        /// <summary>Runs one generation to the end (Ready or Failed).</summary>
+        public System.Collections.IEnumerator Generate(int seed)
+        {
+            Director.Generate(seed);
+            yield return TestWorld.WaitUntil(() => Director.State == MissionState.Ready || Director.State == MissionState.Failed, 20f);
+        }
+
+        public void Dispose()
+        {
+            Director.Clear();
+            World.Dispose();
+            Time.timeScale = 1f;
+        }
+    }
+}
+#endif
