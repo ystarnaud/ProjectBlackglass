@@ -145,6 +145,65 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Regenerate_InTheFrameAUnitDies_LeavesNoStaleDeathMarker()
+        {
+            // F6 is processed before any Update: the regeneration tears the old mission down at once, but its root is only
+            // destroyed at the end of the frame, so a killing blow landing later in that frame must not leave a marker.
+            rig = new MissionRig();
+            var persistentRoots = RootNames();
+            yield return rig.Generate(11);
+            yield return null;
+            var d = rig.Director;
+            var friendly = d.Friendlies[0].GetComponent<Health>();
+            var hostile = d.Hostiles[0].GetComponent<Health>();
+
+            Assert.That(d.Generate(12), Is.True);
+            friendly.TakeDamage(1000);
+            hostile.TakeDamage(1000);
+            yield return TestWorld.WaitUntil(() => d.State == MissionState.Ready || d.State == MissionState.Failed, 20f);
+            yield return null;
+
+            Assert.That(d.State, Is.EqualTo(MissionState.Ready));
+            var expectedRoots = persistentRoots.Concat(new[] { GeneratedMission.RootName }).OrderBy(n => n).ToArray();
+            Assert.That(RootNames(), Is.EqualTo(expectedRoots), "no death marker survived at the scene root");
+        }
+
+        [UnityTest]
+        public IEnumerator Generate_WhenSpawningThrows_EndsFailedNotStuck_AndALaterGenerationWorks()
+        {
+            // A hostile prefab without EnemyAI makes the spawner throw a NullReferenceException mid-attempt.
+            rig = new MissionRig();
+            var broken = rig.World.Track(new GameObject("BrokenHostile"));
+            broken.SetActive(false);
+            broken.AddComponent<NavMeshAgent>();
+            broken.AddComponent<CommandableUnit>();
+            rig.SetHostileSlots(new[] { new HostileSlot { prefab = broken } });
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(@"Mission generation failed.*seed=5.*attempts=20",
+                System.Text.RegularExpressions.RegexOptions.Singleline));
+
+            yield return rig.Generate(5);
+            yield return null;
+
+            var d = rig.Director;
+            Assert.That(d.State, Is.EqualTo(MissionState.Failed));
+            Assert.That(d.Report.Failures, Is.Not.Empty);
+            Assert.That(d.Report.Failures.Any(f => f.Contains("exception")), Is.True, string.Join("\n", d.Report.Failures));
+            Assert.That(GameObject.Find(GeneratedMission.RootName), Is.Null, "the half-built mission is gone");
+            Assert.That(d.Friendlies, Is.Empty);
+            Assert.That(d.Hostiles, Is.Empty);
+            Assert.That(rig.Encounter.Friendlies, Is.Empty);
+            Assert.That(rig.Encounter.Hostiles, Is.Empty);
+            Assert.That(rig.Registry.Points, Is.Empty);
+
+            rig.SetHostileSlots(MissionRig.HostileSlots());
+            yield return rig.Generate(6);
+            yield return null;
+
+            Assert.That(d.State, Is.EqualTo(MissionState.Ready), "the director is not stuck in Generating");
+            Assert.That(d.Hostiles, Has.Count.EqualTo(3));
+        }
+
+        [UnityTest]
         public IEnumerator Regenerate_WhilePaused_ResumesAndWorks()
         {
             rig = new MissionRig();

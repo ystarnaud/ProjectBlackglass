@@ -18,6 +18,10 @@ namespace Blackglass.Tests
         public readonly CoverDiscovery Discovery;
         public readonly TacticalCameraController Camera;
         public readonly MissionDirector Director;
+        readonly MissionSettings settings;
+        readonly MissionSystems systems;
+        readonly Material ground;
+        readonly Material obstacle;
 
         public MissionRig(MissionSettings settings = null, bool withCamera = false)
         {
@@ -41,15 +45,21 @@ namespace Blackglass.Tests
                 rig.SetActive(true);
             }
 
-            var systems = new MissionSystems
+            this.settings = settings ?? new MissionSettings();
+            ground = Load<Material>("Materials/Ground.mat");
+            obstacle = Load<Material>("Materials/Obstacle.mat");
+            systems = new MissionSystems
             {
                 encounter = Encounter, selection = Selection, activeCharacter = Active, coverRegistry = Registry,
                 coverDiscovery = Discovery, pause = Pause, camera = Camera,
             };
             Director = World.Track(new GameObject("Director")).AddComponent<MissionDirector>();
-            Director.Initialize(settings ?? new MissionSettings(), FriendlySlots(), HostileSlots(), systems,
-                Load<Material>("Materials/Ground.mat"), Load<Material>("Materials/Obstacle.mat"), generateAtStart: false);
+            Director.Initialize(this.settings, FriendlySlots(), HostileSlots(), systems, ground, obstacle, generateAtStart: false);
         }
+
+        /// <summary>Gives the director other hostile slots (the rest of its setup is unchanged).</summary>
+        public void SetHostileSlots(HostileSlot[] slots) =>
+            Director.Initialize(settings, FriendlySlots(), slots, systems, ground, obstacle, generateAtStart: false);
 
         static T Load<T>(string path) where T : UnityEngine.Object
         {

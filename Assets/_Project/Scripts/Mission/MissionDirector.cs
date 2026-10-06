@@ -138,38 +138,12 @@ namespace Blackglass
             for (var attempt = 1; attempt <= request.maxAttempts; attempt++)
             {
                 Report.AttemptsMade = attempt;
-                if (!MissionGenerator.TryAttempt(request, attempt, out var layout, out var reason))
+                if (TryAttemptSafely(request, attempt))
                 {
-                    Report.Failures.Add($"attempt {attempt}: {reason}");
-                    continue;
+                    running = null;
+                    SetState(MissionState.Ready);
+                    yield break;
                 }
-                var mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial);
-                if (!MissionNavigation.Validate(layout, out reason, out var navigation))
-                {
-                    Report.Failures.Add($"attempt {attempt}: navigation: {reason}");
-                    DestroyMission(mission, true);   // immediate: the next attempt must not see this NavMesh
-                    continue;
-                }
-
-                var origin = layout.TileCenter(layout.FriendlySpawns[0]);
-                systems.coverDiscovery.Discover(mission.Geometry, MissionNavigation.ReachableFrom(origin));
-
-                if (!MissionSpawner.TrySpawn(mission, friendlySlots, hostileSlots, systems, out var spawned, out reason))
-                {
-                    Report.Failures.Add($"attempt {attempt}: spawn: {reason}");
-                    ResetSystems();
-                    DestroyMission(mission, true);
-                    continue;
-                }
-
-                Current = mission;
-                friendlies.AddRange(spawned.Friendlies);
-                hostiles.AddRange(spawned.Hostiles);
-                Fill(Report, layout, navigation);
-                FrameCamera(layout);
-                running = null;
-                SetState(MissionState.Ready);
-                yield break;
             }
 
             var failureText = $"Mission generation failed. {request.Describe()}\n  " + string.Join("\n  ", Report.Failures);
@@ -177,6 +151,63 @@ namespace Blackglass
             Debug.LogError(failureText, this);
             running = null;
             SetState(MissionState.Failed);
+        }
+
+        // An exception inside an attempt (a prefab missing a component, a generator bug) is one failed attempt: without
+        // this the coroutine would die with `running` set and every later request would be refused.
+        bool TryAttemptSafely(MissionSettings request, int attempt)
+        {
+            GeneratedMission mission = null;
+            try
+            {
+                return TryAttempt(request, attempt, ref mission);
+            }
+            catch (Exception exception)
+            {
+                Report.Failures.Add($"attempt {attempt}: exception: {exception.GetType().Name}: {exception.Message}");
+                friendlies.Clear();
+                hostiles.Clear();
+                Current = null;
+                ResetSystems();
+                if (mission != null)
+                    DestroyMission(mission, true);
+                return false;
+            }
+        }
+
+        // One attempt: layout, geometry, NavMesh, validation, cover, spawn, camera. A failed attempt leaves nothing behind.
+        bool TryAttempt(MissionSettings request, int attempt, ref GeneratedMission mission)
+        {
+            if (!MissionGenerator.TryAttempt(request, attempt, out var layout, out var reason))
+            {
+                Report.Failures.Add($"attempt {attempt}: {reason}");
+                return false;
+            }
+            mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial);
+            if (!MissionNavigation.Validate(layout, out reason, out var navigation))
+            {
+                Report.Failures.Add($"attempt {attempt}: navigation: {reason}");
+                DestroyMission(mission, true);   // immediate: the next attempt must not see this NavMesh
+                return false;
+            }
+
+            var origin = layout.TileCenter(layout.FriendlySpawns[0]);
+            systems.coverDiscovery.Discover(mission.Geometry, MissionNavigation.ReachableFrom(origin));
+
+            if (!MissionSpawner.TrySpawn(mission, friendlySlots, hostileSlots, systems, out var spawned, out reason))
+            {
+                Report.Failures.Add($"attempt {attempt}: spawn: {reason}");
+                ResetSystems();
+                DestroyMission(mission, true);
+                return false;
+            }
+
+            Current = mission;
+            friendlies.AddRange(spawned.Friendlies);
+            hostiles.AddRange(spawned.Hostiles);
+            Fill(Report, layout, navigation);
+            FrameCamera(layout);
+            return true;
         }
 
         void Teardown()
@@ -223,7 +254,12 @@ namespace Blackglass
                 if (immediate)
                     DestroyImmediate(mission.Root);
                 else
+                {
+                    // Destroy only takes effect at the end of the frame: until then nothing in the mission may run, react
+                    // or leave a death marker, and the surface must already have removed its NavMesh.
+                    mission.Root.SetActive(false);
                     Destroy(mission.Root);
+                }
             }
             if (data == null)
                 return;
