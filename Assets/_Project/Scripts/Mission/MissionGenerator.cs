@@ -101,8 +101,10 @@ namespace Blackglass
         const int PlacementTries = 8;
         // Free spots are scarce once the tall obstacles stand (the clearance leaves a room 3 to 6 tiles of space), so
         // low cover keeps looking across the rooms for longer. The first half of the tries keeps the full wall clearance
-        // (free-standing cover you can walk around); only the second half may also stand flush against a room wall. A
-        // one-tile gap is never used: it is too narrow for a unit on the eroded NavMesh (decision 030).
+        // (free-standing cover you can walk around); in the second half a low wall may also touch a room wall with its
+        // short end (a peninsula: both long faces keep a lane of at least Clearance to the other walls). A low wall never
+        // lies flush along a wall, a crate is never flush, nothing stands flush against two walls, and a one-tile gap is
+        // never used: it is too narrow for a unit on the eroded NavMesh (decision 030).
         const int LowCoverTries = 40;
 
         static void PlaceTallObstacles(MissionSettings s, SeededRandom rng, List<MissionRoom> rooms, ObstaclePlacer placer)
@@ -148,8 +150,11 @@ namespace Blackglass
                     var horizontal = rng.Chance(0.5f);
                     var w = wall ? (horizontal ? 3 : 1) : 1;
                     var h = wall ? (horizontal ? 1 : 3) : 1;
+                    // End-on only: a horizontal (3 x 1) wall may touch the west or east wall, a vertical (1 x 3) one the
+                    // south or north wall; the other axis keeps Clearance on both sides.
+                    var endOn = wall && attempt >= LowCoverTries / 2;
                     if (placer.TryPlaceRandom(rng, room, w, h, wall ? MissionBoxKind.LowWall : MissionBoxKind.Crate, MissionConstants.LowHeight,
-                            MissionConstants.Clearance, mayStandFlush: attempt >= LowCoverTries / 2))
+                            MissionConstants.Clearance, flushX: endOn && horizontal, flushY: endOn && !horizontal))
                         break;
                 }
             }
@@ -229,17 +234,18 @@ namespace Blackglass
             public bool[] Blocked { get; }
             public List<MissionBox> Boxes { get; } = new List<MissionBox>();
 
-            // A random footprint inside the room whose gap to each room wall is at least `wallClearance` tiles or, with
-            // `mayStandFlush`, zero (flush against that wall); any other gap is never drawn.
+            // A random footprint inside the room whose gap to each room wall is at least `wallClearance` tiles or, on an
+            // axis whose flush flag is set, zero (touching the west or east wall for `flushX`, the south or north wall for
+            // `flushY`); any other gap is never drawn. The caller sets at most one flag, so nothing touches two walls.
             public bool TryPlaceRandom(SeededRandom rng, MissionRoom room, int w, int h, MissionBoxKind kind, float boxHeight,
-                int wallClearance, bool mayStandFlush = false)
+                int wallClearance, bool flushX = false, bool flushY = false)
             {
-                var xCount = CountStarts(room.Rect.xMin, room.Rect.xMax - w, wallClearance, mayStandFlush);
-                var yCount = CountStarts(room.Rect.yMin, room.Rect.yMax - h, wallClearance, mayStandFlush);
+                var xCount = CountStarts(room.Rect.xMin, room.Rect.xMax - w, wallClearance, flushX);
+                var yCount = CountStarts(room.Rect.yMin, room.Rect.yMax - h, wallClearance, flushY);
                 if (xCount == 0 || yCount == 0)
                     return false;
-                var x = NthStart(room.Rect.xMin, room.Rect.xMax - w, wallClearance, mayStandFlush, rng.NextInt(xCount));
-                var y = NthStart(room.Rect.yMin, room.Rect.yMax - h, wallClearance, mayStandFlush, rng.NextInt(yCount));
+                var x = NthStart(room.Rect.xMin, room.Rect.xMax - w, wallClearance, flushX, rng.NextInt(xCount));
+                var y = NthStart(room.Rect.yMin, room.Rect.yMax - h, wallClearance, flushY, rng.NextInt(yCount));
                 return TryPlace(new RectInt(x, y, w, h), kind, boxHeight);
             }
 

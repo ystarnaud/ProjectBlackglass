@@ -534,6 +534,10 @@ namespace Blackglass.Tests
             Assert.That(pause.IsPaused, Is.True, "Start pauses");
 
             var unit = squad[0];
+            // Centre the camera on the unit first, as the steps below do for their targets: in a cluttered spawn room
+            // the unit can stand where the default framing does not resolve it (decision 026, walls hide the floor).
+            cameraRig.FocusOn(unit.transform.position);
+            yield return null;
             yield return CursorOn(unit.transform.position);
             Assert.That(cursor.Target.Kind, Is.EqualTo(PointerTargetKind.Friendly));
             yield return Tap(pad.buttonSouth);

@@ -14,9 +14,9 @@ namespace Blackglass
         /// <summary>Tiles between a cell edge and its room, so the gutter between rooms is at least twice this.</summary>
         public const int RoomInset = 2;
         /// <summary>
-        /// Free tiles kept between an obstacle and any wall or other obstacle. Low-cover objects may instead stand flush
-        /// against a room wall (gap 0), never one tile from it: a one-tile gap is too narrow for the NavMesh agent and only
-        /// formed dead pockets whose cover points were dropped (decision 030).
+        /// Free tiles kept between an obstacle and any wall or other obstacle. The one exception: a low wall may touch a
+        /// room wall with its short end (gap 0, a peninsula whose long faces keep this clearance to the other walls). Never
+        /// one tile: a one-tile gap is too narrow for the NavMesh agent and only formed dead pockets (decision 030).
         /// </summary>
         public const int Clearance = 2;
         public const float SpawnSpacing = 2.5f;
