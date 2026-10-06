@@ -107,6 +107,53 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void RoomWalls_AreOneTileThick_AndEachStraightRunOfWallIsOneBoxEndingAtTheVisibleEnds()
+        {
+            // Decision 032: every straight face of the wall mass is the face of one box that ends where the wall visibly
+            // ends, so a corner point inset from a box end is inset from the visible corner. Wall boxes are the maximal
+            // horizontal and vertical runs of wall tiles (length 2 or more), overlapping at junction tiles; a tile in no
+            // such run is a 1 x 1 box. This needs walls one tile thick: no 2 x 2 block of wall tiles.
+            var junctions = 0;
+            foreach (var layout in Layouts())
+            {
+                var boxes = layout.Boxes.Where(b => b.Kind == MissionBoxKind.Wall).ToList();
+                var walls = boxes.SelectMany(b => Tiles(b.Footprint)).ToHashSet();
+                bool IsWall(int x, int y) => walls.Contains(new Vector2Int(x, y));
+                foreach (var t in walls)
+                    Assert.That(IsWall(t.x + 1, t.y) && IsWall(t.x, t.y + 1) && IsWall(t.x + 1, t.y + 1), Is.False,
+                        $"seed {layout.Seed}: a 2 x 2 block of wall tiles at {t}");
+
+                var expected = new List<RectInt>();
+                for (var y = 0; y < layout.Height; y++)
+                    for (var x = 0; x < layout.Width; x++)
+                    {
+                        if (IsWall(x, y) && !IsWall(x - 1, y))
+                        {
+                            var run = 1;
+                            while (IsWall(x + run, y))
+                                run++;
+                            if (run >= 2)
+                                expected.Add(new RectInt(x, y, run, 1));
+                        }
+                        if (IsWall(x, y) && !IsWall(x, y - 1))
+                        {
+                            var run = 1;
+                            while (IsWall(x, y + run))
+                                run++;
+                            if (run >= 2)
+                                expected.Add(new RectInt(x, y, 1, run));
+                        }
+                    }
+                var inRun = expected.SelectMany(Tiles).ToHashSet();
+                expected.AddRange(walls.Where(t => !inRun.Contains(t)).Select(t => new RectInt(t.x, t.y, 1, 1)));
+                Assert.That(boxes.Select(b => b.Footprint), Is.EquivalentTo(expected),
+                    $"seed {layout.Seed}: wall boxes are exactly the maximal straight runs (plus single leftover tiles)");
+                junctions += boxes.SelectMany(b => Tiles(b.Footprint)).GroupBy(t => t).Count(g => g.Count() > 1);
+            }
+            Assert.That(junctions, Is.GreaterThan(0), "runs overlap at junction tiles");
+        }
+
+        [Test]
         public void ObstacleHeightsAndSizes_MatchTheirKind()
         {
             foreach (var layout in Layouts())

@@ -87,14 +87,32 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void Walls_RingTheFloor_NeverOverlapIt_AndLeaveDoorGaps()
+        public void Walls_RingTheFloor_NeverOverlapIt_OverlapEachOtherOnlyAtJunctions_AndLeaveDoorGaps()
         {
             for (var seed = 1; seed <= 20; seed++)
             {
                 var layout = Make(seed);
-                var wallTiles = layout.Boxes.Where(b => b.Kind == MissionBoxKind.Wall).SelectMany(b => Tiles(b.Footprint)).ToList();
-                Assert.That(wallTiles.Distinct().Count(), Is.EqualTo(wallTiles.Count), "wall boxes do not overlap");
+                var wallBoxes = layout.Boxes.Where(b => b.Kind == MissionBoxKind.Wall).ToList();
+                var wallTiles = wallBoxes.SelectMany(b => Tiles(b.Footprint)).ToList();
                 var walls = wallTiles.ToHashSet();
+                // The union of the wall boxes is exactly the wall mask: every void tile next to a floor tile, diagonals included.
+                var expected = new HashSet<Vector2Int>();
+                for (var x = 0; x < layout.Width; x++)
+                    for (var y = 0; y < layout.Height; y++)
+                        if (!layout.IsFloor(x, y) && Neighbours8(x, y).Any(n => layout.IsFloor(n.x, n.y)))
+                            expected.Add(new Vector2Int(x, y));
+                Assert.That(walls, Is.EquivalentTo(expected), $"seed {seed}: the wall boxes cover exactly the wall tiles");
+                // Decision 032: wall boxes are straight runs that overlap only at a junction tile, covered by exactly one
+                // horizontal run and one vertical run.
+                foreach (var group in wallTiles.GroupBy(t => t).Where(g => g.Count() > 1))
+                {
+                    var covering = wallBoxes.Where(b => b.Footprint.Contains(group.Key)).ToList();
+                    Assert.That(covering, Has.Count.EqualTo(2), $"seed {seed}: junction tile {group.Key} is covered at most twice");
+                    Assert.That(covering.Count(b => b.Footprint.height == 1 && b.Footprint.width >= 2), Is.EqualTo(1),
+                        $"seed {seed}: junction tile {group.Key} is covered by one horizontal run");
+                    Assert.That(covering.Count(b => b.Footprint.width == 1 && b.Footprint.height >= 2), Is.EqualTo(1),
+                        $"seed {seed}: junction tile {group.Key} is covered by one vertical run");
+                }
                 foreach (var tile in walls)
                     Assert.That(layout.IsFloor(tile.x, tile.y), Is.False, $"wall tile {tile} is on the floor");
                 for (var x = 1; x < layout.Width - 1; x++)
@@ -107,6 +125,35 @@ namespace Blackglass.Tests
                         Assert.That(walls.Contains(t), Is.False, "a corridor tile is never a wall");
                 Assert.That(layout.Boxes.Where(b => b.Kind == MissionBoxKind.Wall).All(b => b.Height == MissionConstants.WallHeight), Is.True);
             }
+        }
+
+        [Test]
+        public void MaximalRuns_CoverEveryStraightRunWithOneRectangle_OverlappingAtJunctions_InScanOrder()
+        {
+            // Rows listed from y = 4 down to y = 0: a T (row 1 with a column rising from x = 1), an L (row 3 at x 3..4
+            // with a column rising from x = 4) and one isolated tile.
+            var rows = new[]
+            {
+                "....X.",
+                ".X.XX.",
+                ".X...X",
+                "XXXX..",
+                "......",
+            };
+            const int width = 6, height = 5;
+            var mask = new bool[width * height];
+            for (var y = 0; y < height; y++)
+                for (var x = 0; x < width; x++)
+                    mask[y * width + x] = rows[height - 1 - y][x] == 'X';
+
+            var runs = RectCover.MaximalRuns(mask, width, height);
+
+            Assert.That(runs, Is.EqualTo(new[]
+            {
+                new RectInt(0, 1, 4, 1), new RectInt(3, 3, 2, 1),   // horizontal runs, row by row
+                new RectInt(1, 1, 1, 3), new RectInt(4, 3, 1, 2),   // vertical runs, by start tile
+                new RectInt(5, 2, 1, 1),                            // a tile in no run
+            }));
         }
 
         [Test]
@@ -160,9 +207,9 @@ namespace Blackglass.Tests
         // move: update them in the same commit and say so in the message.
         static readonly Dictionary<int, ulong> Golden = new Dictionary<int, ulong>
         {
-            { 12345, 10223201565173367715UL },
-            { 1, 5643381864358777598UL },
-            { 2, 6534043235755218059UL },
+            { 12345, 3187845850788023860UL },
+            { 1, 17747232627558074983UL },
+            { 2, 10482210376931648275UL },
         };
 
         [TestCase(12345)]
