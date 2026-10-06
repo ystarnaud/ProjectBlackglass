@@ -632,7 +632,11 @@ namespace Blackglass
                     mask[y * width + x] = true;
         }
 
-        // Wall tiles are the void tiles next to a floor tile, diagonals included so corners close.
+        // Wall tiles are the void tiles next to a floor tile, diagonals included so corners close. The ring is one tile
+        // thick. Its boxes are the maximal straight runs of wall tiles in both directions, overlapping at junction tiles
+        // (RectCover.MaximalRuns), so every straight wall face is the face of one box that ends at the visible corner
+        // and a corner point inset from a box end is inset from the visible corner on both sides of a jamb (decision
+        // 032). Overlapping boxes have the same height and material.
         static void AddWalls(bool[] floor, int width, int height, List<MissionBox> boxes)
         {
             var wall = new bool[floor.Length];
@@ -658,7 +662,7 @@ namespace Blackglass
                 }
             }
             var n = 0;
-            foreach (var rect in RectCover.Decompose(wall, width, height))
+            foreach (var rect in RectCover.MaximalRuns(wall, width, height))
                 boxes.Add(new MissionBox($"Wall_{++n}", MissionBoxKind.Wall, rect, MissionConstants.WallHeight));
         }
 
