@@ -177,6 +177,16 @@ namespace Blackglass.Tests
                 foreach (var pillar in layout.Boxes.Where(b => b.Kind == MissionBoxKind.Pillar))
                     Assert.That(columns.Count(p => p.Obstacle.gameObject.name == pillar.Name), Is.EqualTo(4), $"seed {seed}: {pillar.Name} columns");
 
+                // Decision 031: an end cap exists only where a unit can step round the end on both sides. A room-frame wall
+                // has floor on one side only, so it has corner points but no column; every column belongs to a baffle or
+                // a pillar, and every corner's peek point is walkable.
+                var freeStanding = layout.Boxes.Where(b => b.Kind == MissionBoxKind.Baffle || b.Kind == MissionBoxKind.Pillar).Select(b => b.Name).ToHashSet();
+                Assert.That(columns.Where(p => p.Obstacle.gameObject.name.StartsWith("Wall_")), Is.Empty, $"seed {seed}: no column has a room-frame wall as its obstacle");
+                Assert.That(columns.All(p => freeStanding.Contains(p.Obstacle.gameObject.name)), Is.True, $"seed {seed}: every column belongs to a baffle or a pillar");
+                Assert.That(tall.All(p => p.Placement == CoverPlacement.Corner
+                    ? NavMesh.SamplePosition(p.PeekPoint, out _, 0.3f, NavMesh.AllAreas)
+                    : freeStanding.Contains(p.Obstacle.gameObject.name)), Is.True, $"seed {seed}: every tall location is a corner with a walkable peek or a column of a baffle or pillar");
+
                 // Every location is reachable from the friendly spawn.
                 NavMesh.SamplePosition(layout.TileCenter(layout.FriendlySpawns[0]), out var start, 1f, NavMesh.AllAreas);
                 var path = new NavMeshPath();

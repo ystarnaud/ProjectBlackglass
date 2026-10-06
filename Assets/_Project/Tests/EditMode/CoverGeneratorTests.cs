@@ -136,6 +136,73 @@ namespace Blackglass.Tests
             Assert.That(result.All(l => walkable(l.Position)), Is.True, "no location stands inside a wall");
         }
 
+        // ---- 031: an end cap exists only where a unit can step round the end on both sides ----
+
+        [Test]
+        public void AFrameWallEnd_WhereOneSidesStandPointsAreNotWalkable_GetsNoEndCap_ButTheOtherEndKeepsItsOwn()
+        {
+            // Baffle x -2..2, z -0.5..0.5. The south side is blocked near the west end only (a frame-wall end: solid or void on
+            // one side). The west end's south sibling stand point (-1.65, 0, -1.25) is rejected, so the west end gets no cap even
+            // though the cap's own stand point (-2.75, 0, 0) is free. The east end is open on both sides and keeps its cap.
+            Func<Vector3, bool> walkable = p => !(p.x < -1f && p.z < -0.1f);
+            var result = Generate(Box("Baffle", P(0f, 1.5f, 0f), P(4f, 3f, 1f)), walkable);
+
+            Assert.That(walkable(P(-2.75f, 0f, 0f)), Is.True, "the cap's own stand point is free");
+            Assert.That(result.Where(l => l.Placement == CoverPlacement.Column).Select(l => l.Name), Is.EqualTo(new[] { "Cover_Baffle_EColumn1" }));
+            Assert.That(result.Where(l => l.Placement == CoverPlacement.Corner).Select(l => l.Name), Is.EquivalentTo(new[]
+                { "Cover_Baffle_NCorner1", "Cover_Baffle_NCorner2", "Cover_Baffle_SCorner1" }),
+                "the corners that pass the rules stay: both north ones and the south-east one");
+        }
+
+        [Test]
+        public void AWallWithFloorOnOneSideOnly_GetsItsCorners_ButNoEndCaps()
+        {
+            // A room-frame wall: floor north of it (z > 0.5) and nothing south. Its two north corners peek along the wall into
+            // open floor; the south side offers nothing, so no unit can go round either end: no caps.
+            var result = Generate(Box("Wall", P(0f, 1.5f, 0f), P(4f, 3f, 1f)), p => p.z > 0.5f);
+
+            Assert.That(result.Select(l => l.Name), Is.EquivalentTo(new[] { "Cover_Wall_NCorner1", "Cover_Wall_NCorner2" }));
+            Assert.That(result.Any(l => l.Placement == CoverPlacement.Column), Is.False);
+        }
+
+        [Test]
+        public void AOneSidedWallsEnd_HasNoEndCap_EvenWhenTheEndOpensOntoFloorBeyond()
+        {
+            // The end cap's stand point (2.75, 0, 0) lies on floor, but the south side of the end is solid: no cap.
+            var result = Generate(Box("Wall", P(0f, 1.5f, 0f), P(4f, 3f, 1f)), p => p.z > 0.5f || p.x > 2.5f);
+
+            Assert.That(result.Any(l => l.Placement == CoverPlacement.Column), Is.False);
+        }
+
+        [Test]
+        public void APillarKeepsFourColumns_RegardlessOfWhichSidesAreOpen_AndAtTheColumnWidthLimit()
+        {
+            // A pillar-like box (both horizontal sizes within columnMaxWidth) has four open faces: no wall ends, each face
+            // is judged by its own stand point only.
+            foreach (var width in new[] { 1f, 1.1f })
+            {
+                var result = Generate(Box("Pillar", P(0f, 1.5f, 0f), P(width, 3f, width)));
+                Assert.That(result.Count(l => l.Placement == CoverPlacement.Column), Is.EqualTo(4), $"width {width}");
+            }
+            var oneSideBlocked = Generate(Box("Pillar", P(0f, 1.5f, 0f), P(1f, 3f, 1f)), p => p.z > -0.1f);
+            Assert.That(oneSideBlocked.Select(l => l.Name), Is.EquivalentTo(new[]
+                { "Cover_Pillar_EColumn1", "Cover_Pillar_NColumn1", "Cover_Pillar_WColumn1" }), "only the south face's own stand point is rejected");
+        }
+
+        [Test]
+        public void ATurnedWall_KeepsItsEndCaps_WhereBothSidesAreOpen_AndLosesThemWhereOneIsClosed()
+        {
+            var centre = P(3f, 1.5f, -2f);
+            var rotation = Quaternion.Euler(0f, 30f, 0f);
+            var wall = Box("Baffle", centre, P(4f, 3f, 1f), 30f);
+            Assert.That(Generate(wall).Count(l => l.Placement == CoverPlacement.Column), Is.EqualTo(2));
+
+            // Block the wall's local south side (local -z) near its local west end (local -x).
+            Vector3 Local(Vector3 p) => Quaternion.Inverse(rotation) * (p - centre);
+            var result = Generate(wall, p => { var l = Local(p); return !(l.x < -1f && l.z < -0.1f); });
+            Assert.That(result.Count(l => l.Placement == CoverPlacement.Column), Is.EqualTo(1), "one end cap is lost");
+        }
+
         [Test]
         public void ColumnMaxWidth_DecidesWhichFacesAreColumns()
         {
