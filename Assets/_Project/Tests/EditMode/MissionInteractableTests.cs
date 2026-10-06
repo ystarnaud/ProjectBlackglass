@@ -108,6 +108,39 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void TakingOverADeadHoldersClaim_StartsFromZeroProgress()
+        {
+            var terminal = Terminal();
+            terminal.SetAvailable(true);
+            var a = Unit("A");
+            var b = Unit("B");
+            terminal.TryBegin(a);
+            terminal.Advance(a, 1f);
+            Assert.That(terminal.Progress, Is.GreaterThan(0f));
+
+            var health = a.GetComponent<Health>();
+            health.TakeDamage(health.Max);
+
+            Assert.That(terminal.TryBegin(b), Is.True);
+            Assert.That(terminal.Progress, Is.Zero, "the dead holder's partial work is not inherited");
+            Assert.That(terminal.User == b, Is.True);
+        }
+
+        [Test]
+        public void TheHolderBeginningAgain_KeepsItsProgress()
+        {
+            var terminal = Terminal();
+            terminal.SetAvailable(true);
+            var a = Unit("A");
+            terminal.TryBegin(a);
+            terminal.Advance(a, 1f);
+
+            Assert.That(terminal.TryBegin(a), Is.True);
+
+            Assert.That(terminal.Progress, Is.EqualTo(1f).Within(1e-4f));
+        }
+
+        [Test]
         public void Advance_ByAUnitThatIsNotTheHolder_DoesNothing()
         {
             var terminal = Terminal();
@@ -228,9 +261,12 @@ namespace Blackglass.Tests
             var terminal = Terminal();
             terminal.SetAvailable(true);
             interactor.TryStart(terminal);
+            interactor.Advance(0.5f);
             terminal.SetAvailable(false);
 
             Assert.That(interactor.Advance(0.1f), Is.EqualTo(InteractionStep.Lost));
+            Assert.That(terminal.User == null, Is.True, "a lost interaction leaves no ghost holder");
+            Assert.That(terminal.Progress, Is.Zero);
             Assert.That(interactor.IsWorking, Is.False);
             Assert.DoesNotThrow(() => { interactor.Release(); interactor.Release(); });
         }

@@ -77,6 +77,7 @@ namespace Blackglass
             var target = current;
             if (!target.Advance(Unit, deltaTime))
             {
+                target.Release(Unit);
                 current = null;
                 return InteractionStep.Lost;
             }

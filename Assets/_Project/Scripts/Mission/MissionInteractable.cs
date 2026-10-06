@@ -52,6 +52,9 @@ namespace Blackglass
         {
             if (unit == null || !IsAvailable || IsInUseByOther(unit))
                 return false;
+            // A takeover of a dead or destroyed holder's claim starts fresh; the holder beginning again keeps its progress.
+            if (user != unit)
+                progress = 0f;
             user = unit;
             return true;
         }
