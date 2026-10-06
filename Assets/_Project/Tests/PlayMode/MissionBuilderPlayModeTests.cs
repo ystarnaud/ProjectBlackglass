@@ -26,7 +26,12 @@ namespace Blackglass.Tests
         void DestroyMission()
         {
             if (mission != null && mission.Root != null)
-                Object.DestroyImmediate(mission.Root);   // immediate: the surface removes its NavMesh data on disable
+            {
+                var data = mission.Surface != null ? mission.Surface.navMeshData : null;
+                Object.DestroyImmediate(mission.Root);   // immediate: the surface removes its NavMesh on disable
+                if (data != null)
+                    Object.DestroyImmediate(data);   // the data is a separate object that removing the NavMesh leaves behind
+            }
             mission = null;
         }
 

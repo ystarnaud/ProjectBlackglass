@@ -259,6 +259,22 @@ namespace Blackglass.Tests
 
             var second = BringHostileNear(hostiles[1], caster, 8f);
             var secondBefore = second.Current;
+
+            // A friendly inside the 3 m blast radius (1.5 m from the aim point), so "no friendly fire" is not vacuous. Its AI
+            // is off, and so is the last hostile's, so no other source can change its health.
+            var bystander = squad[2];
+            bystander.GetComponent<CompanionAI>().enabled = false;
+            if (bystander.TryGetComponent<AutoRetaliate>(out var retaliate))
+                retaliate.enabled = false;
+            hostiles[2].GetComponent<EnemyAI>().enabled = false;
+            bystander.Issue(new StopCommand());
+            var aim = second.transform.position;
+            var bystanderSpot = default(NavMeshHit);
+            var foundSpot = new[] { 1.5f, 1.2f, 1f, 0.8f }.SelectMany(r => Around.Select(d => aim + d * r)).Any(p =>
+                NavMesh.SamplePosition(p, out bystanderSpot, 1.2f, NavMesh.AllAreas) && CoverRules.FlatDistance(bystanderSpot.position, aim) < 1.9f);
+            Assert.That(foundSpot, Is.True, $"open floor within 2 m of the blast aim point {aim}");
+            bystander.GetComponent<NavMeshAgent>().Warp(bystanderSpot.position);
+            Assert.That(CoverRules.FlatDistance(bystander.transform.position, aim), Is.LessThan(2f), "the friendly stands in the blast radius");
             var friendlyBefore = squad.Select(u => HealthOf(u).Current).ToArray();
             Assert.That(caster.Issue(AbilityCommand.AtGround(abilities.Definition(1), second.transform.position)), Is.True);
             yield return TestWorld.WaitUntil(() => second.Current < secondBefore, 3f);
@@ -371,6 +387,75 @@ namespace Blackglass.Tests
             Assert.That(oldLocations.All(l => !l.IsValid), Is.True);
             Assert.That(Object.FindObjectsByType<EnemyAI>(FindObjectsSortMode.None), Has.Length.EqualTo(3));
             Assert.That(Object.FindObjectsByType<SelectableUnit>(FindObjectsSortMode.None), Has.Length.EqualTo(3));
+        }
+
+        [UnityTest]
+        public IEnumerator Scene_Regeneration_DisarmsAnArmedAbility_AtOnce()
+        {
+            // AbilityTargeting also disarms itself on its next Update (its caster is gone), so the director's own disarm is only
+            // visible in the same frame the regeneration starts: the request is made directly, as F6 does, and checked at once.
+            yield return LoadMission();
+            yield return Tap(keyboard.digit3Key);
+            Assert.That(targeting.IsArmed, Is.True, "precondition: key 3 armed the active character's third ability");
+
+            Assert.That(director.RegenerateSame(), Is.True);
+            Assert.That(targeting.IsArmed, Is.False, "starting a regeneration disarms the ability armed for the old squad");
+            yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready, 20f);
+            yield return null;
+
+            Assert.That(targeting.IsArmed, Is.False);
+        }
+
+        // The geometry the generator builds really blocks sight: open floor is in sight, floor behind a generated wall is not
+        // (an Aimed Shot at a hostile there is refused for the sight, not for the range).
+        [UnityTest]
+        public IEnumerator Scene_AGeneratedWall_BlocksSight_AndOpenGroundDoesNot()
+        {
+            yield return LoadMission();
+            var leader = squad[0];
+            var attacker = leader.GetComponent<UnitAttacker>();
+            var eye = leader.transform.position + Vector3.up * LineOfSight.EyeHeight;
+
+            Assert.That(TryFindVisibleSpot(leader, 5f, out var open), Is.True, "open floor in sight of the leader");
+            Assert.That(attacker.HasLineOfSightToPoint(open + Vector3.up), Is.True, "open ground does not block sight");
+
+            // Floor 4 to 13 m away (inside Aimed Shot's 14 m) that the leader cannot see because a generated wall is in the way.
+            var ground = leader.transform.position - Vector3.up;
+            var hidden = default(Vector3);
+            var found = false;
+            for (var distance = 4f; distance <= 13f && !found; distance += 1f)
+            {
+                for (var step = 0; step < 32 && !found; step++)
+                {
+                    var angle = step * Mathf.PI * 2f / 32f;
+                    var candidate = ground + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * distance;
+                    if (!NavMesh.SamplePosition(candidate, out var hit, 0.5f, NavMesh.AllAreas))
+                        continue;
+                    var target = hit.position + Vector3.up;
+                    if (attacker.HasLineOfSightToPoint(target))
+                        continue;
+                    var toTarget = target - eye;
+                    var wallInTheWay = Physics.RaycastAll(eye, toTarget.normalized, toTarget.magnitude, ~0, QueryTriggerInteraction.Ignore)
+                        .Any(h => h.collider.transform.IsChildOf(director.Current.Geometry));
+                    if (!wallInTheWay)
+                        continue;
+                    hidden = hit.position;
+                    found = true;
+                }
+            }
+            Assert.That(found, Is.True, "floor within 13 m hidden from the leader by a generated wall");
+
+            var hostile = hostiles[0];
+            hostile.GetComponent<EnemyAI>().enabled = false;
+            hostile.Issue(new StopCommand());
+            hostile.GetComponent<NavMeshAgent>().Warp(hidden);
+            var abilities = leader.GetComponent<UnitAbilities>();
+            Assert.That(abilities.IsReady(0), Is.True, "precondition: the leader's Aimed Shot is ready");
+            var check = abilities.Check(abilities.Definition(0), HealthOf(hostile), null);
+
+            Assert.That(attacker.HasLineOfSightToPoint(hostile.transform.position), Is.False, "the wall blocks sight to the hostile");
+            Assert.That(check.Distance, Is.LessThanOrEqualTo(abilities.Definition(0).Range), "in range: only the sight can refuse it");
+            Assert.That(check.Failure, Is.EqualTo(AbilityFailure.NoLineOfSight));
         }
 
         [UnityTest]
