@@ -13,7 +13,7 @@ namespace Blackglass
     /// real time it goes to the active character. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
     /// selection, Space toggles tactical pause. A controller does the same through the tactical cursor: Confirm acts on what
     /// it is on (the same Act path) while the cursor is shown and attacks like Attack while it is hidden, Attack orders an attack on the cursor's, the chosen or the best hostile, the queue
-    /// modifier (Shift / LT) queues, Cancel (Esc / the family's cancel button) clears the selection. Contains no movement or combat rules.
+    /// modifier (Shift / LT) queues, Cancel (Esc / the family's cancel button) clears the selection. While an ability is armed (AbilityTargeting) a click or the cursor's Confirm picks its target instead of giving an order, and Cancel disarms before it clears the selection. Contains no movement or combat rules.
     /// </summary>
     public sealed class PlayerCommandInput : MonoBehaviour
     {
@@ -25,6 +25,8 @@ namespace Blackglass
         // The controller's pointer. Without it Confirm and Attack do nothing; while it is inactive both
         // attack the chosen or best hostile; mouse clicks never use it.
         [SerializeField] TacticalCursor cursor;
+        // Optional. While an ability is armed, a click or the cursor's Confirm picks its target instead of giving an order.
+        [SerializeField] AbilityTargeting abilityTargeting;
 
         [Header("Input")]
         [SerializeField] InputActionReference commandAction;
@@ -62,7 +64,7 @@ namespace Blackglass
             InputActionReference command, InputActionReference pointerPosition, InputActionReference togglePause,
             InputActionReference modifier, InputActionReference stop, InputActionReference clearSelection,
             ActiveCharacter active = null, CoverRegistry registry = null, TacticalCursor tacticalCursor = null,
-            InputActionReference confirm = null, InputActionReference attack = null)
+            InputActionReference confirm = null, InputActionReference attack = null, AbilityTargeting targeting = null)
         {
             viewCamera = camera;
             selection = unitSelection;
@@ -78,6 +80,7 @@ namespace Blackglass
             cursor = tacticalCursor;
             confirmAction = confirm;
             attackAction = attack;
+            abilityTargeting = targeting;
         }
 
         void Awake() => clickDetector = new ClickDragDetector(dragThresholdPixels);
@@ -214,6 +217,12 @@ namespace Blackglass
 
         void OnClearSelection(InputAction.CallbackContext context)
         {
+            // The first Cancel backs out of an armed ability; only the next one clears the selection.
+            if (abilityTargeting != null && abilityTargeting.IsArmed)
+            {
+                abilityTargeting.Disarm();
+                return;
+            }
             if (selection != null)
                 selection.Clear();
         }
@@ -230,6 +239,11 @@ namespace Blackglass
         // unit is selected (the queue modifier adds or removes it); anything else is an order, queued with the modifier.
         internal void Act(PointerTarget target)
         {
+            if (abilityTargeting != null && abilityTargeting.IsArmed)
+            {
+                abilityTargeting.Confirm(target, ModifierHeld);
+                return;
+            }
             switch (target.Kind)
             {
                 case PointerTargetKind.None:
