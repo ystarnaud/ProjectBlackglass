@@ -179,6 +179,24 @@ namespace Blackglass.Tests
         /// <summary>An empty Encounter on its own object; call Initialize with the two sides once they exist.</summary>
         public Encounter CreateEncounter() => Track(new GameObject("Encounter")).AddComponent<Encounter>();
 
+        /// <summary>Adds UnitAbilities (wired to the encounter, which may be null, and the given definitions) to a unit.</summary>
+        public UnitAbilities AddAbilities(CommandableUnit unit, Encounter encounter, params AbilityDefinition[] definitions)
+        {
+            var abilities = unit.gameObject.AddComponent<UnitAbilities>();
+            abilities.Initialize(encounter, definitions);
+            return abilities;
+        }
+
+        // The three prototype abilities with the shipped numbers, so scene and unit tests agree.
+        public AbilityDefinition CreateAimedShot() => Track(AbilityDefinition.Create("Aimed Shot", AbilityTargetMode.Unit,
+            14f, true, AbilityCoverRule.Applies, 6f, AbilityEffect.Damage, 45));
+
+        public AbilityDefinition CreateBlast() => Track(AbilityDefinition.Create("Blast", AbilityTargetMode.Ground,
+            12f, true, AbilityCoverRule.Ignored, 10f, AbilityEffect.Damage, 35, 3f));
+
+        public AbilityDefinition CreateMend() => Track(AbilityDefinition.Create("Mend", AbilityTargetMode.Unit,
+            8f, false, AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40));
+
         /// <summary>Waits (in real time, so it also works while paused) until the condition holds or the timeout passes.</summary>
         public static IEnumerator WaitUntil(Func<bool> condition, float timeoutSeconds)
         {

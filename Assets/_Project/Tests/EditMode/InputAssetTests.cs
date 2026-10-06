@@ -20,6 +20,7 @@ namespace Blackglass.Tests
             "Commands/ToggleTacticalPause", "Commands/Stop", "Commands/NextTarget", "Commands/PreviousTarget",
             "Character/Move", "Character/ToggleCharacterControl", "Character/NextCharacter", "Character/PreviousCharacter",
             "Character/ToggleFollow", "UI/Navigate", "UI/Submit", "UI/Cancel",
+            "Commands/Ability1", "Commands/Ability2", "Commands/Ability3", "Commands/Ability4", "Commands/AbilityMenu",
         };
 
         static InputActionAsset Load()

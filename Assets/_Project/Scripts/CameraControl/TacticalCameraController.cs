@@ -28,6 +28,8 @@ namespace Blackglass
         [SerializeField] InputActionReference zoomAction;
         [SerializeField] InputActionReference lookAction;
         [SerializeField] InputActionReference cameraModifierAction;
+        // Optional: while it is aiming an ability the cursor owns the right stick, not the camera.
+        [SerializeField] TacticalCursor cursor;
 
         [Header("Tuning")]
         [SerializeField, Min(0f)] float panSpeed = 12f;
@@ -67,7 +69,8 @@ namespace Blackglass
 
         internal void Initialize(Camera camera, InputActionReference pan, InputActionReference rotate,
             InputActionReference rotateDrag, InputActionReference pointerPosition, InputActionReference zoom,
-            ActiveCharacter active = null, InputActionReference look = null, InputActionReference cameraModifier = null)
+            ActiveCharacter active = null, InputActionReference look = null, InputActionReference cameraModifier = null,
+            TacticalCursor tacticalCursor = null)
         {
             viewCamera = camera;
             panAction = pan;
@@ -78,6 +81,7 @@ namespace Blackglass
             activeCharacter = active;
             lookAction = look;
             cameraModifierAction = cameraModifier;
+            cursor = tacticalCursor;
             lastSeenUnit = CurrentUnit;
         }
 
@@ -129,7 +133,7 @@ namespace Blackglass
             var yaw = transform.eulerAngles.y + InputActionUtility.Read<float>(rotateAction) * keyRotateSpeed * deltaTime;
             // Right stick: look around while the game runs, or while the camera modifier hands it over during a pause.
             var cameraOwnsStick = StickRole.CameraOwnsRightStick(activeCharacter,
-                InputActionUtility.IsPressed(cameraModifierAction));
+                InputActionUtility.IsPressed(cameraModifierAction), cursor != null && cursor.Aiming);
             if (cameraOwnsStick)
             {
                 var look = StickResponse.Curve(InputActionUtility.Read<Vector2>(lookAction), lookResponseExponent);

@@ -57,8 +57,8 @@ namespace Blackglass
         internal static string DescribeSides(int livingFriendlies, int friendlies, int livingHostiles, int hostiles) =>
             $"Friendlies alive {livingFriendlies}/{friendlies} | Hostiles alive {livingHostiles}/{hostiles}";
 
-        internal static string DescribeUnit(string unitName, int current, int max, CombatRole role) =>
-            $"{unitName} {current}/{max} [{role}]";
+        internal static string DescribeUnit(string unitName, int current, int max, CombatRole role, string archetypeName = null) =>
+            $"{unitName} {current}/{max} [{(string.IsNullOrEmpty(archetypeName) ? role.ToString() : archetypeName)}]";
 
         /// <summary>A hostile's line: its AI state, its target if any, and the cooldown while one runs.</summary>
         internal static string DescribeEnemy(EnemyState state, string targetName, float cooldownRemaining)
@@ -250,7 +250,8 @@ namespace Blackglass
             if (health == null || !health.IsAlive || !health.gameObject.activeInHierarchy)
                 return;
             var hasAttacker = health.TryGetComponent<UnitAttacker>(out var attacker);
-            var text = DescribeUnit(health.name, health.Current, health.Max, hasAttacker ? attacker.Role : CombatRole.Melee);
+            var archetypeName = hasAttacker && attacker.Archetype != null ? attacker.Archetype.DisplayName : null;
+            var text = DescribeUnit(health.name, health.Current, health.Max, hasAttacker ? attacker.Role : CombatRole.Melee, archetypeName);
             var cooldown = hasAttacker ? attacker.CooldownRemaining : 0f;
             health.TryGetComponent<CommandableUnit>(out var unit);
             string activity;

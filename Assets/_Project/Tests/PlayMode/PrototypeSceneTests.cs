@@ -154,10 +154,16 @@ namespace Blackglass.Tests
                 Assert.That(friendly.GetComponent<AttackLineView>(), Is.Not.Null, friendly.name);
                 Assert.That(friendly.GetComponent<CompanionAI>(), Is.Not.Null, $"{friendly.name} has no CompanionAI");
                 Assert.That(friendly.GetComponent<CompanionAI>().IsWired, Is.True, $"{friendly.name}'s CompanionAI is not wired");
-                var expectedRole = friendly.name == "FriendlyUnit_3" ? CombatRole.Ranged : CombatRole.Melee;
+                // Phase 7 archetypes: FriendlyUnit_2 is the Marksman (long range, hard hitting), FriendlyUnit_3 the standard ranged.
+                var (expectedRole, expectedRange, expectedDamage) = friendly.name switch
+                {
+                    "FriendlyUnit_2" => (CombatRole.Ranged, 16f, 40),
+                    "FriendlyUnit_3" => (CombatRole.Ranged, 8f, 15),
+                    _ => (CombatRole.Melee, 2f, 25),
+                };
                 Assert.That(friendly.GetComponent<UnitAttacker>().Role, Is.EqualTo(expectedRole), friendly.name);
-                Assert.That(friendly.GetComponent<UnitAttacker>().Range, Is.EqualTo(expectedRole == CombatRole.Ranged ? 8f : 2f), friendly.name);
-                Assert.That(friendly.GetComponent<UnitAttacker>().Damage, Is.EqualTo(expectedRole == CombatRole.Ranged ? 15 : 25), friendly.name);
+                Assert.That(friendly.GetComponent<UnitAttacker>().Range, Is.EqualTo(expectedRange), friendly.name);
+                Assert.That(friendly.GetComponent<UnitAttacker>().Damage, Is.EqualTo(expectedDamage), friendly.name);
                 Assert.That(friendly.GetComponent<EnemyAI>(), Is.Null, $"{friendly.name} must not have enemy AI");
                 Assert.That(friendly.GetComponentsInChildren<Collider>(true), Has.Length.EqualTo(1),
                     $"{friendly.name}: only the capsule may have a collider, so debug visuals never block clicks");

@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Blackglass
 {
-    /// <summary>Hit points for anything that can be attacked. Dies once, at zero, and by default deactivates then.</summary>
+    /// <summary>Hit points for anything that can be attacked or healed. Dies once, at zero, and by default deactivates then.</summary>
     public sealed class Health : MonoBehaviour
     {
         [SerializeField, Min(1)] int max = 100;
@@ -26,6 +26,8 @@ namespace Blackglass
         public event Action<Health> AttackedBy;
         /// <summary>Raised exactly once, when hit points reach zero.</summary>
         public event Action Died;
+        /// <summary>Raised with the hit points actually restored whenever a living target is healed.</summary>
+        public event Action<int> Healed;
 
         internal void Initialize(int maximum)
         {
@@ -60,6 +62,23 @@ namespace Blackglass
             Died?.Invoke();
             if (disableOnDeath)
                 gameObject.SetActive(false);
+        }
+
+        /// <summary>
+        /// Restores up to `amount` hit points, never above Max. Returns how many were restored (0 for the dead, at full
+        /// health or for 0). The dead stay dead.
+        /// </summary>
+        public int Heal(int amount)
+        {
+            if (amount < 0)
+                throw new ArgumentOutOfRangeException(nameof(amount), amount, "Healing cannot be negative.");
+            if (hasDied || amount == 0 || damageTaken == 0)
+                return 0;
+
+            var restored = Math.Min(amount, damageTaken);
+            damageTaken -= restored;
+            Healed?.Invoke(restored);
+            return restored;
         }
     }
 }

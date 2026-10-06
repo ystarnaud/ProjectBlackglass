@@ -1,6 +1,6 @@
 # Phase 7 — Combat archetypes and abilities: design
 
-Date: 2026-10-06. Status: awaiting owner review. Next: implementation plan (`writing-plans`).
+Date: 2026-10-06. Status: implemented on branch phase-7-abilities (see Docs/Decisions.md record 025).
 
 ## 1. Goal and scope
 

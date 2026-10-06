@@ -219,6 +219,10 @@ PrefabInstance:
       propertyPath: damage
       value: 15
       objectReference: {fileID: 0}
+    - target: {fileID: 165398506488500163, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+      propertyPath: archetype
+      value: 
+      objectReference: {fileID: 11400000, guid: 259b96d2956e23041ad792fc4fec3196, type: 2}
     - target: {fileID: 318686113713193802, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
       propertyPath: m_LocalPosition.x
       value: -8
@@ -278,14 +282,17 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 193292462}
   m_SourcePrefab: {fileID: 100100000, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
 --- !u!114 &193292459 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 4585558662965130223, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
   m_PrefabInstance: {fileID: 193292458}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 193292461}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 99724f39dc56ba84f95d0986e7ac3232, type: 3}
@@ -296,12 +303,34 @@ MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 6091756359889419716, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
   m_PrefabInstance: {fileID: 193292458}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 193292461}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9954ad40d7a7ef443832fbdca5ea3221, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.Health
+--- !u!1 &193292461 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+  m_PrefabInstance: {fileID: 193292458}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &193292462
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 193292461}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f8622a53dbc45fb4f87d9ba5b39b8951, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.UnitAbilities
+  abilities:
+  - {fileID: 11400000, guid: 16e5ffde35c26b247801b5abe39ef689, type: 2}
+  - {fileID: 11400000, guid: 1bc7a15e4735fca43ba0de32058bacdf, type: 2}
+  - {fileID: 11400000, guid: 06ff659d075b54140ad333e14442230b, type: 2}
+  encounter: {fileID: 1021927386}
 --- !u!1 &240885938
 GameObject:
   m_ObjectHideFlags: 0
@@ -435,6 +464,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 165398506488500163, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+      propertyPath: archetype
+      value: 
+      objectReference: {fileID: 11400000, guid: 1f2e625549d6a7a4cb2ed0dff8bd3b4d, type: 2}
     - target: {fileID: 318686113713193802, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
       propertyPath: m_LocalPosition.x
       value: -12
@@ -494,14 +527,17 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 278992989}
   m_SourcePrefab: {fileID: 100100000, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
 --- !u!114 &278992985 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 4585558662965130223, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
   m_PrefabInstance: {fileID: 278992984}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 278992988}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 99724f39dc56ba84f95d0986e7ac3232, type: 3}
@@ -512,7 +548,7 @@ MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 9158347481314922345, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
   m_PrefabInstance: {fileID: 278992984}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 278992988}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: a42c65dc8984e0d4ca986ea881086029, type: 3}
@@ -523,12 +559,34 @@ MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 6091756359889419716, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
   m_PrefabInstance: {fileID: 278992984}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 278992988}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9954ad40d7a7ef443832fbdca5ea3221, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.Health
+--- !u!1 &278992988 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+  m_PrefabInstance: {fileID: 278992984}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &278992989
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 278992988}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f8622a53dbc45fb4f87d9ba5b39b8951, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.UnitAbilities
+  abilities:
+  - {fileID: 11400000, guid: 16e5ffde35c26b247801b5abe39ef689, type: 2}
+  - {fileID: 11400000, guid: 1bc7a15e4735fca43ba0de32058bacdf, type: 2}
+  - {fileID: 11400000, guid: 06ff659d075b54140ad333e14442230b, type: 2}
+  encounter: {fileID: 1021927386}
 --- !u!1 &341328419
 GameObject:
   m_ObjectHideFlags: 0
@@ -1802,6 +1860,10 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 0}
     m_Modifications:
+    - target: {fileID: 165398506488500163, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+      propertyPath: archetype
+      value: 
+      objectReference: {fileID: 11400000, guid: 59316995ca8031d48934711d037a6f92, type: 2}
     - target: {fileID: 318686113713193802, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
       propertyPath: m_LocalPosition.x
       value: -10
@@ -1861,14 +1923,17 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 970402070}
   m_SourcePrefab: {fileID: 100100000, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
 --- !u!114 &970402067 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 4585558662965130223, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
   m_PrefabInstance: {fileID: 970402066}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 970402069}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 99724f39dc56ba84f95d0986e7ac3232, type: 3}
@@ -1879,12 +1944,34 @@ MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 6091756359889419716, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
   m_PrefabInstance: {fileID: 970402066}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 970402069}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 9954ad40d7a7ef443832fbdca5ea3221, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.Health
+--- !u!1 &970402069 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+  m_PrefabInstance: {fileID: 970402066}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &970402070
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 970402069}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f8622a53dbc45fb4f87d9ba5b39b8951, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.UnitAbilities
+  abilities:
+  - {fileID: 11400000, guid: 16e5ffde35c26b247801b5abe39ef689, type: 2}
+  - {fileID: 11400000, guid: 1bc7a15e4735fca43ba0de32058bacdf, type: 2}
+  - {fileID: 11400000, guid: 06ff659d075b54140ad333e14442230b, type: 2}
+  encounter: {fileID: 1021927386}
 --- !u!1 &975532998
 GameObject:
   m_ObjectHideFlags: 0
@@ -2004,6 +2091,10 @@ GameObject:
   - component: {fileID: 1021927392}
   - component: {fileID: 1021927391}
   - component: {fileID: 1021927390}
+  - component: {fileID: 1021927396}
+  - component: {fileID: 1021927395}
+  - component: {fileID: 1021927394}
+  - component: {fileID: 1021927393}
   m_Layer: 0
   m_Name: Systems
   m_TagString: Untagged
@@ -2049,6 +2140,7 @@ MonoBehaviour:
   activeCharacter: {fileID: 1021927385}
   coverRegistry: {fileID: 1021927387}
   cursor: {fileID: 1021927391}
+  abilityTargeting: {fileID: 1021927396}
   commandAction: {fileID: -7655432171402092998, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   pointerPositionAction: {fileID: -226529708325634134, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   togglePauseAction: {fileID: 7531348965491062000, guid: 052faaac586de48259a63d0c4782560b, type: 3}
@@ -2277,6 +2369,82 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.ActiveInputDevice
   controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+--- !u!114 &1021927393
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1021927378}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ea97ff49e7f6faa47b868c5a10e300d7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.AbilityBarView
+  targeting: {fileID: 1021927396}
+  inputDevice: {fileID: 1021927392}
+  controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  menuAction: {fileID: -6384645869983828662, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+--- !u!114 &1021927394
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1021927378}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 860df06a86fefce498cc16fdfd5a2539, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.AbilityTargetingView
+  targeting: {fileID: 1021927396}
+  lineMaterial: {fileID: 2100000, guid: b1dd99093ec61de4aba03414062f23b9, type: 2}
+  groundHeight: 0.08
+  lineWidth: 0.08
+--- !u!114 &1021927395
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1021927378}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 60fc32dcc192f4548a8319ea19a561ac, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.AbilityMenuGate
+  menuAction: {fileID: -6384645869983828662, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  suppressedWhileHeld:
+  - {fileID: 2324457746282716579, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  - {fileID: 7467027872341685976, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  - {fileID: 2648920459111585107, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  - {fileID: 5738628712326979479, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+--- !u!114 &1021927396
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1021927378}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d3fede8c2e8a98146bfdd9aa05823405, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.AbilityTargeting
+  viewCamera: {fileID: 678505232}
+  selection: {fileID: 1021927383}
+  activeCharacter: {fileID: 1021927385}
+  cursor: {fileID: 1021927391}
+  maxDistance: 500
+  clickableLayers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  pointerPositionAction: {fileID: -226529708325634134, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  queueModifierAction: {fileID: 3622529144628067995, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  ability1Action: {fileID: 6341601748046449192, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  ability2Action: {fileID: 4114994765064426686, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  ability3Action: {fileID: -5473538376284488104, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  ability4Action: {fileID: 1891489375259147379, guid: 052faaac586de48259a63d0c4782560b, type: 3}
 --- !u!1 &1189556992
 GameObject:
   m_ObjectHideFlags: 0
@@ -2915,6 +3083,7 @@ MonoBehaviour:
   zoomAction: {fileID: -7656590848099952634, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   lookAction: {fileID: -4432166217812206670, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   cameraModifierAction: {fileID: -1192274556771156902, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  cursor: {fileID: 1021927391}
   panSpeed: 12
   panReferenceDistance: 20
   keyRotateSpeed: 90
