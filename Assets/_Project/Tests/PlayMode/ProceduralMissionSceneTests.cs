@@ -55,7 +55,8 @@ namespace Blackglass.Tests
 
         // The scene's director draws a fresh seed at start (decision 026), so it opens on a different level every time.
         // The tests need a known layout: wait for that first mission, then regenerate seed 12345 and bind to it. The
-        // first generation is not asserted on (a drawn seed may fail validation); the second must succeed.
+        // first generation's state is not asserted on, but a drawn seed that exhausts every attempt calls Debug.LogError,
+        // which fails the test anyway (unlikely: seeds 1 to 200 all generate within 6 attempts). The second must succeed.
         IEnumerator LoadMission()
         {
             var loading = SceneManager.LoadSceneAsync("ProceduralMission", LoadSceneMode.Single);
@@ -64,7 +65,8 @@ namespace Blackglass.Tests
             director = Object.FindFirstObjectByType<MissionDirector>();
             Assert.That(director, Is.Not.Null, "The scene has no MissionDirector: run the scene builder");
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
-            Assert.That(director.Generate(DeterministicSeed), Is.True);
+            Assert.That(director.Generate(DeterministicSeed), Is.True,
+                $"the first, drawn-seed mission is still {director.State} after 20 s, so Generate was refused");
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
             Assert.That(director.State, Is.EqualTo(MissionState.Ready), director.Report.Failure);
             Bind();

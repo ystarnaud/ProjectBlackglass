@@ -1022,11 +1022,14 @@ namespace Blackglass.Tests
             yield return null;
             Assert.That(companion.IsHeld, Is.True, "Precondition");
 
+            // One frame only: CompanionAI (order -150) reads the intent before the leader's CommandableUnit (0) steers,
+            // so the leader has not moved when the hold is judged and only the move-intent clause can release it.
             leader.SetMoveIntent(Vector3.forward);
-            yield return TestWorld.WaitUntil(() => !companion.IsHeld, 1f);
+            yield return null;
+            var released = !companion.IsHeld;
             leader.SetMoveIntent(Vector3.zero);
 
-            Assert.That(companion.IsHeld, Is.False);
+            Assert.That(released, Is.True, "The held key releases the hold on the next simulation frame");
         }
 
         [UnityTest]

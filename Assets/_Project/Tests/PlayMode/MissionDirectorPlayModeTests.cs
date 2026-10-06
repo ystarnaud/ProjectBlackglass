@@ -113,7 +113,12 @@ namespace Blackglass.Tests
             yield return rig.Generate(12345);
             Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
             var leader = rig.Director.Friendlies[0];
-            Assert.That(rig.Director.Friendlies.Select(f => f.GetComponent<CompanionAI>().IsHeld), Is.All.True, "every friendly is held at spawn");
+            // The controlled character's own hold is cleared on its first Update (it is the leader), so only the
+            // companions are asserted held; the leader is checked after one frame.
+            Assert.That(rig.Director.Friendlies.Skip(1).Select(f => f.GetComponent<CompanionAI>().IsHeld), Is.All.True,
+                "every companion is held at spawn");
+            yield return null;
+            Assert.That(leader.GetComponent<CompanionAI>().IsHeld, Is.False, "the controlled character is never held");
 
             var companion = rig.Director.Friendlies[1];
             var ai = companion.GetComponent<CompanionAI>();
