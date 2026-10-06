@@ -58,6 +58,7 @@ namespace Blackglass
 
         readonly List<CommandableUnit> friendlies = new List<CommandableUnit>();
         readonly List<CommandableUnit> hostiles = new List<CommandableUnit>();
+        Coroutine running;
 
         public MissionState State { get; private set; }
         public MissionReport Report { get; private set; } = new MissionReport();
@@ -95,7 +96,7 @@ namespace Blackglass
                 return false;
             }
             settings.seed = seed;
-            StartCoroutine(Run());
+            running = StartCoroutine(Run());
             return true;
         }
 
@@ -107,9 +108,22 @@ namespace Blackglass
         /// <summary>Destroys the current mission and resets the persistent systems. Takes effect at the end of the frame.</summary>
         public void Clear()
         {
+            CancelRun();
             Teardown();
             SetState(MissionState.Idle);
         }
+
+        // The only yield is after Teardown and before any build or spawn, so stopping a run never leaves a half-built mission.
+        void CancelRun()
+        {
+            if (running == null)
+                return;
+            StopCoroutine(running);
+            running = null;
+            SetState(MissionState.Idle);
+        }
+
+        void OnDisable() => CancelRun();
 
         IEnumerator Run()
         {
@@ -153,6 +167,7 @@ namespace Blackglass
                 hostiles.AddRange(spawned.Hostiles);
                 Fill(Report, layout, navigation);
                 FrameCamera(layout);
+                running = null;
                 SetState(MissionState.Ready);
                 yield break;
             }
@@ -160,6 +175,7 @@ namespace Blackglass
             var failureText = $"Mission generation failed. {request.Describe()}\n  " + string.Join("\n  ", Report.Failures);
             Report.Failure = failureText;
             Debug.LogError(failureText, this);
+            running = null;
             SetState(MissionState.Failed);
         }
 

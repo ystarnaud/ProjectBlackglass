@@ -206,6 +206,47 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Clear_RightAfterGenerate_CancelsTheRun()
+        {
+            rig = new MissionRig();
+            rig.Director.Generate(1);
+            rig.Director.Clear();
+            yield return null;
+            yield return null;
+
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Idle));
+            Assert.That(GameObject.Find(GeneratedMission.RootName), Is.Null);
+            Assert.That(rig.Encounter.Friendlies, Is.Empty);
+            Assert.That(rig.Encounter.Hostiles, Is.Empty);
+            Assert.That(rig.Director.Friendlies, Is.Empty);
+        }
+
+        [UnityTest]
+        public IEnumerator GenerateClearGenerate_InOneFrame_RunsOnlyTheLastRequest_AndLeaksNothing()
+        {
+            rig = new MissionRig();
+            yield return rig.Generate(31);
+            yield return null;
+            var baseline = Resources.FindObjectsOfTypeAll<NavMeshData>().Length;
+
+            Assert.That(rig.Director.Generate(1), Is.True);
+            rig.Director.Clear();
+            Assert.That(rig.Director.Generate(2), Is.True);
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready || rig.Director.State == MissionState.Failed, 20f);
+            yield return null;
+
+            var d = rig.Director;
+            Assert.That(d.State, Is.EqualTo(MissionState.Ready));
+            Assert.That(d.Report.Seed, Is.EqualTo(2));
+            Assert.That(SceneManager.GetActiveScene().GetRootGameObjects().Count(g => g.name == GeneratedMission.RootName), Is.EqualTo(1));
+            Assert.That(d.Friendlies, Has.Count.EqualTo(3));
+            Assert.That(d.Hostiles, Has.Count.EqualTo(3));
+            Assert.That(rig.Encounter.Friendlies, Has.Count.EqualTo(3));
+            Assert.That(rig.Encounter.Hostiles, Has.Count.EqualTo(3));
+            Assert.That(Resources.FindObjectsOfTypeAll<NavMeshData>().Length, Is.EqualTo(baseline), "NavMeshData objects");
+        }
+
+        [UnityTest]
         public IEnumerator Regenerate_DoesNotLeakNavMeshData()
         {
             // Removing a NavMeshSurface's data only removes the NavMesh instance; the NavMeshData object a bake creates
