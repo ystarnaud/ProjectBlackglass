@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Unity.AI.Navigation;
 using UnityEngine;
 
@@ -43,6 +44,23 @@ namespace Blackglass
             zone.transform.SetParent(root, false);
             zone.transform.position = layout.TileCenter(plan.ExtractionTile);
             return zone.transform;
+        }
+
+        /// <summary>
+        /// The runtime for a built and populated mission: the goals the settings ask for (eliminate the hostile group, hack the
+        /// terminal), and the extraction as a locked reach-zone objective at the planned zone. Not started: the caller starts it.
+        /// </summary>
+        public static MissionRuntime CreateRuntime(GeneratedMission mission, MissionSettings settings,
+            IReadOnlyList<Health> hostileGroup, IReadOnlyList<Health> squad)
+        {
+            var goals = new List<MissionObjective>();
+            if (settings.eliminateHostiles)
+                goals.Add(new EliminateHostilesObjective("eliminate", "Eliminate security team", hostileGroup));
+            if (mission.Terminal != null)
+                goals.Add(new InteractObjective("hack", "Access data terminal", mission.Terminal));
+            var extraction = new ReachZoneObjective("extract", "Extraction", mission.ExtractionZone.position, ZoneRadius,
+                settings.extractionUnits, squad, isRequired: false);
+            return new MissionRuntime(goals, extraction, squad);
         }
     }
 }

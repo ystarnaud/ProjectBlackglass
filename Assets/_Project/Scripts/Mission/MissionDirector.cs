@@ -69,6 +69,9 @@ namespace Blackglass
         public MissionState State { get; private set; }
         public MissionReport Report { get; private set; } = new MissionReport();
         public GeneratedMission Current { get; private set; }
+        /// <summary>The running mission's objectives and phase; null while there is no mission (idle, generating, failed).</summary>
+        public MissionRuntime Runtime { get; private set; }
+        public MissionPhase Phase => Runtime != null ? Runtime.Phase : MissionPhase.Inactive;
         public MissionSettings Settings => settings;
         internal bool NewSeedAtStart => newSeedAtStart;
         /// <summary>Where a new seed comes from; the clock by default, replaceable by tests.</summary>
@@ -181,6 +184,7 @@ namespace Blackglass
             catch (Exception exception)
             {
                 Report.Failures.Add($"attempt {attempt}: exception: {exception.GetType().Name}: {exception.Message}");
+                DetachRuntime();
                 friendlies.Clear();
                 hostiles.Clear();
                 Current = null;
@@ -242,13 +246,37 @@ namespace Blackglass
             hostiles.AddRange(spawned.Hostiles);
             if (systems.interactables != null)
                 systems.interactables.Rebuild(terminal != null ? new[] { terminal } : Array.Empty<MissionInteractable>());
+            var squad = new List<Health>();
+            foreach (var unit in friendlies)
+                squad.Add(unit.GetComponent<Health>());
+            var group = new List<Health>();
+            foreach (var unit in hostiles)
+                group.Add(unit.GetComponent<Health>());
+            Runtime = MissionContent.CreateRuntime(mission, request, group, squad);
+            Runtime.Start();
             Fill(Report, layout, navigation, plan);
             FrameCamera(layout);
             return true;
         }
 
+        void Update()
+        {
+            if (Runtime != null)
+                Runtime.Tick();
+        }
+
+        // The runtime is dropped before anything it refers to is destroyed, so nothing can fire into a dead mission.
+        void DetachRuntime()
+        {
+            if (Runtime == null)
+                return;
+            Runtime.Detach();
+            Runtime = null;
+        }
+
         void Teardown()
         {
+            DetachRuntime();
             ResetSystems();
             foreach (var unit in friendlies)
                 DestroyMarker(unit);
