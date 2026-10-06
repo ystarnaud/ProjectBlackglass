@@ -68,14 +68,48 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void Preview_AFailure_NamesTheReasonInsteadOfOk()
+        public void Preview_OutOfRangeOrSight_SaysTheUnitWillMove_InsteadOfARefusal()
         {
             Assert.That(AbilityDescriptions.Preview(OnUnit(aimed, banditHealth, Check(AbilityFailure.OutOfRange, 17f)), new Health[0]),
-                Is.EqualTo("Aimed Shot -> Bandit | 17.0/14.0 m | LOS clear | exposed | out of range"));
+                Is.EqualTo("Aimed Shot -> Bandit | 17.0/14.0 m | LOS clear | exposed | moving into range"));
             Assert.That(AbilityDescriptions.Preview(OnUnit(aimed, banditHealth, Check(AbilityFailure.NoLineOfSight, 9f, false)), new Health[0]),
-                Is.EqualTo("Aimed Shot -> Bandit | 9.0/14.0 m | LOS blocked | exposed | no line of sight"));
+                Is.EqualTo("Aimed Shot -> Bandit | 9.0/14.0 m | LOS blocked | exposed | moving to a firing position"));
+        }
+
+        [Test]
+        public void Preview_ARealRefusal_NamesTheReasonInsteadOfOk()
+        {
             Assert.That(AbilityDescriptions.Preview(OnUnit(aimed, friendHealth, Check(AbilityFailure.WrongSide, 4f)), new Health[0]),
                 Does.EndWith("| wrong side for this ability"));
+            Assert.That(AbilityDescriptions.Preview(OnUnit(aimed, banditHealth, Check(AbilityFailure.OnCooldown, 17f)), new Health[0]),
+                Does.EndWith("| on cooldown"), "Far and cooling down: refused, never walked to");
+        }
+
+        [Test]
+        public void ThePreviewState_TellsUsableApproachAndRefusedApart()
+        {
+            var usable = OnUnit(aimed, banditHealth, Check(AbilityFailure.None, 8f));
+            var far = OnUnit(aimed, banditHealth, Check(AbilityFailure.OutOfRange, 17f));
+            var blind = OnUnit(aimed, banditHealth, Check(AbilityFailure.NoLineOfSight, 9f, false));
+            var refused = OnUnit(aimed, friendHealth, Check(AbilityFailure.WrongSide, 4f));
+            var noAim = new AbilityPreview(aimed, PointerTargetKind.Ground, null, Vector3.zero, false, default, false);
+
+            Assert.That((usable.IsValid, usable.WillApproach), Is.EqualTo((true, false)));
+            Assert.That((far.IsValid, far.WillApproach), Is.EqualTo((false, true)));
+            Assert.That((blind.IsValid, blind.WillApproach), Is.EqualTo((false, true)));
+            Assert.That((refused.IsValid, refused.WillApproach), Is.EqualTo((false, false)));
+            Assert.That((noAim.IsValid, noAim.WillApproach), Is.EqualTo((false, false)));
+            Assert.That(AbilityPreview.None.WillApproach, Is.False);
+        }
+
+        [Test]
+        public void Running_NamesTheOrder_AndWhileItWalks_WhereItIsGoing()
+        {
+            var shot = AbilityCommand.OnUnit(aimed, banditHealth);
+            Assert.That(AbilityDescriptions.Running(shot, AttackPhase.None), Is.EqualTo("Casting: Aimed Shot -> Bandit"));
+            Assert.That(AbilityDescriptions.Running(shot, AttackPhase.Approach), Is.EqualTo("Casting: Aimed Shot -> Bandit (moving into range)"));
+            Assert.That(AbilityDescriptions.Running(AbilityCommand.AtGround(blast, new Vector3(5f, 0f, 2f)), AttackPhase.Reposition),
+                Is.EqualTo("Casting: Blast @ (5.0, 2.0) (moving to a firing position)"));
         }
 
         [Test]

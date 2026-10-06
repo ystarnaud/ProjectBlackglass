@@ -6,8 +6,9 @@ namespace Blackglass
     /// <summary>
     /// Debug view of an armed ability, in the world (placeholder look): a white circle of the ability's range around the
     /// caster, a line from the caster to the aim, and at the aim a ring (the blast radius for a ground ability, a
-    /// target ring for a unit), green while the preview is valid and red while it is not. Reads AbilityTargeting every
-    /// frame, never changes it, has no colliders (so it never blocks a click ray), and works while paused.
+    /// target ring for a unit), green while the ability is usable from here, amber while confirming would first walk the
+    /// caster into range or to a firing position (decision 029), red while it would be refused. Reads AbilityTargeting
+    /// every frame, never changes it, has no colliders (so it never blocks a click ray), and works while paused.
     /// </summary>
     public sealed class AbilityTargetingView : MonoBehaviour
     {
@@ -17,6 +18,7 @@ namespace Blackglass
         static readonly Color RangeColor = new Color(0.9f, 0.9f, 0.9f, 1f);
         internal static readonly Color ValidColor = new Color(0.2f, 1f, 0.3f, 1f);
         internal static readonly Color InvalidColor = new Color(1f, 0.25f, 0.2f, 1f);
+        internal static readonly Color ApproachColor = new Color(1f, 0.7f, 0.1f, 1f);
 
         [SerializeField] AbilityTargeting targeting;
         [SerializeField] Material lineMaterial;
@@ -70,7 +72,7 @@ namespace Blackglass
                 return;
             }
 
-            var color = preview.IsValid ? ValidColor : InvalidColor;
+            var color = preview.IsValid ? ValidColor : preview.WillApproach ? ApproachColor : InvalidColor;
             AimColor = color;
             var radius = ability.TargetMode == AbilityTargetMode.Ground ? ability.Radius : TargetRingRadius;
             DrawCircle(aimCircle, preview.Point, radius, color);

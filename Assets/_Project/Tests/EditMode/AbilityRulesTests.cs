@@ -121,6 +121,37 @@ namespace Blackglass.Tests
             Assert.That(AbilityRules.CheckSight(mend, false), Is.EqualTo(AbilityFailure.None), "Mend ignores walls");
         }
 
+        // Decision 029: an order failing only on range or sight is accepted and walks into position; anything else refuses it.
+        [Test]
+        public void OnlyRangeAndSight_AreApproachable()
+        {
+            Assert.That(AbilityRules.IsApproachable(AbilityFailure.OutOfRange), Is.True);
+            Assert.That(AbilityRules.IsApproachable(AbilityFailure.NoLineOfSight), Is.True);
+            foreach (AbilityFailure failure in System.Enum.GetValues(typeof(AbilityFailure)))
+            {
+                if (failure != AbilityFailure.OutOfRange && failure != AbilityFailure.NoLineOfSight)
+                    Assert.That(AbilityRules.IsApproachable(failure), Is.False, failure.ToString());
+            }
+        }
+
+        [Test]
+        public void TheApproachPhase_WalksForRange_RepositionsForSight_AndIsNoneOtherwise()
+        {
+            Assert.That(AbilityRules.ApproachPhase(AbilityFailure.OutOfRange), Is.EqualTo(AttackPhase.Approach));
+            Assert.That(AbilityRules.ApproachPhase(AbilityFailure.NoLineOfSight), Is.EqualTo(AttackPhase.Reposition));
+            Assert.That(AbilityRules.ApproachPhase(AbilityFailure.None), Is.EqualTo(AttackPhase.None), "Usable: cast, no walk");
+            Assert.That(AbilityRules.ApproachPhase(AbilityFailure.OnCooldown), Is.EqualTo(AttackPhase.None), "Refused: never walk on cooldown");
+            Assert.That(AbilityRules.ApproachPhase(AbilityFailure.TargetDead), Is.EqualTo(AttackPhase.None));
+        }
+
+        [Test]
+        public void CooldownIsCheckedBeforeRange_SoAFarAbilityOnCooldownIsRefused_NotApproached()
+        {
+            var failure = AbilityRules.CheckBasics(aimed, Facts(cooldown: 2f, distance: 30f), Full);
+            Assert.That(failure, Is.EqualTo(AbilityFailure.OnCooldown));
+            Assert.That(AbilityRules.IsApproachable(failure), Is.False);
+        }
+
         [Test]
         public void IsInArea_IsFlatAndInclusive()
         {

@@ -17,7 +17,10 @@ namespace Blackglass
             return $"{(armed ? ">" : " ")} [{slot + 1}] {name}  {prompt}  {state}";
         }
 
-        /// <summary>The preview line: what is aimed at, distance/range, sight, the cover rule, who a blast hits, and OK or why not.</summary>
+        /// <summary>
+        /// The preview line: what is aimed at, distance/range, sight, the cover rule, who a blast hits, and OK, where the
+        /// caster would walk first (decision 029), or why not.
+        /// </summary>
         public static string Preview(AbilityPreview preview, IReadOnlyList<Health> areaHits)
         {
             if (!preview.IsArmed)
@@ -44,13 +47,36 @@ namespace Blackglass
             if (ability.TargetMode == AbilityTargetMode.Ground)
                 text.Append($" | hits {areaHits.Count}{VictimNames(areaHits)}");
             text.Append(" | ");
-            text.Append(preview.IsValid ? "OK" : preview.Failure.Describe());
+            text.Append(preview.IsValid ? "OK" : preview.WillApproach ? Approach(preview.Failure) : preview.Failure.Describe());
             if (preview.Queued)
                 text.Append(" (range, sight and cooldown are checked when it runs)");
             return text.ToString();
         }
 
         public static string Failure(string abilityName, AbilityFailure failure) => $"{abilityName}: {failure.Describe()}";
+
+        /// <summary>Where the caster walks for an approachable failure: "moving into range" or "moving to a firing position".</summary>
+        public static string Approach(AbilityFailure failure) => Walk(AbilityRules.ApproachPhase(failure));
+
+        /// <summary>The running ability order, and while the unit walks into position, where it is going.</summary>
+        public static string Running(AbilityCommand command, AttackPhase phase)
+        {
+            var walk = Walk(phase);
+            return walk.Length == 0 ? $"Casting: {Order(command)}" : $"Casting: {Order(command)} ({walk})";
+        }
+
+        static string Walk(AttackPhase phase)
+        {
+            switch (phase)
+            {
+                case AttackPhase.Approach:
+                    return "moving into range";
+                case AttackPhase.Reposition:
+                    return "moving to a firing position";
+                default:
+                    return string.Empty;
+            }
+        }
 
         /// <summary>An ability order as one phrase: "Aimed Shot -> Bandit" or "Blast @ (5.0, 2.0)".</summary>
         public static string Order(AbilityCommand command) =>

@@ -84,6 +84,31 @@ namespace Blackglass
                 ? AbilityFailure.NoLineOfSight
                 : AbilityFailure.None;
 
+        /// <summary>
+        /// Whether a failure only means the caster is not in position yet (decision 029): out of range or out of sight.
+        /// An order that fails only on these is accepted and the unit walks into position first; every other failure
+        /// refuses it. Cooldown is checked before range, so a unit never walks anywhere for an ability that is cooling down.
+        /// </summary>
+        public static bool IsApproachable(AbilityFailure failure) =>
+            failure == AbilityFailure.OutOfRange || failure == AbilityFailure.NoLineOfSight;
+
+        /// <summary>
+        /// How the unit walks into position for an approachable failure, with the attack's steps: Approach (walk toward
+        /// the aim) while out of range, Reposition (look for a firing position) while in range but blind; None otherwise.
+        /// </summary>
+        public static AttackPhase ApproachPhase(AbilityFailure failure)
+        {
+            switch (failure)
+            {
+                case AbilityFailure.OutOfRange:
+                    return AttackPhase.Approach;
+                case AbilityFailure.NoLineOfSight:
+                    return AttackPhase.Reposition;
+                default:
+                    return AttackPhase.None;
+            }
+        }
+
         /// <summary>Inclusive: a target exactly at range is in range.</summary>
         public static bool IsInRange(float flatDistance, float range) => flatDistance <= range;
 

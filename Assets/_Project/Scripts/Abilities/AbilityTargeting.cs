@@ -35,7 +35,14 @@ namespace Blackglass
         public bool Queued { get; }
 
         public bool IsArmed => Ability != null;
+        /// <summary>Usable from where the caster stands now.</summary>
         public bool IsValid => HasAim && Check.IsValid;
+
+        /// <summary>
+        /// Not usable from here, but confirming is accepted: the only problem is range or line of sight, so the caster
+        /// first walks into range or to a firing position (decision 029). Neither valid nor refused.
+        /// </summary>
+        public bool WillApproach => IsArmed && HasAim && AbilityRules.IsApproachable(Check.Failure);
 
         public AbilityFailure Failure =>
             !IsArmed ? AbilityFailure.None
@@ -183,8 +190,9 @@ namespace Blackglass
 
         /// <summary>
         /// Uses the armed ability on what was clicked or confirmed: builds the command and issues it to the caster (queued
-        /// behind its orders when `queue`, else replacing them). Disarms and returns true when the order was accepted. On
-        /// a refusal the reason is on CasterAbilities.LastFailure and the ability stays armed, so another target can be tried.
+        /// behind its orders when `queue`, else replacing them). Disarms and returns true when the order was accepted (also
+        /// when the caster first has to walk into range or sight, decision 029). On a refusal the reason is on
+        /// CasterAbilities.LastFailure and the ability stays armed, so another target can be tried.
         /// Call it only from input callbacks (PlayerCommandInput's click and Confirm handlers): companion parking relies on
         /// CompanionAI (execution order -150) seeing the order before CommandableUnit (0) runs.
         /// </summary>
