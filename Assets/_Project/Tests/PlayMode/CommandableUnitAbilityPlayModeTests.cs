@@ -180,6 +180,8 @@ namespace Blackglass.Tests
             Assert.That(caster.Issue(new MoveCommand(last), IssueMode.Append), Is.True);
 
             hostile.transform.position = new Vector3(15f, 1f, 15f);
+            yield return TestWorld.WaitUntil(() => caster.CurrentCommand is AbilityCommand, 5f);
+            Assert.That(abilities.Check(aimed, hostile, null).Failure, Is.EqualTo(AbilityFailure.OutOfRange), "Precondition: out of range when its turn came");
             yield return WaitUntilIdle(25f);
 
             Assert.That(hostile.Current, Is.EqualTo(hostile.Max - 45), "Out of range when it ran: it walked into range (decision 029)");

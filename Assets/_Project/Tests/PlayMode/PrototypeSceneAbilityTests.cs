@@ -233,10 +233,13 @@ namespace Blackglass.Tests
         {
             yield return LoadScene();
             Select(0);
-            var hostileAi = hostiles[0];
-            hostileAi.enabled = false;
-            hostileAi.GetComponent<CommandableUnit>().Issue(new StopCommand());
-            var hostile = HealthOf(hostileAi);
+            // Every hostile's AI is off, so none of them engages the caster during its walk.
+            foreach (var enemy in hostiles)
+            {
+                enemy.enabled = false;
+                enemy.GetComponent<CommandableUnit>().Issue(new StopCommand());
+            }
+            var hostile = HealthOf(hostiles[0]);
             var abilities = AbilitiesOf(squad[0]);
             var aimed = abilities.Definition(0);
             Assert.That(abilities.Check(aimed, hostile, null).Failure, Is.EqualTo(AbilityFailure.OutOfRange), "Precondition: about 28 m away");

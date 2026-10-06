@@ -233,9 +233,11 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator AnUnreachableTarget_EndsTheOrder_WithoutACooldown_AndTheQueueContinues()
+        public IEnumerator ATargetWithNoWalkableFloorNearIt_EndsTheOrderAtTheFirstStep_WithoutACooldown_AndTheQueueContinues()
         {
-            // A closed 3 m box of walls around (12, 12): no path leads in and no line leads in from outside.
+            // A closed 3 m box of walls around (12, 12), wide enough that no walkable floor lies within UnitMover's 2 m snap
+            // of the target: the first step toward it fails (UnitMover logs its usual warning) and the order ends at once,
+            // without walking, as an attack on such a target does.
             Build((new Vector3(12f, 1.5f, 13.5f), new Vector3(3.5f, 3f, 0.5f)),
                 (new Vector3(12f, 1.5f, 10.5f), new Vector3(3.5f, 3f, 0.5f)),
                 (new Vector3(13.5f, 1.5f, 12f), new Vector3(0.5f, 3f, 3.5f)),
@@ -245,13 +247,53 @@ namespace Blackglass.Tests
             yield return null;
             Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, boxed)), Is.True);
             Assert.That(caster.Issue(new MoveCommand(last), IssueMode.Append), Is.True);
-            yield return TestWorld.WaitUntil(() => !(caster.CurrentCommand is AbilityCommand), 20f);
+            var farthestWalked = 0f;
+            yield return TestWorld.WaitUntil(() =>
+            {
+                if (!(caster.CurrentCommand is AbilityCommand))
+                    return true;
+                farthestWalked = Mathf.Max(farthestWalked, TestWorld.HorizontalDistance(caster.transform.position, CasterGround));
+                return false;
+            }, 5f);
 
             Assert.That(caster.CurrentCommand, Is.Not.TypeOf<AbilityCommand>(), "The order gave up");
+            Assert.That(farthestWalked, Is.LessThan(0.5f), "At the first step, without walking toward it");
+            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.OutOfRange), "It says why it could not cast");
             Assert.That(boxed.Current, Is.EqualTo(boxed.Max));
             Assert.That(abilities.IsReady(0), Is.True, "No cooldown spent");
+            yield return WaitUntilIdle();
+            Assert.That(TestWorld.HorizontalDistance(caster.transform.position, last), Is.LessThan(0.5f), "The next order ran");
+        }
+
+        [UnityTest]
+        public IEnumerator ABoxedTargetSeenFromNowhere_IsApproached_ThenTheOrderGivesUp_WithoutACooldown_AndTheQueueContinues()
+        {
+            // A tight closed 3 m box (1.2 m inside) around (12, 12): the target's position snaps to the floor just outside a
+            // wall, so the unit walks there, but no line leads in from anywhere it can stand.
+            Build((new Vector3(12f, 1.5f, 12.85f), new Vector3(2.2f, 3f, 0.5f)),
+                (new Vector3(12f, 1.5f, 11.15f), new Vector3(2.2f, 3f, 0.5f)),
+                (new Vector3(12.85f, 1.5f, 12f), new Vector3(0.5f, 3f, 2.2f)),
+                (new Vector3(11.15f, 1.5f, 12f), new Vector3(0.5f, 3f, 2.2f)));
+            var boxed = FarHostile(new Vector3(12f, 0f, 12f));
+            var last = new Vector3(-6f, 0f, -6f);
+            yield return null;
+            Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, boxed)), Is.True);
+            Assert.That(caster.Issue(new MoveCommand(last), IssueMode.Append), Is.True);
+            var farthestWalked = 0f;
+            yield return TestWorld.WaitUntil(() =>
+            {
+                if (!(caster.CurrentCommand is AbilityCommand))
+                    return true;
+                farthestWalked = Mathf.Max(farthestWalked, TestWorld.HorizontalDistance(caster.transform.position, CasterGround));
+                return false;
+            }, 20f);
+
+            Assert.That(caster.CurrentCommand, Is.Not.TypeOf<AbilityCommand>(), "The order gave up");
+            Assert.That(farthestWalked, Is.GreaterThan(5f), "It approached before giving up");
             Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.OutOfRange).Or.EqualTo(AbilityFailure.NoLineOfSight),
                 "It says why it could not cast");
+            Assert.That(boxed.Current, Is.EqualTo(boxed.Max));
+            Assert.That(abilities.IsReady(0), Is.True, "No cooldown spent");
             yield return WaitUntilIdle();
             Assert.That(TestWorld.HorizontalDistance(caster.transform.position, last), Is.LessThan(0.5f), "The next order ran");
         }
@@ -297,6 +339,31 @@ namespace Blackglass.Tests
             Assert.That(far.Current, Is.EqualTo(far.Max - 45));
         }
 
+        // Ruling R10: while the player steers, an ability that would have to walk is refused at once with its reason (it
+        // could only be dropped on the next frame); a usable one is still accepted and runs.
+        [UnityTest]
+        public IEnumerator WhileSteering_AnAbilityThatWouldHaveToWalk_IsRefusedWithItsReason_AndNothingWalksForIt()
+        {
+            Build();
+            var far = FarHostile(new Vector3(0f, 0f, 14f));
+            yield return null;
+            caster.SetMoveIntent(Vector3.right);   // away from the wall, so the near hostile stays in sight
+            yield return null;
+
+            Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, far)), Is.False, "Refused while steering");
+            Assert.That(abilities.LastFailure, Is.EqualTo(AbilityFailure.OutOfRange));
+            Assert.That(caster.CurrentCommand, Is.Null);
+            yield return new WaitForSeconds(0.5f);
+            Assert.That(caster.transform.position.z, Is.LessThan(-5.5f), "It only steered sideways, never toward the target");
+            Assert.That(caster.AbilityPhase, Is.EqualTo(AttackPhase.None));
+
+            Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, hostile)), Is.True, "A usable ability is still accepted while steering");
+            yield return new WaitForSeconds(0.3f);
+            caster.SetMoveIntent(Vector3.zero);
+            Assert.That(hostile.Current, Is.EqualTo(hostile.Max - 45), "and it fired");
+            Assert.That(far.Current, Is.EqualTo(far.Max));
+        }
+
         [UnityTest]
         public IEnumerator DirectControl_OrANewOrder_CancelsTheApproach()
         {
@@ -306,6 +373,8 @@ namespace Blackglass.Tests
 
             Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, far)), Is.True);
             yield return TestWorld.WaitUntil(() => caster.transform.position.z > -5f, 3f);
+            Assert.That(caster.CurrentCommand, Is.TypeOf<AbilityCommand>(), "Precondition: the approach is running");
+            Assert.That(caster.AbilityPhase, Is.EqualTo(AttackPhase.Approach), "Precondition: walking toward the target");
             caster.SetMoveIntent(Vector3.right);
             yield return null;
             yield return null;
@@ -314,6 +383,8 @@ namespace Blackglass.Tests
 
             Assert.That(caster.Issue(AbilityCommand.OnUnit(aimed, far)), Is.True);
             yield return TestWorld.WaitUntil(() => caster.AbilityPhase == AttackPhase.Approach, 2f);
+            Assert.That(caster.CurrentCommand, Is.TypeOf<AbilityCommand>(), "Precondition: the second approach is running");
+            Assert.That(caster.AbilityPhase, Is.EqualTo(AttackPhase.Approach), "Precondition: walking toward the target");
             var move = new MoveCommand(new Vector3(6f, 0f, -10f));
             Assert.That(caster.Issue(move), Is.True);
             Assert.That(caster.CurrentCommand, Is.SameAs(move), "A new order replaces it");
