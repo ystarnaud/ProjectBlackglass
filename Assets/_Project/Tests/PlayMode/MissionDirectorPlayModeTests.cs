@@ -379,6 +379,86 @@ namespace Blackglass.Tests
                 Assert.That(Resources.FindObjectsOfTypeAll<NavMeshData>().Length, Is.EqualTo(baseline), $"NavMeshData objects after seed {seed}");
             }
         }
+
+        // ---- A different level on every Play: the seed at start ----
+
+        [UnityTest]
+        public IEnumerator Start_WithNewSeedAtStart_DrawsTheSeedSource_AndTheSettingsShowIt()
+        {
+            rig = new MissionRig(new MissionSettings { seed = 4321 });
+            rig.GenerateAtStart(randomSeed: true, () => 777);
+
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready || rig.Director.State == MissionState.Failed, 20f);
+
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
+            Assert.That(rig.Director.Report.Seed, Is.EqualTo(777), "the first generation used the drawn seed, not the Inspector's");
+            Assert.That(rig.Director.Settings.seed, Is.EqualTo(777), "the HUD and the Inspector show the seed in use");
+        }
+
+        [UnityTest]
+        public IEnumerator Start_WithoutNewSeedAtStart_UsesTheInspectorSeed_AndNeverDrawsOne()
+        {
+            rig = new MissionRig(new MissionSettings { seed = 4321 });
+            rig.GenerateAtStart(randomSeed: false, () => throw new System.InvalidOperationException("the seed source must not be used"));
+
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready || rig.Director.State == MissionState.Failed, 20f);
+
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
+            Assert.That(rig.Director.Report.Seed, Is.EqualTo(4321));
+        }
+
+        [UnityTest]
+        public IEnumerator TwoPlays_WithDifferentDrawnSeeds_GiveDifferentLevels()
+        {
+            rig = new MissionRig();
+            rig.GenerateAtStart(randomSeed: true, () => 101);
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready));
+            var first = rig.Director.Report.LayoutHash;
+            rig.Dispose();
+
+            rig = new MissionRig();
+            rig.GenerateAtStart(randomSeed: true, () => 202);
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready));
+
+            Assert.That(rig.Director.Report.LayoutHash, Is.Not.EqualTo(first));
+        }
+
+        [UnityTest]
+        public IEnumerator F6AfterARandomStart_RepeatsTheDrawnSeed_AndF7DrawsAnother()
+        {
+            rig = new MissionRig();
+            var draws = new System.Collections.Generic.Queue<int>(new[] { 303, 404 });
+            rig.GenerateAtStart(randomSeed: true, () => draws.Dequeue());
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            var first = rig.Director.Report.LayoutHash;
+
+            Assert.That(rig.Director.RegenerateSame(), Is.True);
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            Assert.That(rig.Director.Report.Seed, Is.EqualTo(303));
+            Assert.That(rig.Director.Report.LayoutHash, Is.EqualTo(first), "F6 repeats the displayed seed");
+
+            Assert.That(rig.Director.GenerateNew(), Is.True);
+            yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+            Assert.That(rig.Director.Report.Seed, Is.EqualTo(404), "F7 draws from the seed source");
+            Assert.That(rig.Director.Settings.seed, Is.EqualTo(404));
+        }
+
+        [Test]
+        public void TheDefaultSeedSource_IsNonNegative_AndDoesNotTouchUnityRandom()
+        {
+            rig = new MissionRig();
+            Random.InitState(5);
+            var expected = new[] { Random.value, Random.value };
+            Random.InitState(5);
+
+            var seed = rig.Director.seedSource();
+            var actual = new[] { Random.value, Random.value };
+
+            Assert.That(seed, Is.GreaterThanOrEqualTo(0));
+            Assert.That(actual, Is.EqualTo(expected), "drawing a mission seed must not disturb combat randomness");
+        }
     }
 }
 #endif

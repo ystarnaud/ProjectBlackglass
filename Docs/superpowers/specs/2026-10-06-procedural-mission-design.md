@@ -16,7 +16,7 @@ Owner decisions taken in brainstorming (2026-10-06):
 
 - **The mission lives in a new scene, `ProceduralMission`.** `Prototype` and its scene tests are left untouched as the hand-built regression arena.
 - **Layout model:** rooms on a coarse grid, rasterised to a 1 m floor mask, walls derived from the mask boundary.
-- **Developer controls:** F6 regenerates the same seed, F7 a new random seed; a specific seed is set in the Inspector in Play Mode, then F6. No clickable debug buttons and no typed-seed box (a click would also reach `PlayerCommandInput` as an order; digits would fire abilities 1–4).
+- **Developer controls:** F6 regenerates the same seed, F7 a new random seed; a specific seed is set in the Inspector in Play Mode, then F6. (Update, see record 026: at Play the scene starts on a fresh clock-based seed, flag `newSeedAtStart`.) No clickable debug buttons and no typed-seed box (a click would also reach `PlayerCommandInput` as an order; digits would fire abilities 1–4).
 
 Assumptions I made (say so if wrong):
 

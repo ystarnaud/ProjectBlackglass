@@ -53,7 +53,9 @@ namespace Blackglass.Tests
             base.TearDown();
         }
 
-        // The scene's director generates its own seed at start; wait for it, then bind the scene's systems.
+        // The scene's director draws a fresh seed at start (decision 026), so it opens on a different level every time.
+        // The tests need a known layout: wait for that first mission, then regenerate seed 12345 and bind to it. The
+        // first generation is not asserted on (a drawn seed may fail validation); the second must succeed.
         IEnumerator LoadMission()
         {
             var loading = SceneManager.LoadSceneAsync("ProceduralMission", LoadSceneMode.Single);
@@ -62,10 +64,14 @@ namespace Blackglass.Tests
             director = Object.FindFirstObjectByType<MissionDirector>();
             Assert.That(director, Is.Not.Null, "The scene has no MissionDirector: run the scene builder");
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
+            Assert.That(director.Generate(DeterministicSeed), Is.True);
+            yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
             Assert.That(director.State, Is.EqualTo(MissionState.Ready), director.Report.Failure);
             Bind();
             yield return null;
         }
+
+        const int DeterministicSeed = 12345;
 
         void Bind()
         {
@@ -189,6 +195,27 @@ namespace Blackglass.Tests
             Assert.That(registry.Points.Any(p => p.Height == CoverHeight.Low), Is.True);
             Assert.That(encounter.Outcome, Is.EqualTo(EncounterOutcome.Ongoing));
             Assert.That(active.Unit, Is.EqualTo(squad[0]));
+        }
+
+        [UnityTest]
+        public IEnumerator Scene_OpensOnADrawnSeed_NotOnTheInspectorSeed_EveryTime()
+        {
+            // Two Plays (two loads). Only facts that cannot collide: the flag is on in the scene (it takes the field's
+            // default, the scene file does not store it) and the seed in use is not the stored one, which a clock draw
+            // never equals in practice (one value in 2^31). Two loads drawing different seeds is not asserted: the
+            // clock could repeat.
+            for (var load = 1; load <= 2; load++)
+            {
+                var loading = SceneManager.LoadSceneAsync("ProceduralMission", LoadSceneMode.Single);
+                yield return loading;
+                var sceneDirector = Object.FindFirstObjectByType<MissionDirector>();
+                Assert.That(sceneDirector, Is.Not.Null, $"load {load}");
+                Assert.That(sceneDirector.NewSeedAtStart, Is.True, $"load {load}: the scene draws a new seed at start");
+                yield return TestWorld.WaitUntil(() => sceneDirector.State == MissionState.Ready || sceneDirector.State == MissionState.Failed, 20f);
+                Assert.That(sceneDirector.Report.Seed, Is.Not.EqualTo(DeterministicSeed), $"load {load}");
+                Assert.That(sceneDirector.Settings.seed, Is.EqualTo(sceneDirector.Report.Seed), $"load {load}: the Inspector shows the seed in use");
+                PrototypeSceneTests.DestroySceneObjects();
+            }
         }
 
         [UnityTest]
