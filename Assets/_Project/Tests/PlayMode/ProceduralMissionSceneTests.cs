@@ -196,15 +196,33 @@ namespace Blackglass.Tests
         {
             yield return LoadMission();
             var hostile = BringHostileNear(hostiles[0], squad[0], 6f);
-            var destination = squad[0].transform.position - Vector3.up;
-            Assert.That(squad[1].Issue(new MoveCommand(destination + new Vector3(1.5f, 0f, 0f))), Is.True);
+
+            // Move: a reachable point 6 m away; the unit must get there, not merely end its order.
+            var start = squad[1].transform.position;
+            Assert.That(TryFindOrderPoint(squad[1], 6f, out var destination, mustBeSeen: false), Is.True, "reachable open floor 6 m away");
+            Assert.That(squad[1].Issue(new MoveCommand(destination)), Is.True);
             yield return TestWorld.WaitUntil(() => squad[1].CurrentCommand == null, 10f);
             Assert.That(squad[1].CurrentCommand, Is.Null, "the move order ended");
+            Assert.That(TestWorld.HorizontalDistance(squad[1].transform.position, destination), Is.LessThan(1f), "it arrived");
+            Assert.That(TestWorld.HorizontalDistance(squad[1].transform.position, start), Is.GreaterThan(4f), "it travelled");
 
+            // Attack: the companions would assist on the same hostile, so they are switched off: only the leader's melee
+            // attack can kill it.
+            squad[1].GetComponent<CompanionAI>().enabled = false;
+            squad[2].GetComponent<CompanionAI>().enabled = false;
+            var attacker = squad[0].GetComponent<UnitAttacker>();
+            var hitsBefore = attacker.Hits;
+            var reachedAttack = false;
             Assert.That(squad[0].Issue(new AttackCommand(hostile)), Is.True);
-            yield return TestWorld.WaitUntil(() => !hostile.IsAlive, 20f);
+            yield return TestWorld.WaitUntil(() =>
+            {
+                reachedAttack |= squad[0].AttackPhase == AttackPhase.Attack;
+                return !hostile.IsAlive;
+            }, 20f);
 
             Assert.That(hostile.IsAlive, Is.False);
+            Assert.That(reachedAttack, Is.True, "the leader closed in and attacked");
+            Assert.That((attacker.Hits - hitsBefore) * attacker.Damage, Is.GreaterThanOrEqualTo(hostile.Max), "the leader's own hits killed it");
             Assert.That(encounter.LivingHostiles, Is.EqualTo(2));
         }
 
@@ -236,6 +254,8 @@ namespace Blackglass.Tests
             yield return TestWorld.WaitUntil(() => hostile.Current < before, 3f);
             Assert.That(hostile.Current, Is.LessThan(before), "single-target ability");
             Assert.That(abilities.IsReady(0), Is.False, "cooldown starts");
+            Assert.That(abilities.Check(abilities.Definition(0), hostile, null).Failure, Is.EqualTo(AbilityFailure.OnCooldown),
+                "a second Aimed Shot at the same hostile, in range, is refused for the cooldown");
 
             var second = BringHostileNear(hostiles[1], caster, 8f);
             var secondBefore = second.Current;
@@ -253,8 +273,14 @@ namespace Blackglass.Tests
             yield return TestWorld.WaitUntil(() => HealthOf(squad[2]).Current > hurt, 3f);
             Assert.That(HealthOf(squad[2]).Current, Is.GreaterThan(hurt), "Mend heals");
 
-            var far = BringHostileNear(hostiles[2], caster, 17f, needSight: false);   // beyond Aimed Shot's 14 m; sight is not needed for that
-            Assert.That(abilities.Check(abilities.Definition(0), far, null).IsValid, Is.False, "out of range or on cooldown is refused");
+            // Range: the leader has not used its Aimed Shot, so only the distance (beyond 14 m) can refuse it. Range is checked
+            // before sight, so the spot need not be in sight.
+            var ready = squad[0].GetComponent<UnitAbilities>();
+            Assert.That(ready.IsReady(0), Is.True, "precondition: the leader's Aimed Shot is ready");
+            var far = BringHostileNear(hostiles[2], squad[0], 17f, needSight: false);
+            var farCheck = ready.Check(ready.Definition(0), far, null);
+            Assert.That(farCheck.Distance, Is.GreaterThan(ready.Definition(0).Range));
+            Assert.That(farCheck.Failure, Is.EqualTo(AbilityFailure.OutOfRange), "a hostile beyond Aimed Shot's range is refused for the range");
         }
 
         [UnityTest]
