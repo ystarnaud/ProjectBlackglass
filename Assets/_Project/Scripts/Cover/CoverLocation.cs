@@ -9,7 +9,7 @@ namespace Blackglass
         Tall,
     }
 
-    /// <summary>Where on the obstacle a location sits: along a face, or at the end of a tall wall (a corner, with peek data).</summary>
+    /// <summary>Where on the obstacle a location sits: along a face (Low obstacles only), or at an outward-opening end of a tall wall (a corner, always with peek data).</summary>
     public enum CoverPlacement
     {
         Face,
