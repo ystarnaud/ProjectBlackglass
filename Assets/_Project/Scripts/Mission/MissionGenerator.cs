@@ -67,7 +67,7 @@ namespace Blackglass
             foreach (var connection in connections)
                 Fill(floor, width, connection.Strip);
 
-            var obstacles = new ObstaclePlacer(floor, width, height);
+            var obstacles = new ObstaclePlacer(floor, width, height, connections);
             PlaceTallObstacles(settings, rng, rooms, obstacles);
             PlaceLowCover(settings, rng, rooms, floor, obstacles);
             if (!IsConnected(floor, obstacles.Blocked, width, height, out reason))
@@ -100,8 +100,9 @@ namespace Blackglass
 
         const int PlacementTries = 8;
         // Free spots are scarce once the tall obstacles stand (the clearance leaves a room 3 to 6 tiles of space), so
-        // low cover keeps looking across the rooms for longer.
-        const int LowCoverTries = 24;
+        // low cover keeps looking across the rooms for longer. The first half of the tries keeps the full wall clearance
+        // (free-standing cover you can walk around); only the second half may stand one tile from a wall.
+        const int LowCoverTries = 40;
 
         static void PlaceTallObstacles(MissionSettings s, SeededRandom rng, List<MissionRoom> rooms, ObstaclePlacer placer)
         {
@@ -114,7 +115,7 @@ namespace Blackglass
                         var horizontal = rng.Chance(0.5f);
                         var length = rng.NextInt(3, 6);
                         if (placer.TryPlaceRandom(rng, room, horizontal ? length : 1, horizontal ? 1 : length,
-                                MissionBoxKind.Baffle, MissionConstants.WallHeight))
+                                MissionBoxKind.Baffle, MissionConstants.WallHeight, MissionConstants.Clearance))
                             break;
                     }
                 }
@@ -122,7 +123,7 @@ namespace Blackglass
                 {
                     for (var attempt = 0; attempt < PlacementTries; attempt++)
                     {
-                        if (placer.TryPlaceRandom(rng, room, 1, 1, MissionBoxKind.Pillar, MissionConstants.WallHeight))
+                        if (placer.TryPlaceRandom(rng, room, 1, 1, MissionBoxKind.Pillar, MissionConstants.WallHeight, MissionConstants.Clearance))
                             break;
                     }
                 }
@@ -146,7 +147,8 @@ namespace Blackglass
                     var horizontal = rng.Chance(0.5f);
                     var w = wall ? (horizontal ? 3 : 1) : 1;
                     var h = wall ? (horizontal ? 1 : 3) : 1;
-                    if (placer.TryPlaceRandom(rng, room, w, h, wall ? MissionBoxKind.LowWall : MissionBoxKind.Crate, MissionConstants.LowHeight))
+                    if (placer.TryPlaceRandom(rng, room, w, h, wall ? MissionBoxKind.LowWall : MissionBoxKind.Crate, MissionConstants.LowHeight,
+                            attempt < LowCoverTries / 2 ? MissionConstants.Clearance : MissionConstants.LowWallClearance))
                         break;
                 }
             }
@@ -212,8 +214,11 @@ namespace Blackglass
             readonly int height;
             readonly Dictionary<MissionBoxKind, int> counts = new Dictionary<MissionBoxKind, int>();
 
-            public ObstaclePlacer(bool[] floorMask, int gridWidth, int gridHeight)
+            readonly List<MissionConnection> connections;
+
+            public ObstaclePlacer(bool[] floorMask, int gridWidth, int gridHeight, List<MissionConnection> corridors)
             {
+                connections = corridors;
                 floor = floorMask;
                 width = gridWidth;
                 height = gridHeight;
@@ -223,9 +228,9 @@ namespace Blackglass
             public bool[] Blocked { get; }
             public List<MissionBox> Boxes { get; } = new List<MissionBox>();
 
-            public bool TryPlaceRandom(SeededRandom rng, MissionRoom room, int w, int h, MissionBoxKind kind, float boxHeight)
+            public bool TryPlaceRandom(SeededRandom rng, MissionRoom room, int w, int h, MissionBoxKind kind, float boxHeight, int wallClearance)
             {
-                var c = MissionConstants.Clearance;
+                var c = wallClearance;
                 var minX = room.Rect.xMin + c;
                 var maxX = room.Rect.xMax - c - w;
                 var minY = room.Rect.yMin + c;
@@ -237,12 +242,16 @@ namespace Blackglass
                 return TryPlace(new RectInt(x, y, w, h), kind, boxHeight);
             }
 
-            // Callers guarantee the footprint sits at least Clearance tiles inside a room (TryPlaceRandom), which also
-            // keeps it off every door; the rest is the gap to earlier obstacles and the connectivity check.
+            // Callers keep the footprint inside a room with a wall gap of at least LowWallClearance. A footprint closer
+            // than Clearance to a corridor strip is refused here, so no obstacle ever narrows a door; the rest is the gap
+            // to earlier obstacles and the connectivity check.
             bool TryPlace(RectInt rect, MissionBoxKind kind, float boxHeight)
             {
                 var c = MissionConstants.Clearance;
                 var inflated = new RectInt(rect.x - c, rect.y - c, rect.width + 2 * c, rect.height + 2 * c);
+                foreach (var connection in connections)
+                    if (inflated.Overlaps(connection.Strip))
+                        return false;
                 foreach (var existing in Boxes)
                     if (inflated.Overlaps(existing.Footprint))
                         return false;

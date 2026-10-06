@@ -41,16 +41,28 @@ namespace Blackglass.Tests
                 foreach (var box in obstacles)
                 {
                     Assert.That(Tiles(box.Footprint).All(t => layout.IsFloor(t.x, t.y)), Is.True, $"{box.Name} floats");
-                    Assert.That(layout.Rooms.Any(r => Contains(r.Rect, box.Footprint, MissionConstants.Clearance)), Is.True,
-                        $"{box.Name} is closer than {MissionConstants.Clearance} tiles to a wall or door");
+                    var wallGap = IsLow(box) ? MissionConstants.LowWallClearance : MissionConstants.Clearance;
+                    Assert.That(layout.Rooms.Any(r => Contains(r.Rect, box.Footprint, wallGap)), Is.True,
+                        $"seed {layout.Seed}: {box.Name} is closer than {wallGap} tiles to a wall");
                     foreach (var c in layout.Connections)
                         Assert.That(box.Footprint.Overlaps(c.Strip), Is.False);
                 }
+                // Every pair, low or tall, keeps the full clearance: only the gap to a room wall is relaxed for low objects.
                 for (var i = 0; i < obstacles.Count; i++)
                     for (var j = i + 1; j < obstacles.Count; j++)
                         Assert.That(Inflate(obstacles[i].Footprint, MissionConstants.Clearance).Overlaps(obstacles[j].Footprint), Is.False,
-                            $"{obstacles[i].Name} and {obstacles[j].Name} are too close");
+                            $"seed {layout.Seed}: {obstacles[i].Name} and {obstacles[j].Name} are too close");
             }
+        }
+
+        [Test]
+        public void Obstacles_NeverStandWithinTwoTilesOfACorridorStrip()
+        {
+            foreach (var layout in Layouts())
+                foreach (var box in Obstacles(layout))
+                    foreach (var c in layout.Connections)
+                        Assert.That(Inflate(box.Footprint, 2).Overlaps(c.Strip), Is.False,
+                            $"seed {layout.Seed}: {box.Name} is within 2 tiles of a corridor");
         }
 
         [Test]
@@ -156,10 +168,21 @@ namespace Blackglass.Tests
         public void MostMissionsHaveTallObstaclesAndLowCover()
         {
             var withBaffle = Layouts().Count(l => l.Boxes.Any(b => b.Kind == MissionBoxKind.Baffle));
-            var withLow = Layouts().Count(l => l.Boxes.Any(b => b.Kind == MissionBoxKind.LowWall || b.Kind == MissionBoxKind.Crate));
+            var withLow = Layouts().Count(l => l.Boxes.Any(IsLow));
             Assert.That(withBaffle, Is.GreaterThanOrEqualTo(Seeds * 9 / 10));
             Assert.That(withLow, Is.GreaterThanOrEqualTo(Seeds * 9 / 10));
         }
+
+        [Test]
+        public void MissionsHaveSignificantLowCover_MedianAtLeastSix_AndAlmostAllAtLeastThree()
+        {
+            var counts = Layouts().Select(l => l.Boxes.Count(IsLow)).OrderBy(n => n).ToList();
+            var all = $"low objects per mission, sorted: {string.Join(",", counts)}";
+            Assert.That(counts[counts.Count / 2], Is.GreaterThanOrEqualTo(6), all);
+            Assert.That(counts.Count(n => n >= 3), Is.GreaterThanOrEqualTo(Seeds * 9 / 10), all);
+        }
+
+        static bool IsLow(MissionBox b) => b.Kind == MissionBoxKind.LowWall || b.Kind == MissionBoxKind.Crate;
 
         static RectInt Inflate(RectInt r, int by) => new RectInt(r.x - by, r.y - by, r.width + 2 * by, r.height + 2 * by);
 

@@ -15,6 +15,11 @@ namespace Blackglass
         public const int RoomInset = 2;
         /// <summary>Free tiles kept between an obstacle and any wall or other obstacle.</summary>
         public const int Clearance = 2;
+        /// <summary>
+        /// Free tiles between a low-cover object and a room wall (tall obstacles keep Clearance). One tile is too narrow for
+        /// the NavMesh agent: it only ever forms a dead-end pocket, because no obstacle may stand within Clearance of a door.
+        /// </summary>
+        public const int LowWallClearance = 1;
         public const float SpawnSpacing = 2.5f;
         /// <summary>The eroded NavMesh must cover at least this share of the floor: a sanity check, not a quality bar.</summary>
         public const float MinNavAreaRatio = 0.3f;
