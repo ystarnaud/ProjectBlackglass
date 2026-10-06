@@ -6,7 +6,7 @@ namespace Blackglass
 {
     /// <summary>
     /// Debug view of a unit's orders: a line from the unit through each order in sequence, and a small disc at every
-    /// move or cover destination. Reads the unit's orders every frame and never changes them. Works while paused.
+    /// move, cover or ground-ability destination. Reads the unit's orders every frame and never changes them. Works while paused.
     /// Has no colliders, so it never blocks click raycasts.
     /// </summary>
     [RequireComponent(typeof(CommandableUnit), typeof(LineRenderer))]
@@ -90,6 +90,14 @@ namespace Blackglass
                     break;
                 case AttackCommand attack when attack.Target != null && attack.Target.gameObject.activeInHierarchy:
                     points.Add(OnGround(attack.Target.transform.position));
+                    break;
+                case AbilityCommand ability when ability.Definition != null
+                    && (ability.Definition.TargetMode == AbilityTargetMode.Ground
+                        || (ability.Target != null && ability.Target.gameObject.activeInHierarchy)):
+                    var aim = OnGround(ability.AimPoint);
+                    points.Add(aim);
+                    if (ability.Definition.TargetMode == AbilityTargetMode.Ground)
+                        ShowMarker(aim);
                     break;
             }
         }
