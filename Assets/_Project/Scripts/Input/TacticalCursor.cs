@@ -10,7 +10,8 @@ namespace Blackglass
     /// hostile, then a cover location near the ground point under the cursor. Confirm and Attack read that target in
     /// PlayerCommandInput; the cursor itself issues no orders. It is active whenever a controller is in use and the
     /// camera does not own the right stick (see StickRole). Also holds the "soft target" that NextTarget and
-    /// PreviousTarget cycle through living hostiles, and picks the hostile an Attack should use. Lives on Systems.
+    /// PreviousTarget cycle through living hostiles (only they set it: hovering a hostile or an Attack's fallback does
+    /// not), and picks the hostile an Attack should use. Lives on Systems.
     /// </summary>
     public sealed class TacticalCursor : MonoBehaviour
     {
@@ -52,7 +53,7 @@ namespace Blackglass
         /// <summary>What the cursor is on as of the last update; None while the cursor is inactive.</summary>
         public PointerTarget Target => target;
 
-        /// <summary>The hostile that NextTarget / PreviousTarget or a snap last chose, while it is still a valid target.</summary>
+        /// <summary>The hostile NextTarget / PreviousTarget last chose, while it is still a valid target.</summary>
         public Health SoftTarget => HostileTargets.IsValid(softTarget) ? softTarget : null;
 
         public bool IsActive =>
@@ -114,8 +115,6 @@ namespace Blackglass
         {
             EnsurePosition();
             target = IsActive ? Resolve(screenPosition) : PointerTarget.None;
-            if (target.Kind == PointerTargetKind.Hostile)
-                softTarget = target.Hostile;
             return target;
         }
 
@@ -127,9 +126,9 @@ namespace Blackglass
         }
 
         /// <summary>
-        /// The hostile an Attack should use: the one under the cursor (cursor active), else the soft target, else the
-        /// best living hostile for someone at `origin` facing `facing`. That fallback also becomes the soft target so the
-        /// view highlights it. Null when no living hostile exists.
+        /// The hostile an Attack should use: the one under the cursor (cursor active), else the soft target chosen with
+        /// NextTarget / PreviousTarget, else the best living hostile for someone at `origin` facing `facing`. Neither the
+        /// hovered hostile nor that fallback is remembered, so an Attack never locks on. Null when no living hostile exists.
         /// </summary>
         public Health PickAttackTarget(Vector3 origin, Vector3 facing)
         {
@@ -140,9 +139,7 @@ namespace Blackglass
                 return soft;
             if (encounter == null)
                 return null;
-            var best = HostileTargets.Best(encounter.Hostiles, origin, facing);
-            softTarget = best;
-            return best;
+            return HostileTargets.Best(encounter.Hostiles, origin, facing);
         }
 
         void OnNextTarget(InputAction.CallbackContext context) => CycleTarget(1);

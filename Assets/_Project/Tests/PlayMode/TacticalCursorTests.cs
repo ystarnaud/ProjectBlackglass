@@ -263,7 +263,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator PickAttackTarget_PrefersTheCursorHostile_ThenTheSoftTarget_ThenTheBest()
+        public IEnumerator PickAttackTarget_PrefersTheCursorHostile_ThenTheCycledSoftTarget_ThenTheBest()
         {
             var origin = friendly.transform.position;
             cursor.SetScreenPosition(ScreenPointOf(farHostile.transform.position));
@@ -271,13 +271,55 @@ namespace Blackglass.Tests
 
             cursor.SetScreenPosition(ScreenPointOf(OpenGround));
             yield return null;
-            Assert.That(cursor.PickAttackTarget(origin, Vector3.forward), Is.SameAs(farHostile), "The soft target stays");
+            Assert.That(cursor.SoftTarget, Is.Null, "Hovering a hostile does not choose it");
+            Assert.That(cursor.PickAttackTarget(origin, Vector3.forward), Is.SameAs(nearHostile),
+                "Having hovered the far hostile and moved off, Attack falls back to the best hostile, not the hovered one");
+
+            yield return Tap(pad.dpad.right);
+            yield return Tap(pad.dpad.right);
+            Assert.That(cursor.SoftTarget, Is.SameAs(farHostile), "Chosen explicitly with NextTarget");
+            cursor.SetScreenPosition(ScreenPointOf(OpenGround));
+            yield return null;
+            Assert.That(cursor.PickAttackTarget(origin, Vector3.forward), Is.SameAs(farHostile), "The cycled soft target stays");
 
             farHostile.TakeDamage(1000);
             Assert.That(cursor.PickAttackTarget(origin, Vector3.forward), Is.SameAs(nearHostile), "Falls back to the best living hostile");
 
             nearHostile.TakeDamage(1000);
             Assert.That(cursor.PickAttackTarget(origin, Vector3.forward), Is.Null, "Nothing left to attack");
+        }
+
+        [UnityTest]
+        public IEnumerator PickAttackTarget_BestByFacingFallback_IsNotRemembered()
+        {
+            // Equidistant from both hostiles (about 8.5 m), so only the facing decides.
+            var origin = Vector3.zero;
+            cursor.SetScreenPosition(ScreenPointOf(OpenGround));
+            yield return null;
+
+            Assert.That(cursor.PickAttackTarget(origin, new Vector3(-1f, 0f, -1f)), Is.SameAs(nearHostile));
+            Assert.That(cursor.SoftTarget, Is.Null, "The fallback is not stored as the soft target");
+            Assert.That(cursor.PickAttackTarget(origin, new Vector3(1f, 0f, 1f)), Is.SameAs(farHostile),
+                "Turning toward the other hostile picks it: nothing locked on to the first");
+        }
+
+        [UnityTest]
+        public IEnumerator HoveringAHostile_DoesNotSetTheSoftTarget()
+        {
+            cursor.SetScreenPosition(ScreenPointOf(nearHostile.transform.position));
+            yield return null;
+            Assert.That(cursor.Target.Kind, Is.EqualTo(PointerTargetKind.Hostile));
+            Assert.That(cursor.SoftTarget, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator Cycling_KeepsItsChoice_AfterTheCursorSnapsOntoIt()
+        {
+            yield return Tap(pad.dpad.right);
+            yield return Tap(pad.dpad.right);
+            yield return null;
+            Assert.That(cursor.SoftTarget, Is.SameAs(farHostile));
+            Assert.That(cursor.Target.Hostile, Is.SameAs(farHostile));
         }
     }
 }

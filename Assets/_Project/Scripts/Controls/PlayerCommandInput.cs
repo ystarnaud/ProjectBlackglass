@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using UnityEngine.Serialization;
 
 namespace Blackglass
@@ -12,7 +13,7 @@ namespace Blackglass
     /// real time it goes to the active character. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
     /// selection, Space toggles tactical pause. A controller does the same through the tactical cursor: Confirm acts on what
     /// it is on (the same Act path), Attack orders an attack on the cursor's, the chosen or the best hostile, the queue
-    /// modifier (Shift / LT) queues, Cancel (Esc / east) clears the selection. Contains no movement or combat rules.
+    /// modifier (Shift / LT) queues, Cancel (Esc / the family's cancel button) clears the selection. Contains no movement or combat rules.
     /// </summary>
     public sealed class PlayerCommandInput : MonoBehaviour
     {
@@ -21,7 +22,8 @@ namespace Blackglass
         [SerializeField] TacticalPause tacticalPause;
         [SerializeField, FormerlySerializedAs("primary")] ActiveCharacter activeCharacter;
         [SerializeField] CoverRegistry coverRegistry;
-        // The controller's pointer. Without it (or while it is inactive) Confirm does nothing; mouse clicks never use it.
+        // The controller's pointer. Without it (or while it is inactive) Confirm does nothing and Attack falls back to the
+        // chosen or best hostile; mouse clicks never use it.
         [SerializeField] TacticalCursor cursor;
 
         [Header("Input")]
@@ -139,6 +141,13 @@ namespace Blackglass
 
         void OnCommandReleased(InputAction.CallbackContext context)
         {
+            // A cancel while the button is still physically down is not a release: changing the input family re-resolves
+            // the bindings and cancels the action under a held button. Abandon the press instead of issuing a click.
+            if (context.control is ButtonControl button && button.isPressed)
+            {
+                clickDetector.Cancel();
+                return;
+            }
             var wasPressed = clickDetector.IsPressed;
             var pointer = PointerPosition;
             if (clickDetector.Release(pointer))

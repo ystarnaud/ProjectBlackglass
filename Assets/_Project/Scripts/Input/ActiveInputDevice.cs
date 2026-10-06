@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
@@ -20,6 +21,9 @@ namespace Blackglass
         [SerializeField] InputActionAsset controls;
 
         readonly InputActivityFilter filter = new InputActivityFilter();
+        // Classification parses the device's HID descriptor, so it is done once per device, not on every state event.
+        readonly Dictionary<int, (bool ok, InputFamily family, ControllerModel model)> classified =
+            new Dictionary<int, (bool ok, InputFamily family, ControllerModel model)>();
         bool bindingsDirty;
 
         public InputFamily Family { get; private set; } = InputFamily.KeyboardMouse;
@@ -41,6 +45,7 @@ namespace Blackglass
             Model = ControllerModel.None;
             Device = null;
             filter.Reset();
+            classified.Clear();
             ApplyBindings();
             InputSystem.onEvent += OnInputEvent;
             InputSystem.onDeviceChange += OnDeviceChange;
@@ -67,7 +72,7 @@ namespace Blackglass
         {
             if (!eventPtr.IsA<StateEvent>() && !eventPtr.IsA<DeltaStateEvent>())
                 return;
-            if (!InputFamilyClassifier.TryClassify(device, out var family, out var model))
+            if (!TryClassifyCached(device, out var family, out var model))
                 return;
             if (!IsMeaningful(eventPtr, device))
                 return;
@@ -76,8 +81,22 @@ namespace Blackglass
             SwitchTo(family, device, model);
         }
 
+        bool TryClassifyCached(InputDevice device, out InputFamily family, out ControllerModel model)
+        {
+            if (!classified.TryGetValue(device.deviceId, out var entry))
+            {
+                entry.ok = InputFamilyClassifier.TryClassify(device, out entry.family, out entry.model);
+                classified[device.deviceId] = entry;
+            }
+            family = entry.family;
+            model = entry.model;
+            return entry.ok;
+        }
+
         void OnDeviceChange(InputDevice device, InputDeviceChange change)
         {
+            if (change == InputDeviceChange.Removed)
+                classified.Remove(device.deviceId);
             var gone = change == InputDeviceChange.Removed || change == InputDeviceChange.Disconnected;
             if (gone && Family.IsController() && device == Device)
                 SwitchTo(InputFamily.KeyboardMouse, null, ControllerModel.None);

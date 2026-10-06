@@ -92,6 +92,35 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Cancel_EndsThePress_WithoutReportingAClick()
+        {
+            detector.Press(Origin);
+            detector.Cancel();
+            Assert.That(detector.IsPressed, Is.False);
+            Assert.That(detector.Release(Origin), Is.False, "Nothing is pressed any more, so a later release is not a click");
+        }
+
+        [Test]
+        public void Cancel_ClearsADrag_AndALaterPressStartsFresh()
+        {
+            detector.Press(Origin);
+            detector.Track(Origin + new Vector2(30f, 0f));
+            detector.Cancel();
+            Assert.That(detector.IsDragging, Is.False);
+
+            detector.Press(Origin);
+            Assert.That(detector.Release(Origin), Is.True);
+        }
+
+        [Test]
+        public void Cancel_WithoutPress_DoesNothing()
+        {
+            detector.Cancel();
+            Assert.That(detector.IsPressed, Is.False);
+            Assert.That(detector.IsDragging, Is.False);
+        }
+
+        [Test]
         public void NegativeThreshold_Throws()
         {
             Assert.Throws<ArgumentOutOfRangeException>(() => new ClickDragDetector(-1f));
