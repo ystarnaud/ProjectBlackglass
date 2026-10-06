@@ -84,6 +84,13 @@ namespace Blackglass
         /// <summary>The direction direct control is steering the unit in, or zero. See SetMoveIntent.</summary>
         public Vector3 MoveIntent => moveIntent;
 
+        /// <summary>
+        /// False while direct control steers the unit: an ability order that would first have to walk into range or sight
+        /// is then refused with its reason (ruling R10), since steering would drop it on the next frame. Issue and the
+        /// targeting preview both use this test.
+        /// </summary>
+        public bool CanWalkToCast => moveIntent == Vector3.zero;
+
         /// <summary>False once this unit's Health (if it has one) has died. A dead unit takes and runs no orders.</summary>
         public bool IsAlive => OwnHealth == null || OwnHealth.IsAlive;
 
@@ -143,8 +150,9 @@ namespace Blackglass
         /// Returns false if the order cannot be carried out (this unit is dead, no walkable point within 2 m of the
         /// destination, dead or inactive target, a cover point another unit holds, an ability the unit has no UnitAbilities
         /// for or does not own, or whose target is dead or on the wrong side, and, when the order would start now, one that
-        /// is on cooldown); the unit's orders are then unchanged. An ability out of range or out of sight is accepted: the
-        /// unit walks into position first (decision 029).
+        /// is on cooldown, or out of range or out of sight while direct control steers the unit); the unit's orders are then
+        /// unchanged. Otherwise an ability out of range or out of sight is accepted: the unit walks into position first
+        /// (decision 029).
         /// Re-issuing an attack on the current target keeps the unit moving instead of restarting its chase.
         /// </summary>
         public bool Issue(UnitCommand command, IssueMode mode = IssueMode.Replace)
@@ -187,8 +195,8 @@ namespace Blackglass
             }
 
             // An ability that would start now is checked in full now, but range and sight only decide whether it walks
-            // first (decision 029); behind other orders only its target is, because the caster will have moved on by the
-            // time it runs.
+            // first (decision 029), unless the unit is being steered and could not walk (ruling R10); behind other orders
+            // only its target is, because the caster will have moved on by the time it runs.
             if (command is AbilityCommand startingAbility && !CanStartAbility(startingAbility, AbilityCheckScope.Full))
                 return false;
 
@@ -201,8 +209,10 @@ namespace Blackglass
         /// <summary>
         /// Sets the direction direct control steers the unit in: flattened, length clamped to 1, zero for none. Held
         /// until set again. While it is non-zero and simulation time runs, the unit drops all of its orders (as Stop
-        /// does) and steers instead, so manual control always wins over queued orders. An ability issued meanwhile runs
-        /// on the next simulation frame instead of being dropped; other orders are accepted and then dropped on that frame.
+        /// does) and steers instead, so manual control always wins over queued orders. A usable ability issued meanwhile
+        /// runs on the next simulation frame instead of being dropped; one that would first have to walk into range or
+        /// sight is refused at once with its reason (CanWalkToCast); other orders are accepted and then dropped on that
+        /// frame. An ability walk already under way is dropped like any other order.
         /// </summary>
         public void SetMoveIntent(Vector3 direction)
         {
@@ -324,7 +334,7 @@ namespace Blackglass
             var owned = Abilities;
             if (owned == null)
                 return false;
-            return scope == AbilityCheckScope.Full ? owned.CanOrderNow(ability) : owned.CanQueue(ability);
+            return scope == AbilityCheckScope.Full ? owned.CanOrderNow(ability, CanWalkToCast) : owned.CanQueue(ability);
         }
 
         // Abilities are instant once usable: each one succeeds or fails on the first running frame it is usable or refused,

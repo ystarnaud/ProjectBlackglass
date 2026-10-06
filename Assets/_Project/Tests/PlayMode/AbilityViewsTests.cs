@@ -176,6 +176,27 @@ namespace Blackglass.Tests
             Assert.That(view.AimColor, Is.EqualTo(AbilityTargetingView.InvalidColor), "The wrong side: refused");
         }
 
+        // Ruling R10: while the caster is steered an order that would have to walk is refused, so it previews red with its
+        // reason; released, the same aim previews amber.
+        [UnityTest]
+        public IEnumerator WhileSteering_AFarTarget_IsRedWithItsReason_AndAmberOnceReleased()
+        {
+            yield return null;
+            rig.Caster.Unit.SetMoveIntent(Vector3.left);
+            yield return Tap(keyboard.digit1Key);
+            Set(mouse.position, rig.ScreenPointOf(rig.FarHostile.transform.position));
+            yield return null;
+            yield return null;
+            Assert.That(view.AimColor, Is.EqualTo(AbilityTargetingView.InvalidColor));
+            Assert.That(bar.BuildLines().Last(), Does.EndWith("| out of range"));
+
+            rig.Caster.Unit.SetMoveIntent(Vector3.zero);
+            yield return null;
+            yield return null;
+            Assert.That(view.AimColor, Is.EqualTo(AbilityTargetingView.ApproachColor));
+            Assert.That(bar.BuildLines().Last(), Does.EndWith("| moving into range"));
+        }
+
         [UnityTest]
         public IEnumerator ABlastRing_HasTheBlastRadius_AroundTheAimPoint()
         {

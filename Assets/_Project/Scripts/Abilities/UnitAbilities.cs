@@ -169,14 +169,15 @@ namespace Blackglass
 
         /// <summary>
         /// The order may start now: the full check passes, or fails only on range or line of sight, which the unit fixes by
-        /// walking into position first (decision 029). Records the reason when it is refused; a walk is not a failure.
+        /// walking into position first (decision 029), when it `canWalk` (it is not being steered, ruling R10). Records the
+        /// reason when it is refused; a walk is not a failure.
         /// </summary>
-        public bool CanOrderNow(AbilityCommand command)
+        public bool CanOrderNow(AbilityCommand command, bool canWalk = true)
         {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
             var check = CheckOrder(command);
-            if (check.IsValid || AbilityRules.IsApproachable(check.Failure))
+            if (check.IsValid || (canWalk && AbilityRules.IsApproachable(check.Failure)))
                 return true;
             RecordFailure(command.Definition, check.Failure);
             return false;

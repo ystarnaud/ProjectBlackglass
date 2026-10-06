@@ -100,6 +100,12 @@ namespace Blackglass.Tests
             Assert.That((refused.IsValid, refused.WillApproach), Is.EqualTo((false, false)));
             Assert.That((noAim.IsValid, noAim.WillApproach), Is.EqualTo((false, false)));
             Assert.That(AbilityPreview.None.WillApproach, Is.False);
+
+            // Ruling R10: a caster that is being steered cannot walk, so the same far aim is a refusal.
+            var steering = new AbilityPreview(aimed, PointerTargetKind.Hostile, banditHealth, Vector3.zero, true,
+                Check(AbilityFailure.OutOfRange, 17f), false, canWalk: false);
+            Assert.That((steering.IsValid, steering.WillApproach), Is.EqualTo((false, false)));
+            Assert.That(AbilityDescriptions.Preview(steering, new Health[0]), Does.EndWith("| out of range"));
         }
 
         [Test]

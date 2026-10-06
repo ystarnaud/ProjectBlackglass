@@ -8,8 +8,9 @@ namespace Blackglass
     public readonly struct AbilityPreview
     {
         public AbilityPreview(AbilityDefinition ability, PointerTargetKind kind, Health target, Vector3 point, bool hasAim,
-            AbilityCheck check, bool queued)
+            AbilityCheck check, bool queued, bool canWalk = true)
         {
+            CanWalk = canWalk;
             Ability = ability;
             Kind = kind;
             Target = target;
@@ -33,6 +34,11 @@ namespace Blackglass
         public AbilityCheck Check { get; }
         /// <summary>The queue modifier is held and the caster has orders: only the static checks were run (it is judged when it runs).</summary>
         public bool Queued { get; }
+        /// <summary>
+        /// The caster may walk into position for this order: it is not being steered (ruling R10). While it is, an order
+        /// that would have to walk is refused, so it previews as a refusal.
+        /// </summary>
+        public bool CanWalk { get; }
 
         public bool IsArmed => Ability != null;
         /// <summary>Usable from where the caster stands now.</summary>
@@ -40,9 +46,10 @@ namespace Blackglass
 
         /// <summary>
         /// Not usable from here, but confirming is accepted: the only problem is range or line of sight, so the caster
-        /// first walks into range or to a firing position (decision 029). Neither valid nor refused.
+        /// first walks into range or to a firing position (decision 029). Neither valid nor refused. Never while the caster
+        /// is being steered (CanWalk false): that order would be refused with its reason.
         /// </summary>
-        public bool WillApproach => IsArmed && HasAim && AbilityRules.IsApproachable(Check.Failure);
+        public bool WillApproach => IsArmed && HasAim && CanWalk && AbilityRules.IsApproachable(Check.Failure);
 
         public AbilityFailure Failure =>
             !IsArmed ? AbilityFailure.None
@@ -229,21 +236,23 @@ namespace Blackglass
         internal AbilityPreview Evaluate(AbilityDefinition ability, PointerTarget pointed, bool queued)
         {
             var scope = queued ? AbilityCheckScope.Static : AbilityCheckScope.Full;
+            // The same test Issue makes (ruling R10): a caster being steered cannot walk into position.
+            var canWalk = caster == null || caster.CanWalkToCast;
             areaHits.Clear();
             if (ability.TargetMode == AbilityTargetMode.Ground)
             {
                 if (pointed.Kind == PointerTargetKind.None)
-                    return new AbilityPreview(ability, pointed.Kind, null, default, false, default, queued);
+                    return new AbilityPreview(ability, pointed.Kind, null, default, false, default, queued, canWalk);
                 var check = casterAbilities.Check(ability, null, pointed.Point, scope);
                 casterAbilities.CollectArea(ability, pointed.Point, areaHits);
-                return new AbilityPreview(ability, pointed.Kind, null, pointed.Point, true, check, queued);
+                return new AbilityPreview(ability, pointed.Kind, null, pointed.Point, true, check, queued, canWalk);
             }
 
             var target = TargetHealth(pointed);
             if (target == null)
-                return new AbilityPreview(ability, pointed.Kind, null, pointed.Point, false, default, queued);
+                return new AbilityPreview(ability, pointed.Kind, null, pointed.Point, false, default, queued, canWalk);
             return new AbilityPreview(ability, pointed.Kind, target, target.transform.position, true,
-                casterAbilities.Check(ability, target, null, scope), queued);
+                casterAbilities.Check(ability, target, null, scope), queued, canWalk);
         }
 
         /// <summary>Arms the slot, or backs out when that slot is the armed one.</summary>

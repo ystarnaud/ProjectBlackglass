@@ -143,6 +143,33 @@ namespace Blackglass.Tests
             Assert.That(TestWorld.HorizontalDistance(rig.Caster.transform.position, AbilityRig.CasterGround), Is.GreaterThan(1f), "It walked");
         }
 
+        // Ruling R10 (the mouse path): while the caster is being steered, a far hostile is previewed with its reason and the
+        // click is refused with it; the ability stays armed. Released, the same target previews as an approach.
+        [UnityTest]
+        public IEnumerator WhileSteering_AHostileOutOfRange_IsPreviewedAndRefusedWithItsReason_AndStaysArmed()
+        {
+            yield return null;
+            rig.Caster.Unit.SetMoveIntent(Vector3.left);
+            yield return Tap(keyboard.digit1Key);
+            Set(mouse.position, rig.ScreenPointOf(rig.FarHostile.transform.position));
+            yield return null;
+            yield return null;
+            Assert.That(rig.Targeting.Preview.Failure, Is.EqualTo(AbilityFailure.OutOfRange));
+            Assert.That(rig.Targeting.Preview.WillApproach, Is.False, "Steering: it would be refused, not walked to");
+
+            yield return LeftClickAt(rig.ScreenPointOf(rig.FarHostile.transform.position));
+
+            Assert.That(rig.Abilities.LastFailure, Is.EqualTo(AbilityFailure.OutOfRange));
+            Assert.That(rig.Targeting.IsArmed, Is.True, "Still armed: try another target or let go of the key");
+            Assert.That(rig.Caster.Unit.CurrentCommand, Is.Null);
+
+            rig.Caster.Unit.SetMoveIntent(Vector3.zero);
+            yield return null;
+            yield return null;
+            Assert.That(rig.Targeting.Preview.WillApproach, Is.True, "Not steering: confirming would walk into range");
+            Assert.That(rig.FarHostile.Current, Is.EqualTo(rig.FarHostile.Max));
+        }
+
         [UnityTest]
         public IEnumerator Blast_ClickedOnTheGround_HitsOnlyTheHostilesNearThePoint()
         {
