@@ -1,3 +1,4 @@
+using System;
 using Unity.AI.Navigation;
 using UnityEngine;
 using UnityEngine.AI;
@@ -16,6 +17,10 @@ namespace Blackglass
         public Transform Actors { get; internal set; }
         public NavMeshSurface Surface { get; internal set; }
         public MissionLayout Layout { get; internal set; }
+        public ObjectivePlan Plan { get; internal set; }
+        /// <summary>The terminal, or null when the mission has no hack objective.</summary>
+        public MissionInteractable Terminal { get; internal set; }
+        public Transform ExtractionZone { get; internal set; }
     }
 
     /// <summary>
@@ -27,7 +32,8 @@ namespace Blackglass
     {
         const int NotWalkableArea = 1;
 
-        public static GeneratedMission Build(MissionLayout layout, Material groundMaterial, Material obstacleMaterial)
+        public static GeneratedMission Build(MissionLayout layout, Material groundMaterial, Material obstacleMaterial,
+            Action<Transform> addContent = null)
         {
             var root = new GameObject(GeneratedMission.RootName);
             var geometry = new GameObject("Geometry");
@@ -48,6 +54,9 @@ namespace Blackglass
                 var center = layout.RectCenter(box.Footprint) + Vector3.up * (box.Height * 0.5f);
                 Cube(box.Name, center, size, obstacleMaterial, geometry.transform, true);
             }
+
+            // Objective content that must exist when the NavMesh is baked (the terminal) is added by the caller here.
+            addContent?.Invoke(geometry.transform);
 
             // Auto sync is off: without this the colliders sit where CreatePrimitive made them until the next physics step.
             Physics.SyncTransforms();

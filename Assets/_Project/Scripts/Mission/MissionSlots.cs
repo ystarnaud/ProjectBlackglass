@@ -20,7 +20,7 @@ namespace Blackglass
         public CombatArchetype archetype;
     }
 
-    /// <summary>The persistent systems a mission is generated into. `camera` and `abilityTargeting` are optional.</summary>
+    /// <summary>The persistent systems a mission is generated into. `camera`, `abilityTargeting` and `interactables` are optional.</summary>
     [Serializable]
     public sealed class MissionSystems
     {
@@ -32,5 +32,6 @@ namespace Blackglass
         public TacticalPause pause;
         public TacticalCameraController camera;
         public AbilityTargeting abilityTargeting;
+        public InteractableRegistry interactables;
     }
 }
