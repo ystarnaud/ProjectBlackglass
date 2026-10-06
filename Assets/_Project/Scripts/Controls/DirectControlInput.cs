@@ -5,10 +5,11 @@ using UnityEngine.Serialization;
 namespace Blackglass
 {
     /// <summary>
-    /// Direct-control input for the active character. V toggles takeover. Tab makes the next eligible friendly the
-    /// active character (Shift+Tab: the previous one) and selects it. While the active character is being driven
-    /// (ActiveCharacter.IsDriving), WASD becomes a camera-relative move intent on its CommandableUnit; otherwise the
-    /// intent is zero. F toggles the follow flag on ActiveCharacter. Contains no movement or follow rules: the unit
+    /// Direct-control input for the active character. V (or the controller's control toggle) toggles takeover. Tab / RB
+    /// makes the next eligible friendly the active character and selects it; Shift+Tab / LB the previous one. While the
+    /// active character is being driven (ActiveCharacter.IsDriving), WASD or the left stick (analog magnitude kept)
+    /// becomes a camera-relative move intent on its CommandableUnit; otherwise the intent is zero. F / D-pad up toggles
+    /// the follow flag on ActiveCharacter. Contains no movement or follow rules: the unit
     /// decides what the intent means, and CompanionAI what the flag means.
     /// Release gate: whenever driving starts (resume, or takeover turned on), keys already held are ignored until Move
     /// reads zero, so a key held from panning the camera cannot wipe orders just queued.
@@ -30,6 +31,8 @@ namespace Blackglass
         // Held while cycling to go backward (Shift).
         [SerializeField] InputActionReference reverseAction;
         [SerializeField] InputActionReference toggleFollowAction;
+        // Plain press: the previous character (the gamepad's counterpart of Shift+Tab).
+        [SerializeField] InputActionReference previousAction;
 
         CommandableUnit steeredUnit;
         bool wasDriving;
@@ -40,7 +43,8 @@ namespace Blackglass
 
         internal void Initialize(ActiveCharacter active, Camera camera, InputActionReference move,
             InputActionReference takeover, UnitSelection unitSelection = null, InputActionReference cycle = null,
-            InputActionReference reverse = null, InputActionReference toggleFollow = null)
+            InputActionReference reverse = null, InputActionReference toggleFollow = null,
+            InputActionReference previous = null)
         {
             activeCharacter = active;
             viewCamera = camera;
@@ -50,6 +54,7 @@ namespace Blackglass
             cycleAction = cycle;
             reverseAction = reverse;
             toggleFollowAction = toggleFollow;
+            previousAction = previous;
         }
 
         /// <summary>Turns movement input into a ground direction relative to the camera's yaw, at most length 1.</summary>
@@ -58,11 +63,14 @@ namespace Blackglass
 
         void OnEnable()
         {
-            InputActionUtility.SetEnabled(true, moveAction, takeoverAction, cycleAction, reverseAction, toggleFollowAction);
+            InputActionUtility.SetEnabled(true, moveAction, takeoverAction, cycleAction, reverseAction, toggleFollowAction,
+                previousAction);
             if (takeoverAction != null)
                 takeoverAction.action.performed += OnTakeover;
             if (cycleAction != null)
                 cycleAction.action.performed += OnCycle;
+            if (previousAction != null)
+                previousAction.action.performed += OnPrevious;
             if (toggleFollowAction != null)
                 toggleFollowAction.action.performed += OnToggleFollow;
         }
@@ -73,9 +81,12 @@ namespace Blackglass
                 takeoverAction.action.performed -= OnTakeover;
             if (cycleAction != null)
                 cycleAction.action.performed -= OnCycle;
+            if (previousAction != null)
+                previousAction.action.performed -= OnPrevious;
             if (toggleFollowAction != null)
                 toggleFollowAction.action.performed -= OnToggleFollow;
-            InputActionUtility.SetEnabled(false, moveAction, takeoverAction, cycleAction, reverseAction, toggleFollowAction);
+            InputActionUtility.SetEnabled(false, moveAction, takeoverAction, cycleAction, reverseAction, toggleFollowAction,
+                previousAction);
             wasDriving = false;
             SetIntent(Vector3.zero);
         }
@@ -129,11 +140,16 @@ namespace Blackglass
                 activeCharacter.ToggleFollow();
         }
 
-        void OnCycle(InputAction.CallbackContext context)
+        void OnCycle(InputAction.CallbackContext context) =>
+            CycleCharacter(InputActionUtility.IsPressed(reverseAction) ? -1 : 1);
+
+        void OnPrevious(InputAction.CallbackContext context) => CycleCharacter(-1);
+
+        void CycleCharacter(int direction)
         {
             if (activeCharacter == null)
                 return;
-            activeCharacter.Cycle(InputActionUtility.IsPressed(reverseAction) ? -1 : 1);
+            activeCharacter.Cycle(direction);
             var unit = activeCharacter.Unit;
             if (selection != null && unit != null && unit.TryGetComponent<SelectableUnit>(out var selectable)
                 && ActiveCharacter.IsEligible(selectable))
