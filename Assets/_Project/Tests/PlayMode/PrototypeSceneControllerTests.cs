@@ -305,6 +305,13 @@ namespace Blackglass.Tests
             var xbox = InputSystem.AddDevice<XInputController>();
             var ps = InputSystem.AddDevice<DualSenseGamepadHID>();
 
+            // Drive the character, so a stick held across a family switch has something to leave stuck.
+            yield return Wake(xbox);
+            yield return Tap(xbox.buttonNorth);
+            Assert.That(active.IsTakeoverOn, Is.True, "North toggles character control");
+            var unit = active.Unit;
+            Assert.That(unit.MoveIntent, Is.EqualTo(Vector3.zero), "The release gate is clear with the stick at rest");
+
             for (var i = 0; i < 10; i++)
             {
                 var pad = i % 2 == 0 ? (Gamepad)xbox : ps;
@@ -312,7 +319,16 @@ namespace Blackglass.Tests
                 Assert.That(family.Family, Is.EqualTo(i % 2 == 0 ? InputFamily.Xbox : InputFamily.PlayStation), "Iteration " + i);
                 SetLeftStick(pad, new Vector2(0f, 0.9f));
                 yield return null;
+                Assert.That(unit.MoveIntent, Is.Not.EqualTo(Vector3.zero), "The deflected stick drives the unit, iteration " + i);
+
+                // The keyboard takes the family back while the stick is still deflected: nothing may stay driven.
                 yield return WakeKeyboard();
+                yield return null;
+                Assert.That(family.Family, Is.EqualTo(InputFamily.KeyboardMouse), "Iteration " + i);
+                Assert.That(actions.FindAction("Character/Move", true).ReadValue<Vector2>(), Is.EqualTo(Vector2.zero),
+                    "The held stick no longer reaches Move, iteration " + i);
+                Assert.That(unit.MoveIntent, Is.EqualTo(Vector3.zero), "The held stick no longer drives the unit, iteration " + i);
+
                 SetLeftStick(pad, Vector2.zero);
                 yield return null;
             }
