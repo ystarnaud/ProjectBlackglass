@@ -544,7 +544,7 @@ namespace Blackglass
             }
             if (connections.Count != rooms.Count - 1)
             {
-                reason = "the rooms cannot all be connected (corridors need an overlap of at least the corridor width)";
+                reason = "the rooms cannot all be connected (corridors need an overlap of at least the corridor width, or no corridor position that avoids a one-tile step to a room edge)";
                 return false;
             }
             for (var i = 0; i < extra.Count && i < s.extraLoops; i++)
@@ -570,7 +570,8 @@ namespace Blackglass
                 var hi = Math.Min(first.yMax, second.yMax);
                 if (hi - lo < width)
                     return false;
-                var y0 = rng.NextInt(lo, hi - width + 1);
+                if (!TryDrawStart(rng, first.yMin, first.yMax, second.yMin, second.yMax, lo, hi, width, out var y0))
+                    return false;
                 strip = new RectInt(first.xMax, y0, second.xMin - first.xMax, width);
             }
             else
@@ -579,11 +580,43 @@ namespace Blackglass
                 var hi = Math.Min(first.xMax, second.xMax);
                 if (hi - lo < width)
                     return false;
-                var x0 = rng.NextInt(lo, hi - width + 1);
+                if (!TryDrawStart(rng, first.xMin, first.xMax, second.xMin, second.xMax, lo, hi, width, out var x0))
+                    return false;
                 strip = new RectInt(x0, first.yMax, width, second.yMin - first.yMax);
             }
             return true;
         }
+
+        // Draws a strip's lateral start from [lo, hi - width] (the overlap of the two rooms' extents), uniformly over the
+        // valid starts only: no room edge may lie exactly one tile beyond a strip edge, for either room, on either side
+        // (decision 031). A step of 1 tile leaves a 1 m wall stub beside the mouth, which gets no corner. A strip edge
+        // flush with a room edge (distance 0) or at least 2 tiles in is fine. One draw per pair, as before; a pair with
+        // no valid start is not a legal connection.
+        static bool TryDrawStart(SeededRandom rng, int minA, int maxA, int minB, int maxB, int lo, int hi, int width, out int start)
+        {
+            start = 0;
+            var count = 0;
+            for (var candidate = lo; candidate <= hi - width; candidate++)
+                if (IsValidStart(candidate, width, minA, maxA, minB, maxB))
+                    count++;
+            if (count == 0)
+                return false;
+            var pick = rng.NextInt(count);
+            for (var candidate = lo; candidate <= hi - width; candidate++)
+            {
+                if (!IsValidStart(candidate, width, minA, maxA, minB, maxB))
+                    continue;
+                if (pick-- == 0)
+                {
+                    start = candidate;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        static bool IsValidStart(int start, int width, int minA, int maxA, int minB, int maxB) =>
+            start - minA != 1 && start - minB != 1 && maxA - (start + width) != 1 && maxB - (start + width) != 1;
 
         static int Find(int[] parent, int i)
         {

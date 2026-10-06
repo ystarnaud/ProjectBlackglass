@@ -72,7 +72,9 @@ namespace Blackglass
     /// past the end is walkable); an end that runs into another wall, a closed room corner or the map edge gets no corner.
     /// Every tall face no wider than a unit (<see cref="CoverGenerationSettings.columnMaxWidth"/>) is a column: one
     /// location centred in front of it (the four faces of a unit-wide pillar, the end caps of a thin wall, standing on the
-    /// wall's axis beyond its end). The fit test is the only filter: a candidate is kept if its stand point is walkable,
+    /// wall's axis beyond its end). A wall's end cap exists only where a unit can step round the end on both sides (the
+    /// stand points beside both long faces at that end are walkable): a room-frame wall end, with floor on one side only,
+    /// gets its corner point beside the wall and no end cap (decision 031). The fit test is the only filter: a candidate is kept if its stand point is walkable,
     /// i.e. on the NavMesh, which is eroded by the unit's radius, so a kept point always fits a unit however close it is to
     /// other geometry. Only exact duplicates of one box (closer than <see cref="DuplicateDistance"/>) collapse to the first;
     /// locations of different boxes never remove each other. The survivors are named and returned.
@@ -127,7 +129,7 @@ namespace Blackglass
             {
                 var candidates = new List<Candidate>();
                 AddCorners(box, settings, isWalkable, candidates);   // Tall walls only
-                AddColumns(box, settings, candidates);               // Tall boxes only
+                AddColumns(box, settings, isWalkable, candidates);             // Tall boxes only
                 AddFaces(box, settings, candidates);                 // Low boxes only
 
                 var accepted = new List<Candidate>();
@@ -188,13 +190,21 @@ namespace Blackglass
 
         // Tall boxes only: every face no wider than a unit gets one location, centred, standOffset in front of the face,
         // facing into it. No peek data. A stand point inside other geometry is dropped later by the walkability test.
-        static void AddColumns(CoverBox box, CoverGenerationSettings settings, List<Candidate> candidates)
+        // A pillar (both horizontal sizes within columnMaxWidth) has four open faces and keeps all four. For a wall, only
+        // its narrow end faces qualify, and an end cap is emitted only where a unit can step round the end on both sides:
+        // the stand points of both sibling corner candidates of that end (one per long face) must be walkable (031). At a
+        // room-frame wall end the other side is solid or void, so no end cap: the corner point beside the wall serves.
+        static void AddColumns(CoverBox box, CoverGenerationSettings settings, Func<Vector3, bool> isWalkable, List<Candidate> candidates)
         {
             if (box.Height <= settings.lowMaxHeight)
                 return;
+            var limit = settings.columnMaxWidth + 1e-4f;
+            var pillar = box.HalfExtents.x * 2f <= limit && box.HalfExtents.z * 2f <= limit;
             foreach (var face in FacesOf(box))
             {
-                if (face.HalfLength * 2f > settings.columnMaxWidth + 1e-4f)
+                if (face.HalfLength * 2f > limit)
+                    continue;
+                if (!pillar && !CanGoRoundEnd(box, face, settings, isWalkable))
                     continue;
                 var point = box.Center + face.Normal * (face.Depth + settings.standOffset);
                 candidates.Add(new Candidate
@@ -204,6 +214,16 @@ namespace Blackglass
                     Placement = CoverPlacement.Column,
                 });
             }
+        }
+
+        // True if the stand points where the corner candidates of this end would stand (beside each long face, cornerInset
+        // back from the end) are both walkable. Peek points are not required: only that a unit can stand on both sides.
+        static bool CanGoRoundEnd(CoverBox box, Face endFace, CoverGenerationSettings settings, Func<Vector3, bool> isWalkable)
+        {
+            var end = box.Center + endFace.Normal * (endFace.Depth - settings.cornerInset);
+            var side = endFace.HalfLength + settings.standOffset;
+            return isWalkable(OnGround(box, end + endFace.Tangent * side))
+                && isWalkable(OnGround(box, end - endFace.Tangent * side));
         }
 
         // Tall walls only: one corner at each end of each long face, inset into the wall's shadow, peeking out past the

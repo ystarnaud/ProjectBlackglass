@@ -144,21 +144,32 @@ namespace Blackglass.Tests
             yield return null;
         }
 
-        // An open NavMesh spot `distance` metres from `from` that `from` can see (unless `needSight` is false).
+        // An open NavMesh spot `distance` metres from `from` that `from` can see (unless `needSight` is false). A room is
+        // only 7 to 10 m across, so when no visible spot lies exactly `distance` away (layouts change with the generator), the
+        // nearest distance within 3 m of it that has one is used: still well inside every range these tests rely on.
         bool TryFindVisibleSpot(CommandableUnit from, float distance, out Vector3 spot, bool needSight = true)
         {
             var attacker = from.GetComponent<UnitAttacker>();
             var ground = from.transform.position - Vector3.up;
-            for (var step = 0; step < 16; step++)
+            for (var offset = 0f; offset <= (needSight ? 3f : 0f); offset += 0.5f)
             {
-                var angle = step * Mathf.PI * 2f / 16f;
-                var candidate = ground + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * distance;
-                if (!NavMesh.SamplePosition(candidate, out var hit, 0.5f, NavMesh.AllAreas))
-                    continue;
-                if (needSight && !attacker.HasLineOfSightToPoint(hit.position + Vector3.up))
-                    continue;
-                spot = hit.position;
-                return true;
+                foreach (var sign in new[] { 0f, -1f, 1f })
+                {
+                    if (offset == 0f && sign != 0f || offset > 0f && sign == 0f)
+                        continue;
+                    var radius = Mathf.Max(1f, distance + sign * offset);   // never the caster's own spot
+                    for (var step = 0; step < 16; step++)
+                    {
+                        var angle = step * Mathf.PI * 2f / 16f;
+                        var candidate = ground + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radius;
+                        if (!NavMesh.SamplePosition(candidate, out var hit, 0.5f, NavMesh.AllAreas))
+                            continue;
+                        if (needSight && !attacker.HasLineOfSightToPoint(hit.position + Vector3.up))
+                            continue;
+                        spot = hit.position;
+                        return true;
+                    }
+                }
             }
             spot = default;
             return false;

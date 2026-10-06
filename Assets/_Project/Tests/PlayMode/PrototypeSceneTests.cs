@@ -45,12 +45,14 @@ namespace Blackglass.Tests
         // face points along every face; tall walls corners that open outward (the peek point must be on the NavMesh, which
         // is eroded around neighbouring obstacles, and the stand point must be walkable: Obstacle_B, Obstacle_E and
         // Obstacle_F keep three of four corners; Obstacle_E's north-west candidate was already dropped by the stand-point
-        // filter before 027) plus one column beyond each 1 m end cap whose stand point is walkable (Obstacle_F's south
-        // one, 0.25 m from Obstacle_C, is not). Tall boxes with no face as narrow as a unit (Obstacle_A, Obstacle_D, the
+        // filter before 027) plus one column beyond each 1 m end cap that a unit can walk round: the cap's own stand
+        // point and the stand points of both sibling corner candidates of that end must be walkable (031). Obstacle_F's
+        // south cap (0.25 m from Obstacle_C) is not, and Obstacle_E loses one cap too: a unit cannot step round that
+        // end, so it has none (accepted). Tall boxes with no face as narrow as a unit (Obstacle_A, Obstacle_D, the
         // 1.5 m pillars Pillar_G and Pillar_H, Crate_J, Crate_K) and Obstacle_B's 2 m ends get none.
         static readonly (string name, int corners, int columns, int faces)[] CoverCountsPerObstacle =
         {
-            ("Barrier_I", 4, 2, 0), ("Obstacle_CentralWall", 4, 2, 0), ("Obstacle_B", 3, 0, 0), ("Obstacle_E", 3, 2, 0), ("Obstacle_F", 3, 1, 0),
+            ("Barrier_I", 4, 2, 0), ("Obstacle_CentralWall", 4, 2, 0), ("Obstacle_B", 3, 0, 0), ("Obstacle_E", 3, 1, 0), ("Obstacle_F", 3, 1, 0),
             ("Obstacle_C", 0, 0, 11), ("LowWall_L", 0, 0, 6), ("LowWall_M", 0, 0, 8), ("LowWall_N", 0, 0, 4),
             ("Obstacle_A", 0, 0, 0), ("Obstacle_D", 0, 0, 0), ("Pillar_G", 0, 0, 0), ("Pillar_H", 0, 0, 0), ("Crate_J", 0, 0, 0), ("Crate_K", 0, 0, 0),
         };
@@ -118,7 +120,7 @@ namespace Blackglass.Tests
             Assert.That(registry.Points.Where(p => p.Height == CoverHeight.Tall)
                     .All(p => (p.Placement == CoverPlacement.Corner && p.HasPeek) || (p.Placement == CoverPlacement.Column && !p.HasPeek)), Is.True,
                 "every Tall location is a corner that opens outward or a column: no cover along a tall wall");
-            Assert.That(registry.Points, Has.Count.EqualTo(CoverCountsPerObstacle.Sum(c => c.corners + c.columns + c.faces)), "53 locations in all");
+            Assert.That(registry.Points, Has.Count.EqualTo(CoverCountsPerObstacle.Sum(c => c.corners + c.columns + c.faces)), "52 locations in all");
 
             // The scene stores the generation settings on its CoverDiscovery component, which overrides the class
             // defaults: pin them, and pin the gaps they produce (a 3 m wall: usable 2 m, three south points 1 m apart).
