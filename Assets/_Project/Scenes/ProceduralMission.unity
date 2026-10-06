@@ -817,7 +817,7 @@ MonoBehaviour:
     minCornerLength: 2
     cornerInset: 0.35
     peekDistance: 1.25
-    mergeDistance: 0.9
+    columnMaxWidth: 1.1
     hitChance: 0.5
     walkableTolerance: 0.25
   discoverOnStart: 0

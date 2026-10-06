@@ -12,12 +12,13 @@ namespace Blackglass
         public float standOffset = 0.75f;
         /// <summary>
         /// Minimum gap between neighbouring face points along a face. Points are spread evenly, so every gap is under
-        /// twice this: no gap can fit another unit one metre wide.
+        /// twice this: no gap can fit another unit one metre wide. Values under a unit's width (1 m) are treated as 1 m,
+        /// so two points of one face can always both hold a unit.
         /// </summary>
         public float spacing = 1f;
         /// <summary>Keep face points this far from a face's ends.</summary>
         public float endMargin = 0.5f;
-        /// <summary>Faces shorter than this get no points (a wall's thin ends).</summary>
+        /// <summary>Faces of a Low box shorter than this get no points.</summary>
         public float minFaceLength = 1f;
         /// <summary>A box whose top is at or below this is Low cover, else Tall.</summary>
         public float lowMaxHeight = 1.2f;
@@ -28,10 +29,10 @@ namespace Blackglass
         /// <summary>Stand point to peek point.</summary>
         public float peekDistance = 1.25f;
         /// <summary>
-        /// A location this close (flat) to an earlier accepted one of the same object is dropped. Within one object only,
-        /// and below the 1 m minimum gap so float noise cannot merge neighbours.
+        /// A face of a Tall box no wider than this is a column face: it gets one location centred in front of it (every
+        /// face of a unit-wide pillar, the end caps of a thin wall). A unit's width (1 m) plus a tolerance.
         /// </summary>
-        public float mergeDistance = 0.9f;
+        public float columnMaxWidth = 1.1f;
         /// <summary>Copied to every generated location.</summary>
         public float hitChance = 0.5f;
         /// <summary>NavMesh.SamplePosition radius CoverDiscovery uses to decide a point is walkable.</summary>
@@ -64,16 +65,26 @@ namespace Blackglass
 
     /// <summary>
     /// Turns boxes into cover locations. Pure: no scene access, the NavMesh arrives as a predicate. Cover exists only
-    /// where it covers. Low boxes (top at or below <see cref="CoverGenerationSettings.lowMaxHeight"/>) get face
-    /// locations along every usable face: a unit crouches behind them anywhere. Tall boxes get no face locations at
-    /// all: a unit cannot hide against the middle of a wall, so a long tall wall offers cover only at its ends, and
-    /// only at an end that opens outward (the peek point past the end is walkable); an end that runs into another wall,
-    /// a closed room corner or the map edge gets nothing. Tall boxes that are not long walls (pillars, stubs) get
-    /// nothing. Candidates that are not walkable or lie within mergeDistance of an earlier accepted candidate of the
-    /// same box are dropped; the survivors are named and returned. Locations of different boxes never remove each other.
+    /// where it covers, and every location belongs to the box that provides it. Low boxes (top at or below
+    /// <see cref="CoverGenerationSettings.lowMaxHeight"/>) get face locations along every usable face: a unit crouches
+    /// behind them anywhere. Tall boxes get no face locations along a face wider than a unit: a unit cannot hide against
+    /// the middle of a wall. A long tall wall offers corners at its ends, only where the end opens outward (the peek point
+    /// past the end is walkable); an end that runs into another wall, a closed room corner or the map edge gets no corner.
+    /// Every tall face no wider than a unit (<see cref="CoverGenerationSettings.columnMaxWidth"/>) is a column: one
+    /// location centred in front of it (the four faces of a unit-wide pillar, the end caps of a thin wall, standing on the
+    /// wall's axis beyond its end). The fit test is the only filter: a candidate is kept if its stand point is walkable,
+    /// i.e. on the NavMesh, which is eroded by the unit's radius, so a kept point always fits a unit however close it is to
+    /// other geometry. Only exact duplicates of one box (closer than <see cref="DuplicateDistance"/>) collapse to the first;
+    /// locations of different boxes never remove each other. The survivors are named and returned.
     /// </summary>
     public static class CoverGenerator
     {
+        /// <summary>Two candidates of one box closer than this (flat) are the same point: the first is kept.</summary>
+        public const float DuplicateDistance = 0.1f;
+
+        /// <summary>A unit's width (the NavMesh agent radius is 0.5 m): the smallest spacing between face points.</summary>
+        const float MinSpacing = 1f;
+
         struct Candidate
         {
             public Vector3 Position;
@@ -115,13 +126,14 @@ namespace Blackglass
             foreach (var box in boxes)
             {
                 var candidates = new List<Candidate>();
-                AddCorners(box, settings, isWalkable, candidates);
-                AddFaces(box, settings, candidates);   // Low boxes only
+                AddCorners(box, settings, isWalkable, candidates);   // Tall walls only
+                AddColumns(box, settings, candidates);               // Tall boxes only
+                AddFaces(box, settings, candidates);                 // Low boxes only
 
                 var accepted = new List<Candidate>();
                 foreach (var candidate in candidates)
                 {
-                    if (!isWalkable(candidate.Position) || IsNearAny(candidate.Position, accepted, settings.mergeDistance))
+                    if (!isWalkable(candidate.Position) || IsNearAny(candidate.Position, accepted, DuplicateDistance))
                         continue;
                     accepted.Add(candidate);
                 }
@@ -159,7 +171,7 @@ namespace Blackglass
                 if (length < settings.minFaceLength)
                     continue;
                 var usable = length - 2f * settings.endMargin;
-                var count = usable <= 0f ? 1 : Mathf.FloorToInt(usable / Mathf.Max(settings.spacing, 0.1f) + 1e-4f) + 1;
+                var count = usable <= 0f ? 1 : Mathf.FloorToInt(usable / Mathf.Max(settings.spacing, MinSpacing) + 1e-4f) + 1;
                 for (var i = 0; i < count; i++)
                 {
                     var along = count == 1 ? 0f : -usable * 0.5f + i * usable / (count - 1);
@@ -171,6 +183,26 @@ namespace Blackglass
                         Placement = CoverPlacement.Face,
                     });
                 }
+            }
+        }
+
+        // Tall boxes only: every face no wider than a unit gets one location, centred, standOffset in front of the face,
+        // facing into it. No peek data. A stand point inside other geometry is dropped later by the walkability test.
+        static void AddColumns(CoverBox box, CoverGenerationSettings settings, List<Candidate> candidates)
+        {
+            if (box.Height <= settings.lowMaxHeight)
+                return;
+            foreach (var face in FacesOf(box))
+            {
+                if (face.HalfLength * 2f > settings.columnMaxWidth + 1e-4f)
+                    continue;
+                var point = box.Center + face.Normal * (face.Depth + settings.standOffset);
+                candidates.Add(new Candidate
+                {
+                    Position = OnGround(box, point),
+                    Facing = -face.Normal,
+                    Placement = CoverPlacement.Column,
+                });
             }
         }
 
@@ -257,7 +289,9 @@ namespace Blackglass
             foreach (var candidate in accepted)
             {
                 var label = Label(-candidate.Facing);
-                var kind = candidate.Placement == CoverPlacement.Corner ? "Corner" : string.Empty;
+                var kind = candidate.Placement == CoverPlacement.Corner ? "Corner"
+                    : candidate.Placement == CoverPlacement.Column ? "Column"
+                    : string.Empty;
                 var key = label + kind;
                 counts.TryGetValue(key, out var number);
                 number++;
