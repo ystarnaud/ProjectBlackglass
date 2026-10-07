@@ -12,6 +12,7 @@ namespace Blackglass
     {
         static readonly int BaseColor = Shader.PropertyToID("_BaseColor");
         static readonly int LegacyColor = Shader.PropertyToID("_Color");
+        static readonly int EmissionColor = Shader.PropertyToID("_EmissionColor");
 
         static readonly Color Locked = new Color(0.45f, 0.45f, 0.5f);
         static readonly Color Available = new Color(0.2f, 0.75f, 0.95f);
@@ -48,9 +49,10 @@ namespace Blackglass
             }
         }
 
-        public void Bind(Func<Color> source)
+        public void Bind(Func<Color> source, Renderer[] targets = null)
         {
             colour = source;
+            renderers = targets;
             Apply();
         }
 
@@ -70,6 +72,7 @@ namespace Blackglass
                 renderer.GetPropertyBlock(block);
                 block.SetColor(BaseColor, tint);
                 block.SetColor(LegacyColor, tint);
+                block.SetColor(EmissionColor, tint * 1.5f); // materials without emission ignore it
                 renderer.SetPropertyBlock(block);
             }
         }

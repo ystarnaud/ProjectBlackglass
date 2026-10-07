@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Unity.AI.Navigation;
 using UnityEngine;
 
@@ -17,25 +18,64 @@ namespace Blackglass
         public const float ZoneRadius = 2f;
         const int NotWalkableArea = 1;
 
-        /// <summary>Adds the terminal under `geometry`. Call it from the builder's pre-bake hook.</summary>
+        public const string VisualRootName = "VisualRoot";
+        const string DisplayName = "Display";
+
+        /// <summary>
+        /// Adds the terminal under `geometry`. Call it from the builder's pre-bake hook. The root is a plain gameplay object
+        /// (collider, Not Walkable modifier, interactable, marker); what the player sees is a child VisualRoot, so the look can
+        /// change without touching objective behaviour.
+        /// </summary>
         public static MissionInteractable AddTerminal(Transform geometry, ObjectivePlan plan, MissionLayout layout,
-            MissionSettings settings, Material material)
+            MissionSettings settings, Material material, EnvironmentTheme theme = null)
         {
-            var terminal = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            terminal.name = "Terminal";
+            var terminal = new GameObject("Terminal");
             terminal.transform.SetParent(geometry, false);
             terminal.transform.position = layout.TileCenter(plan.TerminalTile) + Vector3.up * (TerminalHeight * 0.5f);
-            terminal.transform.localScale = new Vector3(TerminalSize, TerminalHeight, TerminalSize);
-            if (material != null)
-                terminal.GetComponent<Renderer>().sharedMaterial = material;
+            var box = terminal.AddComponent<BoxCollider>();
+            box.size = new Vector3(TerminalSize, TerminalHeight, TerminalSize);
             // Not walkable, like every obstacle: no island forms on top and the mesh has a hole around it.
             var modifier = terminal.AddComponent<NavMeshModifier>();
             modifier.overrideArea = true;
             modifier.area = NotWalkableArea;
             var interactable = terminal.AddComponent<MissionInteractable>();
             interactable.Initialize(InteractionRange, settings.interactionSeconds);
-            terminal.AddComponent<ObjectiveMarker>().Bind(() => ObjectiveMarker.TerminalColour(interactable));
+
+            var visualRoot = new GameObject(VisualRootName).transform;
+            visualRoot.SetParent(terminal.transform, false);
+            visualRoot.localPosition = new Vector3(0f, -TerminalHeight * 0.5f, 0f);
+            var tint = AddTerminalVisual(visualRoot, plan, layout, theme, material);
+            terminal.AddComponent<ObjectiveMarker>().Bind(() => ObjectiveMarker.TerminalColour(interactable), tint);
             return interactable;
+        }
+
+        static Renderer[] AddTerminalVisual(Transform visualRoot, ObjectivePlan plan, MissionLayout layout, EnvironmentTheme theme, Material material)
+        {
+            GameObject instance;
+            var prefab = theme != null ? theme.Resolve(EnvironmentElement.Terminal, plan.TerminalTile, layout.Seed) : null;
+            if (prefab != null)
+            {
+                instance = Object.Instantiate(prefab, visualRoot);
+                instance.name = prefab.name;
+                if (!instance.activeSelf)
+                    instance.SetActive(true);
+                instance.transform.localPosition = Vector3.zero;
+                instance.transform.localRotation = Quaternion.identity;
+            }
+            else
+            {
+                instance = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                instance.name = "Placeholder";
+                instance.transform.SetParent(visualRoot, false);
+                instance.transform.localPosition = new Vector3(0f, TerminalHeight * 0.5f, 0f);
+                instance.transform.localScale = new Vector3(TerminalSize, TerminalHeight, TerminalSize);
+                if (material != null)
+                    instance.GetComponent<Renderer>().sharedMaterial = material;
+            }
+            EnvironmentVisualBuilder.StripColliders(instance);
+            var all = instance.GetComponentsInChildren<Renderer>();
+            var displays = all.Where(r => r.gameObject.name == DisplayName).ToArray();
+            return displays.Length > 0 ? displays : all;
         }
 
         /// <summary>

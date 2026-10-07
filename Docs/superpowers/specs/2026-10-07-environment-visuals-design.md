@@ -102,3 +102,13 @@ stay green. Manual procedure and completion report as specified in the phase bri
 - ~1-2k wall/floor instances per mission; shared materials, no per-instance materials; static-batch if profiling asks.
 - Per-tile wall modules on 1 m thick walls make a chunky look; accepted for the prototype.
 - Existing tests that look for primitive renderers or materials on geometry boxes may need small updates.
+
+## Amendments (implementation)
+- `WallPillar` was folded into `Pillar`.
+- `DoorFrame` is a jamb overlay on the ring `WallEnd`s; openings are 3-5 tiles wide, so no per-gap piece exists.
+- Low cover is split into `LowCover` (1 tile) and `LowCoverLong` (2 tiles); runs use 2-tile modules plus a remainder.
+- The F8 debug view shows the gameplay cubes with their existing placeholder materials (not translucent).
+- The terminal stays visible in the debug view.
+- `LightFixture` is an emissive prop only; there are no real lights.
+- `LightFixture` mounts at y = 2.45 (not 2.6), and the "cap one per room-sized area" rule was replaced by a 1-in-4 hash on single-sided straight wall tiles.
+- Prefab detail sits at z = +-0.5 (not +-0.52) so each wall-class module stays within its 1 x 1 footprint.

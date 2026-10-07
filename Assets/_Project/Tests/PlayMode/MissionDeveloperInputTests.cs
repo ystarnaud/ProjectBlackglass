@@ -23,7 +23,8 @@ namespace Blackglass.Tests
             var host = rig.World.Track(new GameObject("DeveloperInput"));
             host.SetActive(false);
             var input = host.AddComponent<MissionDeveloperInput>();
-            input.Initialize(rig.Director, TestControls.Ref(actions, "Developer/RegenerateSame"), TestControls.Ref(actions, "Developer/RegenerateNew"));
+            input.Initialize(rig.Director, TestControls.Ref(actions, "Developer/RegenerateSame"), TestControls.Ref(actions, "Developer/RegenerateNew"),
+                TestControls.Ref(actions, "Developer/ToggleVisuals"));
             host.SetActive(true);
         }
 
@@ -64,6 +65,18 @@ namespace Blackglass.Tests
 
             Assert.That(rig.Director.Settings.seed, Is.Not.EqualTo(31));
             Assert.That(rig.Director.Report.Seed, Is.EqualTo(rig.Director.Settings.seed));
+        }
+
+        [UnityTest]
+        public IEnumerator F8_TogglesTheVisuals()
+        {
+            Assert.That(rig.Director.VisualsVisible, Is.True);
+
+            Press(keyboard.f8Key);
+            yield return null;
+            Release(keyboard.f8Key);
+
+            Assert.That(rig.Director.VisualsVisible, Is.False);
         }
     }
 }
