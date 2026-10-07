@@ -262,5 +262,73 @@ namespace Blackglass.Tests
             body.GetComponent<Renderer>().GetPropertyBlock(block);
             Assert.That(block.isEmpty, Is.True, "the body is not tinted");
         }
+
+        [UnityTest]
+        public IEnumerator TheDirector_BuildsWithTheTheme_AndRegeneratingLeavesNothingBehind()
+        {
+            theme = TestTheme.Create();
+            using (var rig = new MissionRig(null, false, theme))
+            {
+                yield return rig.Generate(12345);
+                Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready));
+                Assert.That(rig.Director.Current.Visuals, Is.Not.Null);
+                var firstRoot = rig.Director.Current.Root;
+                var baselineRenderers = Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None).Length;
+
+                for (var i = 0; i < 3; i++)
+                {
+                    rig.Director.RegenerateSame();
+                    yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+                    yield return null;
+                }
+
+                Assert.That(firstRoot == null, Is.True, "old root destroyed");
+                Assert.That(Object.FindObjectsByType<Renderer>(FindObjectsInactive.Include, FindObjectsSortMode.None).Length,
+                    Is.EqualTo(baselineRenderers), "no stale renderers after repeated regeneration");
+                Assert.That(Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None).Length, Is.Zero);
+                Assert.That(Object.FindObjectsByType<GameObject>(FindObjectsInactive.Include, FindObjectsSortMode.None)
+                    .Count(g => g.name == GeneratedMission.RootName), Is.EqualTo(1));
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator TheDebugToggle_SurvivesRegeneration()
+        {
+            theme = TestTheme.Create();
+            using (var rig = new MissionRig(null, false, theme))
+            {
+                yield return rig.Generate(12345);
+                rig.Director.ToggleVisuals();
+                Assert.That(rig.Director.VisualsVisible, Is.False);
+                Assert.That(rig.Director.Current.Visuals.gameObject.activeSelf, Is.False);
+
+                rig.Director.RegenerateSame();
+                yield return TestWorld.WaitUntil(() => rig.Director.State == MissionState.Ready, 20f);
+
+                Assert.That(rig.Director.Current.Visuals.gameObject.activeSelf, Is.False, "the new mission starts in the debug view");
+                rig.Director.ToggleVisuals();
+                Assert.That(rig.Director.Current.Visuals.gameObject.activeSelf, Is.True);
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator ThemedMissions_KeepTheirLayoutHash_AndTheSameObjectiveTerminalTile()
+        {
+            theme = TestTheme.Create();
+            ulong plainHash;
+            Vector3 plainTerminal;
+            using (var rig = new MissionRig())
+            {
+                yield return rig.Generate(31);
+                plainHash = rig.Director.Report.LayoutHash;
+                plainTerminal = rig.Director.Current.Terminal.Position;
+            }
+            using (var rig = new MissionRig(null, false, theme))
+            {
+                yield return rig.Generate(31);
+                Assert.That(rig.Director.Report.LayoutHash, Is.EqualTo(plainHash));
+                Assert.That(rig.Director.Current.Terminal.Position, Is.EqualTo(plainTerminal));
+            }
+        }
     }
 }

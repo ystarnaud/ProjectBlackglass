@@ -23,9 +23,11 @@ namespace Blackglass.Tests
         readonly MissionSystems systems;
         readonly Material ground;
         readonly Material obstacle;
+        readonly EnvironmentTheme theme;
 
-        public MissionRig(MissionSettings settings = null, bool withCamera = false)
+        public MissionRig(MissionSettings settings = null, bool withCamera = false, EnvironmentTheme theme = null)
         {
+            this.theme = theme;
             Pause = World.Track(new GameObject("Pause")).AddComponent<TacticalPause>();
             Encounter = World.CreateEncounter();
             Selection = World.Track(new GameObject("Selection")).AddComponent<UnitSelection>();
@@ -56,16 +58,16 @@ namespace Blackglass.Tests
                 coverDiscovery = Discovery, pause = Pause, camera = Camera, interactables = Interactables,
             };
             Director = World.Track(new GameObject("Director")).AddComponent<MissionDirector>();
-            Director.Initialize(this.settings, FriendlySlots(), HostileSlots(), systems, ground, obstacle, generateAtStart: false);
+            Director.Initialize(this.settings, FriendlySlots(), HostileSlots(), systems, ground, obstacle, generateAtStart: false, theme: theme);
         }
 
         /// <summary>Gives the director other hostile slots (the rest of its setup is unchanged).</summary>
         public void SetHostileSlots(HostileSlot[] slots) =>
-            Director.Initialize(settings, FriendlySlots(), slots, systems, ground, obstacle, generateAtStart: false);
+            Director.Initialize(settings, FriendlySlots(), slots, systems, ground, obstacle, generateAtStart: false, theme: theme);
 
         /// <summary>Gives the director other friendly slots (the rest of its setup is unchanged).</summary>
         public void SetFriendlySlots(FriendlySlot[] slots) =>
-            Director.Initialize(settings, slots, HostileSlots(), systems, ground, obstacle, generateAtStart: false);
+            Director.Initialize(settings, slots, HostileSlots(), systems, ground, obstacle, generateAtStart: false, theme: theme);
 
         public const string DariusPlayerPath = "Assets/Art/Characters/Darius/Prefabs/Darius_Player.prefab";
 
@@ -88,7 +90,7 @@ namespace Blackglass.Tests
         public void GenerateAtStart(bool randomSeed, Func<int> seedSource = null)
         {
             Director.Initialize(settings, FriendlySlots(), HostileSlots(), systems, ground, obstacle, generateAtStart: true,
-                randomSeedAtStart: randomSeed);
+                randomSeedAtStart: randomSeed, theme: theme);
             if (seedSource != null)
                 Director.seedSource = seedSource;
         }

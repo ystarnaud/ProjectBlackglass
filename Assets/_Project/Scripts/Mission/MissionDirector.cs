@@ -57,6 +57,7 @@ namespace Blackglass
         [SerializeField] MissionSystems systems = new MissionSystems();
         [SerializeField] Material groundMaterial;
         [SerializeField] Material obstacleMaterial;
+        [SerializeField] EnvironmentTheme environmentTheme;
         [SerializeField] bool generateOnStart = true;
         // At Play, draw a fresh seed (the Inspector then shows it, F6 repeats it) instead of reusing the serialized one.
         [SerializeField] bool newSeedAtStart = true;
@@ -65,6 +66,7 @@ namespace Blackglass
         readonly List<CommandableUnit> friendlies = new List<CommandableUnit>();
         readonly List<CommandableUnit> hostiles = new List<CommandableUnit>();
         Coroutine running;
+        bool visualsVisible = true;
 
         public MissionState State { get; private set; }
         public MissionReport Report { get; private set; } = new MissionReport();
@@ -82,8 +84,9 @@ namespace Blackglass
         public event Action<MissionState> StateChanged;
 
         internal void Initialize(MissionSettings missionSettings, FriendlySlot[] friendly, HostileSlot[] hostile, MissionSystems persistent,
-            Material ground, Material obstacle, bool generateAtStart, bool randomSeedAtStart = false)
+            Material ground, Material obstacle, bool generateAtStart, bool randomSeedAtStart = false, EnvironmentTheme theme = null)
         {
+            environmentTheme = theme;
             settings = missionSettings;
             friendlySlots = friendly;
             hostileSlots = hostile;
@@ -93,6 +96,17 @@ namespace Blackglass
             generateOnStart = generateAtStart;
             newSeedAtStart = randomSeedAtStart;
         }
+
+        public bool VisualsVisible => visualsVisible;
+
+        /// <summary>Debug view: false shows the gameplay cubes instead of the themed visuals. Kept across regenerations.</summary>
+        public void SetVisualsVisible(bool visible)
+        {
+            visualsVisible = visible;
+            Current?.SetVisualsVisible(visible);
+        }
+
+        public void ToggleVisuals() => SetVisualsVisible(!visualsVisible);
 
         void Start()
         {
@@ -211,9 +225,9 @@ namespace Blackglass
             }
             MissionInteractable terminal = null;
             Action<Transform> addTerminal = request.hackTerminal
-                ? geometry => terminal = MissionContent.AddTerminal(geometry, plan, layout, request, obstacleMaterial)
+                ? geometry => terminal = MissionContent.AddTerminal(geometry, plan, layout, request, obstacleMaterial, environmentTheme)
                 : (Action<Transform>)null;
-            mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial, addTerminal);
+            mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial, addTerminal, environmentTheme);
             if (!MissionNavigation.Validate(layout, out reason, out var navigation))
             {
                 Report.Failures.Add($"attempt {attempt}: navigation: {reason}");
@@ -240,6 +254,7 @@ namespace Blackglass
 
             mission.Plan = plan;
             mission.Terminal = terminal;
+            mission.SetVisualsVisible(visualsVisible);
             mission.ExtractionZone = MissionContent.CreateZone(layout, plan, mission.Root.transform);
             Current = mission;
             friendlies.AddRange(spawned.Friendlies);
