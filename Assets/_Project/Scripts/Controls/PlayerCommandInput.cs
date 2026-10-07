@@ -12,7 +12,7 @@ namespace Blackglass
     /// The order goes to the selected units whenever any are selected or the game is paused; with nothing selected in
     /// real time it goes to the active character. Shift adds to the selection or queues the order. X stops the selected units, Esc clears the
     /// selection, Space toggles tactical pause. A controller does the same through the tactical cursor: Confirm acts on what
-    /// it is on (the same Act path) while the cursor is shown and attacks like Attack while it is hidden, Attack orders an attack on the cursor's, the chosen or the best hostile, the queue
+    /// it is on (the same Act path) while the cursor is shown and, while it is hidden, interacts with the terminal in reach, else attacks like Attack, Attack orders an attack on the cursor's, the chosen or the best hostile, the queue
     /// modifier (Shift / LT) queues, Cancel (Esc / the family's cancel button) clears the selection. While an ability is armed (AbilityTargeting) a click or the cursor's Confirm picks its target instead of giving an order, and Cancel disarms before it clears the selection. A terminal under the pointer is an Interact order (CommandResolver); the Interact action (keyboard) and a controller Confirm with the cursor hidden interact with the terminal in reach, else Confirm attacks as before. Contains no movement or combat rules.
     /// </summary>
     public sealed class PlayerCommandInput : MonoBehaviour
@@ -96,13 +96,23 @@ namespace Blackglass
         }
 
         /// <summary>
-        /// The available terminal within reach of the character being played (what Interact and a context Confirm would work
-        /// on), or null. The HUD uses it to show the prompt.
+        /// The terminal the Interact key (and a context Confirm with the cursor hidden) would act on right now, or null: the
+        /// nearest available terminal within reach of any ordered unit that no other living unit is already working.
         /// </summary>
         public MissionInteractable NearbyInteractable =>
-            interactables != null && activeCharacter != null && activeCharacter.HasUnit
-                ? interactables.NearestAvailable(activeCharacter.Unit.transform.position, contextInteractRadius)
-                : null;
+            TryFindReachableTerminal(OrderedUnits(), out var terminal) ? terminal : null;
+
+        /// <summary>
+        /// The terminal the interact prompt should name, or null. Keyboard: what Interact would act on. Controller with the
+        /// cursor shown: Confirm acts on what the cursor is on, so only a terminal under it counts; with the cursor hidden:
+        /// what the context Confirm would act on.
+        /// </summary>
+        public MissionInteractable PromptInteractable(bool controller)
+        {
+            if (controller && cursor != null && cursor.IsActive)
+                return cursor.Target.Kind == PointerTargetKind.Interactable ? cursor.Target.Interactable : null;
+            return NearbyInteractable;
+        }
 
         void Awake() => clickDetector = new ClickDragDetector(dragThresholdPixels);
 
@@ -194,7 +204,8 @@ namespace Blackglass
             GroupOrders.Issue(SelectedUnits(), new StopCommand(), IssueMode.Replace);
 
         // Controller counterpart of a left click: with the cursor shown, acts on what it is on through the same Act path.
-        // With the cursor hidden (the camera owns the right stick) there is nothing to point at, so it attacks like Attack.
+        // With the cursor hidden (the camera owns the right stick) there is nothing to point at, so it first tries the terminal
+        // in reach, else attacks like Attack.
         void OnConfirm(InputAction.CallbackContext context)
         {
             if (cursor == null)
@@ -222,22 +233,43 @@ namespace Blackglass
             TryInteractNearby();
         }
 
-        // Interact with the nearest available terminal within reach of whoever is ordered (the character being played, else the
-        // first ordered unit); the queue modifier appends. True when a terminal was found, so a context Confirm that finds one
-        // never also attacks, whether or not the unit could take the order.
+        // Interact with the terminal in reach of whoever is ordered (see TryFindReachableTerminal); the order goes to all of
+        // them and the queue modifier appends. True when a terminal was found, so a context Confirm that finds one never also
+        // attacks, whether or not a unit could take the order.
         bool TryInteractNearby()
         {
-            if (interactables == null)
-                return false;
             var units = OrderedUnits();
-            var anchor = AttackAnchor(units);
-            if (anchor == null)
-                return false;
-            var terminal = interactables.NearestAvailable(anchor.transform.position, contextInteractRadius);
-            if (terminal == null)
+            if (!TryFindReachableTerminal(units, out var terminal))
                 return false;
             GroupOrders.Issue(units, new InteractCommand(terminal), ModifierHeld ? IssueMode.Append : IssueMode.Replace, groupSpacing);
             return true;
+        }
+
+        // The nearest available terminal within contextInteractRadius of any of the units, skipping one that another living
+        // unit is already working (an order there would be refused, so Confirm should attack instead). The one rule behind
+        // the Interact key, the context Confirm and the prompt, so they cannot disagree.
+        bool TryFindReachableTerminal(List<CommandableUnit> units, out MissionInteractable terminal)
+        {
+            terminal = null;
+            if (interactables == null)
+                return false;
+            var bestDistance = contextInteractRadius;
+            foreach (var unit in units)
+            {
+                if (unit == null)
+                    continue;
+                foreach (var item in interactables.Items)
+                {
+                    if (item == null || !item.IsAvailable || item.IsInUseByOther(unit))
+                        continue;
+                    var distance = CoverRules.FlatDistance(unit.transform.position, item.Position);
+                    if (distance > bestDistance)
+                        continue;
+                    terminal = item;
+                    bestDistance = distance;
+                }
+            }
+            return terminal != null;
         }
 
         // Attack the cursor's hostile, else the chosen soft target, else the best hostile ahead of whoever is ordered.

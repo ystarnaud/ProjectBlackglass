@@ -55,8 +55,17 @@ namespace Blackglass
                 Cube(box.Name, center, size, obstacleMaterial, geometry.transform, true);
             }
 
-            // Objective content that must exist when the NavMesh is baked (the terminal) is added by the caller here.
-            addContent?.Invoke(geometry.transform);
+            // Objective content that must exist when the NavMesh is baked (the terminal) is added by the caller here. If it
+            // throws, the half-built root must not stay in the scene.
+            try
+            {
+                addContent?.Invoke(geometry.transform);
+            }
+            catch
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                throw;
+            }
 
             // Auto sync is off: without this the colliders sit where CreatePrimitive made them until the next physics step.
             Physics.SyncTransforms();

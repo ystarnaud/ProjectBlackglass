@@ -118,10 +118,10 @@ namespace Blackglass
         {
             if (commandInput == null || runtime.IsOver)
                 return;
-            var terminal = commandInput.NearbyInteractable;
+            var family = inputDevice != null ? inputDevice.Family : InputFamily.KeyboardMouse;
+            var terminal = commandInput.PromptInteractable(family.IsController());
             if (terminal == null)
                 return;
-            var family = inputDevice != null ? inputDevice.Family : InputFamily.KeyboardMouse;
             var path = family.IsController() ? "Commands/Confirm" : "Commands/Interact";
             var key = controls != null ? PromptResolver.GetPrompt(controls.FindAction(path), family) : "-";
             GUI.Label(new Rect(0f, Screen.height - 80f, Screen.width, 30f), $"{key}: Interact with {terminal.DisplayName}", labelStyle);

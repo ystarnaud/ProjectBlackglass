@@ -34,6 +34,7 @@ namespace Blackglass.Tests
 
             Assert.That(d.State, Is.EqualTo(MissionState.Ready), string.Join("\n", d.Report.Failures));
             Assert.That(d.Friendlies, Has.Count.EqualTo(3));
+            Assert.That(d.Current.Layout.HostileSpawns, Has.Count.EqualTo(3));
             Assert.That(d.Hostiles, Has.Count.EqualTo(PlacedHostiles(d)));
             Assert.That(rig.Encounter.Friendlies, Has.Count.EqualTo(3));
             Assert.That(rig.Encounter.Hostiles, Has.Count.EqualTo(PlacedHostiles(d)));

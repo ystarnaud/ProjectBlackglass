@@ -233,6 +233,114 @@ namespace Blackglass.Tests
             Assert.That(input.NearbyInteractable, Is.Null);
         }
 
+        // ---- who is ordered decides what is in reach (the prompt, the key and the context Confirm share one rule)
+
+        [UnityTest]
+        public IEnumerator Paused_WithNothingSelected_NoTerminalIsInReach_AndInteractDoesNothing_EvenNextToOne()
+        {
+            UseKeyboard();
+            pause.Pause();
+            yield return null;
+            Assert.That(CoverRulesDistance(near, terminal), Is.EqualTo(2f).Within(0.1f), "the active character stands next to it");
+
+            yield return Tap(keyboard.rKey);
+
+            Assert.That(input.NearbyInteractable, Is.Null);
+            Assert.That(near.Unit.CurrentCommand, Is.Null);
+            Assert.That(far.Unit.CurrentCommand, Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator Paused_WithOnlyTheFarUnitSelected_NothingIsInReach_AndInteractDoesNothing()
+        {
+            UseKeyboard();
+            selection.Select(far);
+            pause.Pause();
+            yield return null;
+
+            yield return Tap(keyboard.rKey);
+
+            Assert.That(input.NearbyInteractable, Is.Null);
+            Assert.That(far.Unit.CurrentCommand, Is.Null);
+            Assert.That(near.Unit.CurrentCommand, Is.Null, "the active character is not ordered while paused");
+        }
+
+        [UnityTest]
+        public IEnumerator Paused_WithTheFarAndTheNearUnitSelected_TheNearOneFindsTheTerminal_AndBothAreOrdered()
+        {
+            UseKeyboard();
+            selection.SetSelection(new[] { far, near });
+            pause.Pause();
+            yield return null;
+            Assert.That(input.NearbyInteractable, Is.SameAs(terminal));
+
+            yield return Tap(keyboard.rKey);
+
+            Assert.That(InteractOf(far.Unit), Is.Not.Null);
+            Assert.That(InteractOf(far.Unit).Target, Is.SameAs(terminal));
+            Assert.That(InteractOf(near.Unit), Is.Not.Null);
+            Assert.That(InteractOf(near.Unit).Target, Is.SameAs(terminal));
+        }
+
+        [UnityTest]
+        public IEnumerator ATerminalAnotherLivingUnitIsWorking_IsNotInReach_AndPadConfirmAttacksInstead()
+        {
+            Assert.That(terminal.TryBegin(far.Unit), Is.True);
+            yield return null;
+
+            Assert.That(input.NearbyInteractable, Is.Null, "an order there would be refused as in use");
+            Assert.That(input.PromptInteractable(true), Is.Null);
+            yield return Tap(pad.buttonSouth);
+
+            Assert.That(near.Unit.CurrentCommand, Is.TypeOf<AttackCommand>());
+            Assert.That(((AttackCommand)near.Unit.CurrentCommand).Target, Is.SameAs(hostile));
+        }
+
+        [UnityTest]
+        public IEnumerator ATerminalTheOrderedUnitIsWorkingItself_IsStillInReach()
+        {
+            Assert.That(terminal.TryBegin(near.Unit), Is.True);
+            yield return null;
+
+            Assert.That(input.NearbyInteractable, Is.SameAs(terminal));
+        }
+
+        [UnityTest]
+        public IEnumerator PromptInteractable_ForTheKeyboard_IsWhatInteractWouldWorkOn()
+        {
+            yield return null;
+            Assert.That(input.PromptInteractable(false), Is.SameAs(terminal));
+            Assert.That(input.PromptInteractable(false), Is.SameAs(input.NearbyInteractable));
+
+            pause.Pause();
+            yield return null;
+            Assert.That(input.NearbyInteractable, Is.Null, "paused with nothing selected");
+            Assert.That(input.PromptInteractable(false), Is.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator PromptInteractable_ForAController_FollowsTheCursorWhenShown_AndTheContextConfirmWhenHidden()
+        {
+            Assert.That(cursor.IsActive, Is.False);
+            yield return null;
+            Assert.That(input.PromptInteractable(true), Is.SameAs(terminal), "cursor hidden next to the terminal");
+
+            selection.Select(near);
+            pause.Pause();
+            yield return CursorOn(new Vector3(-4f, 0f, 6f));
+            Assert.That(cursor.IsActive, Is.True);
+            Assert.That(cursor.Target.Kind, Is.EqualTo(PointerTargetKind.Ground));
+            Assert.That(input.NearbyInteractable, Is.SameAs(terminal), "the selected unit stands next to it");
+            Assert.That(input.PromptInteractable(true), Is.Null, "Confirm would act on the ground, not the terminal");
+
+            yield return CursorOn(terminal.Position);
+            Assert.That(cursor.Target.Kind, Is.EqualTo(PointerTargetKind.Interactable));
+            Assert.That(input.PromptInteractable(true), Is.SameAs(terminal));
+        }
+
+        static float CoverRulesDistance(SelectableUnit unit, MissionInteractable item) =>
+            CoverRules.FlatDistance(unit.transform.position, item.Position);
+
         // ---- controller
 
         [UnityTest]
