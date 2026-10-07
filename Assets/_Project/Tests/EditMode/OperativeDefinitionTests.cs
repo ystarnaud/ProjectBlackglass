@@ -61,6 +61,41 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void IsValid_ADestroyedAbilityAsset_CountsAsAnEmptySlot()
+        {
+            var doomed = AbilityDefinition.Create("Doomed", AbilityTargetMode.Unit, 14f, true, AbilityCoverRule.Applies, 6f, AbilityEffect.Damage, 45);
+            var definition = OperativeDefinition.Create("a", "x", role, prefab, 100, 5f, archetype, new[] { ability, doomed });
+            try
+            {
+                Assert.That(definition.IsValid(out var before), Is.True, before);
+                Object.DestroyImmediate(doomed);
+
+                Assert.That(definition.IsValid(out var problem), Is.False);
+                StringAssert.Contains("ability", problem);
+            }
+            finally
+            {
+                Object.DestroyImmediate(definition);
+            }
+        }
+
+        [Test]
+        public void IsValid_AMissingAbilityList_SaysSo()
+        {
+            var definition = OperativeDefinition.Create("a", "x", role, prefab, 100, 5f, archetype, null);
+            try
+            {
+                definition.GetType().GetField("abilities", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance).SetValue(definition, null);
+                Assert.That(definition.IsValid(out var problem), Is.False);
+                StringAssert.Contains("missing", problem);
+            }
+            finally
+            {
+                Object.DestroyImmediate(definition);
+            }
+        }
+
+        [Test]
         public void IsValid_NamesTheFirstProblem()
         {
             var created = new System.Collections.Generic.List<OperativeDefinition>();

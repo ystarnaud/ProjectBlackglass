@@ -51,13 +51,24 @@ namespace Blackglass
                 problem = "there is no combat archetype";
             else if (baseMaxHealth < 1)
                 problem = "base health is below 1";
-            else if (abilities == null || abilities.Length > MaxAbilities)
+            else if (abilities == null)
+                problem = "the ability list is missing";
+            else if (abilities.Length > MaxAbilities)
                 problem = $"there are more than {MaxAbilities} abilities";
-            else if (Array.IndexOf(abilities, null) >= 0)
+            else if (HasEmptyAbilitySlot())
                 problem = "an ability slot is empty";
             else
                 problem = null;
             return problem == null;
+        }
+
+        // Unity's overloaded == (not Array.IndexOf): an unassigned or deleted asset in a serialized array is a fake null.
+        bool HasEmptyAbilitySlot()
+        {
+            for (var i = 0; i < abilities.Length; i++)
+                if (abilities[i] == null)
+                    return true;
+            return false;
         }
 
 #if UNITY_EDITOR
