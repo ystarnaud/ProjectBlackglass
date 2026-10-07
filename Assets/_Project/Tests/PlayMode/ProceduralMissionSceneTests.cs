@@ -208,6 +208,9 @@ namespace Blackglass.Tests
             Assert.That(registry.Points.Any(p => p.Height == CoverHeight.Low), Is.True);
             Assert.That(encounter.Outcome, Is.EqualTo(EncounterOutcome.Ongoing));
             Assert.That(active.Unit, Is.EqualTo(squad[0]));
+            Assert.That(squad[0].GetComponent<UnitAnimationDriver>(), Is.Not.Null, "slot 0 is Darius");
+            Assert.That(squad[0].GetComponent<UnitAttacker>().Archetype.Role, Is.EqualTo(CombatRole.Ranged), "Darius carries a rifle: a ranged unit, not a melee one");
+            Assert.That(squad[0].GetComponent<UnitAttacker>().Range, Is.GreaterThan(2f), "his attack range is a ranged one");
         }
 
         [UnityTest]
@@ -246,8 +249,8 @@ namespace Blackglass.Tests
             Assert.That(TestWorld.HorizontalDistance(squad[1].transform.position, destination), Is.LessThan(1f), "it arrived");
             Assert.That(TestWorld.HorizontalDistance(squad[1].transform.position, start), Is.GreaterThan(4f), "it travelled");
 
-            // Attack: the companions would assist on the same hostile, so they are switched off: only the leader's melee
-            // attack can kill it.
+            // Attack: the companions would assist on the same hostile, so they are switched off: only the leader's own
+            // (ranged) attack can kill it. The hostile stands 6 m away, inside the leader's range, so it may fire at once.
             squad[1].GetComponent<CompanionAI>().enabled = false;
             squad[2].GetComponent<CompanionAI>().enabled = false;
             var attacker = squad[0].GetComponent<UnitAttacker>();
@@ -261,7 +264,7 @@ namespace Blackglass.Tests
             }, 20f);
 
             Assert.That(hostile.IsAlive, Is.False);
-            Assert.That(reachedAttack, Is.True, "the leader closed in and attacked");
+            Assert.That(reachedAttack, Is.True, "the leader attacked");
             Assert.That((attacker.Hits - hitsBefore) * attacker.Damage, Is.GreaterThanOrEqualTo(hostile.Max), "the leader's own hits killed it");
             Assert.That(encounter.LivingHostiles, Is.EqualTo(hostiles.Length - 1));
         }

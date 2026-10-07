@@ -63,6 +63,24 @@ namespace Blackglass.Tests
         public void SetHostileSlots(HostileSlot[] slots) =>
             Director.Initialize(settings, FriendlySlots(), slots, systems, ground, obstacle, generateAtStart: false);
 
+        /// <summary>Gives the director other friendly slots (the rest of its setup is unchanged).</summary>
+        public void SetFriendlySlots(FriendlySlot[] slots) =>
+            Director.Initialize(settings, slots, HostileSlots(), systems, ground, obstacle, generateAtStart: false);
+
+        public const string DariusPlayerPath = "Assets/Art/Characters/Darius/Prefabs/Darius_Player.prefab";
+
+        /// <summary>The usual three friendly slots with Darius (rifle, humanoid visual, Ranged archetype) in slot 0, as in the scene.</summary>
+        public static FriendlySlot[] FriendlySlotsWithDarius()
+        {
+            var slots = FriendlySlots();
+            var darius = AssetDatabase.LoadAssetAtPath<GameObject>(DariusPlayerPath);
+            if (darius == null)
+                throw new InvalidOperationException("Missing asset " + DariusPlayerPath);
+            slots[0].prefab = darius;
+            slots[0].archetype = Load<CombatArchetype>("Data/Archetypes/Ranged.asset");
+            return slots;
+        }
+
         /// <summary>
         /// Makes the director generate when it starts, like the scene's. Call it before the first yield: Start has not
         /// run yet then. `seedSource` replaces the clock seed a new-seed start draws.
