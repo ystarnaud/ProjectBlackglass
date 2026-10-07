@@ -427,3 +427,17 @@ Short record of decisions that are likely to matter later. Newest last.
   - The hit flash is invisible on Darius (his `_BaseColor` is white, so the tint changes nothing).
   - Darius is 1.88 m tall inside a 2 m capsule, so hits and selection use a slightly taller volume than the model.
   - Normal maps are assigned but there are no metallic, smoothness or emission maps (the glow strips are painted into the base colour); the body and rifle materials use a shared default smoothness of 0.5.
+
+## 035 — Environment visual layer: planner, theme and builder
+
+- **Decided (2026-10-07):**
+  - **Structure:** the visual layer is a planner (`EnvironmentVisualPlanner`: pure, turns the layout into `VisualPlacement`s of semantic `EnvironmentElement`s), a theme (`EnvironmentTheme` ScriptableObject: element to prefab variants plus a `salt`) and a builder (`EnvironmentVisualBuilder`: instantiates the placements under one `Visuals` node). The generator never names a prefab.
+  - **Gameplay unchanged:** the gameplay cubes stay the only carriers of the collider, `CoverSurface` and `NavMeshModifier`; when a theme is assigned their renderers are disabled. Prefabs are collider-free (the builder strips any it finds), so cover, navigation and the layout hash are identical with or without a theme.
+  - **Walls:** per-tile modules (straight, end, corner, junction) classified from the neighbouring wall tiles; `Pillar`, `LowCover` and `LowCoverLong` (2-tile modules plus a remainder) cover the other obstacles; `DoorFrame` overlays the wall ends that ring an opening.
+  - **Variants:** chosen by a stateless hash of seed, theme salt, element and tile (`VisualVariants.Pick`), not from a random stream.
+  - **Terminal:** split into the gameplay root and a swappable `VisualRoot`; the objective marker tints only its display.
+  - **Debug:** F8 toggles the gameplay cubes with their existing placeholder materials, for comparing art against the real volumes.
+  - **Kit:** `EnvironmentKitBuilder` creates six `BW_` materials, primitive prefabs and the `CorporatePrototype` theme, keeping existing assets unless told to overwrite. Conventions are in `Docs/EnvironmentAssetGuide.md`.
+- **Why:** art must be replaceable (and later themeable) without touching generation or gameplay, and the physical rules must not depend on what a wall looks like.
+- **Rejected:** stretched single wall meshes (cannot carry trim or corners); colliders on visual prefabs (trim would create false cover and navigation faults); drawing variants from the layout random stream (any visual change would reshuffle the map); a decal or clutter framework (out of scope).
+- **Implications:** replacing art needs no generator change; a new theme is a new asset; `DoorFrame` overlays ring wall ends; floors are per-tile modules, so instance count grows with mission size (static batching is the first optimisation if profiling asks). `LightFixture` is an emissive prop only; real lights are not part of this phase.
