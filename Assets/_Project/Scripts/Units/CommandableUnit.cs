@@ -27,7 +27,7 @@ namespace Blackglass
     /// anything and runs (UnitAbilities.TryUse, which validates again) on the first running frame it is usable, before
     /// steering is considered; whether it then succeeds or fails the queue moves on. While its only problem is range or
     /// line of sight it walks into position first with the attack's approach and reposition steps (decision 029), and
-    /// gives up when that walk makes no progress for AbilityStallTimeout or the place cannot be reached.
+    /// gives up when that walk makes no progress for AbilityStallTimeout or the place cannot be reached. An InteractCommand walks into the target's range, then works on it for its duration (UnitInteractor), re-validating every running frame; any failure, a stop, a replacing order, steering or death ends it and drops the claim and its progress.
     /// </summary>
     [RequireComponent(typeof(UnitMover), typeof(UnitAttacker), typeof(UnitCover))]
     public sealed class CommandableUnit : MonoBehaviour
@@ -62,6 +62,7 @@ namespace Blackglass
         Health ownHealth;
         UnitCover cover;
         UnitAbilities abilities;
+        UnitInteractor interactor;
         float coverBestDistance;
         float coverLastProgressTime;
         // Where the current approach or reposition walk leads, and the ability's progress toward it.
@@ -138,6 +139,7 @@ namespace Blackglass
         }
 
         UnitAbilities Abilities => abilities != null ? abilities : abilities = GetComponent<UnitAbilities>();
+        UnitInteractor Interactor => interactor != null ? interactor : interactor = GetComponent<UnitInteractor>();
         UnitMover Mover => mover != null ? mover : mover = GetComponent<UnitMover>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
 
@@ -174,6 +176,7 @@ namespace Blackglass
                 case AttackCommand _:
                 case MoveToCoverCommand _:
                 case AbilityCommand _:
+                case InteractCommand _:
                     break;
                 default:
                     throw new ArgumentException($"Unsupported command type {command.GetType().Name}.", nameof(command));
@@ -194,10 +197,20 @@ namespace Blackglass
                 return true;
             }
 
+            if (command is InteractCommand again && queue.Current is InteractCommand running && running.Target == again.Target
+                && Interactor != null && Interactor.Check(again.Target) == InteractionFailure.None)
+            {
+                queue.Replace(again);
+                return true;
+            }
+
             // An ability that would start now is checked in full now, but range and sight only decide whether it walks
             // first (decision 029), unless the unit is being steered and could not walk (ruling R10); behind other orders
             // only its target is, because the caster will have moved on by the time it runs.
             if (command is AbilityCommand startingAbility && !CanStartAbility(startingAbility, AbilityCheckScope.Full))
+                return false;
+
+            if (command is InteractCommand startingInteract && !CanOrderInteract(startingInteract))
                 return false;
 
             if (!TryStart(command))
@@ -266,6 +279,9 @@ namespace Blackglass
                 case AbilityCommand ability:
                     UpdateAbility(ability, abilityBlocker);
                     break;
+                case InteractCommand interact:
+                    UpdateInteract(interact);
+                    break;
             }
         }
 
@@ -285,13 +301,26 @@ namespace Blackglass
                     return CanTakeCover(toCover.Point);
                 case AbilityCommand ability:
                     return CanStartAbility(ability, AbilityCheckScope.Static);
+                case InteractCommand interact:
+                    // Queued: only what cannot change by the time it runs. Another unit's claim and the walk are checked then.
+                    return Interactor != null && Interactor.Check(interact.Target, allowOtherUser: true) == InteractionFailure.None;
                 default:
                     return false;
             }
         }
 
-        // Starts carrying out an order. Returns false, without side effects, if it cannot be carried out.
+        // Starts carrying out an order. Returns false, without side effects, if it cannot be carried out. A new current order
+        // ends an interaction in progress (the claim and its progress), unless it is the interact order taking over.
         bool TryStart(UnitCommand command)
+        {
+            if (!TryStartCommand(command))
+                return false;
+            if (!(command is InteractCommand) && Interactor != null)
+                Interactor.Release();
+            return true;
+        }
+
+        bool TryStartCommand(UnitCommand command)
         {
             switch (command)
             {
@@ -323,6 +352,25 @@ namespace Blackglass
                     Cover.ReleaseReservation();
                     ResetAttack();
                     return true;
+                case InteractCommand interact:
+                {
+                    var worker = Interactor;
+                    var target = interact.Target;
+                    if (worker == null || worker.Check(target) != InteractionFailure.None)
+                        return false;
+                    var inRange = worker.InRange(target, transform.position);
+                    if (!inRange && !Mover.CanMoveTo(target.Position))
+                        return false;
+                    worker.Release();
+                    if (inRange)
+                        Mover.Stop();
+                    else if (!WalkTo(target.Position))
+                        return false;
+                    walkProgressTime = Time.time;
+                    Cover.ReleaseReservation();
+                    ResetAttack();
+                    return true;
+                }
                 default:
                     return false;
             }
@@ -385,6 +433,51 @@ namespace Blackglass
                 Reposition(aim);
         }
 
+        // Whether an interact order passes its checks to start now: a usable, unclaimed target the unit is in range of or can reach.
+        bool CanOrderInteract(InteractCommand order)
+        {
+            var worker = Interactor;
+            if (worker == null || worker.Check(order.Target) != InteractionFailure.None)
+                return false;
+            return worker.InRange(order.Target, transform.position) || Mover.CanReach(order.Target.Position);
+        }
+
+        // Re-validates every running frame: a vanished, completed or taken terminal ends the order (the queue moves on). In
+        // range the unit stops, faces the terminal, claims it and adds its scaled frame time (frozen by pause, which stops
+        // this Update). Out of range it walks; arriving or stalling out of range, or being pushed out of range while working,
+        // ends the order.
+        void UpdateInteract(InteractCommand order)
+        {
+            var worker = Interactor;
+            var target = order.Target;
+            var failure = worker != null ? worker.Check(target) : InteractionFailure.NoTarget;
+            if (failure != InteractionFailure.None)
+            {
+                if (worker != null)
+                    worker.Record(failure);
+                Finish();
+                return;
+            }
+            if (worker.InRange(target, transform.position))
+            {
+                if (!worker.IsWorking)
+                {
+                    if (!worker.TryStart(target))
+                    {
+                        Finish();
+                        return;
+                    }
+                    Mover.Stop();
+                }
+                FaceTowards(target.Position);
+                if (worker.Advance(Time.deltaTime) != InteractionStep.Working)
+                    Finish();
+                return;
+            }
+            if (worker.IsWorking || Mover.HasArrived || WalkStalled())
+                Finish();
+        }
+
         // Starts a walk for an attack or ability order and remembers where it leads, for the ability's progress check. The
         // best distance starts at the current one, so a new walk alone is never counted as progress.
         bool WalkTo(Vector3 point)
@@ -422,6 +515,8 @@ namespace Blackglass
         void StopAll()
         {
             Cover.ReleaseReservation();
+            if (Interactor != null)
+                Interactor.Release();
             Mover.Stop();
             ResetAttack();
             queue.Clear();
@@ -620,6 +715,8 @@ namespace Blackglass
         // The attack or ability order is over: stop, forget its phases, start the next order.
         void Finish()
         {
+            if (Interactor != null)
+                Interactor.Release();
             Mover.Stop();
             ResetAttack();
             StartNext();

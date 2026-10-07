@@ -13,14 +13,16 @@ namespace Blackglass
     /// <summary>
     /// Puts the squad and the hostiles into a built mission. Units are instantiated under the (inactive) Actors object
     /// and wired before it is activated, so no component's OnEnable ever sees a half-wired unit. Every spawn point is
-    /// snapped to the NavMesh and checked for geometry first; one bad point fails the whole spawn.
+    /// snapped to the NavMesh and checked for geometry first; one bad point fails the whole spawn. Guards are extra hostile
+    /// tiles from the objective plan (spawned after the layout's hostiles), and every friendly gets a UnitInteractor.
     /// </summary>
     public static class MissionSpawner
     {
         const float UnitRadius = 0.45f;
 
         public static bool TrySpawn(GeneratedMission mission, IReadOnlyList<FriendlySlot> friendlySlots,
-            IReadOnlyList<HostileSlot> hostileSlots, MissionSystems systems, out MissionSpawnResult result, out string failure)
+            IReadOnlyList<HostileSlot> hostileSlots, MissionSystems systems, IReadOnlyList<Vector2Int> guardTiles,
+            out MissionSpawnResult result, out string failure)
         {
             result = new MissionSpawnResult();
             failure = null;
@@ -50,13 +52,16 @@ namespace Blackglass
                 unit.GetComponent<CompanionAI>().Wire(systems.activeCharacter, systems.encounter);
                 unit.GetComponent<CompanionAI>().HoldUntilLeaderMoves();   // no squad-up walk at spawn (decision 028)
                 unit.GetComponent<UnitCover>().Wire(systems.coverRegistry);
+                unit.gameObject.AddComponent<UnitInteractor>();
                 result.Friendlies.Add(unit);
                 grounds.Add((unit, ground));
             }
-            for (var i = 0; i < layout.HostileSpawns.Count; i++)
+            var hostileTiles = new List<Vector2Int>(layout.HostileSpawns);
+            hostileTiles.AddRange(guardTiles);
+            for (var i = 0; i < hostileTiles.Count; i++)
             {
                 var slot = hostileSlots[i % hostileSlots.Count];
-                if (!TryCreate(mission, slot.prefab, $"HostileUnit_{i + 1}", layout.TileCenter(layout.HostileSpawns[i]),
+                if (!TryCreate(mission, slot.prefab, $"HostileUnit_{i + 1}", layout.TileCenter(hostileTiles[i]),
                         friendlyCentre - hostileCentre, out var unit, out var ground, out failure))
                     return false;
                 if (slot.archetype != null)

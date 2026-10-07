@@ -89,6 +89,18 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Build_WhenThePreBakeContentThrows_RethrowsAndLeavesNoMissionRoot()
+        {
+            var layout = Layout(12345);
+
+            Assert.That(() => MissionBuilder.Build(layout, null, null, g => throw new System.InvalidOperationException("boom")),
+                Throws.TypeOf<System.InvalidOperationException>().With.Message.EqualTo("boom"));
+            yield return null;
+
+            Assert.That(GameObject.Find(GeneratedMission.RootName), Is.Null, "the half-built root was destroyed");
+        }
+
+        [UnityTest]
         public IEnumerator Build_GivesANavMeshThatValidates_ForSeveralSeeds()
         {
             for (var seed = 1; seed <= 8; seed++)

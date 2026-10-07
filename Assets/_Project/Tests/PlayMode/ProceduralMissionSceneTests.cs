@@ -203,7 +203,7 @@ namespace Blackglass.Tests
             yield return LoadMission();
 
             Assert.That(squad, Has.Length.EqualTo(3));
-            Assert.That(hostiles, Has.Length.EqualTo(3));
+            Assert.That(hostiles, Has.Length.EqualTo(director.Report.HostileSpawns + director.Report.Guards));
             Assert.That(registry.Points.Any(p => p.Placement == CoverPlacement.Corner), Is.True);
             Assert.That(registry.Points.Any(p => p.Height == CoverHeight.Low), Is.True);
             Assert.That(encounter.Outcome, Is.EqualTo(EncounterOutcome.Ongoing));
@@ -263,7 +263,7 @@ namespace Blackglass.Tests
             Assert.That(hostile.IsAlive, Is.False);
             Assert.That(reachedAttack, Is.True, "the leader closed in and attacked");
             Assert.That((attacker.Hits - hitsBefore) * attacker.Damage, Is.GreaterThanOrEqualTo(hostile.Max), "the leader's own hits killed it");
-            Assert.That(encounter.LivingHostiles, Is.EqualTo(2));
+            Assert.That(encounter.LivingHostiles, Is.EqualTo(hostiles.Length - 1));
         }
 
         [UnityTest]
@@ -437,7 +437,7 @@ namespace Blackglass.Tests
             Assert.That(director.Report.LayoutHash, Is.EqualTo(hash), "same seed, same layout");
             Assert.That(oldUnits.All(u => u == null), Is.True);
             Assert.That(oldLocations.All(l => !l.IsValid), Is.True);
-            Assert.That(Object.FindObjectsByType<EnemyAI>(FindObjectsSortMode.None), Has.Length.EqualTo(3));
+            Assert.That(Object.FindObjectsByType<EnemyAI>(FindObjectsSortMode.None), Has.Length.EqualTo(director.Report.HostileSpawns + director.Report.Guards));
             Assert.That(Object.FindObjectsByType<SelectableUnit>(FindObjectsSortMode.None), Has.Length.EqualTo(3));
         }
 

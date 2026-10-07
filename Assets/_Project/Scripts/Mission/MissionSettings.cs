@@ -46,6 +46,16 @@ namespace Blackglass
         /// <summary>Straight-line metres between any friendly and any hostile spawn.</summary>
         public float minTeamSeparation = 16f;
         public int maxAttempts = 20;
+        /// <summary>Extra hostiles placed around the terminal (an upper bound: fewer when they do not fit).</summary>
+        public int guardCount = 2;
+        /// <summary>How long a unit works on the terminal.</summary>
+        public float interactionSeconds = 2f;
+        /// <summary>Living squad members that must be inside the extraction zone.</summary>
+        public int extractionUnits = 1;
+        /// <summary>The hostile group must be eliminated before extraction opens.</summary>
+        public bool eliminateHostiles = true;
+        /// <summary>The terminal must be hacked before extraction opens.</summary>
+        public bool hackTerminal = true;
 
         /// <summary>A clamped copy; the original is untouched. Everything downstream works on the copy.</summary>
         public MissionSettings Validated()
@@ -63,6 +73,12 @@ namespace Blackglass
             copy.hostileCount = Mathf.Clamp(hostileCount, 1, 8);
             copy.minTeamSeparation = Mathf.Clamp(minTeamSeparation, 0f, 60f);
             copy.maxAttempts = Mathf.Clamp(maxAttempts, 1, 100);
+            copy.guardCount = Mathf.Clamp(guardCount, 0, 4);
+            copy.interactionSeconds = Mathf.Clamp(interactionSeconds, 0f, 30f);
+            copy.extractionUnits = Mathf.Clamp(extractionUnits, 1, 6);
+            // A mission always has a required objective; with both off the terminal stays.
+            if (!copy.eliminateHostiles && !copy.hackTerminal)
+                copy.hackTerminal = true;
             return copy;
         }
 
@@ -70,6 +86,7 @@ namespace Blackglass
         public string Describe() =>
             FormattableString.Invariant($"seed={seed} grid={gridColumns}x{gridRows} cell={cellSize} rooms={roomCount} corridor={corridorWidth} ") +
             FormattableString.Invariant($"loops={extraLoops} baffles={bafflesPerRoom} lowCover={lowCoverDensity:0.##} friendlies={friendlyCount} ") +
-            FormattableString.Invariant($"hostiles={hostileCount} separation={minTeamSeparation:0.##} attempts={maxAttempts}");
+            FormattableString.Invariant($"hostiles={hostileCount} separation={minTeamSeparation:0.##} attempts={maxAttempts} ") +
+            FormattableString.Invariant($"guards={guardCount} interact={interactionSeconds:0.##} extractionUnits={extractionUnits} eliminate={eliminateHostiles} hack={hackTerminal}");
     }
 }

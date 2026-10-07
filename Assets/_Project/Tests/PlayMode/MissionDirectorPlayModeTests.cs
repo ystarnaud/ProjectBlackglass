@@ -22,6 +22,9 @@ namespace Blackglass.Tests
 
         static string[] RootNames() => SceneManager.GetActiveScene().GetRootGameObjects().Select(g => g.name).OrderBy(n => n).ToArray();
 
+        // A mission has the layout's hostiles plus the objective guards.
+        static int PlacedHostiles(MissionDirector d) => d.Current.Layout.HostileSpawns.Count + d.Current.Plan.GuardTiles.Count;
+
         [UnityTest]
         public IEnumerator Generate_ReachesReady_WithTheSquadAndHostilesOnTheNavMesh_AndWiredToTheSystems()
         {
@@ -31,9 +34,10 @@ namespace Blackglass.Tests
 
             Assert.That(d.State, Is.EqualTo(MissionState.Ready), string.Join("\n", d.Report.Failures));
             Assert.That(d.Friendlies, Has.Count.EqualTo(3));
-            Assert.That(d.Hostiles, Has.Count.EqualTo(3));
+            Assert.That(d.Current.Layout.HostileSpawns, Has.Count.EqualTo(3));
+            Assert.That(d.Hostiles, Has.Count.EqualTo(PlacedHostiles(d)));
             Assert.That(rig.Encounter.Friendlies, Has.Count.EqualTo(3));
-            Assert.That(rig.Encounter.Hostiles, Has.Count.EqualTo(3));
+            Assert.That(rig.Encounter.Hostiles, Has.Count.EqualTo(PlacedHostiles(d)));
             Assert.That(rig.Encounter.Outcome, Is.EqualTo(EncounterOutcome.Ongoing));
             Assert.That(rig.Selection.Roster, Has.Count.EqualTo(3));
             Assert.That(rig.Active.Unit, Is.EqualTo(d.Friendlies[0]));
@@ -209,8 +213,8 @@ namespace Blackglass.Tests
             Assert.That(rig.Selection.Selected, Is.Empty);
             Assert.That(rig.Selection.Roster, Has.Count.EqualTo(3));
             Assert.That(rig.Encounter.Friendlies.All(h => h != null && h.IsAlive), Is.True);
-            Assert.That(rig.Encounter.Hostiles, Has.Count.EqualTo(3));
-            Assert.That(rig.Encounter.LivingHostiles, Is.EqualTo(3));
+            Assert.That(rig.Encounter.Hostiles, Has.Count.EqualTo(PlacedHostiles(d)));
+            Assert.That(rig.Encounter.LivingHostiles, Is.EqualTo(PlacedHostiles(d)));
             Assert.That(rig.Encounter.Outcome, Is.EqualTo(EncounterOutcome.Ongoing));
             Assert.That(rig.Registry.Points.All(p => !p.IsClaimed), Is.True, "no reservation on the new cover");
             var expectedRoots = persistentRoots.Concat(new[] { GeneratedMission.RootName }).OrderBy(n => n).ToArray();
@@ -273,7 +277,7 @@ namespace Blackglass.Tests
             yield return null;
 
             Assert.That(d.State, Is.EqualTo(MissionState.Ready), "the director is not stuck in Generating");
-            Assert.That(d.Hostiles, Has.Count.EqualTo(3));
+            Assert.That(d.Hostiles, Has.Count.EqualTo(PlacedHostiles(d)));
         }
 
         [UnityTest]
@@ -372,9 +376,9 @@ namespace Blackglass.Tests
             Assert.That(d.Report.Seed, Is.EqualTo(2));
             Assert.That(SceneManager.GetActiveScene().GetRootGameObjects().Count(g => g.name == GeneratedMission.RootName), Is.EqualTo(1));
             Assert.That(d.Friendlies, Has.Count.EqualTo(3));
-            Assert.That(d.Hostiles, Has.Count.EqualTo(3));
+            Assert.That(d.Hostiles, Has.Count.EqualTo(PlacedHostiles(d)));
             Assert.That(rig.Encounter.Friendlies, Has.Count.EqualTo(3));
-            Assert.That(rig.Encounter.Hostiles, Has.Count.EqualTo(3));
+            Assert.That(rig.Encounter.Hostiles, Has.Count.EqualTo(PlacedHostiles(d)));
             Assert.That(Resources.FindObjectsOfTypeAll<NavMeshData>().Length, Is.EqualTo(baseline), "NavMeshData objects");
         }
 

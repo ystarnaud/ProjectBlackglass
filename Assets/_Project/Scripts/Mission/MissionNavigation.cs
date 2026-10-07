@@ -72,6 +72,41 @@ namespace Blackglass
             return true;
         }
 
+        /// <summary>
+        /// The objective content must be usable: a complete path from the first friendly spawn to the terminal (with
+        /// somewhere to stand within the interaction range), to the extraction centre and to every guard tile.
+        /// </summary>
+        public static bool ValidateObjectives(MissionLayout layout, ObjectivePlan plan, bool hasTerminal, out string reason)
+        {
+            if (!NavMesh.SamplePosition(layout.TileCenter(layout.FriendlySpawns[0]), out var start, 1f, NavMesh.AllAreas))
+            {
+                reason = "the first friendly spawn is not on the NavMesh";
+                return false;
+            }
+            var path = new NavMeshPath();
+            if (hasTerminal)
+            {
+                var terminal = layout.TileCenter(plan.TerminalTile);
+                if (!NavMesh.SamplePosition(terminal, out var stand, SnapRadius, NavMesh.AllAreas)
+                    || Vector3.Distance(new Vector3(stand.position.x, 0f, stand.position.z), terminal) > MissionContent.InteractionRange - 0.2f)
+                {
+                    reason = "the terminal has no standing place within reach";
+                    return false;
+                }
+                if (!PathExists(start.position, terminal, path, out reason, "the terminal"))
+                    return false;
+            }
+            if (!PathExists(start.position, layout.TileCenter(plan.ExtractionTile), path, out reason, "the extraction zone"))
+                return false;
+            foreach (var tile in plan.GuardTiles)
+            {
+                if (!PathExists(start.position, layout.TileCenter(tile), path, out reason, "a guard spawn"))
+                    return false;
+            }
+            reason = null;
+            return true;
+        }
+
         static bool PathExists(Vector3 from, Vector3 to, NavMeshPath path, out string reason, string label)
         {
             reason = null;

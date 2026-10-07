@@ -91,5 +91,14 @@ namespace Blackglass.Tests
             Assert.That(a.OrderBy(x => x), Is.EqualTo(Enumerable.Range(0, 20)));
             Assert.That(a, Is.Not.EqualTo(Enumerable.Range(0, 20).ToList()));
         }
+
+        [Test]
+        public void ForObjectives_IsDeterministic_AndIndependentOfTheLayoutStream()
+        {
+            Assert.That(SeededRandom.ForObjectives(5, 1).NextULong(), Is.EqualTo(SeededRandom.ForObjectives(5, 1).NextULong()));
+            Assert.That(SeededRandom.ForObjectives(5, 1).NextULong(), Is.Not.EqualTo(SeededRandom.ForAttempt(5, 1).NextULong()));
+            Assert.That(SeededRandom.ForObjectives(5, 1).NextULong(), Is.Not.EqualTo(SeededRandom.ForObjectives(5, 2).NextULong()));
+            Assert.That(SeededRandom.ForObjectives(5, 1).NextULong(), Is.Not.EqualTo(SeededRandom.ForObjectives(6, 1).NextULong()));
+        }
     }
 }

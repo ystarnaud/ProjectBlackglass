@@ -7,7 +7,7 @@ namespace Blackglass
     /// <summary>
     /// The controller's tactical cursor: a screen-space pointer moved by the right stick (on unscaled time, so it works
     /// while paused). Each frame it resolves what it is on into a PointerTarget, snapping a little: to a friendly, then a
-    /// hostile, then a cover location near the ground point under the cursor. Confirm and Attack read that target in
+    /// hostile, then a terminal, then a cover location near the ground point under the cursor. Confirm and Attack read that target in
     /// PlayerCommandInput; the cursor itself issues no orders. It is active whenever a controller is in use and the
     /// camera does not own the right stick (see StickRole). Also holds the "soft target" that NextTarget and
     /// PreviousTarget cycle through living hostiles (only they set it: hovering a hostile or an Attack's fallback does
@@ -23,6 +23,8 @@ namespace Blackglass
         [SerializeField] UnitSelection selection;
         [SerializeField] Encounter encounter;
         [SerializeField] CoverRegistry coverRegistry;
+        // Optional: without it the cursor never snaps to a terminal.
+        [SerializeField] InteractableRegistry interactables;
         // Optional: without it the cursor behaves as if a controller were in use (tests, scenes without detection).
         [SerializeField] ActiveInputDevice inputDevice;
 
@@ -41,6 +43,8 @@ namespace Blackglass
         // Smaller than the unit radius: cover points are 1 m apart, so a larger one would make every ground order
         // beside a wall a cover order.
         [SerializeField, Min(0f)] float coverSnapRadius = 0.75f;
+        // Within this distance of the ground point under the cursor, an available terminal is snapped to.
+        [SerializeField, Min(0f)] float interactableSnapRadius = 1.5f;
         [SerializeField, Min(1f)] float maxDistance = 500f;
         [SerializeField] LayerMask clickableLayers = ~0;
 
@@ -86,6 +90,8 @@ namespace Blackglass
             nextTargetAction = nextTarget;
             previousTargetAction = previousTarget;
         }
+
+        internal void SetInteractables(InteractableRegistry registry) => interactables = registry;
 
         void OnEnable()
         {
@@ -230,6 +236,9 @@ namespace Blackglass
             var hostile = NearestHostile(ground);
             if (hostile != null)
                 return PointerTarget.OnHostile(hostile, ground);
+            var interactable = interactables != null ? interactables.NearestAvailable(ground, interactableSnapRadius) : null;
+            if (interactable != null)
+                return PointerTarget.OnInteractable(interactable, ground);
             if (coverRegistry != null && CoverRules.TryChooseNearest(coverRegistry.Points, ground, coverSnapRadius, acceptAny, out var cover))
                 return PointerTarget.OnCover(cover, ground);
             return raw;

@@ -38,10 +38,13 @@ namespace Blackglass
         public float TeamSeparation;
         public Bounds Bounds;
         public ulong LayoutHash;
+        public int Guards;
+        public ulong ObjectiveHash;
     }
 
     /// <summary>
-    /// Runs the mission pipeline: teardown, layout, geometry, NavMesh, validation, cover, spawn, camera. Persistent
+    /// Runs the mission pipeline: teardown, layout, objective placement (before the build; the terminal is part of the
+    /// NavMesh bake), geometry, NavMesh, validation, cover, spawn, camera. Persistent
     /// systems are only reset and refilled, never created or destroyed. One generation at a time; every generated object
     /// lives under GeneratedMissionRoot, which is all teardown has to destroy (plus the death markers units leave at
     /// the scene root, and the NavMeshData each bake creates, which removing the NavMesh does not destroy).
@@ -66,6 +69,9 @@ namespace Blackglass
         public MissionState State { get; private set; }
         public MissionReport Report { get; private set; } = new MissionReport();
         public GeneratedMission Current { get; private set; }
+        /// <summary>The running mission's objectives and phase; null while there is no mission (idle, generating, failed).</summary>
+        public MissionRuntime Runtime { get; private set; }
+        public MissionPhase Phase => Runtime != null ? Runtime.Phase : MissionPhase.Inactive;
         public MissionSettings Settings => settings;
         internal bool NewSeedAtStart => newSeedAtStart;
         /// <summary>Where a new seed comes from; the clock by default, replaceable by tests.</summary>
@@ -178,6 +184,7 @@ namespace Blackglass
             catch (Exception exception)
             {
                 Report.Failures.Add($"attempt {attempt}: exception: {exception.GetType().Name}: {exception.Message}");
+                DetachRuntime();
                 friendlies.Clear();
                 hostiles.Clear();
                 Current = null;
@@ -188,7 +195,8 @@ namespace Blackglass
             }
         }
 
-        // One attempt: layout, geometry, NavMesh, validation, cover, spawn, camera. A failed attempt leaves nothing behind.
+        // One attempt: layout, objective placement, geometry (with the terminal), NavMesh, validation, cover, spawn, camera.
+        // A failed attempt leaves nothing behind.
         bool TryAttempt(MissionSettings request, int attempt, ref GeneratedMission mission)
         {
             if (!MissionGenerator.TryAttempt(request, attempt, out var layout, out var reason))
@@ -196,18 +204,33 @@ namespace Blackglass
                 Report.Failures.Add($"attempt {attempt}: {reason}");
                 return false;
             }
-            mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial);
+            if (!ObjectivePlacer.TryPlace(layout, request, out var plan, out reason))
+            {
+                Report.Failures.Add($"attempt {attempt}: objectives: {reason}");
+                return false;
+            }
+            MissionInteractable terminal = null;
+            Action<Transform> addTerminal = request.hackTerminal
+                ? geometry => terminal = MissionContent.AddTerminal(geometry, plan, layout, request, obstacleMaterial)
+                : (Action<Transform>)null;
+            mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial, addTerminal);
             if (!MissionNavigation.Validate(layout, out reason, out var navigation))
             {
                 Report.Failures.Add($"attempt {attempt}: navigation: {reason}");
                 DestroyMission(mission, true);   // immediate: the next attempt must not see this NavMesh
                 return false;
             }
+            if (!MissionNavigation.ValidateObjectives(layout, plan, terminal != null, out reason))
+            {
+                Report.Failures.Add($"attempt {attempt}: objectives: {reason}");
+                DestroyMission(mission, true);
+                return false;
+            }
 
             var origin = layout.TileCenter(layout.FriendlySpawns[0]);
             systems.coverDiscovery.Discover(mission.Geometry, MissionNavigation.ReachableFrom(origin));
 
-            if (!MissionSpawner.TrySpawn(mission, friendlySlots, hostileSlots, systems, out var spawned, out reason))
+            if (!MissionSpawner.TrySpawn(mission, friendlySlots, hostileSlots, systems, plan.GuardTiles, out var spawned, out reason))
             {
                 Report.Failures.Add($"attempt {attempt}: spawn: {reason}");
                 ResetSystems();
@@ -215,16 +238,45 @@ namespace Blackglass
                 return false;
             }
 
+            mission.Plan = plan;
+            mission.Terminal = terminal;
+            mission.ExtractionZone = MissionContent.CreateZone(layout, plan, mission.Root.transform);
             Current = mission;
             friendlies.AddRange(spawned.Friendlies);
             hostiles.AddRange(spawned.Hostiles);
-            Fill(Report, layout, navigation);
+            if (systems.interactables != null)
+                systems.interactables.Rebuild(terminal != null ? new[] { terminal } : Array.Empty<MissionInteractable>());
+            var squad = new List<Health>();
+            foreach (var unit in friendlies)
+                squad.Add(unit.GetComponent<Health>());
+            var group = new List<Health>();
+            foreach (var unit in hostiles)
+                group.Add(unit.GetComponent<Health>());
+            Runtime = MissionContent.CreateRuntime(mission, request, group, squad);
+            Runtime.Start();
+            Fill(Report, layout, navigation, plan);
             FrameCamera(layout);
             return true;
         }
 
+        void Update()
+        {
+            if (Runtime != null)
+                Runtime.Tick();
+        }
+
+        // The runtime is dropped before anything it refers to is destroyed, so nothing can fire into a dead mission.
+        void DetachRuntime()
+        {
+            if (Runtime == null)
+                return;
+            Runtime.Detach();
+            Runtime = null;
+        }
+
         void Teardown()
         {
+            DetachRuntime();
             ResetSystems();
             foreach (var unit in friendlies)
                 DestroyMarker(unit);
@@ -251,6 +303,8 @@ namespace Blackglass
             }
             if (systems.activeCharacter != null)
                 systems.activeCharacter.SetUnit(null);
+            if (systems.interactables != null)
+                systems.interactables.Rebuild(Array.Empty<MissionInteractable>());
             if (systems.abilityTargeting != null)
                 systems.abilityTargeting.Disarm();
             if (systems.pause != null)
@@ -303,7 +357,7 @@ namespace Blackglass
             systems.camera.FocusOn(sum / Mathf.Max(1, friendlies.Count));
         }
 
-        void Fill(MissionReport report, MissionLayout layout, MissionNavigationReport navigation)
+        void Fill(MissionReport report, MissionLayout layout, MissionNavigationReport navigation, ObjectivePlan plan)
         {
             report.Succeeded = true;
             report.Attempt = layout.Attempt;
@@ -316,6 +370,8 @@ namespace Blackglass
             report.HostileSpawns = layout.HostileSpawns.Count;
             report.Bounds = layout.WorldBounds;
             report.LayoutHash = layout.Hash;
+            report.Guards = plan.GuardTiles.Count;
+            report.ObjectiveHash = plan.Hash;
             var separation = float.MaxValue;
             foreach (var f in layout.FriendlySpawns)
                 foreach (var h in layout.HostileSpawns)

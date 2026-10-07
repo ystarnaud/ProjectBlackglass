@@ -132,6 +132,7 @@ GameObject:
   - component: {fileID: 424756579}
   - component: {fileID: 424756578}
   - component: {fileID: 424756577}
+  - component: {fileID: 424756582}
   m_Layer: 0
   m_Name: Mission
   m_TagString: Untagged
@@ -207,6 +208,11 @@ MonoBehaviour:
     hostileCount: 3
     minTeamSeparation: 16
     maxAttempts: 20
+    guardCount: 2
+    interactionSeconds: 2
+    extractionUnits: 1
+    eliminateHostiles: 1
+    hackTerminal: 1
   friendlySlots:
   - prefab: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
     archetype: {fileID: 11400000, guid: 1f2e625549d6a7a4cb2ed0dff8bd3b4d, type: 2}
@@ -242,9 +248,11 @@ MonoBehaviour:
     pause: {fileID: 1021927381}
     camera: {fileID: 1635730851}
     abilityTargeting: {fileID: 1021927396}
+    interactables: {fileID: 1021927397}
   groundMaterial: {fileID: 2100000, guid: a4af9315f320cdd47bb677d6b9585c8e, type: 2}
   obstacleMaterial: {fileID: 2100000, guid: 4269a282e4a76984985539bb4c7df2ea, type: 2}
   generateOnStart: 1
+  newSeedAtStart: 1
   cameraMargin: 2
 --- !u!4 &424756581
 Transform:
@@ -261,6 +269,23 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &424756582
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 424756576}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f92549f719010af4a9cc34a2df6583b3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.MissionHud
+  director: {fileID: 424756580}
+  commandInput: {fileID: 1021927380}
+  viewCamera: {fileID: 678505232}
+  inputDevice: {fileID: 1021927392}
+  controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
 --- !u!1 &538365520
 GameObject:
   m_ObjectHideFlags: 0
@@ -614,6 +639,7 @@ GameObject:
   - component: {fileID: 1021927395}
   - component: {fileID: 1021927394}
   - component: {fileID: 1021927393}
+  - component: {fileID: 1021927397}
   m_Layer: 0
   m_Name: Systems
   m_TagString: Untagged
@@ -641,6 +667,7 @@ MonoBehaviour:
   activeCharacter: {fileID: 1021927385}
   inputDevice: {fileID: 1021927392}
   controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  missionDirector: {fileID: 424756580}
 --- !u!114 &1021927380
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -660,6 +687,7 @@ MonoBehaviour:
   coverRegistry: {fileID: 1021927387}
   cursor: {fileID: 1021927391}
   abilityTargeting: {fileID: 1021927396}
+  interactables: {fileID: 1021927397}
   commandAction: {fileID: -7655432171402092998, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   pointerPositionAction: {fileID: -226529708325634134, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   togglePauseAction: {fileID: 7531348965491062000, guid: 052faaac586de48259a63d0c4782560b, type: 3}
@@ -668,6 +696,7 @@ MonoBehaviour:
   clearSelectionAction: {fileID: 1827706152267695989, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   confirmAction: {fileID: -9117388939999025853, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   attackAction: {fileID: 8182434138458065465, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  interactAction: {fileID: -3575735263304335980, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   dragThresholdPixels: 6
   maxClickDistance: 500
   clickableLayers:
@@ -675,6 +704,7 @@ MonoBehaviour:
     m_Bits: 4294967295
   groupSpacing: 1.5
   coverClickRadius: 0.5
+  contextInteractRadius: 3
 --- !u!114 &1021927381
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -853,6 +883,7 @@ MonoBehaviour:
   selection: {fileID: 1021927383}
   encounter: {fileID: 1021927386}
   coverRegistry: {fileID: 1021927387}
+  interactables: {fileID: 1021927397}
   inputDevice: {fileID: 1021927392}
   cursorMoveAction: {fileID: 4528992505967548537, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   cameraModifierAction: {fileID: -1192274556771156902, guid: 052faaac586de48259a63d0c4782560b, type: 3}
@@ -862,6 +893,7 @@ MonoBehaviour:
   responseExponent: 1.5
   unitSnapRadius: 1.2
   coverSnapRadius: 0.75
+  interactableSnapRadius: 1.5
   maxDistance: 500
   clickableLayers:
     serializedVersion: 2
@@ -955,6 +987,18 @@ MonoBehaviour:
   ability2Action: {fileID: 4114994765064426686, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   ability3Action: {fileID: -5473538376284488104, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   ability4Action: {fileID: 1891489375259147379, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+--- !u!114 &1021927397
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1021927378}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fa0879808b197b74da58ca14c6fa949e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.InteractableRegistry
 --- !u!1 &1635730849
 GameObject:
   m_ObjectHideFlags: 0

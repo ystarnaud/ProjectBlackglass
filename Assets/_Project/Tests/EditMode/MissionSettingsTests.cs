@@ -54,5 +54,28 @@ namespace Blackglass.Tests
                          "lowCover=3", "friendlies=3", "hostiles=3", "separation=16", "attempts=20" })
                 Assert.That(text, Does.Contain(part));
         }
+
+        [Test]
+        public void ObjectiveSettings_AreClamped_AndAtLeastOneRequiredObjectiveRemains()
+        {
+            var v = new MissionSettings { guardCount = 99, interactionSeconds = -3f, extractionUnits = 0 }.Validated();
+            Assert.That(v.guardCount, Is.EqualTo(4));
+            Assert.That(v.interactionSeconds, Is.EqualTo(0f));
+            Assert.That(v.extractionUnits, Is.EqualTo(1));
+            Assert.That(new MissionSettings { guardCount = -1, interactionSeconds = 99f, extractionUnits = 99 }.Validated().guardCount, Is.EqualTo(0));
+
+            var none = new MissionSettings { eliminateHostiles = false, hackTerminal = false }.Validated();
+            Assert.That(none.hackTerminal, Is.True, "a mission always has a required objective");
+            var kept = new MissionSettings { eliminateHostiles = false, hackTerminal = true }.Validated();
+            Assert.That(kept.eliminateHostiles, Is.False);
+        }
+
+        [Test]
+        public void Describe_AlsoNamesTheObjectiveSettings()
+        {
+            var text = new MissionSettings().Describe();
+            foreach (var part in new[] { "guards=2", "interact=2", "extractionUnits=1", "eliminate=True", "hack=True" })
+                Assert.That(text, Does.Contain(part));
+        }
     }
 }

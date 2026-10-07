@@ -6,7 +6,7 @@ namespace Blackglass
     /// <summary>
     /// An order for a unit. Commands are plain data: whoever creates one (player input, groups, AI or scripts)
     /// hands it to CommandableUnit.Issue, and the unit decides how to carry it out. The commands are Move, Attack,
-    /// MoveToCover, Ability and Stop. Future commands (Interact) are new subclasses.
+    /// MoveToCover, Ability, Interact and Stop.
     /// </summary>
     public abstract class UnitCommand { }
 
@@ -91,6 +91,23 @@ namespace Blackglass
 
         /// <summary>Where the ability is aimed now: the target's position while it exists, else the stored point.</summary>
         public Vector3 AimPoint => Target != null ? Target.transform.position : Point;
+    }
+
+    /// <summary>
+    /// Walk to a mission interactable (a terminal) and work on it until it completes. Plain data like every order: the unit
+    /// validates it when it starts and every frame it runs (UnitInteractor), and a failure ends the order so the queue
+    /// moves on. Progress advances only with simulation time and is lost if the order is cancelled.
+    /// </summary>
+    public sealed class InteractCommand : UnitCommand
+    {
+        public InteractCommand(MissionInteractable target)
+        {
+            if (target == null)
+                throw new ArgumentNullException(nameof(target));
+            Target = target;
+        }
+
+        public MissionInteractable Target { get; }
     }
 
     /// <summary>Halts the unit and clears all of its orders. Never queued.</summary>

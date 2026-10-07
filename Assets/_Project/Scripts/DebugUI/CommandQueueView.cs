@@ -91,6 +91,9 @@ namespace Blackglass
                 case AttackCommand attack when attack.Target != null && attack.Target.gameObject.activeInHierarchy:
                     points.Add(OnGround(attack.Target.transform.position));
                     break;
+                case InteractCommand interact when interact.Target != null && interact.Target.gameObject.activeInHierarchy:
+                    points.Add(OnGround(interact.Target.Position));
+                    break;
                 case AbilityCommand ability when ability.Definition != null
                     && (ability.Definition.TargetMode == AbilityTargetMode.Ground
                         || (ability.Target != null && ability.Target.gameObject.activeInHierarchy)):

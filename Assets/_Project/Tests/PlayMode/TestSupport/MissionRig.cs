@@ -15,6 +15,7 @@ namespace Blackglass.Tests
         public readonly UnitSelection Selection;
         public readonly ActiveCharacter Active;
         public readonly CoverRegistry Registry;
+        public readonly InteractableRegistry Interactables;
         public readonly CoverDiscovery Discovery;
         public readonly TacticalCameraController Camera;
         public readonly MissionDirector Director;
@@ -31,6 +32,7 @@ namespace Blackglass.Tests
             Active = World.Track(new GameObject("ActiveCharacter")).AddComponent<ActiveCharacter>();
             Active.Initialize(null, Pause, Selection);
             Registry = World.CreateRegistry();
+            Interactables = World.Track(new GameObject("Interactables")).AddComponent<InteractableRegistry>();
             Discovery = World.Track(new GameObject("Discovery")).AddComponent<CoverDiscovery>();
             Discovery.Initialize(Registry, discoverAtStart: false);
             if (withCamera)
@@ -51,7 +53,7 @@ namespace Blackglass.Tests
             systems = new MissionSystems
             {
                 encounter = Encounter, selection = Selection, activeCharacter = Active, coverRegistry = Registry,
-                coverDiscovery = Discovery, pause = Pause, camera = Camera,
+                coverDiscovery = Discovery, pause = Pause, camera = Camera, interactables = Interactables,
             };
             Director = World.Track(new GameObject("Director")).AddComponent<MissionDirector>();
             Director.Initialize(this.settings, FriendlySlots(), HostileSlots(), systems, ground, obstacle, generateAtStart: false);
