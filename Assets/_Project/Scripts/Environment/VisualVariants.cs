@@ -1,5 +1,3 @@
-using System;
-
 namespace Blackglass
 {
     /// <summary>
@@ -22,6 +20,14 @@ namespace Blackglass
                 h = Mix(h + Gamma + (ulong)(uint)y);
                 return h;
             }
+        }
+
+        /// <summary>Which of `count` variants this element at this tile uses; -1 when there are none.</summary>
+        public static int Pick(int seed, int salt, EnvironmentElement element, UnityEngine.Vector2Int tile, int count)
+        {
+            if (count <= 0)
+                return -1;
+            return (int)(Hash(seed, salt, element, tile.x, tile.y) % (ulong)count);
         }
 
         static ulong Mix(ulong z)
