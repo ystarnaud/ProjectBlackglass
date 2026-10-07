@@ -48,9 +48,10 @@ namespace Blackglass
             }
         }
 
-        public void Bind(Func<Color> source)
+        public void Bind(Func<Color> source, Renderer[] targets = null)
         {
             colour = source;
+            renderers = targets;
             Apply();
         }
 

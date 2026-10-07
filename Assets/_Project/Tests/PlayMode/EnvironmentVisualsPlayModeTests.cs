@@ -194,5 +194,73 @@ namespace Blackglass.Tests
             Assert.That(visuals == null, Is.True);
             Assert.That(GameObject.Find(GeneratedMission.RootName) == null, Is.True);
         }
+
+        static MissionSettings Settings() => new MissionSettings();
+
+        MissionInteractable Terminal(EnvironmentTheme withTheme, out MissionLayout layout)
+        {
+            MissionLayout built = null;
+            ObjectivePlan plan = null;
+            for (var seed = 1; seed < 40 && plan == null; seed++)
+            {
+                built = Layout(seed);
+                ObjectivePlacer.TryPlace(built, Settings(), out plan, out _);
+            }
+            layout = built;
+            var holder = new GameObject("Geometry");
+            holder.transform.SetParent(world.Track(new GameObject("TerminalRoot")).transform, false);
+            return MissionContent.AddTerminal(holder.transform, plan, built, Settings(), null, withTheme);
+        }
+
+        [Test]
+        public void TheTerminal_KeepsItsBoxColliderAndNavModifier_OnAnUnscaledRoot_WithAVisualRoot()
+        {
+            theme = TestTheme.Create();
+            var terminal = Terminal(theme, out _);
+
+            Assert.That(terminal.transform.localScale, Is.EqualTo(Vector3.one));
+            var box = terminal.GetComponent<BoxCollider>();
+            Assert.That(box.size, Is.EqualTo(new Vector3(0.8f, 1.2f, 0.8f)));
+            Assert.That(terminal.GetComponent<NavMeshModifier>().area, Is.EqualTo(1));
+            var visualRoot = terminal.transform.Find(MissionContent.VisualRootName);
+            Assert.That(visualRoot, Is.Not.Null);
+            Assert.That(visualRoot.localPosition, Is.EqualTo(new Vector3(0f, -0.6f, 0f)));
+            Assert.That(visualRoot.childCount, Is.EqualTo(1));
+            Assert.That(visualRoot.GetComponentsInChildren<Collider>(true), Is.Empty, "the visual never collides");
+            Assert.That(terminal.GetComponent<MeshRenderer>() == null, Is.True);
+        }
+
+        [Test]
+        public void WithoutATheme_TheTerminalShowsAPlaceholderCube_ThatStillTintsWithItsState()
+        {
+            var terminal = Terminal(null, out _);
+            var visualRoot = terminal.transform.Find(MissionContent.VisualRootName);
+
+            Assert.That(visualRoot.GetComponentInChildren<MeshRenderer>(), Is.Not.Null);
+            Assert.That(visualRoot.GetComponentsInChildren<Collider>(true), Is.Empty);
+            var block = new MaterialPropertyBlock();
+            visualRoot.GetComponentInChildren<MeshRenderer>().GetPropertyBlock(block);
+            Assert.That(block.isEmpty, Is.False);
+        }
+
+        [Test]
+        public void TheMarker_TintsOnlyDisplayRenderers_WhenTheVisualHasThem_AndEverythingOtherwise()
+        {
+            var host = world.Track(new GameObject("Host"));
+            var body = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            body.transform.SetParent(host.transform, false);
+            var display = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            display.name = "Display";
+            display.transform.SetParent(host.transform, false);
+            var marker = host.AddComponent<ObjectiveMarker>();
+
+            marker.Bind(() => Color.red, new[] { display.GetComponent<Renderer>() });
+
+            var block = new MaterialPropertyBlock();
+            display.GetComponent<Renderer>().GetPropertyBlock(block);
+            Assert.That(block.GetColor("_BaseColor").r, Is.EqualTo(1f).Within(0.01f));
+            body.GetComponent<Renderer>().GetPropertyBlock(block);
+            Assert.That(block.isEmpty, Is.True, "the body is not tinted");
+        }
     }
 }

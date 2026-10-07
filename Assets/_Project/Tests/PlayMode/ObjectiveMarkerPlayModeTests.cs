@@ -68,7 +68,7 @@ namespace Blackglass.Tests
             rig = new MissionRig(new MissionSettings { interactionSeconds = 5f });
             yield return rig.Generate(12345);
             var terminal = rig.Director.Current.Terminal;
-            var renderer = terminal.GetComponent<Renderer>();
+            var renderer = terminal.GetComponentInChildren<Renderer>();
             yield return null;
 
             Assert.That(ColourOf(renderer), Is.EqualTo(ObjectiveMarker.TerminalColour(terminal)).Using(Tolerance));
