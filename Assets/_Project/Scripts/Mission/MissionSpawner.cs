@@ -92,6 +92,10 @@ namespace Blackglass
 
             actors.SetActive(true);
 
+            // Paused orders go to the selection, so the character the player starts as is selected, as Tab would do.
+            // After activation: a unit in an inactive hierarchy cannot be selected.
+            systems.selection.Select(selectables[0]);
+
             foreach (var (unit, ground) in grounds)
             {
                 var agent = unit.GetComponent<NavMeshAgent>();

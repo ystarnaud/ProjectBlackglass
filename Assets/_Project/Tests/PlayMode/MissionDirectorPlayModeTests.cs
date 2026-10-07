@@ -25,6 +25,22 @@ namespace Blackglass.Tests
         // A mission has the layout's hostiles plus the objective guards.
         static int PlacedHostiles(MissionDirector d) => d.Current.Layout.HostileSpawns.Count + d.Current.Plan.GuardTiles.Count;
 
+        // Paused orders go to the selection, so the character the player starts as must already be selected.
+        [UnityTest]
+        public IEnumerator Generate_SelectsTheActiveCharacter_SoPausedOrdersReachThemAtOnce()
+        {
+            rig = new MissionRig();
+            yield return rig.Generate(12345);
+
+            var leader = rig.Director.Friendlies[0];
+            Assert.That(rig.Active.Unit, Is.EqualTo(leader));
+            Assert.That(rig.Selection.Selected.Select(s => s.Unit), Is.EqualTo(new[] { leader }), "only the active character");
+
+            yield return rig.Generate(777);
+            var next = rig.Director.Friendlies[0];
+            Assert.That(rig.Selection.Selected.Select(s => s.Unit), Is.EqualTo(new[] { next }), "regeneration selects the new leader, not the old one");
+        }
+
         [UnityTest]
         public IEnumerator Generate_ReachesReady_WithTheSquadAndHostilesOnTheNavMesh_AndWiredToTheSystems()
         {
@@ -210,7 +226,7 @@ namespace Blackglass.Tests
             Assert.That(oldLocations.All(l => !l.IsValid), Is.True, "old cover locations are retired");
             Assert.That(oldLocations.All(l => !l.IsClaimed), Is.True, "no old claim survives");
             Assert.That(rig.Registry.Points.All(p => !oldLocations.Contains(p)), Is.True);
-            Assert.That(rig.Selection.Selected, Is.Empty);
+            Assert.That(rig.Selection.Selected.Select(s => s.Unit), Is.EqualTo(new[] { d.Friendlies[0] }), "only the new leader is selected, nothing of the old selection");
             Assert.That(rig.Selection.Roster, Has.Count.EqualTo(3));
             Assert.That(rig.Encounter.Friendlies.All(h => h != null && h.IsAlive), Is.True);
             Assert.That(rig.Encounter.Hostiles, Has.Count.EqualTo(PlacedHostiles(d)));
