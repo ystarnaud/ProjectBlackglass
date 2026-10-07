@@ -6,8 +6,9 @@ The prototype kit is made by `Blackglass > Environment > Create Prototype Kit` (
 reference for every number below.
 
 ## 1. Units and grid
-1 Unity unit = 1 m. The mission grid is 1 m tiles. Y is up. In Blender export FBX with **Apply Scale** and
-**-Z Forward, Y Up**, so the Unity import has scale 1 and no rotation.
+1 Unity unit = 1 m. The mission grid is 1 m tiles. Y is up. In Blender export FBX with **Apply Scalings** and **Apply Transform**
+(or tick Unity's **Bake Axis Conversion** on import) with **-Z Forward, Y Up**, so the Unity import has scale 1 and no
+-90 degree X rotation.
 
 ## 2. Modules
 Footprints are X x Y x Z metres. The front of every module is +Z. Wall-class modules are 3 m tall and stay inside their
@@ -29,7 +30,12 @@ Footprints are X x Y x Z metres. The front of every module is +Z. Wall-class mod
 | LightFixture | thin prop at about y = 2.45 | tile frame | on the +Z face of a wall tile, within about 0.1 m of it; emissive only, no real light |
 
 In the built kit, detail on wall-class modules (conduits, free-face plates) sits at z = +-0.5, so it stays inside the
-footprint; thin strips and bands stick out 0.01-0.02 m. Nothing goes further than 0.1 m outside a tile.
+footprint. Real overhangs in the kit: conduits stick out 0.04 m, the end plate 0.02 m, the corner post 0.03 m, thin strips
+and bands 0.01-0.02 m, and the LightFixture lens reaches z = 0.615, i.e. 0.115 m beyond the tile face. The rule is: at most
+about 0.12 m outside the tile footprint.
+
+The Terminal visual is always placed with identity rotation (front +Z), because the planner never rotates the terminal.
+Give it screens on both +Z and -Z, or a symmetric design.
 
 ## 3. Forward and yaw
 Front = +Z. The generator rotates modules in 90 degree steps, clockwise seen from above. Never rely on a rotation in code:
@@ -40,12 +46,14 @@ Prefabs `<Element>[_Variant]` (`WallStraight`, `LowCover_B`); meshes `SM_<Elemen
 
 ## 5. Materials
 Reuse the six `BW_` materials where possible (Concrete, Metal, Floor, Prop, Accent, Display). URP Lit, one material per
-renderer where possible. Never create materials at runtime. Emission is set through `_EmissionColor` only.
+renderer where possible. Never create materials at runtime. Emission needs the `_EMISSION` keyword as well as `_EmissionColor`. The terminal's state colour is applied by
+`ObjectiveMarker` through a property block (`_BaseColor` and `_EmissionColor`), so keep emissive screens on the renderer
+named `Display`.
 
 ## 6. Colliders
 Prefabs have **none**. The generated gameplay object under `Geometry` carries the single BoxCollider, `CoverSurface` and
 `NavMeshModifier`; its renderer is disabled when a theme is assigned. Any collider left on a prefab is removed at build
-time. Decorative detail may protrude at most 0.1 m outside the tile footprint and never changes cover or navigation.
+time. Decorative detail may protrude at most about 0.12 m outside the tile footprint and never changes cover or navigation.
 
 ## 7. From mesh to module
 1. Model or generate the piece (any tool).
