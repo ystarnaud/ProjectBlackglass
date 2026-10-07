@@ -42,7 +42,7 @@ New, under `Assets/_Project/Scripts/Environment/` (same `Blackglass` assembly):
 
 Changed: `MissionBuilder.cs`, `MissionContent.cs`, `ObjectiveMarker.cs`, `MissionDirector.cs`, `MissionDeveloperInput.cs`, `Input/BlackglassControls.inputactions`, `Tests/PlayMode/TestSupport/MissionRig.cs`, `Tests/PlayMode/ObjectiveMarkerPlayModeTests.cs` (+ any test the full run shows broken by the terminal restructure).
 
-New editor tool: `Assets/_Project/Editor/EnvironmentKitBuilder.cs` (menu `Blackglass/Environment/...`). New assets: `Assets/_Project/Environment/{Materials,Prefabs,Themes/CorporatePrototype}`. New docs: `Docs/EnvironmentAssetGuide.md`, decision 035 in `docs/Decisions.md`.
+New editor tool: `Assets/_Project/Editor/EnvironmentKitBuilder.cs` (menu `Blackglass/Environment/...`). New assets: `Assets/_Project/Environment/{Materials,Prefabs,Themes/CorporatePrototype}`. New docs: `docs/EnvironmentAssetGuide.md`, decision 035 in `docs/Decisions.md`.
 
 Tests new: `Tests/EditMode/EnvironmentVisualPlannerTests.cs`, `VisualVariantsTests.cs`, `EnvironmentThemeTests.cs`; `Tests/PlayMode/EnvironmentVisualsPlayModeTests.cs`, `TestSupport/TestTheme.cs`.
 
@@ -396,7 +396,7 @@ namespace Blackglass
     /// <summary>
     /// Pure: turns a layout into the visual modules that represent it. Knows gameplay concepts only (floor, wall tiles by how
     /// they join, low cover, crates); knows nothing about prefabs, themes or randomness. Order is fixed (floor, walls by row,
-    /// props), so the result is reproducible. See Docs/EnvironmentAssetGuide.md for the yaw convention.
+    /// props), so the result is reproducible. See docs/EnvironmentAssetGuide.md for the yaw convention.
     /// </summary>
     public static class EnvironmentVisualPlanner
     {
@@ -1061,7 +1061,9 @@ namespace Blackglass
             cube.transform.localScale = Vector3.one;
             if (placeholderMaterial == null)
             {
-                var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Sprites/Default");
+                var shader = Shader.Find("Universal Render Pipeline/Unlit");
+                if (shader == null)
+                    shader = Shader.Find("Sprites/Default");
                 placeholderMaterial = new Material(shader) { name = "EnvironmentPlaceholder", hideFlags = HideFlags.HideAndDontSave };
                 placeholderMaterial.SetColor("_BaseColor", Color.magenta);
                 placeholderMaterial.color = Color.magenta;
@@ -1073,14 +1075,6 @@ namespace Blackglass
 }
 ```
 
-Note: `Shader.Find(...) ??` is on a `Shader` (UnityEngine.Object). Replace with an explicit null check to follow the project rule:
-
-```csharp
-var shader = Shader.Find("Universal Render Pipeline/Unlit");
-if (shader == null)
-    shader = Shader.Find("Sprites/Default");
-```
-(Use this form in the file; the `??` line above must not be committed.)
 
 The placeholder is placed so its base sits on the ground: a cube centred on its position would sink half into the floor. Offset it: after `Placeholder(...)` creation set `cube.transform.localScale = new Vector3(1f, 1f, 1f)` and parent it under an empty child so the cube is raised 0.5 m. Do that inside `Placeholder`: create `var holder = new GameObject("Missing_" + label)`, parent the cube to it at local `(0, 0.5, 0)`, return `holder`. Adjust the test accordingly: it only counts `MeshRenderer`s and colliders, so it is unaffected.
 
@@ -1797,7 +1791,7 @@ namespace Blackglass.EditorTools
     /// <summary>
     /// Creates the prototype Corporate environment kit from Unity primitives: six shared materials, the module prefabs and the
     /// theme asset. Existing assets are kept unless `overwrite` is set, so replacing a prefab with real art is not undone by
-    /// running the menu again. Conventions: Docs/EnvironmentAssetGuide.md.
+    /// running the menu again. Conventions: docs/EnvironmentAssetGuide.md.
     /// </summary>
     public static class EnvironmentKitBuilder
     {
@@ -2093,7 +2087,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ### Task 8: Documentation
 
 **Files:**
-- Create: `Docs/EnvironmentAssetGuide.md`
+- Create: `docs/EnvironmentAssetGuide.md`
 - Modify: `docs/Decisions.md` (append decision 035)
 - Modify: `docs/superpowers/specs/2026-10-07-environment-visuals-design.md` (amendments)
 
