@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using Unity.AI.Navigation;
 using UnityEngine;
+using UnityEngine.AI;
 
 namespace Blackglass
 {
@@ -50,10 +52,23 @@ namespace Blackglass
             return visuals;
         }
 
+        // Anything on an imported prefab that could change navigation, cover or physics is removed; components first, so a
+        // collider that a Rigidbody or similar depends on can then be destroyed.
         internal static void StripColliders(GameObject instance)
         {
+            DestroyAll<NavMeshObstacle>(instance);
+            DestroyAll<NavMeshModifier>(instance);
+            DestroyAll<NavMeshModifierVolume>(instance);
+            DestroyAll<CoverSurface>(instance);
+            DestroyAll<Rigidbody>(instance);
             foreach (var collider in instance.GetComponentsInChildren<Collider>(true))
                 Object.DestroyImmediate(collider);
+        }
+
+        static void DestroyAll<T>(GameObject instance) where T : Component
+        {
+            foreach (var component in instance.GetComponentsInChildren<T>(true))
+                Object.DestroyImmediate(component);
         }
 
         // A 1 m magenta block with its base on the ground: obviously wrong, never invisible, never solid.

@@ -6,17 +6,18 @@ namespace Blackglass
     /// </summary>
     public enum EnvironmentElement
     {
-        Floor,
-        WallStraight,
-        WallCorner,
-        WallEnd,
-        WallJunction,
-        DoorFrame,
-        LowCover,
-        LowCoverLong,
-        Pillar,
-        Crate,
-        Terminal,
-        LightFixture,
+        // Values are serialized in theme assets: never renumber or reuse them. Add new elements at the end.
+        Floor = 0,
+        WallStraight = 1,
+        WallCorner = 2,
+        WallEnd = 3,
+        WallJunction = 4,
+        DoorFrame = 5,
+        LowCover = 6,
+        LowCoverLong = 7,
+        Pillar = 8,
+        Crate = 9,
+        Terminal = 10,
+        LightFixture = 11,
     }
 }

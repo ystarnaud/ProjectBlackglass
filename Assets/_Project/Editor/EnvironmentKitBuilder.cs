@@ -59,8 +59,8 @@ namespace Blackglass.EditorTools
 
             var floor = Prefab("Floor", r =>
             {
-                Part(r, "Slab", new Vector3(0f, -0.1f, 0f), new Vector3(1f, 0.2f, 1f), floorMat);
-                Part(r, "Panel", new Vector3(0f, 0.002f, 0f), new Vector3(0.9f, 0.004f, 0.9f), metal);
+                Part(r, "Slab", new Vector3(0f, -0.1f, 0f), new Vector3(1f, 0.2f, 1f), floorMat, castShadows: false);
+                Part(r, "Panel", new Vector3(0f, 0.002f, 0f), new Vector3(0.9f, 0.004f, 0.9f), metal, castShadows: false);
             });
             var straight = Prefab("WallStraight", r =>
             {
@@ -146,6 +146,7 @@ namespace Blackglass.EditorTools
                     Entry(EnvironmentElement.Terminal, terminal),
                     Entry(EnvironmentElement.LightFixture, light),
                 });
+                fresh.name = Path.GetFileNameWithoutExtension(ThemePath);
                 if (theme == null)
                     AssetDatabase.CreateAsset(fresh, ThemePath);
                 else
@@ -168,18 +169,18 @@ namespace Blackglass.EditorTools
             Part(root, "Cap", new Vector3(0f, 2.96f, 0f), new Vector3(1f, 0.08f, 1f), prop);
         }
 
-        // Low cover: 1 m tall in total, `length` long along X, light top so it reads from the gameplay camera.
+        // Low cover: 1 m tall in total, `length` long along X, the top is the light prop material so it reads from the gameplay camera and differs from the dark floor panels.
         static void LowBody(GameObject root, float length, bool stripe)
         {
             Part(root, "Body", new Vector3(0f, 0.45f, 0f), new Vector3(length, 0.9f, 1f), prop);
-            Part(root, "Top", new Vector3(0f, 0.95f, 0f), new Vector3(length, 0.1f, 1f), metal);
+            Part(root, "Top", new Vector3(0f, 0.95f, 0f), new Vector3(length, 0.1f, 1f), prop);
             if (!stripe)
                 return;
             Part(root, "StripN", new Vector3(0f, 0.5f, 0.505f), new Vector3(length * 0.6f, 0.04f, 0.01f), accent);
             Part(root, "StripS", new Vector3(0f, 0.5f, -0.505f), new Vector3(length * 0.6f, 0.04f, 0.01f), accent);
         }
 
-        static GameObject Part(GameObject parent, string name, Vector3 position, Vector3 size, Material material)
+        static GameObject Part(GameObject parent, string name, Vector3 position, Vector3 size, Material material, bool castShadows = true)
         {
             var part = GameObject.CreatePrimitive(PrimitiveType.Cube);
             part.name = name;
@@ -188,6 +189,8 @@ namespace Blackglass.EditorTools
             part.transform.localPosition = position;
             part.transform.localScale = size;
             part.GetComponent<Renderer>().sharedMaterial = material;
+            if (!castShadows)
+                part.GetComponent<Renderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             return part;
         }
 
@@ -219,6 +222,12 @@ namespace Blackglass.EditorTools
                 material.EnableKeyword("_EMISSION");
                 material.SetColor("_EmissionColor", emission.Value);
                 material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            }
+            else
+            {
+                material.DisableKeyword("_EMISSION");
+                material.SetColor("_EmissionColor", Color.black);
+                material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.EmissiveIsBlack;
             }
             if (existing == null)
                 AssetDatabase.CreateAsset(material, path);

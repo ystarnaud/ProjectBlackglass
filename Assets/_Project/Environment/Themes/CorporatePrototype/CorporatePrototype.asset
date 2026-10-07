@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b20c7953c3b01634f96bc0fd8a2f67b0, type: 3}
-  m_Name: 
+  m_Name: CorporatePrototype
   m_EditorClassIdentifier: Blackglass::Blackglass.EnvironmentTheme
   salt: 1
   entries:

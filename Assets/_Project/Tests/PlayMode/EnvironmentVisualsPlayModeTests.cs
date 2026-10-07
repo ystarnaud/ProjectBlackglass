@@ -76,6 +76,36 @@ namespace Blackglass.Tests
             Assert.That(visuals.GetComponentsInChildren<Collider>(true), Is.Empty);
         }
 
+        [UnityTest]
+        public IEnumerator Build_RemovesPhysicsAndNavigationComponents_FromNestedAndInactiveChildren()
+        {
+            var layout = Layout(12345);
+            theme = TestTheme.Create(withColliders: true);
+            var source = theme.Resolve(EnvironmentElement.Crate, Vector2Int.zero, 1);
+            var nested = new GameObject("Nested");
+            nested.transform.SetParent(source.transform, false);
+            nested.AddComponent<BoxCollider>();
+            nested.AddComponent<NavMeshObstacle>();
+            nested.AddComponent<Rigidbody>();
+            nested.AddComponent<NavMeshModifier>();
+            nested.AddComponent<CoverSurface>();
+            var inactive = new GameObject("Inactive");
+            inactive.transform.SetParent(nested.transform, false);
+            inactive.AddComponent<BoxCollider>();
+            inactive.AddComponent<NavMeshObstacle>();
+            inactive.SetActive(false);
+            root = new GameObject("Root");
+
+            var visuals = EnvironmentVisualBuilder.Build(layout, theme, root.transform);
+            yield return null;
+
+            Assert.That(visuals.GetComponentsInChildren<Collider>(true), Is.Empty);
+            Assert.That(visuals.GetComponentsInChildren<NavMeshObstacle>(true), Is.Empty);
+            Assert.That(visuals.GetComponentsInChildren<Rigidbody>(true), Is.Empty);
+            Assert.That(visuals.GetComponentsInChildren<NavMeshModifier>(true), Is.Empty);
+            Assert.That(visuals.GetComponentsInChildren<CoverSurface>(true), Is.Empty);
+        }
+
         TestWorld world;
         GeneratedMission mission;
 

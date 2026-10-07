@@ -4,6 +4,7 @@ using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.TestTools;
 
 namespace Blackglass.Tests
@@ -72,14 +73,26 @@ namespace Blackglass.Tests
             Assert.That(BoundsOf("Terminal").size.y, Is.EqualTo(1.2f).Within(0.05f));
         }
 
-        [UnityTest]
-        public IEnumerator ARealThemedMission_HasTheSameNavMeshAndCoverAsTheCubes_AndEveryOpeningStaysConnected()
+        static float NavArea()
         {
+            var t = NavMesh.CalculateTriangulation();
+            var area = 0f;
+            for (var i = 0; i < t.indices.Length; i += 3)
+                area += Vector3.Cross(t.vertices[t.indices[i + 1]] - t.vertices[t.indices[i]],
+                    t.vertices[t.indices[i + 2]] - t.vertices[t.indices[i]]).magnitude * 0.5f;
+            return area;
+        }
+
+        [UnityTest]
+        public IEnumerator ARealThemedMission_HasTheSameLayoutCoverAndHostilesAsTheCubes()
+        {
+            Assert.That(Theme(), Is.Not.Null);
             var rig = new MissionRig();
             yield return rig.Generate(12345);
             var plainHash = rig.Director.Report.LayoutHash;
             var plainCover = rig.Registry.Points.Count;
-            var plainPaths = rig.Director.Hostiles.Count;
+            var plainHostiles = rig.Director.Hostiles.Count;
+            var plainArea = NavArea();
             rig.Dispose();
 
             var themed = new MissionRig(null, false, Theme());
@@ -87,9 +100,12 @@ namespace Blackglass.Tests
             {
                 yield return themed.Generate(12345);
                 Assert.That(themed.Director.State, Is.EqualTo(MissionState.Ready));
+                Assert.That(themed.Director.Current.Visuals, Is.Not.Null);
+                Assert.That(themed.Director.Current.Visuals.GetComponentsInChildren<Renderer>().Length, Is.GreaterThan(0));
+                Assert.That(NavArea(), Is.EqualTo(plainArea).Within(0.01f), "NavMesh area");
                 Assert.That(themed.Director.Report.LayoutHash, Is.EqualTo(plainHash));
                 Assert.That(themed.Registry.Points.Count, Is.EqualTo(plainCover));
-                Assert.That(themed.Director.Hostiles.Count, Is.EqualTo(plainPaths));
+                Assert.That(themed.Director.Hostiles.Count, Is.EqualTo(plainHostiles));
             }
             finally
             {

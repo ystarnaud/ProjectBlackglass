@@ -62,6 +62,26 @@ namespace Blackglass.Tests
             Assert.That(ColourOf(renderers[0]), Is.EqualTo(ObjectiveMarker.ZoneColour(ObjectiveState.Active)).Using(Tolerance));
         }
 
+        [Test]
+        public void Apply_AlsoTintsTheEmissionColour_SoAnEmissiveDisplayShowsTheState()
+        {
+            var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                var renderer = cube.GetComponent<Renderer>();
+                var tint = new Color(0.2f, 0.75f, 0.95f);
+                cube.AddComponent<ObjectiveMarker>().Bind(() => tint, new[] { renderer });
+
+                var block = new MaterialPropertyBlock();
+                renderer.GetPropertyBlock(block);
+                Assert.That(block.GetColor("_EmissionColor"), Is.EqualTo(tint * 1.5f).Using(Tolerance));
+            }
+            finally
+            {
+                Object.DestroyImmediate(cube);
+            }
+        }
+
         [UnityTest]
         public IEnumerator TheTerminal_ShowsItsState_AndLeavesNoMaterialInstancesBehind()
         {
