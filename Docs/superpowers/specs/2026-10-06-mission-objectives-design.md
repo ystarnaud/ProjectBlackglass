@@ -1,6 +1,6 @@
 # Phase 9 — Mission objectives and extraction: design
 
-Date: 2026-10-06. Status: approved in brainstorming (parts 1 and 2), spec awaiting owner review. Phase 10 is not started.
+Date: 2026-10-06. Status: implemented on branch mission-objectives (see Docs/Decisions.md record 033; where the build differs from this text, the record is authoritative). Phase 10 is not started.
 
 ## 1. Goal and scope
 
