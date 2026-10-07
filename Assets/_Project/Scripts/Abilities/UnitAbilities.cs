@@ -51,6 +51,27 @@ namespace Blackglass
         readonly List<Health> areaBuffer = new List<Health>();
         Health ownHealth;
         UnitAttacker attacker;
+        float powerMultiplier = 1f;
+        float cooldownMultiplier = 1f;
+
+        /// <summary>Multiplier on this unit's ability damage and healing (1 = as authored).</summary>
+        public float PowerMultiplier => powerMultiplier;
+        /// <summary>Multiplier on this unit's ability cooldowns (1 = as authored).</summary>
+        public float CooldownMultiplier => cooldownMultiplier;
+
+        /// <summary>The per-unit scaling progression applies; the shared AbilityDefinition is never changed.</summary>
+        internal void SetModifiers(float power, float cooldown)
+        {
+            powerMultiplier = Mathf.Max(0f, power);
+            cooldownMultiplier = Mathf.Max(0f, cooldown);
+        }
+
+        /// <summary>The cooldown this unit actually waits after using the ability, in scaled seconds.</summary>
+        public float EffectiveCooldown(AbilityDefinition ability) => ability.Cooldown * cooldownMultiplier;
+
+        /// <summary>The damage or healing this unit's use of the ability deals, rounded away from zero.</summary>
+        public int EffectiveAmount(AbilityDefinition ability) =>
+            Mathf.Max(0, (int)System.Math.Round(ability.Amount * (double)powerMultiplier, System.MidpointRounding.AwayFromZero));
 
         public int Count => abilities.Count;
 
@@ -160,7 +181,7 @@ namespace Blackglass
             var aim = command.AimPoint;
             FaceTowards(aim);
             EnsureSlots();
-            readyAt[abilities.IndexOf(ability)] = Time.time + ability.Cooldown;
+            readyAt[abilities.IndexOf(ability)] = Time.time + EffectiveCooldown(ability);
             Apply(ability, command.Target, aim);
             UsedCount++;
             Used?.Invoke(ability);
@@ -250,7 +271,7 @@ namespace Blackglass
             switch (ability.Effect)
             {
                 case AbilityEffect.Heal:
-                    target.Heal(ability.Amount);
+                    target.Heal(EffectiveAmount(ability));
                     break;
                 case AbilityEffect.Damage when ability.TargetMode == AbilityTargetMode.Unit:
                     Hit(ability, target, transform.position, source);
@@ -276,7 +297,7 @@ namespace Blackglass
                 Missed?.Invoke(ability, victim);
                 return;
             }
-            victim.TakeDamage(ability.Amount, source);
+            victim.TakeDamage(EffectiveAmount(ability), source);
         }
 
         static bool IsCovered(Health target, Vector3 from, out float hitChance)

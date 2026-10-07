@@ -37,6 +37,8 @@ namespace Blackglass
         static readonly Func<float> defaultRoll = () => UnityEngine.Random.value;
         Func<float> hitRoll;
         Health ownHealth;
+        // True once ApplyEffective set the numbers; Awake then leaves them alone instead of re-copying the archetype.
+        bool hasEffective;
 
         public float Range => range;
         public int Damage => damage;
@@ -84,7 +86,7 @@ namespace Blackglass
 
         void Awake()
         {
-            if (archetype != null)
+            if (archetype != null && !hasEffective)
                 ApplyArchetype(archetype);
         }
 
@@ -94,10 +96,24 @@ namespace Blackglass
             if (preset == null)
                 throw new ArgumentNullException(nameof(preset));
             archetype = preset;
+            hasEffective = false;
             role = preset.Role;
             range = preset.Range;
             damage = preset.Damage;
             cooldown = preset.AttackInterval;
+        }
+
+        /// <summary>
+        /// Sets the numbers this unit fights with after role/advancement bonuses (the archetype stays assigned for its name).
+        /// Once applied, Awake no longer copies the archetype over them; ApplyArchetype takes the unit back to the preset.
+        /// </summary>
+        internal void ApplyEffective(CombatRole combatRole, float attackRange, int attackDamage, float attackInterval)
+        {
+            role = combatRole;
+            range = Mathf.Max(0.1f, attackRange);
+            damage = Mathf.Max(0, attackDamage);
+            cooldown = Mathf.Max(0f, attackInterval);
+            hasEffective = true;
         }
 
         /// <summary>The 0..1 roll the unit uses against a target's cover chance; abilities share it so tests can force it.</summary>
