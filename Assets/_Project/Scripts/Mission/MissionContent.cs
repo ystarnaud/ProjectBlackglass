@@ -34,16 +34,36 @@ namespace Blackglass
             modifier.area = NotWalkableArea;
             var interactable = terminal.AddComponent<MissionInteractable>();
             interactable.Initialize(InteractionRange, settings.interactionSeconds);
+            terminal.AddComponent<ObjectiveMarker>().Bind(() => ObjectiveMarker.TerminalColour(interactable));
             return interactable;
         }
 
-        /// <summary>The extraction zone's anchor under the mission root, on the floor at the planned tile.</summary>
+        /// <summary>
+        /// The extraction zone under the mission root, on the floor at the planned tile: a flat disc the size of the zone and
+        /// a thin beacon, neither solid. Its marker shows it locked (grey) until CreateRuntime binds it to the objective.
+        /// </summary>
         public static Transform CreateZone(MissionLayout layout, ObjectivePlan plan, Transform root)
         {
             var zone = new GameObject("ExtractionZone");
             zone.transform.SetParent(root, false);
             zone.transform.position = layout.TileCenter(plan.ExtractionTile);
+            Visual(zone.transform, "Disc", new Vector3(ZoneRadius * 2f, 0.02f, ZoneRadius * 2f), 0.03f);
+            Visual(zone.transform, "Beacon", new Vector3(0.25f, 1.5f, 0.25f), 1.5f);
+            zone.AddComponent<ObjectiveMarker>().Bind(() => ObjectiveMarker.ZoneColour(ObjectiveState.Inactive));
             return zone.transform;
+        }
+
+        static void Visual(Transform parent, string name, Vector3 scale, float height)
+        {
+            var part = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            part.name = name;
+            Object.DestroyImmediate(part.GetComponent<Collider>());
+            part.transform.SetParent(parent, false);
+            part.transform.localPosition = new Vector3(0f, height, 0f);
+            part.transform.localScale = scale;
+            var renderer = part.GetComponent<Renderer>();
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
         }
 
         /// <summary>
@@ -60,6 +80,8 @@ namespace Blackglass
                 goals.Add(new InteractObjective("hack", "Access data terminal", mission.Terminal));
             var extraction = new ReachZoneObjective("extract", "Extraction", mission.ExtractionZone.position, ZoneRadius,
                 settings.extractionUnits, squad, isRequired: false);
+            if (mission.ExtractionZone.TryGetComponent<ObjectiveMarker>(out var marker))
+                marker.Bind(() => ObjectiveMarker.ZoneColour(extraction.State));
             return new MissionRuntime(goals, extraction, squad);
         }
     }

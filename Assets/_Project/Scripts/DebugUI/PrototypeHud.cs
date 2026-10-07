@@ -26,6 +26,8 @@ namespace Blackglass
         [SerializeField] ActiveInputDevice inputDevice;
         // Where the HUD looks up the bindings it shows for the active controller family.
         [SerializeField] InputActionAsset controls;
+        // When set, the mission HUD shows the result and this HUD skips its kill-all banner.
+        [SerializeField] MissionDirector missionDirector;
 
         GUIStyle pausedStyle;
         GUIStyle outcomeStyle;
@@ -140,6 +142,9 @@ namespace Blackglass
             return text.Length == 0 ? cooldown : $"{text} {cooldown}";
         }
 
+        /// <summary>The kill-all banner belongs to scenes without a mission director; generated missions show the mission result.</summary>
+        internal static bool ShowsEncounterOutcome(bool hasMissionDirector) => !hasMissionDirector;
+
         internal static string DescribeOutcome(EncounterOutcome outcome)
         {
             switch (outcome)
@@ -195,7 +200,7 @@ namespace Blackglass
                 GUI.Label(new Rect(0f, 165f, Screen.width, 40f), DescribePauseBanner(resumePrompt), pausedStyle);
             }
 
-            if (encounter != null)
+            if (encounter != null && ShowsEncounterOutcome(missionDirector != null))
             {
                 var outcome = DescribeOutcome(encounter.Outcome);
                 if (outcome.Length > 0)
