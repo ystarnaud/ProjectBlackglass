@@ -8,7 +8,7 @@
 
 **Tech Stack:** Unity 6000.3.25f1, URP, C#, NUnit via `Tools/run-tests.sh` (Unity Editor must be closed).
 
-**Spec:** `docs/superpowers/specs/2026-10-07-environment-visuals-design.md`
+**Spec:** `Docs/superpowers/specs/2026-10-07-environment-visuals-design.md`
 
 ## Global Constraints
 
@@ -42,7 +42,7 @@ New, under `Assets/_Project/Scripts/Environment/` (same `Blackglass` assembly):
 
 Changed: `MissionBuilder.cs`, `MissionContent.cs`, `ObjectiveMarker.cs`, `MissionDirector.cs`, `MissionDeveloperInput.cs`, `Input/BlackglassControls.inputactions`, `Tests/PlayMode/TestSupport/MissionRig.cs`, `Tests/PlayMode/ObjectiveMarkerPlayModeTests.cs` (+ any test the full run shows broken by the terminal restructure).
 
-New editor tool: `Assets/_Project/Editor/EnvironmentKitBuilder.cs` (menu `Blackglass/Environment/...`). New assets: `Assets/_Project/Environment/{Materials,Prefabs,Themes/CorporatePrototype}`. New docs: `docs/EnvironmentAssetGuide.md`, decision 035 in `docs/Decisions.md`.
+New editor tool: `Assets/_Project/Editor/EnvironmentKitBuilder.cs` (menu `Blackglass/Environment/...`). New assets: `Assets/_Project/Environment/{Materials,Prefabs,Themes/CorporatePrototype}`. New docs: `Docs/EnvironmentAssetGuide.md`, decision 035 in `Docs/Decisions.md`.
 
 Tests new: `Tests/EditMode/EnvironmentVisualPlannerTests.cs`, `VisualVariantsTests.cs`, `EnvironmentThemeTests.cs`; `Tests/PlayMode/EnvironmentVisualsPlayModeTests.cs`, `TestSupport/TestTheme.cs`.
 
@@ -396,7 +396,7 @@ namespace Blackglass
     /// <summary>
     /// Pure: turns a layout into the visual modules that represent it. Knows gameplay concepts only (floor, wall tiles by how
     /// they join, low cover, crates); knows nothing about prefabs, themes or randomness. Order is fixed (floor, walls by row,
-    /// props), so the result is reproducible. See docs/EnvironmentAssetGuide.md for the yaw convention.
+    /// props), so the result is reproducible. See Docs/EnvironmentAssetGuide.md for the yaw convention.
     /// </summary>
     public static class EnvironmentVisualPlanner
     {
@@ -1791,7 +1791,7 @@ namespace Blackglass.EditorTools
     /// <summary>
     /// Creates the prototype Corporate environment kit from Unity primitives: six shared materials, the module prefabs and the
     /// theme asset. Existing assets are kept unless `overwrite` is set, so replacing a prefab with real art is not undone by
-    /// running the menu again. Conventions: docs/EnvironmentAssetGuide.md.
+    /// running the menu again. Conventions: Docs/EnvironmentAssetGuide.md.
     /// </summary>
     public static class EnvironmentKitBuilder
     {
@@ -2087,13 +2087,13 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 ### Task 8: Documentation
 
 **Files:**
-- Create: `docs/EnvironmentAssetGuide.md`
-- Modify: `docs/Decisions.md` (append decision 035)
-- Modify: `docs/superpowers/specs/2026-10-07-environment-visuals-design.md` (amendments)
+- Create: `Docs/EnvironmentAssetGuide.md`
+- Modify: `Docs/Decisions.md` (append decision 035)
+- Modify: `Docs/superpowers/specs/2026-10-07-environment-visuals-design.md` (amendments)
 
-(Existing decisions live in `docs/Decisions.md`; the guide goes next to it as `docs/EnvironmentAssetGuide.md`: use `docs/`, not `Docs/`, to match the repository.)
+(Existing decisions live in `Docs/Decisions.md`; the guide goes next to it as `Docs/EnvironmentAssetGuide.md`: use `docs/`, not `Docs/`, to match the repository.)
 
-- [ ] **Step 1: Write `docs/EnvironmentAssetGuide.md`** containing exactly these sections, filled with the numbers below (no placeholders):
+- [ ] **Step 1: Write `Docs/EnvironmentAssetGuide.md`** containing exactly these sections, filled with the numbers below (no placeholders):
 
 1. **Units and grid.** 1 Unity unit = 1 m; the mission grid is 1 m tiles; Y up; export from Blender with Apply Scale and `-Z Forward, Y Up` set so the Unity import has scale 1 and no rotation.
 2. **Module table** (name, element, footprint, height, pivot, authored orientation): Floor (1 x 0.2 x 1, centre of top face, top at y=0); WallStraight (1 x 3 x 1, bottom-centre, runs along X); WallEnd (connects toward +Z, free faces -Z and sides); WallCorner (connects +Z and +X); WallJunction (connects +X, -X, +Z; free face -Z); DoorFrame (overlay on a WallEnd, same footprint, same orientation); Pillar (1 x 3 x 1); LowCover (1 x 1 x 1, bottom-centre); LowCoverLong (2 x 1 x 1 along X, centre on the ground); Crate/Cabinet (<= 1 x 1 x 1, base-centre, 1 m tall); Terminal (0.8 x 1.2 x 0.8, base-centre, front +Z, screens in objects named `Display`); LightFixture (authored on the +Z face of a wall tile, within 0.1 m of it).
@@ -2106,14 +2106,14 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
 9. **New theme.** Duplicate the theme asset, change `salt` and prefabs, assign it to the `MissionDirector.environmentTheme` field.
 10. **Checklist before import** (6 one-line items: scale, pivot, front, no colliders, shared materials, height 3 m for wall-class modules).
 
-- [ ] **Step 2: Append decision 035** to `docs/Decisions.md` in the file's existing style (read the tail of decision 034 first for the format): decided (2026-10-07): visual layer = planner + theme + builder; gameplay cubes remain the sole collider/cover/nav carriers with renderers disabled when themed; per-tile wall modules classified by neighbours; variant selection by stateless hash with theme salt (no random stream); terminal split into gameplay root + `VisualRoot`; F8 debug toggle; alternatives rejected: stretched single wall meshes (cannot carry trim), putting colliders on visual prefabs (trim would create cover/nav faults), drawing variants from the layout random stream (any visual change would reshuffle the map), a decal/clutter framework (out of scope); implications: replacing art needs no generator change; a new theme is a new asset; `DoorFrame` overlays ring wall ends; floors are per-tile modules (instance count grows with mission size; static batching is the first optimisation if profiling asks).
+- [ ] **Step 2: Append decision 035** to `Docs/Decisions.md` in the file's existing style (read the tail of decision 034 first for the format): decided (2026-10-07): visual layer = planner + theme + builder; gameplay cubes remain the sole collider/cover/nav carriers with renderers disabled when themed; per-tile wall modules classified by neighbours; variant selection by stateless hash with theme salt (no random stream); terminal split into gameplay root + `VisualRoot`; F8 debug toggle; alternatives rejected: stretched single wall meshes (cannot carry trim), putting colliders on visual prefabs (trim would create cover/nav faults), drawing variants from the layout random stream (any visual change would reshuffle the map), a decal/clutter framework (out of scope); implications: replacing art needs no generator change; a new theme is a new asset; `DoorFrame` overlays ring wall ends; floors are per-tile modules (instance count grows with mission size; static batching is the first optimisation if profiling asks).
 
 - [ ] **Step 3: Amend the spec** in a short "Amendments (implementation)" section at the end: `WallPillar` folded into `Pillar`; `DoorFrame` is a jamb overlay on ring `WallEnd`s (openings are 3-5 tiles wide, so no per-gap piece exists); `LowCover`/`LowCoverLong` split (2-tile modules plus remainder); the debug view shows the gameplay cubes with their existing placeholder materials (not translucent); the terminal stays visible in the debug view; `LightFixture` is an emissive prop only (no real lights).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add docs/EnvironmentAssetGuide.md docs/Decisions.md docs/superpowers/specs/2026-10-07-environment-visuals-design.md
+git add Docs/EnvironmentAssetGuide.md Docs/Decisions.md Docs/superpowers/specs/2026-10-07-environment-visuals-design.md
 git commit -m "Document the environment visual layer: decision 035 and the external asset guide
 
 Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>"
