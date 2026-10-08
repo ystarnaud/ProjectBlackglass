@@ -77,6 +77,10 @@ namespace Blackglass
                 unit.GetComponent<CompanionAI>().SetIntelligence(systems.intelligence);
                 unit.GetComponent<UnitCover>().Wire(systems.coverRegistry);
                 unit.gameObject.AddComponent<UnitInteractor>();
+                if (unit.TryGetComponent<AttackLineView>(out var attackLine))
+                    attackLine.SetIntelligence(systems.intelligence);
+                if (unit.TryGetComponent<CommandQueueView>(out var queueView))
+                    queueView.SetIntelligence(systems.intelligence);
                 result.Friendlies.Add(unit);
                 grounds.Add((unit, ground));
             }

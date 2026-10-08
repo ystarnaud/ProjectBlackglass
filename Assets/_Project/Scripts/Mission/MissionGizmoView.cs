@@ -7,10 +7,14 @@ namespace Blackglass
     {
         [SerializeField] MissionDirector director;
         [SerializeField] bool draw = true;
+        // Optional: with fog on, the room, spawn and guard gizmos stay hidden.
+        [SerializeField] IntelligenceService intelligence;
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
         void OnDrawGizmos()
         {
-            if (!draw || director == null || director.Current == null)
+            if (!draw || director == null || director.Current == null || (intelligence != null && intelligence.IsFogActive && !intelligence.TruthView))
                 return;
             var layout = director.Current.Layout;
             Gizmos.color = new Color(0.6f, 0.6f, 0.6f);

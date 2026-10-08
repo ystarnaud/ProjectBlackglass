@@ -28,6 +28,10 @@ namespace Blackglass
         [SerializeField] InputActionAsset controls;
         // When set, the mission HUD shows the result and this HUD skips its kill-all banner.
         [SerializeField] MissionDirector missionDirector;
+        // Optional: with fog on, hostiles that are not observed get no label and no count (decision 037).
+        [SerializeField] IntelligenceService intelligence;
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
         GUIStyle pausedStyle;
         GUIStyle outcomeStyle;
@@ -58,6 +62,14 @@ namespace Blackglass
 
         internal static string DescribeSides(int livingFriendlies, int friendlies, int livingHostiles, int hostiles) =>
             $"Friendlies alive {livingFriendlies}/{friendlies} | Hostiles alive {livingHostiles}/{hostiles}";
+
+        /// <summary>The sides line while the hostiles are not known: the squad's own count and nothing about them.</summary>
+        internal static string DescribeSidesHidden(int livingFriendlies, int friendlies) =>
+            $"Friendlies alive {livingFriendlies}/{friendlies} | Hostiles: unknown";
+
+        /// <summary>Whether a unit gets an on-screen label: every friendly, and hostiles only while the player may see them.</summary>
+        internal static bool ShowsUnitLabel(IntelligenceService intelligence, Health unit, bool hostile) =>
+            !hostile || Knowledge.IsShown(intelligence, unit);
 
         internal static string DescribeUnit(string unitName, int current, int max, CombatRole role, string archetypeName = null) =>
             $"{unitName} {current}/{max} [{(string.IsNullOrEmpty(archetypeName) ? role.ToString() : archetypeName)}]";
@@ -168,8 +180,10 @@ namespace Blackglass
 
             if (encounter != null)
             {
-                GUI.Label(new Rect(10f, 95f, 420f, 22f), DescribeSides(encounter.LivingFriendlies, encounter.Friendlies.Count,
-                    encounter.LivingHostiles, encounter.Hostiles.Count));
+                var hideHostiles = intelligence != null && intelligence.IsFogActive && !intelligence.TruthView;
+                GUI.Label(new Rect(10f, 95f, 420f, 22f), hideHostiles
+                    ? DescribeSidesHidden(encounter.LivingFriendlies, encounter.Friendlies.Count)
+                    : DescribeSides(encounter.LivingFriendlies, encounter.Friendlies.Count, encounter.LivingHostiles, encounter.Hostiles.Count));
             }
 
             if (selection != null)
@@ -257,7 +271,7 @@ namespace Blackglass
         // Debug only: a handful of units, so per-frame GetComponent calls and one sight ray per ranged attacker are fine.
         void DrawUnitLabel(Health health, bool hostile)
         {
-            if (health == null || !health.IsAlive || !health.gameObject.activeInHierarchy)
+            if (health == null || !health.IsAlive || !health.gameObject.activeInHierarchy || !ShowsUnitLabel(intelligence, health, hostile))
                 return;
             var hasAttacker = health.TryGetComponent<UnitAttacker>(out var attacker);
             var archetypeName = hasAttacker && attacker.Archetype != null ? attacker.Archetype.DisplayName : null;
@@ -270,12 +284,13 @@ namespace Blackglass
                 activity = DescribeEnemy(ai.State, ai.Target != null ? ai.Target.name : null, cooldown);
             else if (unit != null && health.TryGetComponent<CompanionAI>(out var companion))
                 activity = AppendCooldown(DescribeCompanion(DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count),
-                    companion.State, companion.AssistTarget != null ? companion.AssistTarget.name : null, companion.IsParked, companion.IsHeld), cooldown);
+                    companion.State, companion.AssistTarget != null && Knowledge.IsShown(intelligence, companion.AssistTarget) ? companion.AssistTarget.name : null,
+                    companion.IsParked, companion.IsHeld), cooldown);
             else if (unit != null)
                 activity = AppendCooldown(DescribeOrders(unit.CurrentCommand, unit.PendingCommands.Count), cooldown);
             else
                 activity = string.Empty;
-            if (hasAttacker && attacker.NeedsLineOfSight && unit != null && unit.CurrentCommand is AttackCommand attack)
+            if (hasAttacker && attacker.NeedsLineOfSight && unit != null && unit.CurrentCommand is AttackCommand attack && Knowledge.IsShown(intelligence, attack.Target))
             {
                 activity = AppendSight(activity, attacker.HasLineOfSight(attack.Target));
                 activity = AppendTargetCover(activity, attacker.IsTargetInCover(attack.Target, out var hitChance), hitChance);
@@ -292,6 +307,8 @@ namespace Blackglass
                 if (coverText.Length > 0)
                     text += "\n" + coverText;
             }
+            if (hostile && intelligence != null && intelligence.TruthView)
+                text += $"\n[truth: {intelligence.StateOfEnemy(health)}]";
 
             var screen = viewCamera.WorldToScreenPoint(health.transform.position + Vector3.up * UnitLabelHeight);
             if (screen.z <= 0f)

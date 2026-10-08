@@ -27,6 +27,8 @@ namespace Blackglass
         [SerializeField, Min(0.05f)] float discDiameter = 0.5f;
         // The prototype ground is flat at y = 0; markers float just above it.
         [SerializeField] float groundHeight = 0.05f;
+        // Optional: with fog on, markers appear only on known ground and never for cover held by an unseen hostile.
+        [SerializeField] IntelligenceService intelligence;
 
         // One marker per registry location, in registry order (rebuilt whenever the registry's version changes).
         readonly List<GameObject> markers = new List<GameObject>();
@@ -74,6 +76,8 @@ namespace Blackglass
             selection = unitSelection;
         }
 
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
+
         void LateUpdate()
         {
             if (registry == null)
@@ -85,13 +89,18 @@ namespace Blackglass
             for (var i = 0; i < markers.Count && i < registry.Points.Count; i++)
             {
                 var point = registry.Points[i];
-                var show = point != null && point.IsValid && (paused || point.IsClaimed);
+                var show = point != null && point.IsValid && (paused || point.IsClaimed)
+                    && Knowledge.IsCoverShown(intelligence, point) && ClaimantIsShown(point);
                 if (markers[i].activeSelf != show)
                     markers[i].SetActive(show);
                 if (show)
                     Paint(i, ColorFor(point, destinations.Contains(point)));
             }
         }
+
+        // A location held by a hostile the player cannot see would show where it hides.
+        bool ClaimantIsShown(CoverLocation point) =>
+            !point.IsClaimed || !point.Claimant.TryGetComponent<Health>(out var claimant) || Knowledge.IsShown(intelligence, claimant);
 
         void RebuildMarkers()
         {

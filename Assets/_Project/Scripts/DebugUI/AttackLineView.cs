@@ -20,6 +20,11 @@ namespace Blackglass
 
         internal bool IsShowing => line != null && line.enabled;
 
+        // Optional: with fog on, a shot at a target the player cannot see draws no line (it would show where the target stands).
+        [SerializeField] IntelligenceService intelligence;
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
+
         internal void Initialize(LineRenderer lineRenderer) => line = lineRenderer;
 
         void Awake() => attacker = GetComponent<UnitAttacker>();
@@ -50,7 +55,7 @@ namespace Blackglass
 
         void OnAttacked(Health target)
         {
-            if (line == null || target == null)
+            if (line == null || target == null || !Knowledge.IsShown(intelligence, target))
                 return;
             line.useWorldSpace = true;
             line.positionCount = 2;

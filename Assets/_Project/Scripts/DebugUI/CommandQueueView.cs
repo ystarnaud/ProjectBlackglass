@@ -16,6 +16,8 @@ namespace Blackglass
         [SerializeField, Min(0.05f)] float markerDiameter = 0.6f;
         // The prototype ground is flat at y = 0; the line and markers float just above it.
         [SerializeField] float groundHeight = 0.05f;
+        // Optional: with fog on, an order aimed at a target the player cannot see draws no point.
+        [SerializeField] IntelligenceService intelligence;
 
         readonly List<Vector3> points = new List<Vector3>();
         readonly List<GameObject> markers = new List<GameObject>();
@@ -41,6 +43,8 @@ namespace Blackglass
         }
 
         internal void Initialize(Material marker) => markerMaterial = marker;
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
         void Awake()
         {
@@ -88,7 +92,8 @@ namespace Blackglass
                     points.Add(spot);
                     ShowMarker(spot);
                     break;
-                case AttackCommand attack when attack.Target != null && attack.Target.gameObject.activeInHierarchy:
+                case AttackCommand attack when attack.Target != null && attack.Target.gameObject.activeInHierarchy
+                    && Knowledge.IsShown(intelligence, attack.Target):
                     points.Add(OnGround(attack.Target.transform.position));
                     break;
                 case InteractCommand interact when interact.Target != null && interact.Target.gameObject.activeInHierarchy:
@@ -96,7 +101,7 @@ namespace Blackglass
                     break;
                 case AbilityCommand ability when ability.Definition != null
                     && (ability.Definition.TargetMode == AbilityTargetMode.Ground
-                        || (ability.Target != null && ability.Target.gameObject.activeInHierarchy)):
+                        || (ability.Target != null && ability.Target.gameObject.activeInHierarchy && Knowledge.IsShown(intelligence, ability.Target))):
                     var aim = OnGround(ability.AimPoint);
                     points.Add(aim);
                     if (ability.Definition.TargetMode == AbilityTargetMode.Ground)

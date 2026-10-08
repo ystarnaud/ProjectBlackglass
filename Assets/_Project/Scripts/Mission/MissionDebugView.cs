@@ -29,21 +29,37 @@ namespace Blackglass
             }
             return text.ToString();
         }
+
+        /// <summary>The state line only: no room, spawn, cover or bounds data while the fog hides the mission.</summary>
+        public static string DescribeHidden(MissionState state, MissionReport report)
+        {
+            var text = FormattableString.Invariant($"Mission: {state} | Seed {report.Seed}");
+            if (report.AttemptsMade > 0)
+                text += FormattableString.Invariant($" | attempt {report.AttemptsMade}/{report.MaxAttempts}");
+            if (state == MissionState.Failed && !string.IsNullOrEmpty(report.Failure))
+                text += "\n" + report.Failure;
+            return text;
+        }
     }
 
     /// <summary>Debug-only IMGUI text about the generated mission. Not production UI. Works while paused.</summary>
     public sealed class MissionDebugView : MonoBehaviour
     {
         [SerializeField] MissionDirector director;
+        // Optional: with fog on, the room, spawn and cover data stay out of the text (decision 037).
+        [SerializeField] IntelligenceService intelligence;
 
         GUIStyle style;
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
         void OnGUI()
         {
             if (director == null)
                 return;
             style ??= new GUIStyle(GUI.skin.label) { fontSize = 14, alignment = TextAnchor.UpperRight, wordWrap = true };
-            var text = MissionDebugText.Describe(director.State, director.Report) + "\n" + MissionDebugText.Hints;
+            var hidden = intelligence != null && intelligence.IsFogActive && !intelligence.TruthView;
+            var text = (hidden ? MissionDebugText.DescribeHidden(director.State, director.Report) : MissionDebugText.Describe(director.State, director.Report)) + "\n" + MissionDebugText.Hints;
             var width = Mathf.Min(560f, Screen.width * 0.45f);
             var area = new Rect(Screen.width - width - 10f, 10f, width, Screen.height * 0.5f);
             GUI.color = Color.black;
