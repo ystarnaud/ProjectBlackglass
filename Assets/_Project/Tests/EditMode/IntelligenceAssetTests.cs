@@ -44,7 +44,6 @@ namespace Blackglass.Tests
         }
 
         [TestCase("IntelFog")]
-        [TestCase("IntelVeil")]
         [TestCase("IntelMarker")]
         public void TheIntelMaterials_Exist(string name)
         {
@@ -52,12 +51,11 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void TheVeilMaterial_IsTransparent_AndTheFogIsNot()
+        public void TheFogMaterial_UsesTheFogOfWarShader_AndBlendsOverTheScene()
         {
-            var veil = AssetDatabase.LoadAssetAtPath<Material>(Root + "Materials/IntelVeil.mat");
             var fog = AssetDatabase.LoadAssetAtPath<Material>(Root + "Materials/IntelFog.mat");
-            Assert.That(veil.renderQueue, Is.GreaterThanOrEqualTo(3000));
-            Assert.That(fog.renderQueue, Is.LessThan(3000));
+            Assert.That(fog.shader.name, Is.EqualTo("Blackglass/IntelFogOfWar"));
+            Assert.That(fog.renderQueue, Is.GreaterThanOrEqualTo(3000), "it darkens what is already drawn");
         }
     }
 }

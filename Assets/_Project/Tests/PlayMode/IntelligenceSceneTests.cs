@@ -5,6 +5,7 @@ using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 
@@ -91,7 +92,8 @@ namespace Blackglass.Tests
                 Assert.That(Wired(component, "intelligence"), Is.True, name + " has no intelligence service");
             }
             Assert.That(Wired(Object.FindFirstObjectByType<FogPresenter>(), "fogMaterial"), Is.True);
-            Assert.That(Wired(Object.FindFirstObjectByType<FogPresenter>(), "veilMaterial"), Is.True);
+            Assert.That(Camera.main.GetUniversalAdditionalCameraData().requiresDepthTexture, Is.True,
+                "the fog darkens the floor plan by reading the depth buffer");
             Assert.That(Wired(service, "markerMaterial"), Is.True);
         }
 

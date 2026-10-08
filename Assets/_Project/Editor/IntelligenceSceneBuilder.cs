@@ -11,7 +11,7 @@ using UnityEngine.Rendering;
 namespace Blackglass.EditorTools
 {
     /// <summary>
-    /// Creates the Recon Scan ability and the three intelligence materials, gives Kestrel the scan, and wires the
+    /// Creates the Recon Scan ability and the two intelligence materials (the fog of war and the last-known marker), gives Kestrel the scan, and wires the
     /// ProceduralMission scene for battlefield uncertainty (the Blind preset, the service, the presenters, the overlay and
     /// the developer keys, and every consumer's reference). Idempotent; existing assets are kept so hand tuning survives.
     /// </summary>
@@ -34,12 +34,11 @@ namespace Blackglass.EditorTools
         {
             var scan = CreateScan();
             GiveKestrelTheScan(scan);
-            var fog = MakeMaterial(MaterialRoot + "/IntelFog.mat", new Color(0.02f, 0.02f, 0.03f, 1f), transparent: false);
-            var veil = MakeMaterial(MaterialRoot + "/IntelVeil.mat", new Color(0f, 0f, 0.02f, 0.55f), transparent: true);
-            var marker = MakeMaterial(MaterialRoot + "/IntelMarker.mat", new Color(1f, 0.6f, 0.1f, 1f), transparent: false);
+            var fog = MakeFogMaterial(MaterialRoot + "/IntelFog.mat");
+            var marker = MakeMaterial(MaterialRoot + "/IntelMarker.mat", new Color(1f, 0.6f, 0.1f, 1f));
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            WireScene(fog, veil, marker);
+            WireScene(fog, marker);
         }
 
         static AbilityDefinition CreateScan()
@@ -84,7 +83,29 @@ namespace Blackglass.EditorTools
             EditorUtility.SetDirty(kestrel);
         }
 
-        static Material MakeMaterial(string path, Color color, bool transparent)
+        // The fog of war material: the Blackglass/IntelFogOfWar shader, which darkens the scene by the brightness grid
+        // FogPresenter builds. An older material from before the shader existed is moved onto it; its dark colour is kept.
+        static Material MakeFogMaterial(string path)
+        {
+            var shader = Shader.Find("Blackglass/IntelFogOfWar");
+            if (shader == null)
+                throw new InvalidOperationException("The Blackglass/IntelFogOfWar shader is missing.");
+            var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (material == null)
+            {
+                material = new Material(shader) { name = Path.GetFileNameWithoutExtension(path) };
+                AssetDatabase.CreateAsset(material, path);
+            }
+            else if (material.shader == shader)
+                return material;
+            material.shader = shader;
+            material.SetColor("_DarkColor", new Color(0.02f, 0.02f, 0.03f, 1f));
+            material.renderQueue = (int)RenderQueue.Transparent + 100;
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
+        static Material MakeMaterial(string path, Color color)
         {
             var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
             if (existing != null)
@@ -94,23 +115,11 @@ namespace Blackglass.EditorTools
                 throw new InvalidOperationException("The URP Unlit shader is missing.");
             var material = new Material(shader) { name = Path.GetFileNameWithoutExtension(path) };
             material.SetColor("_BaseColor", color);
-            if (transparent)
-            {
-                material.SetFloat("_Surface", 1f);
-                material.SetFloat("_Blend", 0f);
-                material.SetFloat("_ZWrite", 0f);
-                material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
-                material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
-                material.SetOverrideTag("RenderType", "Transparent");
-                material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
-                material.renderQueue = (int)RenderQueue.Transparent;
-                material.SetShaderPassEnabled("ShadowCaster", false);
-            }
             AssetDatabase.CreateAsset(material, path);
             return material;
         }
 
-        static void WireScene(Material fog, Material veil, Material marker)
+        static void WireScene(Material fog, Material marker)
         {
             // Open the scene first: opening it in Single mode unloads unreferenced assets (see OperativeDataBuilder).
             var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
@@ -125,7 +134,6 @@ namespace Blackglass.EditorTools
             var fogPresenter = GetOrAdd<FogPresenter>(host.gameObject);
             Set(fogPresenter, "intelligence", host);
             Set(fogPresenter, "fogMaterial", fog);
-            Set(fogPresenter, "veilMaterial", veil);
 
             var map = GetOrAdd<IntelMapView>(host.gameObject);
             Set(map, "intelligence", host);

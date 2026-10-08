@@ -217,7 +217,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Blackglass::Blackglass.FogPresenter
   intelligence: {fileID: 26027902}
   fogMaterial: {fileID: 2100000, guid: cf13e67768925b144a816cb9b4a0e464, type: 2}
-  veilMaterial: {fileID: 2100000, guid: 82e2de306946cb343aa8ede3e4f3274e, type: 2}
+  featherMetres: 1.5
+  fadeSeconds: 0.4
 --- !u!114 &26027902
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -20,13 +20,19 @@ namespace Blackglass.Tests
             if (fogMaterial != null) Object.DestroyImmediate(fogMaterial);
         }
 
+        static Vector3 CentreOf(RegionMap map, int region)
+        {
+            var rect = map.WorldRect(region);
+            return new Vector3(rect.center.x, 0f, rect.center.y);
+        }
+
         FogPresenter AddFog(IntelligenceService service)
         {
             fogMaterial = new Material(Shader.Find("Sprites/Default"));
             var host = rig.World.Track(new GameObject("FogHost"));
             host.SetActive(false);
             var fog = host.AddComponent<FogPresenter>();
-            fog.Initialize(service, fogMaterial, null);
+            fog.Initialize(service, fogMaterial);
             host.SetActive(true);
             return fog;
         }
@@ -50,8 +56,9 @@ namespace Blackglass.Tests
             foreach (var camera in rig.Director.Current.Network.Cameras)
                 Assert.That(camera.Visual.GetComponentsInChildren<Renderer>().All(r => r.forceRenderingOff), Is.True, "undiscovered cameras are not drawn");
 
-            var active = Enumerable.Range(0, fog.VolumeCount).Count(fog.IsVolumeActive);
-            Assert.That(active, Is.GreaterThan(fog.VolumeCount / 2));
+            var map = service.Map;
+            var hidden = Enumerable.Range(0, map.Count).Count(r => fog.TargetAt(CentreOf(map, r)) < 0.5f);
+            Assert.That(hidden, Is.GreaterThan(map.Count / 2), "most regions start in the dark");
             Assert.That(rig.Director.Current.Root.transform.Find("Fog"), Is.Not.Null);
         }
 
@@ -65,7 +72,7 @@ namespace Blackglass.Tests
             yield return null;
             foreach (var hostile in rig.Director.Hostiles)
                 Assert.That(hostile.GetComponentsInChildren<Renderer>().Any(r => r.forceRenderingOff), Is.False);
-            Assert.That(Enumerable.Range(0, fog.VolumeCount).Any(fog.IsVolumeActive), Is.False);
+            Assert.That(fog.IsShown, Is.False, "full knowledge shows no fog at all");
         }
 
         [UnityTest]
