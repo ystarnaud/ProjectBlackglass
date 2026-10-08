@@ -122,7 +122,7 @@ split is deferred (it would rework Darius's animator wiring).
 ### Prototype operatives
 | Operative | Role | Archetype | Max HP | Speed | Abilities |
 |---|---|---|---|---|---|
-| Darius (slot 0, `Darius_Player`) | Assault | Ranged (8 m, 15, 1 s) | 130 | 5.0 | Blast, Aimed Shot |
+| Darius (slot 0, `Darius_Player`) | Assault | Ranged (8 m, 15, 1 s) | 130 | 5.0 | Aimed Shot, Blast |
 | Kestrel (`FriendlyUnit`) | Recon | Marksman (16 m, 40, 2.5 s) | 80 | 6.5 | Aimed Shot |
 | Sable (`FriendlyUnit`) | Support | Ranged (8 m, 15, 1 s) | 100 | 5.5 | Mend, Aimed Shot |
 

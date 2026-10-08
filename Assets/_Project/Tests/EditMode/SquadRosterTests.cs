@@ -97,6 +97,19 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Initialize_SkipsAnInvalidDefinition_NamingTheProblem_AndBuildsTheRest()
+        {
+            var noWeapon = Own(OperativeDefinition.Create("id-bare", "Bare", alpha.Role, alpha.UnitPrefab, 90, 5f, null, new AbilityDefinition[0]));
+            noWeapon.IsValid(out var problem);
+            LogAssert.Expect(LogType.Error, new Regex("Bare is not a valid operative \\(" + Regex.Escape(problem) + "\\)"));
+
+            roster.Initialize(new[] { alpha, noWeapon, bravo }, track);
+
+            Assert.That(roster.Members.Select(m => m.Id), Is.EqualTo(new[] { "id-alpha", "id-bravo" }));
+            Assert.That(roster.Find("id-bare"), Is.Null);
+        }
+
+        [Test]
         public void Find_ByIdOrNull()
         {
             roster.Initialize(new[] { alpha, bravo }, track);

@@ -102,7 +102,7 @@ namespace Blackglass
                 track.TryGetNextThreshold(state.Experience, out var next) ? next : (int?)null));
             GUILayout.Label(DescribeStat("Max health", baseConfig.MaxHealth.ToString(CultureInfo.InvariantCulture), now.MaxHealth.ToString(CultureInfo.InvariantCulture)));
             GUILayout.Label(DescribeStat("Move speed", Number(baseConfig.MoveSpeed), Number(now.MoveSpeed)));
-            GUILayout.Label($"Weapon: {definition.Archetype.DisplayName} ({now.AttackRole})");
+            GUILayout.Label($"Weapon: {(definition.Archetype != null ? definition.Archetype.DisplayName : "-")} ({now.AttackRole})");
             GUILayout.Label(DescribeStat("Attack damage", baseConfig.AttackDamage.ToString(CultureInfo.InvariantCulture), now.AttackDamage.ToString(CultureInfo.InvariantCulture)));
             GUILayout.Label(DescribeStat("Attack range", Number(baseConfig.AttackRange), Number(now.AttackRange)));
             GUILayout.Label(DescribeStat("Attack interval", Number(baseConfig.AttackInterval), Number(now.AttackInterval)));
@@ -111,7 +111,7 @@ namespace Blackglass
 
             var abilityNames = new List<string>();
             foreach (var ability in definition.Abilities)
-                abilityNames.Add(ability.DisplayName);
+                abilityNames.Add(ability != null ? ability.DisplayName : "-");
             GUILayout.Label("Abilities: " + (abilityNames.Count == 0 ? "none" : string.Join(", ", abilityNames)));
 
             var pickNames = new List<string>();
@@ -127,6 +127,8 @@ namespace Blackglass
             {
                 foreach (var choice in track.Choices)
                 {
+                    if (choice == null)
+                        continue;
                     if (GUILayout.Button($"{choice.DisplayName}: {choice.Description}") && clicked == null)
                         clicked = choice.Id;
                 }

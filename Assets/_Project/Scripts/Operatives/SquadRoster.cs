@@ -104,6 +104,12 @@ namespace Blackglass
                     Debug.LogError($"{name}: {definition.DisplayName} repeats the operative id {definition.Id} and was skipped.", this);
                     continue;
                 }
+                if (!definition.IsValid(out var problem))
+                {
+                    Debug.LogError($"{name}: {definition.DisplayName} is not a valid operative ({problem}) and was skipped.", this);
+                    ids.Remove(definition.Id);
+                    continue;
+                }
                 members.Add(new RosterMember(definition, new PersistentOperativeState(definition.Id)));
             }
         }

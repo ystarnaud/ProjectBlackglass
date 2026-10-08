@@ -73,14 +73,16 @@ namespace Blackglass.Tests
             yield return rig.Generate(31);
             roster.AwardExperience("test-alpha", 250);
             roster.AwardExperience("test-bravo", 250);
-            roster.TryPickChoice("test-alpha", "combat");
+            roster.TryPickChoice("test-alpha", "survivability");
+            var health = rig.Director.Friendlies[0].GetComponent<Health>();
+            Assert.That(health.Max, Is.EqualTo(155), "the pick reached the running unit before the reset");
 
             yield return Tap(keyboard.f11Key);
 
             Assert.That(roster.Find("test-alpha").State.Experience, Is.EqualTo(0));
             Assert.That(roster.Find("test-alpha").State.ChoiceIds, Is.Empty);
             Assert.That(roster.Find("test-bravo").State.Experience, Is.EqualTo(250));
-            Assert.That(rig.Director.Friendlies[0].GetComponent<Health>().Max, Is.EqualTo(130), "the running unit follows the reset");
+            Assert.That(health.Max, Is.EqualTo(130), "the running unit follows the reset");
         }
 
         [UnityTest]

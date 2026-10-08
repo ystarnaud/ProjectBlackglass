@@ -140,7 +140,8 @@ namespace Blackglass.Tests
             Kill(Director.Friendlies[2]);   // a casualty; the mission still succeeds with the others
 
             yield return CompleteTheMission();
-            yield return new WaitForSeconds(0.3f);
+            yield return null;   // a second (double) award would land by now
+            yield return null;
 
             Assert.That(roster.Members.Select(m => m.State.Experience), Is.EqualTo(new[] { 150, 150, 150 }));
         }
