@@ -47,7 +47,7 @@ Mission finished (Success) --> SquadRoster.AwardMissionCompletion --> Persistent
   `baseMaxHealth`, `baseMoveSpeed`, `archetype` (`CombatArchetype`), `abilities` (`AbilityDefinition[]`, up to 4). No
   runtime state, ever. `OnValidate`/a `Validate()` method reports an empty id, missing role/prefab/archetype, health < 1.
 - **`OperativeRole`** (ScriptableObject): `displayName`, `description`, `bonus` (`StatModifiers`). A role is data so new and
-  hybrid roles need no code. Prototype roles: Assault (+10% attack damage), Recon (+0.5 m/s move speed), Support (+15%
+  hybrid roles need no code. Prototype roles: Assault (+20% attack damage), Recon (+0.5 m/s move speed), Support (+15%
   ability power).
 - **`StatModifiers`** (`[Serializable]` struct): `maxHealth` (flat int), `moveSpeed` (flat m/s), `attackDamage`
   (fraction, 0.15 = +15%), `abilityPower` (fraction), `abilityCooldownReduction` (fraction, 0.15 = -15%). Sum operation

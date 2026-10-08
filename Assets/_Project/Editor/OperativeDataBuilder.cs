@@ -1,8 +1,11 @@
 #if UNITY_EDITOR
 using System;
 using System.IO;
+using System.Linq;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace Blackglass.EditorTools
 {
@@ -20,6 +23,8 @@ namespace Blackglass.EditorTools
         const string CapsulePrefab = "Assets/_Project/Prefabs/FriendlyUnit.prefab";
         const string DariusPrefab = "Assets/Art/Characters/Darius/Prefabs/Darius_Player.prefab";
         const string DataRoot = "Assets/_Project/Data";
+        const string ScenePath = "Assets/_Project/Scenes/ProceduralMission.unity";
+        const string ControlsPath = "Assets/_Project/Input/BlackglassControls.inputactions";
 
         [MenuItem("Blackglass/Operatives/Create Prototype Operatives (keeps existing assets)")]
         public static void CreateAssetsMenu() => CreateAssets();
@@ -28,6 +33,80 @@ namespace Blackglass.EditorTools
         public static void BuildAndWireFromCommandLine()
         {
             CreateAssets();
+            WireScene();
+        }
+
+        [MenuItem("Blackglass/Operatives/Wire ProceduralMission Scene")]
+        public static void WireSceneMenu() => WireScene();
+
+        /// <summary>
+        /// Adds the squad roster, the operative panel and the developer input to ProceduralMission and points the director's
+        /// systems at the roster. Idempotent: objects already there are reused and re-pointed.
+        /// </summary>
+        public static void WireScene()
+        {
+            // The scene is opened first: opening it in Single mode unloads unreferenced assets, which would turn
+            // definitions loaded before it into destroyed objects (saved as missing references).
+            var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            var track = Load<ProgressionTrack>(TrackPath);
+            var squad = new[]
+            {
+                Load<OperativeDefinition>($"{DefinitionDir}/Darius.asset"),
+                Load<OperativeDefinition>($"{DefinitionDir}/Kestrel.asset"),
+                Load<OperativeDefinition>($"{DefinitionDir}/Sable.asset"),
+            };
+            var director = UnityEngine.Object.FindFirstObjectByType<MissionDirector>();
+            var active = UnityEngine.Object.FindFirstObjectByType<ActiveCharacter>();
+            if (director == null || active == null)
+                throw new InvalidOperationException("ProceduralMission needs a MissionDirector and an ActiveCharacter.");
+
+            var roster = FindOrAdd<SquadRoster>("Squad");
+            var rosterObject = new SerializedObject(roster);
+            SetRefs(rosterObject.FindProperty("startingSquad"), squad);
+            SetRef(rosterObject.FindProperty("track"), track);
+            SetRef(rosterObject.FindProperty("director"), director);
+            rosterObject.ApplyModifiedPropertiesWithoutUndo();
+
+            var panel = FindOrAdd<OperativePanelView>("OperativePanel");
+            var panelObject = new SerializedObject(panel);
+            SetRef(panelObject.FindProperty("roster"), roster);
+            SetRef(panelObject.FindProperty("activeCharacter"), active);
+            SetRef(panelObject.FindProperty("director"), director);
+            panelObject.ApplyModifiedPropertiesWithoutUndo();
+
+            var input = FindOrAdd<OperativeDeveloperInput>("OperativeDeveloper");
+            var inputObject = new SerializedObject(input);
+            SetRef(inputObject.FindProperty("roster"), roster);
+            SetRef(inputObject.FindProperty("activeCharacter"), active);
+            SetRef(inputObject.FindProperty("panel"), panel);
+            SetRef(inputObject.FindProperty("toggleAction"), ActionReference("ToggleOperativePanel"));
+            SetRef(inputObject.FindProperty("addExperienceAction"), ActionReference("AddExperience"));
+            SetRef(inputObject.FindProperty("resetAction"), ActionReference("ResetProgression"));
+            inputObject.ApplyModifiedPropertiesWithoutUndo();
+
+            var directorObject = new SerializedObject(director);
+            SetRef(directorObject.FindProperty("systems.roster"), roster);
+            directorObject.ApplyModifiedPropertiesWithoutUndo();
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+        }
+
+        static T FindOrAdd<T>(string objectName) where T : Component
+        {
+            var existing = UnityEngine.Object.FindFirstObjectByType<T>();
+            if (existing != null)
+                return existing;
+            return new GameObject(objectName).AddComponent<T>();
+        }
+
+        static InputActionReference ActionReference(string actionName)
+        {
+            var reference = AssetDatabase.LoadAllAssetsAtPath(ControlsPath).OfType<InputActionReference>()
+                .FirstOrDefault(r => r.action != null && r.action.name == actionName);
+            if (reference == null)
+                throw new InvalidOperationException($"No InputActionReference for '{actionName}' in {ControlsPath}.");
+            return reference;
         }
 
         public static void CreateAssets()
