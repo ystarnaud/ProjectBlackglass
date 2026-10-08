@@ -82,6 +82,8 @@ namespace Blackglass
         public IReadOnlyList<CommandableUnit> Hostiles => hostiles;
 
         public event Action<MissionState> StateChanged;
+        /// <summary>Raised once when the running mission ends, with Success or Failure.</summary>
+        public event Action<MissionPhase> MissionFinished;
 
         internal void Initialize(MissionSettings missionSettings, FriendlySlot[] friendly, HostileSlot[] hostile, MissionSystems persistent,
             Material ground, Material obstacle, bool generateAtStart, bool randomSeedAtStart = false, EnvironmentTheme theme = null)
@@ -162,7 +164,9 @@ namespace Blackglass
         {
             SetState(MissionState.Generating);
             var request = settings.Validated();
-            if (friendlySlots.Length > 0)
+            if (systems.roster != null && systems.roster.Count > 0)
+                request.friendlyCount = Mathf.Clamp(systems.roster.Count, 1, 6);
+            else if (friendlySlots.Length > 0)
                 request.friendlyCount = Mathf.Clamp(friendlySlots.Length, 1, 6);
             Report = new MissionReport { Seed = request.seed, MaxAttempts = request.maxAttempts };
             Teardown();
@@ -269,6 +273,7 @@ namespace Blackglass
                 group.Add(unit.GetComponent<Health>());
             Runtime = MissionContent.CreateRuntime(mission, request, group, squad);
             Runtime.Start();
+            Runtime.PhaseChanged += OnRuntimePhaseChanged;
             Fill(Report, layout, navigation, plan);
             FrameCamera(layout);
             return true;
@@ -285,8 +290,15 @@ namespace Blackglass
         {
             if (Runtime == null)
                 return;
+            Runtime.PhaseChanged -= OnRuntimePhaseChanged;
             Runtime.Detach();
             Runtime = null;
+        }
+
+        void OnRuntimePhaseChanged(MissionPhase phase)
+        {
+            if (phase == MissionPhase.Success || phase == MissionPhase.Failure)
+                MissionFinished?.Invoke(phase);
         }
 
         void Teardown()

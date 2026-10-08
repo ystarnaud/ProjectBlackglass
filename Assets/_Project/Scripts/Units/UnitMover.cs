@@ -25,6 +25,16 @@ namespace Blackglass
         /// <summary>Height of the unit's pivot above the NavMesh (the agent's base offset, 1 m for the prototype capsules).</summary>
         public float PivotHeight => Agent.baseOffset;
 
+        /// <summary>Walking speed in metres per second (what the agent uses).</summary>
+        public float Speed => speed;
+
+        /// <summary>Changes the walking speed, also on the agent. Safe before Awake (the unit's hierarchy may still be inactive).</summary>
+        internal void SetSpeed(float value)
+        {
+            speed = Mathf.Max(0f, value);
+            Agent.speed = speed;
+        }
+
         /// <summary>
         /// True when the unit is at the end of its path, or has no path left to walk. The path ends at the closest
         /// reachable point, so a destination the NavMesh only partly reaches still counts as arrived there.

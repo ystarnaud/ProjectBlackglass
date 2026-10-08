@@ -284,12 +284,15 @@ namespace Blackglass.Tests
             Assert.That(unit.Cover.Point, Is.EqualTo(location));
         }
 
+        // Each ability is cast by the operative that carries it (decision 036): Kestrel's Aimed Shot, Darius's Blast,
+        // Sable's Mend.
         [UnityTest]
         public IEnumerator Scene_Abilities_AimedShotHitsInRange_BlastHitsTheGround_MendHeals_AndRangeAndCooldownApply()
         {
             yield return LoadMission();
-            var caster = squad[1];   // the Marksman
+            var caster = squad[1];   // Kestrel, the Marksman: Aimed Shot is her slot 1
             var abilities = caster.GetComponent<UnitAbilities>();
+            Assert.That(abilities.Definition(0).DisplayName, Is.EqualTo("Aimed Shot"), "precondition: Kestrel's slot 1");
             // The shot hostiles must not fight back: a retaliation would change the squad's health during the
             // "no friendly fire" check below, which is about the Blast alone.
             foreach (var target in hostiles.Take(2))
@@ -305,7 +308,13 @@ namespace Blackglass.Tests
             Assert.That(abilities.Check(abilities.Definition(0), hostile, null).Failure, Is.EqualTo(AbilityFailure.OnCooldown),
                 "a second Aimed Shot at the same hostile, in range, is refused for the cooldown");
 
-            var second = BringHostileNear(hostiles[1], caster, 8f);
+            // Blast: Darius's slot 2. Kestrel's AI is off from here, so only the Blast can hurt the second hostile.
+            caster.GetComponent<CompanionAI>().enabled = false;
+            caster.Issue(new StopCommand());
+            var blaster = squad[0];
+            var blasterAbilities = blaster.GetComponent<UnitAbilities>();
+            Assert.That(blasterAbilities.Definition(1).DisplayName, Is.EqualTo("Blast"), "precondition: Darius's slot 2");
+            var second = BringHostileNear(hostiles[1], blaster, 8f);
             var secondBefore = second.Current;
 
             // A friendly inside the 3 m blast radius (1.5 m from the aim point), so "no friendly fire" is not vacuous. Its AI
@@ -324,20 +333,25 @@ namespace Blackglass.Tests
             bystander.GetComponent<NavMeshAgent>().Warp(bystanderSpot.position);
             Assert.That(CoverRules.FlatDistance(bystander.transform.position, aim), Is.LessThan(2f), "the friendly stands in the blast radius");
             var friendlyBefore = squad.Select(u => HealthOf(u).Current).ToArray();
-            Assert.That(caster.Issue(AbilityCommand.AtGround(abilities.Definition(1), second.transform.position)), Is.True);
+            Assert.That(blaster.Issue(AbilityCommand.AtGround(blasterAbilities.Definition(1), second.transform.position)), Is.True);
             yield return TestWorld.WaitUntil(() => second.Current < secondBefore, 3f);
             Assert.That(second.Current, Is.LessThan(secondBefore), "ground-targeted ability");
             Assert.That(squad.Select(u => HealthOf(u).Current).ToArray(), Is.EqualTo(friendlyBefore), "no friendly fire");
 
-            BringFriendlyNear(squad[2], caster, 3f);
-            HealthOf(squad[2]).TakeDamage(50);
-            var hurt = HealthOf(squad[2]).Current;
-            Assert.That(caster.Issue(AbilityCommand.OnUnit(abilities.Definition(2), HealthOf(squad[2]))), Is.True,
-                "the Marksman stands within Mend range of the squad");
-            yield return TestWorld.WaitUntil(() => HealthOf(squad[2]).Current > hurt, 3f);
-            Assert.That(HealthOf(squad[2]).Current, Is.GreaterThan(hurt), "Mend heals");
+            // Mend: Sable's slot 1, on a hurt Kestrel standing 3 m from her.
+            var healer = squad[2];
+            var healerAbilities = healer.GetComponent<UnitAbilities>();
+            Assert.That(healerAbilities.Definition(0).DisplayName, Is.EqualTo("Mend"), "precondition: Sable's slot 1");
+            BringFriendlyNear(squad[1], healer, 3f);
+            HealthOf(squad[1]).TakeDamage(50);
+            var hurt = HealthOf(squad[1]).Current;
+            Assert.That(healer.Issue(AbilityCommand.OnUnit(healerAbilities.Definition(0), HealthOf(squad[1]))), Is.True,
+                "Sable stands within Mend range of Kestrel");
+            yield return TestWorld.WaitUntil(() => HealthOf(squad[1]).Current > hurt, 3f);
+            Assert.That(HealthOf(squad[1]).Current, Is.GreaterThan(hurt), "Mend heals");
 
-            // Range: the leader has not used its Aimed Shot, so only the distance (beyond 14 m) can refuse it. Range is checked
+            // Range: the leader has used its Blast but not its Aimed Shot (cooldowns are per slot), so only the distance
+            // (beyond 14 m) can refuse it. Range is checked
             // before sight, so the spot need not be in sight.
             var ready = squad[0].GetComponent<UnitAbilities>();
             Assert.That(ready.IsReady(0), Is.True, "precondition: the leader's Aimed Shot is ready");
@@ -450,8 +464,8 @@ namespace Blackglass.Tests
             // AbilityTargeting also disarms itself on its next Update (its caster is gone), so the director's own disarm is only
             // visible in the same frame the regeneration starts: the request is made directly, as F6 does, and checked at once.
             yield return LoadMission();
-            yield return Tap(keyboard.digit3Key);
-            Assert.That(targeting.IsArmed, Is.True, "precondition: key 3 armed the active character's third ability");
+            yield return Tap(keyboard.digit2Key);
+            Assert.That(targeting.IsArmed, Is.True, "precondition: key 2 armed the active character's second ability (Darius's Blast)");
 
             Assert.That(director.RegenerateSame(), Is.True);
             Assert.That(targeting.IsArmed, Is.False, "starting a regeneration disarms the ability armed for the old squad");
@@ -581,13 +595,15 @@ namespace Blackglass.Tests
             Assert.That(unit.CurrentCommand, Is.TypeOf<MoveToCoverCommand>(), "Confirm on cover orders MoveToCover");
             Assert.That(pause.IsPaused, Is.True, "the order waits for the resume");
 
-            // An ability: RT + D-pad down arms Mend, and the cursor then snaps to friendlies only.
-            var ally = squad[2];
+            // An ability: Mend is Sable's slot 1 (decision 036), so with Sable selected (the selection is the caster)
+            // RT + D-pad up arms it, and the cursor then snaps to friendlies only.
+            selection.Select(squad[2].GetComponent<SelectableUnit>());
+            var ally = squad[1];
             cameraRig.FocusOn(ally.transform.position);
             yield return null;
             Press(pad.rightTrigger);
             yield return null;
-            yield return Tap(pad.dpad.down);
+            yield return Tap(pad.dpad.up);
             Release(pad.rightTrigger);
             yield return null;
             yield return null;
@@ -623,6 +639,87 @@ namespace Blackglass.Tests
             Set(pad.rightStick, Vector2.zero);
             yield return null;
             Assert.That(Mathf.Abs(Mathf.DeltaAngle(yaw, cameraRig.Yaw)), Is.GreaterThan(5f), "the right stick turns the camera");
+        }
+
+        [UnityTest]
+        public IEnumerator TheSceneSquad_IsThreeDistinctPersistentOperatives()
+        {
+            yield return LoadMission();
+            var identities = squad.Select(u => u.GetComponent<UnitIdentity>()).ToArray();
+            foreach (var identity in identities)
+                Assert.That(identity != null, Is.True, "every squad member is an operative");
+
+            Assert.That(identities.Select(i => i.DisplayName), Is.EqualTo(new[] { "Darius", "Kestrel", "Sable" }));
+            Assert.That(identities.Select(i => i.RoleName), Is.EqualTo(new[] { "Assault", "Recon", "Support" }));
+            Assert.That(identities.Select(i => i.OperativeId).Distinct().Count(), Is.EqualTo(3));
+            Assert.That(squad.Select(u => HealthOf(u).Max), Is.EqualTo(new[] { 130, 80, 100 }));
+            Assert.That(squad[0].GetComponent<UnitAnimationDriver>(), Is.Not.Null, "Darius keeps his model");
+            Assert.That(squad[1].GetComponent<UnitAttacker>().Archetype.DisplayName, Is.EqualTo("Marksman"));
+            Assert.That(active.Unit, Is.SameAs(squad[0]));
+        }
+
+        [UnityTest]
+        public IEnumerator TheSceneRoster_KeepsXp_WhenTheMissionIsRegenerated()
+        {
+            yield return LoadMission();
+            var roster = Object.FindFirstObjectByType<SquadRoster>();
+            Assert.That(roster, Is.Not.Null);
+            var kestrelId = squad[1].GetComponent<UnitIdentity>().OperativeId;
+            Assert.That(roster.AwardExperience(kestrelId, 120), Is.True);
+
+            Assert.That(director.Generate(777), Is.True);
+            yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
+            Assert.That(director.State, Is.EqualTo(MissionState.Ready), director.Report.Failure);
+
+            var kestrel = director.Friendlies[1].GetComponent<UnitIdentity>();
+            Assert.That(kestrel.OperativeId, Is.EqualTo(kestrelId));
+            Assert.That(kestrel.State.Experience, Is.EqualTo(120));
+            Assert.That(director.Friendlies[0].GetComponent<UnitIdentity>().State.Experience, Is.EqualTo(0));
+        }
+
+        [UnityTest]
+        public IEnumerator TheSceneHasTheOperativePanelAndItsDeveloperKeys()
+        {
+            yield return LoadMission();
+            Assert.That(Object.FindFirstObjectByType<OperativePanelView>(), Is.Not.Null);
+            Assert.That(Object.FindFirstObjectByType<OperativeDeveloperInput>(), Is.Not.Null);
+
+            var panel = Object.FindFirstObjectByType<OperativePanelView>();
+            Press(keyboard.f9Key);
+            yield return null;
+            Release(keyboard.f9Key);
+            yield return null;
+            Assert.That(panel.IsVisible, Is.True);
+        }
+
+        // The scene roster is wired to the scene's director: a mission that really ends in Success (objectives done, a
+        // unit in the open extraction zone) awards every operative the track's mission-completion XP.
+        [UnityTest]
+        public IEnumerator TheSceneRoster_AwardsMissionCompletionXp_WhenTheSceneMissionSucceeds()
+        {
+            yield return LoadMission();
+            var roster = Object.FindFirstObjectByType<SquadRoster>();
+            Assert.That(roster, Is.Not.Null);
+            Assert.That(roster.States().Select(s => s.Experience), Is.EqualTo(new[] { 0, 0, 0 }), "precondition: a fresh roster");
+
+            foreach (var hostile in hostiles)
+            {
+                hostile.GetComponent<EnemyAI>().enabled = false;
+                HealthOf(hostile).TakeDamage(HealthOf(hostile).Max);
+            }
+            squad[1].GetComponent<CompanionAI>().enabled = false;   // it waits in the zone instead of following the leader
+            Assert.That(squad[1].GetComponent<NavMeshAgent>().Warp(director.Current.ExtractionZone.position), Is.True);
+            var terminal = director.Current.Terminal;
+            Assert.That(squad[0].GetComponent<UnitMover>().TrySnap(terminal.Position, out var stand), Is.True);
+            Assert.That(squad[0].GetComponent<NavMeshAgent>().Warp(stand), Is.True);
+            Assert.That(squad[0].Issue(new InteractCommand(terminal)), Is.True);
+            yield return TestWorld.WaitUntil(() => director.Phase == MissionPhase.Success, 15f);
+            Assert.That(director.Phase, Is.EqualTo(MissionPhase.Success));
+
+            var xp = roster.Track.MissionCompletionXp;
+            Assert.That(xp, Is.GreaterThan(0));
+            Assert.That(roster.States().Select(s => s.Experience), Is.EqualTo(new[] { xp, xp, xp }),
+                "the roster heard the scene director's MissionFinished(Success)");
         }
     }
 }

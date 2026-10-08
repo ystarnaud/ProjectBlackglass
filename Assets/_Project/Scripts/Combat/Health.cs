@@ -38,6 +38,22 @@ namespace Blackglass
             hasDied = false;
         }
 
+        /// <summary>
+        /// Changes the maximum without touching the damage already taken, so a stronger unit gains the difference as health
+        /// and a weaker one loses it. A living unit never drops below 1 hit point this way, and a dead one stays dead with
+        /// 0 hit points.
+        /// </summary>
+        internal void SetMax(int maximum)
+        {
+            if (maximum < 1)
+                throw new ArgumentOutOfRangeException(nameof(maximum), maximum, "Maximum health must be at least 1.");
+            max = maximum;
+            if (hasDied)
+                damageTaken = max;
+            else if (damageTaken >= max)
+                damageTaken = max - 1;
+        }
+
         /// <summary>Applies damage. The attacker, when given, is reported through AttackedBy so the target can respond.</summary>
         public void TakeDamage(int amount, Health attacker = null)
         {

@@ -119,6 +119,103 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &343333448
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 343333450}
+  - component: {fileID: 343333449}
+  m_Layer: 0
+  m_Name: OperativePanel
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &343333449
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 343333448}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 73f6072241902c94c9f1b9086f4f5c34, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.OperativePanelView
+  roster: {fileID: 407541413}
+  activeCharacter: {fileID: 1021927385}
+  director: {fileID: 424756580}
+--- !u!4 &343333450
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 343333448}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &407541412
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 407541414}
+  - component: {fileID: 407541413}
+  m_Layer: 0
+  m_Name: Squad
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &407541413
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 407541412}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e11c9b36320f1374e887658c03ff4022, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.SquadRoster
+  startingSquad:
+  - {fileID: 11400000, guid: e123a3e9bd5510344ba0c6fc4a607f3d, type: 2}
+  - {fileID: 11400000, guid: 6f5b4e0c79342d04cbe0a8d34e73ff03, type: 2}
+  - {fileID: 11400000, guid: 48ed67ca66c926e48bdded3e42e3b005, type: 2}
+  track: {fileID: 11400000, guid: 5ff06ada83b17e44d8c780d225941a8f, type: 2}
+  director: {fileID: 424756580}
+--- !u!4 &407541414
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 407541412}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &424756576
 GameObject:
   m_ObjectHideFlags: 0
@@ -250,6 +347,7 @@ MonoBehaviour:
     camera: {fileID: 1635730851}
     abilityTargeting: {fileID: 1021927396}
     interactables: {fileID: 1021927397}
+    roster: {fileID: 407541413}
   groundMaterial: {fileID: 2100000, guid: a4af9315f320cdd47bb677d6b9585c8e, type: 2}
   obstacleMaterial: {fileID: 2100000, guid: 4269a282e4a76984985539bb4c7df2ea, type: 2}
   environmentTheme: {fileID: 11400000, guid: adea5743d781e9044b96d88b7e1653cc, type: 2}
@@ -1001,6 +1099,56 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fa0879808b197b74da58ca14c6fa949e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.InteractableRegistry
+--- !u!1 &1277666636
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1277666638}
+  - component: {fileID: 1277666637}
+  m_Layer: 0
+  m_Name: OperativeDeveloper
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1277666637
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1277666636}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 485b47e30c5fc114693578f8b8ba822d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.OperativeDeveloperInput
+  roster: {fileID: 407541413}
+  activeCharacter: {fileID: 1021927385}
+  panel: {fileID: 343333449}
+  toggleAction: {fileID: 1070206751861181939, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  addExperienceAction: {fileID: 4090388364561981341, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  resetAction: {fileID: 4184497390118603430, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+--- !u!4 &1277666638
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1277666636}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1635730849
 GameObject:
   m_ObjectHideFlags: 0
@@ -1083,3 +1231,6 @@ SceneRoots:
   - {fileID: 1021927382}
   - {fileID: 538365522}
   - {fileID: 424756581}
+  - {fileID: 407541414}
+  - {fileID: 343333450}
+  - {fileID: 1277666638}

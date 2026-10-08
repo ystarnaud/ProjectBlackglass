@@ -69,6 +69,21 @@ namespace Blackglass.Tests
         public void SetFriendlySlots(FriendlySlot[] slots) =>
             Director.Initialize(settings, slots, HostileSlots(), systems, ground, obstacle, generateAtStart: false, theme: theme);
 
+        /// <summary>
+        /// Adds a squad roster to the persistent systems: the director then spawns the squad from it. The roster is built
+        /// while its object is inactive, so nothing runs before it is wired.
+        /// </summary>
+        public SquadRoster AddRoster(OperativeDefinition[] squad, ProgressionTrack track)
+        {
+            var host = World.Track(new GameObject("Roster"));
+            host.SetActive(false);
+            var roster = host.AddComponent<SquadRoster>();
+            roster.Initialize(squad, track, Director);
+            host.SetActive(true);
+            systems.roster = roster;
+            return roster;
+        }
+
         public const string DariusPlayerPath = "Assets/Art/Characters/Darius/Prefabs/Darius_Player.prefab";
 
         /// <summary>The usual three friendly slots with Darius (rifle, humanoid visual, Ranged archetype) in slot 0, as in the scene.</summary>

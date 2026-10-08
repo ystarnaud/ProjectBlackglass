@@ -13,7 +13,8 @@ namespace Blackglass
     /// <summary>
     /// Puts the squad and the hostiles into a built mission. Units are instantiated under the (inactive) Actors object
     /// and wired before it is activated, so no component's OnEnable ever sees a half-wired unit. Every spawn point is
-    /// snapped to the NavMesh and checked for geometry first; one bad point fails the whole spawn. Guards are extra hostile
+    /// snapped to the NavMesh and checked for geometry first; one bad point fails the whole spawn. Friendlies come from the
+    /// roster when one is set (each bound to its operative by a UnitIdentity), else from the slots. Guards are extra hostile
     /// tiles from the objective plan (spawned after the layout's hostiles), and every friendly gets a UnitInteractor.
     /// </summary>
     public static class MissionSpawner
@@ -27,9 +28,10 @@ namespace Blackglass
             result = new MissionSpawnResult();
             failure = null;
             var layout = mission.Layout;
-            if (friendlySlots.Count == 0 || hostileSlots.Count == 0)
+            var roster = systems.roster != null && systems.roster.Count > 0 ? systems.roster : null;
+            if ((roster == null && friendlySlots.Count == 0) || hostileSlots.Count == 0)
             {
-                failure = "the director has no friendly or no hostile slots";
+                failure = "the director has no friendly (or roster) or no hostile slots";
                 return false;
             }
             var actors = mission.Actors.gameObject;
@@ -41,7 +43,22 @@ namespace Blackglass
 
             for (var i = 0; i < layout.FriendlySpawns.Count; i++)
             {
-                var slot = friendlySlots[i % friendlySlots.Count];
+                RosterMember member = null;
+                FriendlySlot slot;
+                if (roster != null)
+                {
+                    if (i >= roster.Count)
+                    {
+                        failure = $"the layout has {layout.FriendlySpawns.Count} friendly spawns but the roster has only {roster.Count} operatives";
+                        return false;
+                    }
+                    member = roster.Members[i];
+                    slot = new FriendlySlot { prefab = member.Definition.UnitPrefab, archetype = member.Definition.Archetype, abilities = member.Definition.Abilities };
+                }
+                else
+                {
+                    slot = friendlySlots[i % friendlySlots.Count];
+                }
                 if (!TryCreate(mission, slot.prefab, $"FriendlyUnit_{i + 1}", layout.TileCenter(layout.FriendlySpawns[i]),
                         hostileCentre - friendlyCentre, out var unit, out var ground, out failure))
                     return false;
@@ -49,6 +66,8 @@ namespace Blackglass
                     unit.GetComponent<UnitAttacker>().ApplyArchetype(slot.archetype);
                 if (slot.abilities != null && slot.abilities.Length > 0)
                     unit.gameObject.AddComponent<UnitAbilities>().Initialize(systems.encounter, slot.abilities);
+                if (member != null)
+                    unit.gameObject.AddComponent<UnitIdentity>().Bind(roster, member);   // after archetype and abilities: it scales them
                 unit.GetComponent<CompanionAI>().Wire(systems.activeCharacter, systems.encounter);
                 unit.GetComponent<CompanionAI>().HoldUntilLeaderMoves();   // no squad-up walk at spawn (decision 028)
                 unit.GetComponent<UnitCover>().Wire(systems.coverRegistry);

@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d41bade8dbf670148b9d7979237eafec, type: 3}
+  m_Name: Progression
+  m_EditorClassIdentifier: Blackglass::Blackglass.ProgressionTrack
+  xpThresholds: 0000000064000000fa000000c2010000bc020000
+  choices:
+  - {fileID: 11400000, guid: df38ed66477b1da4996ad60886579553, type: 2}
+  - {fileID: 11400000, guid: 43ceb35816363964bab6fc7d3f08fb5c, type: 2}
+  - {fileID: 11400000, guid: f701e86543ae13342bffd6186b941358, type: 2}
+  - {fileID: 11400000, guid: 6d934385ad883ac4d84ddb1ec5401654, type: 2}
+  missionCompletionXp: 150
+  debugXpStep: 50
