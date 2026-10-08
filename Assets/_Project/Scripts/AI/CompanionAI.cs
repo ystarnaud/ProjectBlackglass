@@ -43,6 +43,8 @@ namespace Blackglass
     {
         [SerializeField] ActiveCharacter activeCharacter;
         [SerializeField] Encounter encounter;
+        // Optional: without it every hostile is a valid assist target (decision 037).
+        [SerializeField] IntelligenceService intelligence;
         [Header("Follow")]
         // Where a follow move aims: this far from the leader, on the companion's side.
         [SerializeField, Min(0f)] float followDistance = 3.5f;
@@ -83,8 +85,8 @@ namespace Blackglass
         // The controlled character counts as moving above this flat speed (the same figure as UnitCover's still speed).
         const float LeaderMovingSpeed = 0.5f;
         Func<Vector3, bool> canReach;
-        // The method group converted once; passing IsEngaged directly would allocate a new delegate on every tick.
-        static readonly Func<Health, bool> isEngaged = IsEngaged;
+        // Engaged and known to the player, built once so ticks allocate nothing.
+        Func<Health, bool> engagedAndKnown;
 
         /// <summary>How far from the controlled character a follow move aims.</summary>
         public float FollowDistance => followDistance;
@@ -143,6 +145,8 @@ namespace Blackglass
             thinkInterval = interval;
             magnetRadius = magnet;
         }
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
         internal void Wire(ActiveCharacter active, Encounter encounterToAssist)
         {
@@ -335,15 +339,16 @@ namespace Blackglass
                 IssueFollow(leader);
         }
 
-        Health ChooseAssistTarget()
+        internal Health ChooseAssistTarget()
         {
             if (encounter == null)
                 return null;
             Health leaderTarget = null;
             if (activeCharacter != null && activeCharacter.HasUnit)
                 leaderTarget = activeCharacter.Unit.AttackTarget;   // also set while the leader walks to cover with an attack queued
-            canReach ??= Mover.CanReach;   // plain delegates (this one and isEngaged), cached so ticks allocate nothing
-            return ChooseAssistTarget(transform.position, assistRange, leaderTarget, encounter.Hostiles, isEngaged, canReach);
+            canReach ??= Mover.CanReach;   // plain delegates (this one and the engagement test), cached so ticks allocate nothing
+            engagedAndKnown ??= hostile => Knowledge.CanTarget(intelligence, hostile) && IsEngaged(hostile);
+            return ChooseAssistTarget(transform.position, assistRange, leaderTarget, encounter.Hostiles, engagedAndKnown, canReach);
         }
 
         // A hostile that is attacking anyone, or walking to cover with its attack queued, is engaged; read from the

@@ -28,13 +28,16 @@ namespace Blackglass
         }
 
         /// <summary>The closest available interactable within `radius` (flat distance) of `point`, or null.</summary>
-        public MissionInteractable NearestAvailable(Vector3 point, float radius)
+        public MissionInteractable NearestAvailable(Vector3 point, float radius) => NearestAvailable(point, radius, null);
+
+        /// <summary>As above, skipping any item the filter rejects (the player does not know about it yet).</summary>
+        public MissionInteractable NearestAvailable(Vector3 point, float radius, Func<MissionInteractable, bool> accept)
         {
             MissionInteractable best = null;
             var bestDistance = radius;
             foreach (var item in items)
             {
-                if (item == null || !item.IsAvailable)
+                if (item == null || !item.IsAvailable || (accept != null && !accept(item)))
                     continue;
                 var distance = CoverRules.FlatDistance(point, item.Position);
                 if (distance > bestDistance)

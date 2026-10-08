@@ -73,6 +73,8 @@ namespace Blackglass
         [SerializeField] ActiveCharacter activeCharacter;
         // Optional: the controller's pointer. Armed, it owns the right stick and snaps to the side the ability needs.
         [SerializeField] TacticalCursor cursor;
+        // Optional: without it every hostile is a valid target (decision 037).
+        [SerializeField] IntelligenceService intelligence;
         [SerializeField, Min(1f)] float maxDistance = 500f;
         [SerializeField] LayerMask clickableLayers = ~0;
 
@@ -100,6 +102,8 @@ namespace Blackglass
 
         /// <summary>The hostiles a ground ability would hit at the current aim (valid until the next update).</summary>
         public IReadOnlyList<Health> AreaHits => areaHits;
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
         bool QueueHeld => InputActionUtility.IsPressed(queueModifierAction);
 
@@ -244,7 +248,17 @@ namespace Blackglass
                 if (pointed.Kind == PointerTargetKind.None)
                     return new AbilityPreview(ability, pointed.Kind, null, default, false, default, queued, canWalk);
                 var check = casterAbilities.Check(ability, null, pointed.Point, scope);
-                casterAbilities.CollectArea(ability, pointed.Point, areaHits);
+                // The preview names only what the player can see; the effect itself still reaches everyone it should.
+                // A reveal has no victims at all.
+                if (ability.Effect == AbilityEffect.Damage)
+                {
+                    casterAbilities.CollectArea(ability, pointed.Point, areaHits);
+                    for (var i = areaHits.Count - 1; i >= 0; i--)
+                    {
+                        if (!Knowledge.CanTarget(intelligence, areaHits[i]))
+                            areaHits.RemoveAt(i);
+                    }
+                }
                 return new AbilityPreview(ability, pointed.Kind, null, pointed.Point, true, check, queued, canWalk);
             }
 
@@ -278,15 +292,15 @@ namespace Blackglass
             if (viewCamera == null)
                 return PointerTarget.None;
             return PointerTargetResolver.Resolve(viewCamera, InputActionUtility.Read<Vector2>(pointerPositionAction),
-                maxDistance, clickableLayers, null, 0f);
+                maxDistance, clickableLayers, null, 0f, intelligence);
         }
 
-        static Health TargetHealth(PointerTarget pointed)
+        Health TargetHealth(PointerTarget pointed)
         {
             switch (pointed.Kind)
             {
                 case PointerTargetKind.Hostile:
-                    return pointed.Hostile;
+                    return Knowledge.CanTarget(intelligence, pointed.Hostile) ? pointed.Hostile : null;
                 case PointerTargetKind.Friendly:
                     return pointed.Friendly != null ? pointed.Friendly.GetComponent<Health>() : null;
                 default:

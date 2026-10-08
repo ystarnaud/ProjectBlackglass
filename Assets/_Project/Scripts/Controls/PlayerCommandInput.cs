@@ -29,6 +29,8 @@ namespace Blackglass
         [SerializeField] AbilityTargeting abilityTargeting;
         // Optional. The mission's terminals: Interact and a context Confirm look here for one within reach.
         [SerializeField] InteractableRegistry interactables;
+        // Optional: unknown terminals and hidden hostiles are not offered (decision 037).
+        [SerializeField] IntelligenceService intelligence;
 
         [Header("Input")]
         [SerializeField] InputActionReference commandAction;
@@ -87,6 +89,8 @@ namespace Blackglass
             attackAction = attack;
             abilityTargeting = targeting;
         }
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
         /// <summary>Wires terminal interaction: the registry Interact looks in, and the Interact action. Call before enabling.</summary>
         internal void WireInteraction(InteractableRegistry registry, InputActionReference interact)
@@ -260,7 +264,7 @@ namespace Blackglass
                     continue;
                 foreach (var item in interactables.Items)
                 {
-                    if (item == null || !item.IsAvailable || item.IsInUseByOther(unit))
+                    if (item == null || !item.IsAvailable || item.IsInUseByOther(unit) || !Knowledge.CanInteract(intelligence, item))
                         continue;
                     var distance = CoverRules.FlatDistance(unit.transform.position, item.Position);
                     if (distance > bestDistance)
@@ -322,7 +326,7 @@ namespace Blackglass
             if (viewCamera == null)
                 return;
             Act(PointerTargetResolver.Resolve(viewCamera, screenPoint, maxClickDistance, clickableLayers, coverRegistry,
-                coverClickRadius));
+                coverClickRadius, intelligence));
         }
 
         // The one "do what the player pointed at" path: a mouse click and the controller cursor both end here. A friendly

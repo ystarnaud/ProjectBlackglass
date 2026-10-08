@@ -46,6 +46,8 @@ namespace Blackglass
         [SerializeField] List<AbilityDefinition> abilities = new List<AbilityDefinition>();
         // Who is on which side. Without it nothing is hostile and only the caster itself counts as friendly.
         [SerializeField] Encounter encounter;
+        // Optional: without it every hostile is a valid target (decision 037).
+        [SerializeField] IntelligenceService intelligence;
 
         readonly List<float> readyAt = new List<float>();
         readonly List<Health> areaBuffer = new List<Health>();
@@ -58,6 +60,8 @@ namespace Blackglass
         public float PowerMultiplier => powerMultiplier;
         /// <summary>Multiplier on this unit's ability cooldowns (1 = as authored).</summary>
         public float CooldownMultiplier => cooldownMultiplier;
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
         /// <summary>The per-unit scaling progression applies; the shared AbilityDefinition is never changed.</summary>
         internal void SetModifiers(float power, float cooldown)
@@ -136,7 +140,8 @@ namespace Blackglass
         {
             var slot = IndexOf(ability);
             var unitMode = ability != null && ability.TargetMode == AbilityTargetMode.Unit;
-            var hasTarget = unitMode && target != null;
+            // A hostile the player has not observed is not a target: the same answer as no target at all.
+            var hasTarget = unitMode && target != null && Knowledge.CanTarget(intelligence, target);
             var hasPosition = ability != null && !unitMode && point.HasValue;
             var aim = hasTarget ? target.transform.position : hasPosition ? point.Value : transform.position;
             var distance = hasTarget || hasPosition ? CoverRules.FlatDistance(transform.position, aim) : 0f;

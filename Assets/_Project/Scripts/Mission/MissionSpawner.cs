@@ -65,11 +65,16 @@ namespace Blackglass
                 if (slot.archetype != null)
                     unit.GetComponent<UnitAttacker>().ApplyArchetype(slot.archetype);
                 if (slot.abilities != null && slot.abilities.Length > 0)
-                    unit.gameObject.AddComponent<UnitAbilities>().Initialize(systems.encounter, slot.abilities);
+                {
+                    var abilities = unit.gameObject.AddComponent<UnitAbilities>();
+                    abilities.Initialize(systems.encounter, slot.abilities);
+                    abilities.SetIntelligence(systems.intelligence);
+                }
                 if (member != null)
                     unit.gameObject.AddComponent<UnitIdentity>().Bind(roster, member);   // after archetype and abilities: it scales them
                 unit.GetComponent<CompanionAI>().Wire(systems.activeCharacter, systems.encounter);
                 unit.GetComponent<CompanionAI>().HoldUntilLeaderMoves();   // no squad-up walk at spawn (decision 028)
+                unit.GetComponent<CompanionAI>().SetIntelligence(systems.intelligence);
                 unit.GetComponent<UnitCover>().Wire(systems.coverRegistry);
                 unit.gameObject.AddComponent<UnitInteractor>();
                 result.Friendlies.Add(unit);

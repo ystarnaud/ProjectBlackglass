@@ -16,8 +16,6 @@ namespace Blackglass
     /// </summary>
     public sealed class TacticalCursor : MonoBehaviour
     {
-        static readonly Func<CoverLocation, bool> acceptAny = _ => true;
-
         [SerializeField] Camera viewCamera;
         [SerializeField] ActiveCharacter activeCharacter;
         [SerializeField] UnitSelection selection;
@@ -25,6 +23,8 @@ namespace Blackglass
         [SerializeField] CoverRegistry coverRegistry;
         // Optional: without it the cursor never snaps to a terminal.
         [SerializeField] InteractableRegistry interactables;
+        // Optional: without it every hostile is a valid target and every terminal and cover location is known (decision 037).
+        [SerializeField] IntelligenceService intelligence;
         // Optional: without it the cursor behaves as if a controller were in use (tests, scenes without detection).
         [SerializeField] ActiveInputDevice inputDevice;
 
@@ -68,7 +68,7 @@ namespace Blackglass
         public PointerTarget Target => target;
 
         /// <summary>The hostile NextTarget / PreviousTarget last chose, while it is still a valid target.</summary>
-        public Health SoftTarget => HostileTargets.IsValid(softTarget) ? softTarget : null;
+        public Health SoftTarget => HostileTargets.IsValid(softTarget) && Knowledge.CanTarget(intelligence, softTarget) ? softTarget : null;
 
         public bool IsActive =>
             (inputDevice == null || inputDevice.Family.IsController())
@@ -92,6 +92,16 @@ namespace Blackglass
         }
 
         internal void SetInteractables(InteractableRegistry registry) => interactables = registry;
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
+
+        // Cached so the per-frame snapping and cycling allocate nothing.
+        Func<Health, bool> canTarget;
+        Func<MissionInteractable, bool> canInteract;
+        Func<CoverLocation, bool> canSeeCover;
+        Func<Health, bool> CanTargetFilter => canTarget ??= unit => Knowledge.CanTarget(intelligence, unit);
+        Func<MissionInteractable, bool> CanInteractFilter => canInteract ??= item => Knowledge.CanInteract(intelligence, item);
+        Func<CoverLocation, bool> CanSeeCoverFilter => canSeeCover ??= point => Knowledge.CanSeeCover(intelligence, point);
 
         void OnEnable()
         {
@@ -147,14 +157,14 @@ namespace Blackglass
         /// </summary>
         public Health PickAttackTarget(Vector3 origin, Vector3 facing)
         {
-            if (IsActive && target.Kind == PointerTargetKind.Hostile && HostileTargets.IsValid(target.Hostile))
+            if (IsActive && target.Kind == PointerTargetKind.Hostile && HostileTargets.IsValid(target.Hostile) && Knowledge.CanTarget(intelligence, target.Hostile))
                 return target.Hostile;
             var soft = SoftTarget;
             if (soft != null)
                 return soft;
             if (encounter == null)
                 return null;
-            return HostileTargets.Best(encounter.Hostiles, origin, facing);
+            return HostileTargets.Best(encounter.Hostiles, origin, facing, CanTargetFilter);
         }
 
         void OnNextTarget(InputAction.CallbackContext context) => CycleTarget(1);
@@ -170,7 +180,7 @@ namespace Blackglass
                 CycleFriendly(direction);
                 return;
             }
-            var next = HostileTargets.Cycle(encounter.Hostiles, CycleOrigin(), SoftTarget, direction);
+            var next = HostileTargets.Cycle(encounter.Hostiles, CycleOrigin(), SoftTarget, direction, CanTargetFilter);
             if (next == null)
                 return;
             softTarget = next;
@@ -209,7 +219,7 @@ namespace Blackglass
         PointerTarget Resolve(Vector2 point)
         {
             // Raw: units and ground exactly under the cursor. Snapping is added below, around the ground point.
-            var raw = PointerTargetResolver.Resolve(viewCamera, point, maxDistance, clickableLayers, null, 0f);
+            var raw = PointerTargetResolver.Resolve(viewCamera, point, maxDistance, clickableLayers, null, 0f, intelligence);
             if (raw.Kind != PointerTargetKind.Ground)
                 return raw;
 
@@ -236,10 +246,10 @@ namespace Blackglass
             var hostile = NearestHostile(ground);
             if (hostile != null)
                 return PointerTarget.OnHostile(hostile, ground);
-            var interactable = interactables != null ? interactables.NearestAvailable(ground, interactableSnapRadius) : null;
+            var interactable = interactables != null ? interactables.NearestAvailable(ground, interactableSnapRadius, CanInteractFilter) : null;
             if (interactable != null)
                 return PointerTarget.OnInteractable(interactable, ground);
-            if (coverRegistry != null && CoverRules.TryChooseNearest(coverRegistry.Points, ground, coverSnapRadius, acceptAny, out var cover))
+            if (coverRegistry != null && CoverRules.TryChooseNearest(coverRegistry.Points, ground, coverSnapRadius, CanSeeCoverFilter, out var cover))
                 return PointerTarget.OnCover(cover, ground);
             return raw;
         }
@@ -271,7 +281,7 @@ namespace Blackglass
             var bestDistance = unitSnapRadius;
             foreach (var hostile in encounter.Hostiles)
             {
-                if (!HostileTargets.IsValid(hostile))
+                if (!HostileTargets.IsValid(hostile) || !Knowledge.CanTarget(intelligence, hostile))
                     continue;
                 var distance = CoverRules.FlatDistance(point, hostile.transform.position);
                 if (distance > bestDistance)
