@@ -45,6 +45,46 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator AnExposedShooter_ObservesTheRegionItStandsIn_SoItIsNeverDrawnInsideFog()
+        {
+            rig = new IntelRig(corridor: true);
+            var (shooter, attacker) = rig.AddShooter(IntelRig.InLineGround);   // room B (region 1), 13 m away
+            var fogMaterial = new Material(Shader.Find("Sprites/Default"));
+            var veilMaterial = new Material(Shader.Find("Sprites/Default"));
+            var host = rig.World.Track(new GameObject("FogHost"));
+            host.SetActive(false);
+            var fog = host.AddComponent<FogPresenter>();
+            fog.Initialize(rig.Service, fogMaterial, veilMaterial);
+            host.SetActive(true);
+            var root = rig.World.Track(new GameObject("MissionRoot")).transform;
+            rig.Begin(IntelRig.Fog(s =>
+            {
+                s.observationRange = 8f;
+                s.exposureSeconds = 1f;
+            }), new IntelligenceMission { Root = root });
+            try
+            {
+                yield return null;
+                Assert.That(rig.Service.StateOfRegion(1), Is.EqualTo(KnowledgeState.Unknown), "Precondition: nobody has seen room B");
+                Assert.That(fog.IsVolumeActive(1), Is.True, "Precondition: it is fogged");
+
+                Assert.That(attacker.TryAttack(rig.FriendlyHealth), Is.True, "the shot is fired");
+                Assert.That(rig.Service.CanTarget(shooter), Is.True);
+                Assert.That(rig.Service.StateOfRegion(1), Is.EqualTo(KnowledgeState.Observed), "the room of a seen shooter is seen");
+                Assert.That(fog.IsVolumeActive(1), Is.False, "so the shooter is not drawn inside an opaque cube");
+
+                yield return new WaitForSeconds(1.4f);
+                Assert.That(rig.Service.StateOfRegion(1), Is.EqualTo(KnowledgeState.Discovered), "exposure ran out: the room stays on the map");
+                Assert.That(rig.Service.StateOfEnemy(shooter), Is.EqualTo(KnowledgeState.Discovered));
+            }
+            finally
+            {
+                Object.DestroyImmediate(fogMaterial);
+                Object.DestroyImmediate(veilMaterial);
+            }
+        }
+
+        [UnityTest]
         public IEnumerator AMissedShot_ExposesTheShooterToo()
         {
             rig = new IntelRig(corridor: true);

@@ -285,7 +285,7 @@ namespace Blackglass
                 {
                     if (IsLiving(hostile) && ObservationRules.InCircle(pivot, range, hostile.transform.position)
                         && LineOfSight.IsClear(eye, hostile.transform.position, sightBlockers, hits))
-                        model.ObserveEnemy(hostile, hostile.transform.position);
+                        ObserveHostile(hostile);
                 }
                 foreach (var device in devices)
                 {
@@ -329,7 +329,7 @@ namespace Blackglass
             foreach (var hostile in encounter.Hostiles)
             {
                 if (IsLiving(hostile) && CameraSees(camera, hostile.transform.position))
-                    model.ObserveEnemy(hostile, hostile.transform.position);
+                    ObserveHostile(hostile);
             }
         }
 
@@ -369,7 +369,7 @@ namespace Blackglass
                     {
                         if (!ObservationRules.InCircle(pulse.Centre, pulse.Radius, hostile.transform.position))
                             continue;
-                        model.ObserveEnemy(hostile, hostile.transform.position);
+                        ObserveHostile(hostile);
                         break;
                     }
                 }
@@ -382,13 +382,24 @@ namespace Blackglass
                     expired.Add(pair.Key);
                     continue;
                 }
-                model.ObserveEnemy(pair.Key, pair.Key.transform.position);
+                ObserveHostile(pair.Key);
             }
             foreach (var key in expired)
                 exposures.Remove(key);
         }
 
         static bool IsLiving(Health unit) => unit != null && unit.IsAlive && unit.gameObject.activeInHierarchy;
+
+        // Every way of seeing a hostile ends here. The room it stands in is observed too, so a seen unit is never drawn
+        // inside an opaque fog volume.
+        void ObserveHostile(Health hostile)
+        {
+            var position = hostile.transform.position;
+            model.ObserveEnemy(hostile, position);
+            var region = map.RegionAt(position);
+            if (region >= 0)
+                model.MarkRegionObserved(region);
+        }
 
         // ---- sources that arrive as events ----
 

@@ -24,7 +24,8 @@ namespace Blackglass.Tests
 
         public override void TearDown()
         {
-            service.Clear();
+            if (service != null)
+                service.Clear();
             rig.World.Dispose();
             Time.timeScale = 1f;
             TestControls.Reset(actions);

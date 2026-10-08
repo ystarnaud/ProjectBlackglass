@@ -20,7 +20,6 @@ namespace Blackglass.EditorTools
         const string DataRoot = "Assets/_Project/Data";
         const string ScanPath = DataRoot + "/Abilities/ReconScan.asset";
         const string KestrelPath = DataRoot + "/Operatives/Definitions/Kestrel.asset";
-        const string AimedShotPath = DataRoot + "/Abilities/AimedShot.asset";
         const string MaterialRoot = "Assets/_Project/Materials";
         const string ScenePath = "Assets/_Project/Scenes/ProceduralMission.unity";
         const string ControlsPath = "Assets/_Project/Input/BlackglassControls.inputactions";

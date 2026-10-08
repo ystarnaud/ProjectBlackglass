@@ -284,12 +284,16 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void AnObjectiveWithATarget_BecomesKnownWhenItsRegionIsDiscovered()
+        public void AnObjectiveWithATarget_BecomesKnownWhenItsRegionIsObserved()
         {
             var goals = Goals();
             intel.BindObjectives(goals, ObjectiveKnowledge.None);
             Assert.That(goals[1].IsKnown, Is.False);
             intel.RevealRegion(1);
+            Assert.That(goals[1].IsKnown, Is.False, "a discovered (mapped) region does not teach the objective");
+            intel.BeginPass();
+            intel.MarkRegionObserved(1);
+            intel.EndPass();
             Assert.That(goals[1].IsKnown, Is.True);
             Assert.That(goals[2].IsKnown, Is.False, "room 0 is still unknown");
         }

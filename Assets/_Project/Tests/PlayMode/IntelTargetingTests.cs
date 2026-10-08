@@ -175,6 +175,29 @@ namespace Blackglass.Tests
             Assert.That(companion.ChooseAssistTarget(), Is.SameAs(engagedHealth), "once it is seen the companion helps");
         }
 
+        [UnityTest]
+        public IEnumerator ACompanion_DoesNotFollowTheLeadersAttackOnAnUnobservedHostile()
+        {
+            rig = new IntelRig(corridor: false);
+            var target = rig.World.CreateFighter(new Vector3(-1f, 0f, 8f), 60, 10, 1f, CombatRole.Melee, 2f);
+            target.name = "LeaderTarget";
+            var targetHealth = target.GetComponent<Health>();
+            rig.Hostiles.Add(targetHealth);
+            rig.Begin(IntelRig.Fog());
+            var active = rig.World.CreateActiveCharacter(rig.Friendly.Unit);
+            var companion = rig.World.CreateCompanion(new Vector3(-8f, 0f, 8f), active, rig.Encounter);
+            companion.Initialize(active, rig.Encounter, assist: 30f);
+            companion.SetIntelligence(rig.Service);
+            Assert.That(rig.Friendly.Unit.Issue(new AttackCommand(targetHealth)), Is.True, "Precondition: the leader attacks it");
+            yield return null;
+            Assert.That(rig.Friendly.Unit.AttackTarget, Is.SameAs(targetHealth), "Precondition: the leader's current command is that attack");
+            Assert.That(rig.Service.CanTarget(targetHealth), Is.False, "Precondition: nobody has seen it");
+
+            Assert.That(companion.ChooseAssistTarget(), Is.Null, "the leader's target is not known, so the companion does not follow it");
+            rig.Service.Scan(target.transform.position, 3f, 5f);
+            Assert.That(companion.ChooseAssistTarget(), Is.SameAs(targetHealth), "once it is seen the companion follows the leader");
+        }
+
         // ---- terminals ----
 
         [UnityTest]

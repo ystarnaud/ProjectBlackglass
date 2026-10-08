@@ -67,7 +67,7 @@ namespace Blackglass
         // The next preset replaces the director's intelligence settings and the same seed is generated again.
         void OnCyclePreset(InputAction.CallbackContext context)
         {
-            if (director == null)
+            if (director == null || director.State == MissionState.Generating)
                 return;
             if (presetIndex < 0)
                 presetIndex = CurrentPresetIndex();

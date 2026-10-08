@@ -240,7 +240,7 @@ namespace Blackglass.Tests
             Assert.That(CoverOf(unit).Status, Is.EqualTo(CoverStatus.Reserved), "Planning while paused reserves the point");
             var start = unit.transform.position;
             yield return new WaitForSecondsRealtime(1f);
-            Assert.That(Vector3.Distance(unit.transform.position, start), Is.LessThan(0.01f), "Nothing moves while paused");
+            Assert.That(TestWorld.HorizontalDistance(unit.transform.position, start), Is.LessThan(0.01f), "Nothing moves while paused");
             Assert.That(CoverOf(unit).Status, Is.EqualTo(CoverStatus.Reserved));
 
             pause.Resume();

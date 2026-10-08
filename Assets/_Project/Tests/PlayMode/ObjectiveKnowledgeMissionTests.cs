@@ -45,10 +45,31 @@ namespace Blackglass.Tests
             Assert.That(hidden, Does.Contain("Extraction"), "extraction was known from the start");
             Assert.That(hidden, Does.Not.Match(@"\(\d+/\d+\)"), "no hostile count");
 
-            service.Model.RevealArea(rig.Director.Current.Terminal.Position, 1f);   // the terminal's region is discovered
+            service.Scan(rig.Director.Current.Terminal.Position, 1f, 5f);   // a pulse puts the terminal's region in sight
             var learned = MissionHudText.Panel(runtime, service.ListsUnknownObjectives);
             Assert.That(learned, Does.Contain("Access data terminal"));
             Assert.That(learned, Does.Not.Contain("Locate the data terminal"));
+        }
+
+        [UnityTest]
+        public IEnumerator TheLayoutKnownPreset_KnowsEveryRoom_ButNoPlacedObjective_UntilItsRegionIsSeen()
+        {
+            rig = new MissionRig();
+            var service = rig.AddIntelligence(IntelligenceSettings.LayoutKnown());
+            yield return rig.Generate(12345);
+            var runtime = rig.Director.Runtime;
+
+            for (var region = 0; region < service.Map.Count; region++)
+                Assert.That(service.StateOfRegion(region), Is.Not.EqualTo(KnowledgeState.Unknown), $"region {region} is on the map");
+            var terminal = runtime.Objectives.Single(g => g.Type == ObjectiveType.Interact);
+            var extraction = runtime.Objectives.Single(g => g.Type == ObjectiveType.ReachZone);
+            Assert.That(terminal.IsKnown, Is.False, "a mapped region does not teach the objective placed in it");
+            Assert.That(extraction.IsKnown, Is.False, "objectives = None");
+            Assert.That(MissionHudText.Panel(runtime, service.ListsUnknownObjectives), Does.Not.Contain(terminal.Title));
+
+            service.Scan(rig.Director.Current.Terminal.Position, 1f, 5f);
+            Assert.That(terminal.IsKnown, Is.True, "seeing its region teaches it");
+            Assert.That(MissionHudText.Panel(runtime, service.ListsUnknownObjectives), Does.Contain(terminal.Title));
         }
 
         [UnityTest]

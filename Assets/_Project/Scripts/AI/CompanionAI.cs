@@ -346,6 +346,8 @@ namespace Blackglass
             Health leaderTarget = null;
             if (activeCharacter != null && activeCharacter.HasUnit)
                 leaderTarget = activeCharacter.Unit.AttackTarget;   // also set while the leader walks to cover with an attack queued
+            if (leaderTarget != null && !Knowledge.CanTarget(intelligence, leaderTarget))
+                leaderTarget = null;   // the leader's order can outlive what the player knows
             canReach ??= Mover.CanReach;   // plain delegates (this one and the engagement test), cached so ticks allocate nothing
             engagedAndKnown ??= hostile => Knowledge.CanTarget(intelligence, hostile) && IsEngaged(hostile);
             return ChooseAssistTarget(transform.position, assistRange, leaderTarget, encounter.Hostiles, engagedAndKnown, canReach);

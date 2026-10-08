@@ -243,7 +243,7 @@ namespace Blackglass
 
         /// <summary>
         /// Sets each objective's starting knowledge from the settings and keeps it up to date: an objective with a place is
-        /// learned when its region is discovered, the elimination objective when the first hostile is observed. Hides the
+        /// learned when its region is observed (seen, so a mapped layout keeps it unknown), the elimination objective when the first hostile is observed. Hides the
         /// elimination objective's living/total count. An open model changes nothing.
         /// </summary>
         public void BindObjectives(IReadOnlyList<MissionObjective> objectives, ObjectiveKnowledge knowledge)
@@ -290,7 +290,7 @@ namespace Blackglass
             {
                 if (goal.IsKnown)
                     continue;
-                var learned = goal.HasTarget ? StateOfPoint(goal.TargetPosition) != KnowledgeState.Unknown : anyEnemyEverObserved;
+                var learned = goal.HasTarget ? StateOfPoint(goal.TargetPosition) == KnowledgeState.Observed : anyEnemyEverObserved;
                 if (!learned)
                     continue;
                 goal.SetKnown(true);

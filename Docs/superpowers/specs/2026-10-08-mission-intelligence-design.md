@@ -166,7 +166,7 @@ cooldown 25 s, `revealSeconds` 6, no LOS needed), added to Kestrel as her second
   discovered devices and known objective/extraction markers.
 - **Objectives**: unknown objectives no longer vanish; with `showUnknownObjectives` the HUD lists their vague title
   ("Locate the data terminal") with no location, marker or progress. `MissionObjective` gains a `VagueTitle`. An Interact
-  objective becomes known when its region is Discovered; Eliminate when the first hostile is observed; extraction per
+  objective becomes known when its region is Observed (seen, so a mapped layout keeps it unknown); Eliminate when the first hostile is observed; extraction per
   settings (default known). `EliminateHostilesObjective.Describe` no longer prints living/total while intel is on: it
   shows kills ("Eliminate hostiles (3 down)"). Mission completion logic never reads knowledge.
 
