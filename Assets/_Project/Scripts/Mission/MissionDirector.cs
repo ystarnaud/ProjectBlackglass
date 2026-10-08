@@ -319,6 +319,7 @@ namespace Blackglass
                     Goals = Runtime.Objectives,
                     Root = mission.Root.transform,
                 }, request.intelligence, systems.encounter);
+                DevicePresenter.AttachTo(mission, systems.intelligence);
             }
             Fill(Report, layout, navigation, plan);
             Report.SecurityHash = security.Hash;

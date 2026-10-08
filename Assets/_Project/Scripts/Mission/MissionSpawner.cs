@@ -92,6 +92,8 @@ namespace Blackglass
                     unit.GetComponent<UnitAttacker>().ApplyArchetype(slot.archetype);
                 unit.GetComponent<EnemyAI>().Wire(systems.encounter, systems.coverRegistry);
                 unit.GetComponent<UnitCover>().Wire(systems.coverRegistry);
+                if (systems.intelligence != null)
+                    unit.gameObject.AddComponent<HostilePresenter>().Bind(systems.intelligence, mission.Actors);
                 result.Hostiles.Add(unit);
                 grounds.Add((unit, ground));
             }

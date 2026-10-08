@@ -36,6 +36,18 @@ namespace Blackglass.Tests
                 FriendlyRoom = 0,
                 FriendlySpawns = new[] { new Vector2Int(3, 3) },
                 HostileSpawns = new[] { new Vector2Int(16, 3) },
+                Boxes = corridor
+                    ? new[]
+                    {
+                        new MissionBox("Wall_Below", MissionBoxKind.Wall, new RectInt(7, 0, 6, 2), 3f),
+                        new MissionBox("Wall_Above", MissionBoxKind.Wall, new RectInt(7, 5, 6, 5), 3f),
+                        new MissionBox("Wall_EastOfB", MissionBoxKind.Wall, new RectInt(19, 1, 1, 6), 3f),
+                    }
+                    : new[]
+                    {
+                        new MissionBox("Wall_Gap", MissionBoxKind.Wall, new RectInt(7, 0, 6, 10), 3f),
+                        new MissionBox("Wall_EastOfB", MissionBoxKind.Wall, new RectInt(19, 1, 1, 6), 3f),
+                    },
             };
         }
     }
