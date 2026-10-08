@@ -40,6 +40,7 @@ namespace Blackglass
         public ulong LayoutHash;
         public int Guards;
         public ulong ObjectiveHash;
+        public ulong SecurityHash;
     }
 
     /// <summary>
@@ -227,11 +228,25 @@ namespace Blackglass
                 Report.Failures.Add($"attempt {attempt}: objectives: {reason}");
                 return false;
             }
+            if (!SecurityPlacer.TryPlace(layout, plan, request, out var security, out reason))
+            {
+                Report.Failures.Add($"attempt {attempt}: security: {reason}");
+                return false;
+            }
             MissionInteractable terminal = null;
-            Action<Transform> addTerminal = request.hackTerminal
-                ? geometry => terminal = MissionContent.AddTerminal(geometry, plan, layout, request, obstacleMaterial, environmentTheme)
-                : (Action<Transform>)null;
-            mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial, addTerminal, environmentTheme);
+            MissionInteractable cameraTerminal = null;
+            Action<Transform> addContent = null;
+            if (request.hackTerminal || security.HasTerminal)
+            {
+                addContent = geometry =>
+                {
+                    if (request.hackTerminal)
+                        terminal = MissionContent.AddTerminal(geometry, plan, layout, request, obstacleMaterial, environmentTheme);
+                    if (security.HasTerminal)
+                        cameraTerminal = MissionContent.AddCameraTerminal(geometry, security, layout, request, obstacleMaterial, environmentTheme);
+                };
+            }
+            mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial, addContent, environmentTheme);
             if (!MissionNavigation.Validate(layout, out reason, out var navigation))
             {
                 Report.Failures.Add($"attempt {attempt}: navigation: {reason}");
@@ -241,6 +256,12 @@ namespace Blackglass
             if (!MissionNavigation.ValidateObjectives(layout, plan, terminal != null, out reason))
             {
                 Report.Failures.Add($"attempt {attempt}: objectives: {reason}");
+                DestroyMission(mission, true);
+                return false;
+            }
+            if (!MissionNavigation.ValidateSecurity(layout, security, out reason))
+            {
+                Report.Failures.Add($"attempt {attempt}: security: {reason}");
                 DestroyMission(mission, true);
                 return false;
             }
@@ -258,13 +279,25 @@ namespace Blackglass
 
             mission.Plan = plan;
             mission.Terminal = terminal;
+            mission.Security = security;
+            mission.CameraTerminal = cameraTerminal;
+            mission.Network = security.HasTerminal
+                ? MissionContent.CreateCameras(security, layout, request.intelligence, mission.Root.transform, obstacleMaterial)
+                : null;
             mission.SetVisualsVisible(visualsVisible);
             mission.ExtractionZone = MissionContent.CreateZone(layout, plan, mission.Root.transform);
             Current = mission;
             friendlies.AddRange(spawned.Friendlies);
             hostiles.AddRange(spawned.Hostiles);
             if (systems.interactables != null)
-                systems.interactables.Rebuild(terminal != null ? new[] { terminal } : Array.Empty<MissionInteractable>());
+            {
+                var interactables = new List<MissionInteractable>();
+                if (terminal != null)
+                    interactables.Add(terminal);
+                if (cameraTerminal != null)
+                    interactables.Add(cameraTerminal);
+                systems.interactables.Rebuild(interactables);
+            }
             var squad = new List<Health>();
             foreach (var unit in friendlies)
                 squad.Add(unit.GetComponent<Health>());
@@ -275,6 +308,7 @@ namespace Blackglass
             Runtime.Start();
             Runtime.PhaseChanged += OnRuntimePhaseChanged;
             Fill(Report, layout, navigation, plan);
+            Report.SecurityHash = security.Hash;
             FrameCamera(layout);
             return true;
         }

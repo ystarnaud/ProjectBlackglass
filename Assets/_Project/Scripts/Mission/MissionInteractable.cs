@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace Blackglass
@@ -34,6 +35,9 @@ namespace Blackglass
         /// <summary>The unit working on it, or null.</summary>
         public CommandableUnit User => user;
         public Vector3 Position => transform.position;
+
+        /// <summary>Raised once, when the work is finished (not when it is cancelled).</summary>
+        public event Action<MissionInteractable> Completed;
 
         internal void Initialize(float interactionRange, float interactionSeconds, string label = "Terminal")
         {
@@ -73,6 +77,7 @@ namespace Blackglass
                 progress = duration;
                 completed = true;
                 user = null;
+                Completed?.Invoke(this);
             }
             return true;
         }

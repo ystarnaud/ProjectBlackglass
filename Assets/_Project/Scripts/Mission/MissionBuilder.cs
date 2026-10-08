@@ -20,6 +20,10 @@ namespace Blackglass
         public ObjectivePlan Plan { get; internal set; }
         /// <summary>The terminal, or null when the mission has no hack objective.</summary>
         public MissionInteractable Terminal { get; internal set; }
+        public SecurityPlan Security { get; internal set; } = SecurityPlan.Empty;
+        /// <summary>The camera-control terminal, or null when the mission has no cameras.</summary>
+        public MissionInteractable CameraTerminal { get; internal set; }
+        public CameraNetwork Network { get; internal set; }
         public Transform ExtractionZone { get; internal set; }
 
         /// <summary>The themed visual modules, or null when the mission was built without a theme (the cubes are then the look).</summary>
