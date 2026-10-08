@@ -21,6 +21,7 @@ namespace Blackglass
     {
         Damage,
         Heal,
+        Reveal,
     }
 
     /// <summary>Whether a covered target's hit chance applies to the ability (explicit per ability, never accidental).</summary>
@@ -37,7 +38,7 @@ namespace Blackglass
     /// treats cover, its cooldown and its effect. Never holds runtime state: cooldowns and the last failure live on the
     /// unit (UnitAbilities), so two units sharing one definition never share a cooldown. The target side follows the
     /// effect: damage always targets hostiles (no friendly fire, decision 025) and healing always targets friendlies,
-    /// whatever a definition is authored with. A ground ability is always area damage.
+    /// whatever a definition is authored with. A ground ability is area damage or a reveal (Recon Scan, decision 037).
     /// </summary>
     [CreateAssetMenu(menuName = "Blackglass/Ability", fileName = "Ability")]
     public sealed class AbilityDefinition : ScriptableObject
@@ -55,6 +56,8 @@ namespace Blackglass
         [SerializeField, Min(0)] int amount = 25;
         // Ground only: the blast radius in metres.
         [SerializeField, Min(0f)] float radius;
+        // Reveal only: how long the enemies inside the circle stay observed.
+        [SerializeField, Min(0f)] float revealSeconds = 6f;
 
         public string DisplayName => displayName;
         public AbilityTargetMode TargetMode => targetMode;
@@ -66,25 +69,37 @@ namespace Blackglass
         public AbilityCoverRule CoverRule => coverRule;
         /// <summary>Seconds of scaled time before the same unit can use it again.</summary>
         public float Cooldown => cooldown;
-        /// <summary>A ground ability is always area damage, whatever the stored effect says.</summary>
-        public AbilityEffect Effect => targetMode == AbilityTargetMode.Ground ? AbilityEffect.Damage : effect;
+        /// <summary>
+        /// A ground ability is area damage or a reveal (a stored Heal reads as Damage); a unit ability is damage or healing
+        /// (a stored Reveal reads as Damage).
+        /// </summary>
+        public AbilityEffect Effect =>
+            targetMode == AbilityTargetMode.Ground
+                ? (effect == AbilityEffect.Reveal ? AbilityEffect.Reveal : AbilityEffect.Damage)
+                : (effect == AbilityEffect.Reveal ? AbilityEffect.Damage : effect);
         /// <summary>Damage dealt or hit points restored.</summary>
         public int Amount => amount;
         /// <summary>Ground abilities only.</summary>
         public float Radius => radius;
+        /// <summary>Reveal only: seconds the enemies inside the circle stay observed; 0 for every other effect.</summary>
+        public float RevealSeconds => Effect == AbilityEffect.Reveal ? revealSeconds : 0f;
 
         internal static AbilityDefinition Create(string displayName, AbilityTargetMode mode,
             float range, bool requiresLineOfSight, AbilityCoverRule coverRule, float cooldown, AbilityEffect effect,
-            int amount, float radius = 0f)
+            int amount, float radius = 0f, float revealSeconds = 0f)
         {
             if (range <= 0f)
                 throw new ArgumentOutOfRangeException(nameof(range), range, "An ability needs a positive range.");
             if (mode == AbilityTargetMode.Ground)
             {
-                if (effect != AbilityEffect.Damage)
-                    throw new ArgumentException("A ground ability is area damage; it cannot heal.", nameof(effect));
+                if (effect == AbilityEffect.Heal)
+                    throw new ArgumentException("A ground ability is area damage or a reveal; it cannot heal.", nameof(effect));
                 if (radius <= 0f)
                     throw new ArgumentException("A ground ability needs a positive radius.", nameof(radius));
+            }
+            else if (effect == AbilityEffect.Reveal)
+            {
+                throw new ArgumentException("A reveal is aimed at the ground; a unit ability cannot reveal.", nameof(effect));
             }
 
             var definition = CreateInstance<AbilityDefinition>();
@@ -98,21 +113,27 @@ namespace Blackglass
             definition.effect = effect;
             definition.amount = amount;
             definition.radius = radius;
+            definition.revealSeconds = revealSeconds;
             return definition;
         }
 
         // The side is never a free choice: harmful effects reach only hostiles, helpful ones only friendlies.
         static AbilityTargetSide SideFor(AbilityEffect effect) =>
-            effect == AbilityEffect.Damage ? AbilityTargetSide.Hostile : AbilityTargetSide.Friendly;
+            effect == AbilityEffect.Heal ? AbilityTargetSide.Friendly : AbilityTargetSide.Hostile;
 
         // Keeps an asset edited in the Inspector inside the rules Create enforces.
         void OnValidate()
         {
             if (targetMode == AbilityTargetMode.Ground)
             {
-                effect = AbilityEffect.Damage;
+                if (effect != AbilityEffect.Reveal)
+                    effect = AbilityEffect.Damage;
                 if (radius <= 0f)
                     radius = 1f;
+            }
+            else if (effect == AbilityEffect.Reveal)
+            {
+                effect = AbilityEffect.Damage;
             }
             targetSide = SideFor(effect);
         }

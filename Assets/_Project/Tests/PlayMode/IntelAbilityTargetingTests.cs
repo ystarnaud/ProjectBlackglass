@@ -114,6 +114,20 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator TheScanPreview_NamesNoHostiles_EvenWhenOneIsInTheCircle()
+        {
+            BeginFog(observationRange: 14f);
+            var scan = rig.World.CreateReconScan();
+            rig.Abilities.Initialize(rig.Encounter, rig.Aimed, rig.Blast, scan);   // slot 2 is the scan
+            yield return null;
+            Assert.That(rig.Targeting.Arm(2), Is.True);
+            var preview = rig.Targeting.Evaluate(scan, PointerTarget.OnGround(AbilityRig.BlastGround), queued: false);
+            Assert.That(preview.IsValid, Is.True, preview.Check.Failure.ToString());
+            Assert.That(rig.Targeting.AreaHits, Is.Empty, "a scan has no victims");
+            Assert.That(AbilityDescriptions.Preview(preview, rig.Targeting.AreaHits), Does.Contain("reveals 12.0 m for 6.0 s"));
+        }
+
+        [UnityTest]
         public IEnumerator TheTerminalPrompt_FollowsWhetherTheCameraTerminalDeviceIsKnown()
         {
             // The terminal stands beside the caster but its device (the plan's tile, in the far corner of the arena) is not seen.

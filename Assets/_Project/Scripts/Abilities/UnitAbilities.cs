@@ -278,6 +278,11 @@ namespace Blackglass
                 case AbilityEffect.Heal:
                     target.Heal(EffectiveAmount(ability));
                     break;
+                case AbilityEffect.Reveal:
+                    // A scan is information, not damage: it goes to the intelligence service (nothing happens without one).
+                    if (intelligence != null)
+                        intelligence.Scan(aim, ability.Radius, ability.RevealSeconds);
+                    break;
                 case AbilityEffect.Damage when ability.TargetMode == AbilityTargetMode.Unit:
                     Hit(ability, target, transform.position, source);
                     break;

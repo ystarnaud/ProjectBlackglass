@@ -45,7 +45,12 @@ namespace Blackglass
                     text.Append(check.TargetInCover ? $" | cover {Mathf.RoundToInt(check.HitChance * 100f)}%" : " | exposed");
             }
             if (ability.TargetMode == AbilityTargetMode.Ground)
-                text.Append($" | hits {areaHits.Count}{VictimNames(areaHits)}");
+            {
+                if (ability.Effect == AbilityEffect.Reveal)
+                    text.Append($" | reveals {Number(ability.Radius)} m for {Number(ability.RevealSeconds)} s");
+                else
+                    text.Append($" | hits {areaHits.Count}{VictimNames(areaHits)}");
+            }
             text.Append(" | ");
             text.Append(preview.IsValid ? "OK" : preview.WillApproach ? Approach(preview.Failure) : preview.Failure.Describe());
             if (preview.Queued)

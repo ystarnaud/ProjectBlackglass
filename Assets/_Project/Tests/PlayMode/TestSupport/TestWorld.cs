@@ -197,6 +197,9 @@ namespace Blackglass.Tests
         public AbilityDefinition CreateMend() => Track(AbilityDefinition.Create("Mend", AbilityTargetMode.Unit,
             8f, false, AbilityCoverRule.Ignored, 8f, AbilityEffect.Heal, 40));
 
+        public AbilityDefinition CreateReconScan() => Track(AbilityDefinition.Create("Recon Scan", AbilityTargetMode.Ground,
+            18f, false, AbilityCoverRule.Ignored, 25f, AbilityEffect.Reveal, 0, 12f, 6f));
+
         /// <summary>Waits (in real time, so it also works while paused) until the condition holds or the timeout passes.</summary>
         public static IEnumerator WaitUntil(Func<bool> condition, float timeoutSeconds)
         {
