@@ -57,6 +57,9 @@ namespace Blackglass
         /// <summary>The terminal must be hacked before extraction opens.</summary>
         public bool hackTerminal = true;
 
+        /// <summary>Battlefield uncertainty and security cameras (decision 037). The default hides nothing.</summary>
+        public IntelligenceSettings intelligence = new IntelligenceSettings();
+
         /// <summary>A clamped copy; the original is untouched. Everything downstream works on the copy.</summary>
         public MissionSettings Validated()
         {
@@ -79,14 +82,22 @@ namespace Blackglass
             // A mission always has a required objective; with both off the terminal stays.
             if (!copy.eliminateHostiles && !copy.hackTerminal)
                 copy.hackTerminal = true;
+            // MemberwiseClone shares nested objects: clone the intelligence settings so a validated copy is independent.
+            copy.intelligence = (intelligence ?? new IntelligenceSettings()).Validated();
             return copy;
         }
 
         /// <summary>One line with every setting, so a failure message plus its seed reproduces the layout.</summary>
-        public string Describe() =>
-            FormattableString.Invariant($"seed={seed} grid={gridColumns}x{gridRows} cell={cellSize} rooms={roomCount} corridor={corridorWidth} ") +
-            FormattableString.Invariant($"loops={extraLoops} baffles={bafflesPerRoom} lowCover={lowCoverDensity:0.##} friendlies={friendlyCount} ") +
-            FormattableString.Invariant($"hostiles={hostileCount} separation={minTeamSeparation:0.##} attempts={maxAttempts} ") +
-            FormattableString.Invariant($"guards={guardCount} interact={interactionSeconds:0.##} extractionUnits={extractionUnits} eliminate={eliminateHostiles} hack={hackTerminal}");
+        public string Describe()
+        {
+            var text =
+                FormattableString.Invariant($"seed={seed} grid={gridColumns}x{gridRows} cell={cellSize} rooms={roomCount} corridor={corridorWidth} ") +
+                FormattableString.Invariant($"loops={extraLoops} baffles={bafflesPerRoom} lowCover={lowCoverDensity:0.##} friendlies={friendlyCount} ") +
+                FormattableString.Invariant($"hostiles={hostileCount} separation={minTeamSeparation:0.##} attempts={maxAttempts} ") +
+                FormattableString.Invariant($"guards={guardCount} interact={interactionSeconds:0.##} extractionUnits={extractionUnits} eliminate={eliminateHostiles} hack={hackTerminal}");
+            if (intelligence != null && (intelligence.fogEnabled || intelligence.cameraCount > 0))
+                text += " intel=[" + intelligence.Describe() + "]";
+            return text;
+        }
     }
 }
