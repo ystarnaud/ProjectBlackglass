@@ -78,7 +78,7 @@ namespace Blackglass.Tests
             var host = World.Track(new GameObject("Roster"));
             host.SetActive(false);
             var roster = host.AddComponent<SquadRoster>();
-            roster.Initialize(squad, track);
+            roster.Initialize(squad, track, Director);
             host.SetActive(true);
             systems.roster = roster;
             return roster;

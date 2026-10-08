@@ -82,6 +82,8 @@ namespace Blackglass
         public IReadOnlyList<CommandableUnit> Hostiles => hostiles;
 
         public event Action<MissionState> StateChanged;
+        /// <summary>Raised once when the running mission ends, with Success or Failure.</summary>
+        public event Action<MissionPhase> MissionFinished;
 
         internal void Initialize(MissionSettings missionSettings, FriendlySlot[] friendly, HostileSlot[] hostile, MissionSystems persistent,
             Material ground, Material obstacle, bool generateAtStart, bool randomSeedAtStart = false, EnvironmentTheme theme = null)
@@ -271,6 +273,7 @@ namespace Blackglass
                 group.Add(unit.GetComponent<Health>());
             Runtime = MissionContent.CreateRuntime(mission, request, group, squad);
             Runtime.Start();
+            Runtime.PhaseChanged += OnRuntimePhaseChanged;
             Fill(Report, layout, navigation, plan);
             FrameCamera(layout);
             return true;
@@ -287,8 +290,15 @@ namespace Blackglass
         {
             if (Runtime == null)
                 return;
+            Runtime.PhaseChanged -= OnRuntimePhaseChanged;
             Runtime.Detach();
             Runtime = null;
+        }
+
+        void OnRuntimePhaseChanged(MissionPhase phase)
+        {
+            if (phase == MissionPhase.Success || phase == MissionPhase.Failure)
+                MissionFinished?.Invoke(phase);
         }
 
         void Teardown()
