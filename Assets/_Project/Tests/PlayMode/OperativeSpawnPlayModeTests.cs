@@ -132,13 +132,17 @@ namespace Blackglass.Tests
             health.TakeDamage(health.Max);
             Assert.That(unit.gameObject.activeSelf, Is.False, "a dead unit is deactivated");
 
+            var picked = false;
             Assert.DoesNotThrow(() =>
             {
                 roster.AwardExperience("test-bravo", 100);
-                roster.TryPickChoice("test-bravo", "survivability");
+                picked = roster.TryPickChoice("test-bravo", "survivability");
             });
 
+            Assert.That(picked, Is.True, "the pick must succeed, or nothing would have been published to ignore");
             Assert.That(roster.Find("test-bravo").State.Experience, Is.EqualTo(100), "the persistent record is updated");
+            Assert.That(roster.Evaluate(roster.Find("test-bravo")).MaxHealth, Is.Not.EqualTo(identity.Effective.MaxHealth),
+                "the roster's configuration changed, so the corpse really ignored a change");
             Assert.That(identity.Effective.MaxHealth, Is.EqualTo(maxBefore), "the corpse is not re-configured");
             Assert.That(identity.OperativeId, Is.EqualTo("test-bravo"), "identity survives death");
         }
