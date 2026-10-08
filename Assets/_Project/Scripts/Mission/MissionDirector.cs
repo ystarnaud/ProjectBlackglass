@@ -162,7 +162,9 @@ namespace Blackglass
         {
             SetState(MissionState.Generating);
             var request = settings.Validated();
-            if (friendlySlots.Length > 0)
+            if (systems.roster != null && systems.roster.Count > 0)
+                request.friendlyCount = Mathf.Clamp(systems.roster.Count, 1, 6);
+            else if (friendlySlots.Length > 0)
                 request.friendlyCount = Mathf.Clamp(friendlySlots.Length, 1, 6);
             Report = new MissionReport { Seed = request.seed, MaxAttempts = request.maxAttempts };
             Teardown();
