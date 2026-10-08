@@ -22,3 +22,4 @@ MonoBehaviour:
   archetype: {fileID: 11400000, guid: 59316995ca8031d48934711d037a6f92, type: 2}
   abilities:
   - {fileID: 11400000, guid: 16e5ffde35c26b247801b5abe39ef689, type: 2}
+  - {fileID: 11400000, guid: e5055a73c5c06564080df5f5cae3bc83, type: 2}

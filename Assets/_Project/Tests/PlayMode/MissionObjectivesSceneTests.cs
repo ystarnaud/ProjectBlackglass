@@ -62,6 +62,8 @@ namespace Blackglass.Tests
             Assert.That(director, Is.Not.Null);
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
             director.Settings.interactionSeconds = interactionSeconds;
+            // The scene ships with fog (decision 037); these tests click enemies and count terminals, so they play the same mission with full knowledge.
+            director.Settings.intelligence = IntelligenceSettings.Full();
             Assert.That(director.Generate(DeterministicSeed), Is.True);
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
             Assert.That(director.State, Is.EqualTo(MissionState.Ready), director.Report.Failure);

@@ -65,6 +65,8 @@ namespace Blackglass.Tests
             director = Object.FindFirstObjectByType<MissionDirector>();
             Assert.That(director, Is.Not.Null, "The scene has no MissionDirector: run the scene builder");
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
+            // The scene ships with fog (decision 037); these tests click enemies and count terminals, so they play the same mission with full knowledge.
+            director.Settings.intelligence = IntelligenceSettings.Full();
             Assert.That(director.Generate(DeterministicSeed), Is.True,
                 $"the first, drawn-seed mission is still {director.State} after 20 s, so Generate was refused");
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);

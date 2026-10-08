@@ -119,6 +119,137 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &26027896
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 26027903}
+  - component: {fileID: 26027902}
+  - component: {fileID: 26027901}
+  - component: {fileID: 26027900}
+  - component: {fileID: 26027899}
+  - component: {fileID: 26027898}
+  - component: {fileID: 26027897}
+  m_Layer: 0
+  m_Name: Intelligence
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &26027897
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 26027896}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 65deab71f36f3c44cafe466dba35cbfd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.IntelligenceDeveloperInput
+  intelligence: {fileID: 26027902}
+  director: {fileID: 424756580}
+  map: {fileID: 26027900}
+  truthViewAction: {fileID: 1440397382262347284, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  cyclePresetAction: {fileID: 8423175401913530645, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  toggleMapAction: {fileID: 5369341586959066276, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+--- !u!114 &26027898
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 26027896}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d8d07652b74cf504cb37a1023fbf7288, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.IntelligenceGizmoView
+  intelligence: {fileID: 26027902}
+--- !u!114 &26027899
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 26027896}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b4f50ef44b1b9e14a9dd913509f3cd37, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.IntelligenceDebugView
+  intelligence: {fileID: 26027902}
+  encounter: {fileID: 1021927386}
+  director: {fileID: 424756580}
+--- !u!114 &26027900
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 26027896}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c2b41c7f620853944a3d1d93cbef56bc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.IntelMapView
+  intelligence: {fileID: 26027902}
+  encounter: {fileID: 1021927386}
+  director: {fileID: 424756580}
+  size: {x: 260, y: 190}
+--- !u!114 &26027901
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 26027896}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: be5ee32a64cb4ec4f9c08f04fd88a253, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.FogPresenter
+  intelligence: {fileID: 26027902}
+  fogMaterial: {fileID: 2100000, guid: cf13e67768925b144a816cb9b4a0e464, type: 2}
+  veilMaterial: {fileID: 2100000, guid: 82e2de306946cb343aa8ede3e4f3274e, type: 2}
+--- !u!114 &26027902
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 26027896}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b95c051049375c74d93942fc7a32fc81, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.IntelligenceService
+  sightBlockers:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  passInterval: 0.2
+  markerMaterial: {fileID: 2100000, guid: 58c5800c8dd74ca46a7edd60ca252398, type: 2}
+--- !u!4 &26027903
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 26027896}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &343333448
 GameObject:
   m_ObjectHideFlags: 0
@@ -251,6 +382,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Blackglass::Blackglass.MissionGizmoView
   director: {fileID: 424756580}
   draw: 1
+  intelligence: {fileID: 26027902}
 --- !u!114 &424756578
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -264,6 +396,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.MissionDebugView
   director: {fileID: 424756580}
+  intelligence: {fileID: 26027902}
 --- !u!114 &424756579
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -311,6 +444,18 @@ MonoBehaviour:
     extractionUnits: 1
     eliminateHostiles: 1
     hackTerminal: 1
+    intelligence:
+      fogEnabled: 1
+      map: 2
+      objectives: 2
+      showUnknownObjectives: 1
+      enemyMarkersAtStart: 0
+      observationRange: 14
+      cameraCount: 3
+      cameraRange: 12
+      cameraFov: 90
+      cameraStaysLive: 1
+      exposureSeconds: 3
   friendlySlots:
   - prefab: {fileID: 1656404560095664011, guid: 79a4976528ed741439fc54792f980f1e, type: 3}
     archetype: {fileID: 11400000, guid: 259b96d2956e23041ad792fc4fec3196, type: 2}
@@ -348,6 +493,7 @@ MonoBehaviour:
     abilityTargeting: {fileID: 1021927396}
     interactables: {fileID: 1021927397}
     roster: {fileID: 407541413}
+    intelligence: {fileID: 26027902}
   groundMaterial: {fileID: 2100000, guid: a4af9315f320cdd47bb677d6b9585c8e, type: 2}
   obstacleMaterial: {fileID: 2100000, guid: 4269a282e4a76984985539bb4c7df2ea, type: 2}
   environmentTheme: {fileID: 11400000, guid: adea5743d781e9044b96d88b7e1653cc, type: 2}
@@ -386,6 +532,7 @@ MonoBehaviour:
   viewCamera: {fileID: 678505232}
   inputDevice: {fileID: 1021927392}
   controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  intelligence: {fileID: 26027902}
 --- !u!1 &538365520
 GameObject:
   m_ObjectHideFlags: 0
@@ -768,6 +915,7 @@ MonoBehaviour:
   inputDevice: {fileID: 1021927392}
   controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   missionDirector: {fileID: 424756580}
+  intelligence: {fileID: 26027902}
 --- !u!114 &1021927380
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -788,6 +936,7 @@ MonoBehaviour:
   cursor: {fileID: 1021927391}
   abilityTargeting: {fileID: 1021927396}
   interactables: {fileID: 1021927397}
+  intelligence: {fileID: 26027902}
   commandAction: {fileID: -7655432171402092998, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   pointerPositionAction: {fileID: -226529708325634134, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   togglePauseAction: {fileID: 7531348965491062000, guid: 052faaac586de48259a63d0c4782560b, type: 3}
@@ -925,6 +1074,7 @@ MonoBehaviour:
   markerMaterial: {fileID: 2100000, guid: b42da9722a5649248a5574266db4a807, type: 2}
   discDiameter: 0.5
   groundHeight: 0.05
+  intelligence: {fileID: 26027902}
 --- !u!114 &1021927389
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -984,6 +1134,7 @@ MonoBehaviour:
   encounter: {fileID: 1021927386}
   coverRegistry: {fileID: 1021927387}
   interactables: {fileID: 1021927397}
+  intelligence: {fileID: 26027902}
   inputDevice: {fileID: 1021927392}
   cursorMoveAction: {fileID: 4528992505967548537, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   cameraModifierAction: {fileID: -1192274556771156902, guid: 052faaac586de48259a63d0c4782560b, type: 3}
@@ -1077,6 +1228,7 @@ MonoBehaviour:
   selection: {fileID: 1021927383}
   activeCharacter: {fileID: 1021927385}
   cursor: {fileID: 1021927391}
+  intelligence: {fileID: 26027902}
   maxDistance: 500
   clickableLayers:
     serializedVersion: 2
@@ -1234,3 +1386,4 @@ SceneRoots:
   - {fileID: 407541414}
   - {fileID: 343333450}
   - {fileID: 1277666638}
+  - {fileID: 26027903}

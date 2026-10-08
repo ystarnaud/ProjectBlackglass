@@ -67,7 +67,7 @@ namespace Blackglass.Tests
             Assert.That(squad.Select(d => d.Archetype.DisplayName), Is.EqualTo(new[] { "Ranged", "Marksman", "Ranged" }));
             Assert.That(squad.Select(d => d.Abilities.Select(a => a.DisplayName).ToArray()), Is.EqualTo(new[]
             {
-                new[] { "Aimed Shot", "Blast" }, new[] { "Aimed Shot" }, new[] { "Mend", "Aimed Shot" },
+                new[] { "Aimed Shot", "Blast" }, new[] { "Aimed Shot", "Recon Scan" }, new[] { "Mend", "Aimed Shot" },
             }));
             var configs = squad.Select(d => EffectiveConfiguration.Evaluate(d, new PersistentOperativeState(d.Id), Load<ProgressionTrack>("Progression.asset"))).ToArray();
             Assert.That(configs.Select(c => (c.MaxHealth, c.MoveSpeed, c.AttackRange, c.AttackDamage)).Distinct().Count(), Is.EqualTo(3));
