@@ -254,12 +254,18 @@
             "actions": [
                 { "name": "RegenerateSame", "type": "Button", "id": "5a1d9c42-7e0b-4f83-a6d1-2c4e8b0f9a11", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
                 { "name": "RegenerateNew", "type": "Button", "id": "9f3b7e15-2d6a-4c08-b5e9-1a7c3d5f0e22", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
-                { "name": "ToggleVisuals", "type": "Button", "id": "3c8f1a57-9d24-4e6b-8a13-5b7e0d2c4f66", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+                { "name": "ToggleVisuals", "type": "Button", "id": "3c8f1a57-9d24-4e6b-8a13-5b7e0d2c4f66", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ToggleOperativePanel", "type": "Button", "id": "b7e41c2a-90d3-4a6f-8e15-3c2f7a9d0b41", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "AddExperience", "type": "Button", "id": "c18f5d3b-a1e4-4b70-9f26-4d3a8b0e1c52", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "ResetProgression", "type": "Button", "id": "d29a6e4c-b2f5-4c81-a037-5e4b9c1f2d63", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
             ],
             "bindings": [
                 { "name": "", "id": "d4e6a8c0-1b3f-4527-8960-a1b2c3d4e5f1", "path": "<Keyboard>/f6", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "RegenerateSame", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "e5f7b9d1-2c4a-4638-9a71-b2c3d4e5f6a2", "path": "<Keyboard>/f7", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "RegenerateNew", "isComposite": false, "isPartOfComposite": false },
-                { "name": "", "id": "7a2e9b04-6c15-4d38-b9f2-0e4a8c1d3b77", "path": "<Keyboard>/f8", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "ToggleVisuals", "isComposite": false, "isPartOfComposite": false }
+                { "name": "", "id": "7a2e9b04-6c15-4d38-b9f2-0e4a8c1d3b77", "path": "<Keyboard>/f8", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "ToggleVisuals", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "e3ab7f5d-c306-4d92-b148-6f5cad2a3e74", "path": "<Keyboard>/f9", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "ToggleOperativePanel", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "f4bc8a6e-d417-4ea3-8259-7a6dbe3b4f85", "path": "<Keyboard>/f10", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "AddExperience", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "05cd9b7f-e528-4fb4-936a-8b7ecf4c5096", "path": "<Keyboard>/f11", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "ResetProgression", "isComposite": false, "isPartOfComposite": false }
             ]
         }
     ],

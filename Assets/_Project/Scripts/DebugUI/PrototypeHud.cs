@@ -62,6 +62,9 @@ namespace Blackglass
         internal static string DescribeUnit(string unitName, int current, int max, CombatRole role, string archetypeName = null) =>
             $"{unitName} {current}/{max} [{(string.IsNullOrEmpty(archetypeName) ? role.ToString() : archetypeName)}]";
 
+        /// <summary>An operative's label name, such as "Darius (Assault)".</summary>
+        internal static string DescribeOperative(string displayName, string roleName) => $"{displayName} ({roleName})";
+
         /// <summary>A hostile's line: its AI state, its target if any, and the cooldown while one runs.</summary>
         internal static string DescribeEnemy(EnemyState state, string targetName, float cooldownRemaining)
         {
@@ -258,7 +261,8 @@ namespace Blackglass
                 return;
             var hasAttacker = health.TryGetComponent<UnitAttacker>(out var attacker);
             var archetypeName = hasAttacker && attacker.Archetype != null ? attacker.Archetype.DisplayName : null;
-            var text = DescribeUnit(health.name, health.Current, health.Max, hasAttacker ? attacker.Role : CombatRole.Melee, archetypeName);
+            var label = health.TryGetComponent<UnitIdentity>(out var identity) ? DescribeOperative(identity.DisplayName, identity.RoleName) : health.name;
+            var text = DescribeUnit(label, health.Current, health.Max, hasAttacker ? attacker.Role : CombatRole.Melee, archetypeName);
             var cooldown = hasAttacker ? attacker.CooldownRemaining : 0f;
             health.TryGetComponent<CommandableUnit>(out var unit);
             string activity;
