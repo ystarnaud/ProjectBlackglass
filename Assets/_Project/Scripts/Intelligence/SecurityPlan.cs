@@ -30,7 +30,8 @@ namespace Blackglass
         public const float CameraHeight = 2.6f;
         // How far from the tile centre toward the wall the camera hangs: the wall face is 0.5 away.
         const float WallInset = 0.4f;
-        const float TerminalAimHeight = 0.6f;
+        // Just above the terminal's own box collider, so a sight ray to the device point does not hit the box first.
+        const float TerminalAimHeight = MissionContent.TerminalHeight + 0.1f;
 
         public static readonly SecurityPlan Empty = new SecurityPlan(false, -1, default, Array.Empty<CameraMount>());
 

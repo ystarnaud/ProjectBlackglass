@@ -3,6 +3,7 @@ using System.Collections;
 using System.Linq;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.TestTools;
 
 namespace Blackglass.Tests
@@ -117,6 +118,45 @@ namespace Blackglass.Tests
             rig.Director.Clear();
             Assert.That(service.HasMission, Is.False);
             Assert.That(service.CanTarget(null), Is.True, "no mission: nothing is hidden, and a null unit is no exception");
+        }
+
+        // The terminal's device point must clear its own box collider, or every sight ray to it hits the box first.
+        [UnityTest]
+        public IEnumerator TheCameraTerminal_IsDiscoveredBySight_NextToIt_InARealMission()
+        {
+            rig = new MissionRig();
+            var service = rig.AddIntelligence(IntelligenceSettings.Blind());
+            yield return rig.Generate(12345);
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
+            var terminal = rig.Director.Current.CameraTerminal;
+            Assert.That(terminal, Is.Not.Null);
+            Assert.That(terminal.GetComponent<Collider>(), Is.Not.Null, "Precondition: the real terminal has a collider");
+
+            // A walkable spot about 2 m from the terminal, in the open (not behind its box).
+            var found = false;
+            var spot = Vector3.zero;
+            var ground = new Vector3(terminal.transform.position.x, 0f, terminal.transform.position.z);
+            foreach (var direction in new[] { Vector3.forward, Vector3.back, Vector3.left, Vector3.right })
+            {
+                if (NavMesh.SamplePosition(ground + direction * 2f, out var hit, 0.5f, NavMesh.AllAreas)
+                    && Vector3.Distance(hit.position, ground) > 1.5f
+                    && !Physics.Linecast(hit.position + Vector3.up * 1.5f, ground + Vector3.up * 1.3f))
+                {
+                    spot = hit.position;
+                    found = true;
+                    break;
+                }
+            }
+            Assert.That(found, Is.True, "Precondition: a clear walkable spot beside the terminal");
+
+            var friendly = rig.Director.Friendlies[0];
+            friendly.transform.position = spot + Vector3.up;   // the capsule's pivot is 1 m above the ground, as in the other rigs
+            Physics.SyncTransforms();
+            service.RunPass();
+
+            Assert.That(service.Model.StateOfDevice(SecurityPlan.TerminalDeviceId), Is.EqualTo(KnowledgeState.Discovered),
+                "the squad stands 2 m from the terminal in plain view");
+            Assert.That(service.CanInteract(terminal), Is.True);
         }
 
         [UnityTest]
