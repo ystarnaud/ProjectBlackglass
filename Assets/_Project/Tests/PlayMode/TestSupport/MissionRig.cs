@@ -84,6 +84,18 @@ namespace Blackglass.Tests
             return roster;
         }
 
+        /// <summary>
+        /// Adds an intelligence service to the persistent systems and gives the director these intelligence settings: the next
+        /// generation then builds its knowledge model. Call before the first Generate.
+        /// </summary>
+        public IntelligenceService AddIntelligence(IntelligenceSettings intelligence)
+        {
+            var service = World.Track(new GameObject("Intelligence")).AddComponent<IntelligenceService>();
+            systems.intelligence = service;
+            Director.Settings.intelligence = intelligence;
+            return service;
+        }
+
         public const string DariusPlayerPath = "Assets/Art/Characters/Darius/Prefabs/Darius_Player.prefab";
 
         /// <summary>The usual three friendly slots with Darius (rifle, humanoid visual, Ranged archetype) in slot 0, as in the scene.</summary>

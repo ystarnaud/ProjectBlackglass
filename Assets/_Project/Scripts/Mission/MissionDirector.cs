@@ -307,6 +307,19 @@ namespace Blackglass
             Runtime = MissionContent.CreateRuntime(mission, request, group, squad);
             Runtime.Start();
             Runtime.PhaseChanged += OnRuntimePhaseChanged;
+            if (systems.intelligence != null)
+            {
+                systems.intelligence.Begin(new IntelligenceMission
+                {
+                    Layout = layout,
+                    Objectives = plan,
+                    Security = security,
+                    Network = mission.Network,
+                    CameraTerminal = cameraTerminal,
+                    Goals = Runtime.Objectives,
+                    Root = mission.Root.transform,
+                }, request.intelligence, systems.encounter);
+            }
             Fill(Report, layout, navigation, plan);
             Report.SecurityHash = security.Hash;
             FrameCamera(layout);
@@ -353,6 +366,8 @@ namespace Blackglass
         // Empties every persistent system the mission fills, so nothing keeps a reference to a unit about to be destroyed.
         void ResetSystems()
         {
+            if (systems.intelligence != null)
+                systems.intelligence.Clear();
             if (systems.coverRegistry != null)
                 systems.coverRegistry.Rebuild(Array.Empty<CoverLocation>());
             if (systems.encounter != null)

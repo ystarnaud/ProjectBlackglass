@@ -21,8 +21,8 @@ namespace Blackglass
     }
 
     /// <summary>
-    /// The persistent systems a mission is generated into. `camera`, `abilityTargeting`, `interactables` and `roster` are
-    /// optional; with a roster the squad is spawned from its operatives instead of the friendly slots.
+    /// The persistent systems a mission is generated into. `camera`, `abilityTargeting`, `interactables`, `roster` and `intelligence`
+    /// are optional; with a roster the squad is spawned from its operatives instead of the friendly slots.
     /// </summary>
     [Serializable]
     public sealed class MissionSystems
@@ -37,5 +37,6 @@ namespace Blackglass
         public AbilityTargeting abilityTargeting;
         public InteractableRegistry interactables;
         public SquadRoster roster;
+        public IntelligenceService intelligence;
     }
 }
