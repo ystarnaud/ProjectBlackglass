@@ -25,6 +25,12 @@ namespace Blackglass
         /// </summary>
         public static SeededRandom ForObjectives(int seed, int attempt) => ForStream(seed, attempt, 0x0B1EC71F0C0FFEE1UL);
 
+        /// <summary>
+        /// The security placer's stream for one attempt of one seed: independent of the layout and objective streams, so
+        /// cameras never move a wall or an objective and a layout never depends on how many cameras a mission asks for.
+        /// </summary>
+        public static SeededRandom ForSecurity(int seed, int attempt) => ForStream(seed, attempt, 0x5EC17F4A0C0D3B5DUL);
+
         static SeededRandom ForStream(int seed, int attempt, ulong salt)
         {
             unchecked

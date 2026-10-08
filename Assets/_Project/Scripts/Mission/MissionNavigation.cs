@@ -107,6 +107,30 @@ namespace Blackglass
             return true;
         }
 
+        /// <summary>
+        /// The camera-control terminal must be usable like the data terminal: somewhere to stand within the interaction range
+        /// and a complete path from the first friendly spawn. A plan without a terminal is always valid.
+        /// </summary>
+        public static bool ValidateSecurity(MissionLayout layout, SecurityPlan plan, out string reason)
+        {
+            reason = null;
+            if (plan == null || !plan.HasTerminal)
+                return true;
+            if (!NavMesh.SamplePosition(layout.TileCenter(layout.FriendlySpawns[0]), out var start, 1f, NavMesh.AllAreas))
+            {
+                reason = "the first friendly spawn is not on the NavMesh";
+                return false;
+            }
+            var terminal = layout.TileCenter(plan.TerminalTile);
+            if (!NavMesh.SamplePosition(terminal, out var stand, SnapRadius, NavMesh.AllAreas)
+                || Vector3.Distance(new Vector3(stand.position.x, 0f, stand.position.z), terminal) > MissionContent.InteractionRange - 0.2f)
+            {
+                reason = "the camera terminal has no standing place within reach";
+                return false;
+            }
+            return PathExists(start.position, terminal, new NavMeshPath(), out reason, "the camera terminal");
+        }
+
         static bool PathExists(Vector3 from, Vector3 to, NavMeshPath path, out string reason, string label)
         {
             reason = null;

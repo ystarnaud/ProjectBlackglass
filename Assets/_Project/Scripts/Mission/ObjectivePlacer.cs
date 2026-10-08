@@ -163,7 +163,7 @@ namespace Blackglass
         }
 
         // Tiles covered by an obstacle (walls stand on void tiles and are excluded; the floor mask covers them).
-        static bool[] ObstacleMask(MissionLayout layout)
+        internal static bool[] ObstacleMask(MissionLayout layout)
         {
             var mask = new bool[layout.Width * layout.Height];
             foreach (var box in layout.Boxes)
@@ -215,7 +215,7 @@ namespace Blackglass
             return true;
         }
 
-        static List<Vector2Int> FreeTiles(MissionLayout layout, bool[] blocked, RectInt rect, List<Vector2Int> avoid, float minimumDistance)
+        internal static List<Vector2Int> FreeTiles(MissionLayout layout, bool[] blocked, RectInt rect, List<Vector2Int> avoid, float minimumDistance)
         {
             var tiles = new List<Vector2Int>();
             for (var y = rect.yMin; y < rect.yMax; y++)
@@ -242,6 +242,6 @@ namespace Blackglass
 
         static int Chebyshev(Vector2Int a, Vector2Int b) => Mathf.Max(Mathf.Abs(a.x - b.x), Mathf.Abs(a.y - b.y));
 
-        static RectInt Shrink(RectInt rect, int by) => new RectInt(rect.x + by, rect.y + by, rect.width - 2 * by, rect.height - 2 * by);
+        internal static RectInt Shrink(RectInt rect, int by) => new RectInt(rect.x + by, rect.y + by, rect.width - 2 * by, rect.height - 2 * by);
     }
 }
