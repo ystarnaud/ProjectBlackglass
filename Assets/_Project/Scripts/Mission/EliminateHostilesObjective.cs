@@ -37,8 +37,15 @@ namespace Blackglass
         /// <summary>False hides the living/total count: the player may not know how many hostiles there are (decision 037).</summary>
         public bool ShowCounts { get; set; } = true;
 
-        public override string Describe() =>
-            State == ObjectiveState.Completed ? Title : $"{Title} ({Living}/{group.Count})";
+        public override string Describe()
+        {
+            if (State == ObjectiveState.Completed)
+                return Title;
+            if (ShowCounts)
+                return $"{Title} ({Living}/{group.Count})";
+            var down = group.Count - Living;
+            return down > 0 ? $"{Title} ({down} down)" : Title;
+        }
 
         protected override void OnEvaluate()
         {

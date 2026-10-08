@@ -46,6 +46,11 @@ namespace Blackglass
         public ObjectiveState State => state;
         /// <summary>Whether the player has been told about this objective (HUD line, marker). Defaults to true.</summary>
         public bool IsKnown { get; private set; } = true;
+        /// <summary>
+        /// What the HUD says about this objective while the player does not know it exists yet ("Locate the data terminal"):
+        /// no place, no count. Null lists nothing. Only shown when the mission's intelligence settings ask for it.
+        /// </summary>
+        public string VagueTitle { get; private set; }
         public virtual bool HasTarget => false;
         public virtual Vector3 TargetPosition => Vector3.zero;
 
@@ -53,6 +58,8 @@ namespace Blackglass
         public event Action<MissionObjective> StateChanged;
 
         public void SetKnown(bool known) => IsKnown = known;
+
+        public void SetVagueTitle(string title) => VagueTitle = title;
 
         /// <summary>Inactive to Active; ignored in any other state.</summary>
         public void Activate()

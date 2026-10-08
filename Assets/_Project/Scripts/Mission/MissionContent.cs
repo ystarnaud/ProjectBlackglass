@@ -179,11 +179,20 @@ namespace Blackglass
         {
             var goals = new List<MissionObjective>();
             if (settings.eliminateHostiles)
-                goals.Add(new EliminateHostilesObjective("eliminate", "Eliminate security team", hostileGroup));
+            {
+                var eliminate = new EliminateHostilesObjective("eliminate", "Eliminate security team", hostileGroup);
+                eliminate.SetVagueTitle("Neutralise the hostile presence");
+                goals.Add(eliminate);
+            }
             if (mission.Terminal != null)
-                goals.Add(new InteractObjective("hack", "Access data terminal", mission.Terminal));
+            {
+                var hack = new InteractObjective("hack", "Access data terminal", mission.Terminal);
+                hack.SetVagueTitle("Locate the data terminal");
+                goals.Add(hack);
+            }
             var extraction = new ReachZoneObjective("extract", "Extraction", mission.ExtractionZone.position, ZoneRadius,
                 settings.extractionUnits, squad, isRequired: false);
+            extraction.SetVagueTitle("Find the extraction point");
             if (mission.ExtractionZone.TryGetComponent<ObjectiveMarker>(out var marker))
                 marker.Bind(() => ObjectiveMarker.ZoneColour(extraction.State));
             return new MissionRuntime(goals, extraction, squad);

@@ -41,14 +41,19 @@ namespace Blackglass
             }
         }
 
-        /// <summary>The MISSION panel: the phase, then one line per objective the player knows about.</summary>
-        public static string Panel(MissionRuntime runtime)
+        /// <summary>
+        /// The MISSION panel: the phase, then one line per objective the player knows about. With `listUnknown`, an unknown
+        /// objective that has a vague title is listed by it ("[?] Locate the data terminal"), never by its real title.
+        /// </summary>
+        public static string Panel(MissionRuntime runtime, bool listUnknown = false)
         {
             var text = new StringBuilder("MISSION - ").Append(PhaseLabel(runtime.Phase));
             foreach (var objective in runtime.Objectives)
             {
                 if (objective.IsKnown)
                     text.Append('\n').Append(Line(objective));
+                else if (listUnknown && !string.IsNullOrEmpty(objective.VagueTitle))
+                    text.Append("\n[?] ").Append(objective.VagueTitle);
             }
             return text.ToString();
         }
@@ -87,6 +92,10 @@ namespace Blackglass
         [SerializeField] Camera viewCamera;
         [SerializeField] ActiveInputDevice inputDevice;
         [SerializeField] InputActionAsset controls;
+        // Optional: with fog on and showUnknownObjectives, unknown objectives are listed by their vague titles.
+        [SerializeField] IntelligenceService intelligence;
+
+        internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
         GUIStyle panelStyle;
         GUIStyle bannerStyle;
@@ -101,7 +110,7 @@ namespace Blackglass
             bannerStyle ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter, fontSize = 30, fontStyle = FontStyle.Bold };
             labelStyle ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperCenter };
 
-            var panel = MissionHudText.Panel(runtime);
+            var panel = MissionHudText.Panel(runtime, intelligence != null && intelligence.ListsUnknownObjectives);
             var lines = panel.Split('\n').Length;
             GUI.Label(new Rect(10f, 190f, 420f, 24f * lines), panel, panelStyle);
 
