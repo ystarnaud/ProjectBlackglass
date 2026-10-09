@@ -92,6 +92,39 @@ namespace Blackglass
             return true;
         }
 
+        /// <summary>
+        /// Makes a specific roster unit the active character and selects it, like Tab does for the next one. Returns false and
+        /// changes nothing when the unit is not an eligible roster unit or is already in control.
+        /// </summary>
+        public bool TakeControl(CommandableUnit candidate)
+        {
+            if (selection == null || candidate == null || candidate == unit || !IsEligible(candidate) || !IsOnRoster(candidate))
+                return false;
+            SetUnit(candidate);
+            SelectActiveIn(selection);
+            return true;
+        }
+
+        bool IsOnRoster(CommandableUnit candidate)
+        {
+            foreach (var member in selection.Roster)
+            {
+                if (member != null && member.Unit == candidate)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The hand-over selection step shared by Tab and TakeControl: the active character, when it is an eligible roster
+        /// unit, becomes the only selected unit in the given selection.
+        /// </summary>
+        public void SelectActiveIn(UnitSelection target)
+        {
+            if (target != null && unit != null && unit.TryGetComponent<SelectableUnit>(out var selectable) && IsEligible(selectable))
+                target.Select(selectable);
+        }
+
         public void SetTakeover(bool on) => IsTakeoverOn = on;
 
         public void ToggleTakeover() => IsTakeoverOn = !IsTakeoverOn;

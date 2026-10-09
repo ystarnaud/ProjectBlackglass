@@ -31,6 +31,8 @@ namespace Blackglass
         [SerializeField] InteractableRegistry interactables;
         // Optional: unknown terminals and hidden hostiles are not offered (decision 037).
         [SerializeField] IntelligenceService intelligence;
+        // Optional. A press that begins where this says the pointer is over the HUD is not a world click, order or box.
+        [SerializeField] PointerBlocker pointerBlocker;
 
         [Header("Input")]
         [SerializeField] InputActionReference commandAction;
@@ -58,6 +60,7 @@ namespace Blackglass
         readonly List<SelectableUnit> boxedUnits = new List<SelectableUnit>();
         ClickDragDetector clickDetector;
         Vector2 pressPosition;
+        bool pressBlocked;
 
         /// <summary>True while the left button is held and has moved far enough to be a box selection.</summary>
         public bool IsDragging => clickDetector != null && clickDetector.IsDragging;
@@ -91,6 +94,17 @@ namespace Blackglass
         }
 
         internal void SetIntelligence(IntelligenceService service) => intelligence = service;
+
+        internal void SetPointerBlocker(PointerBlocker blocker) => pointerBlocker = blocker;
+
+        /// <summary>The pointer position in screen pixels (the same value clicks use).</summary>
+        public Vector2 PointerScreenPosition => PointerPosition;
+
+        /// <summary>True while the queue modifier (Shift / LT) is held.</summary>
+        public bool ModifierIsHeld => ModifierHeld;
+
+        /// <summary>What a click at this screen point would act on, resolved exactly as a click resolves it. No side effects.</summary>
+        public PointerTarget ResolveAt(Vector2 screen) => viewCamera == null ? PointerTarget.None : ResolveTarget(screen);
 
         /// <summary>Wires terminal interaction: the registry Interact looks in, and the Interact action. Call before enabling.</summary>
         internal void WireInteraction(InteractableRegistry registry, InputActionReference interact)
@@ -145,6 +159,7 @@ namespace Blackglass
 
         void OnDisable()
         {
+            pressBlocked = false;
             if (commandAction != null)
             {
                 commandAction.action.started -= OnCommandPressed;
@@ -178,6 +193,11 @@ namespace Blackglass
         void OnCommandPressed(InputAction.CallbackContext context)
         {
             pressPosition = PointerPosition;
+            if (pointerBlocker != null && pointerBlocker.IsBlocking(pressPosition))
+            {
+                pressBlocked = true;
+                return;
+            }
             clickDetector.Press(pressPosition);
         }
 
@@ -188,6 +208,11 @@ namespace Blackglass
             if (context.control is ButtonControl button && button.isPressed)
             {
                 clickDetector.Cancel();
+                return;
+            }
+            if (pressBlocked)
+            {
+                pressBlocked = false;
                 return;
             }
             var wasPressed = clickDetector.IsPressed;
@@ -325,9 +350,12 @@ namespace Blackglass
         {
             if (viewCamera == null)
                 return;
-            Act(PointerTargetResolver.Resolve(viewCamera, screenPoint, maxClickDistance, clickableLayers, coverRegistry,
-                coverClickRadius, intelligence));
+            Act(ResolveTarget(screenPoint));
         }
+
+        PointerTarget ResolveTarget(Vector2 screenPoint) =>
+            PointerTargetResolver.Resolve(viewCamera, screenPoint, maxClickDistance, clickableLayers, coverRegistry,
+                coverClickRadius, intelligence);
 
         // The one "do what the player pointed at" path: a mouse click and the controller cursor both end here. A friendly
         // unit is selected (the queue modifier adds or removes it); anything else is an order, queued with the modifier.

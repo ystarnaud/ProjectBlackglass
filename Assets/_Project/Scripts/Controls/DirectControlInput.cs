@@ -150,10 +150,7 @@ namespace Blackglass
             if (activeCharacter == null)
                 return;
             activeCharacter.Cycle(direction);
-            var unit = activeCharacter.Unit;
-            if (selection != null && unit != null && unit.TryGetComponent<SelectableUnit>(out var selectable)
-                && ActiveCharacter.IsEligible(selectable))
-                selection.Select(selectable);
+            activeCharacter.SelectActiveIn(selection);
         }
     }
 }
