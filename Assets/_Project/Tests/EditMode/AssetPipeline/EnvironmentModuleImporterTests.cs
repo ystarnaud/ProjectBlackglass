@@ -12,7 +12,34 @@ namespace Blackglass.Tests.AssetPipeline
     public class EnvironmentModuleImporterTests
     {
         [TearDown]
-        public void TearDown() => ScratchFolder.Clean();
+        public void TearDown()
+        {
+            ScratchFolder.Clean();
+            if (tempDir != null && System.IO.Directory.Exists(tempDir)) System.IO.Directory.Delete(tempDir, true);
+            tempDir = null;
+        }
+
+        string tempDir;
+
+        /// <summary>Writes an axis-aligned box OBJ (x and z centred, y from 0 up). OBJ has no unit setting, so its size in metres is exactly what is written.</summary>
+        string WriteBoxObj(float width, float height, float depth)
+        {
+            tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "bgas-envtest-" + System.Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(tempDir);
+            var path = System.IO.Path.Combine(tempDir, "Box.obj");
+            var hx = (width * 0.5f).ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+            var hz = (depth * 0.5f).ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+            var h = height.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+            var lines = new[]
+            {
+                "o Box",
+                "v -" + hx + " 0 -" + hz, "v " + hx + " 0 -" + hz, "v " + hx + " 0 " + hz, "v -" + hx + " 0 " + hz,
+                "v -" + hx + " " + h + " -" + hz, "v " + hx + " " + h + " -" + hz, "v " + hx + " " + h + " " + hz, "v -" + hx + " " + h + " " + hz,
+                "f 1 2 3 4", "f 5 8 7 6", "f 1 5 6 2", "f 2 6 7 3", "f 3 7 8 4", "f 4 8 5 1",
+            };
+            System.IO.File.WriteAllText(path, string.Join("\n", lines) + "\n");
+            return path;
+        }
 
         // Darius is about 1.8 m tall, so as a "wall" he deliberately mismatches the 3 m module height.
         static ImportItem Wall(string name = "TestWall", string element = "WallStraight")
@@ -54,7 +81,7 @@ namespace Blackglass.Tests.AssetPipeline
         {
             var r = AssetPipelineRunner.ImportOne(Wall());
             Assert.IsTrue(r.success, ImporterTestSupport.Errors(r));
-            Assert.IsTrue(r.warnings.Any(w => w.Contains("Y")), "height mismatch must be reported: " + string.Join("\n", r.warnings));
+            Assert.IsTrue(r.warnings.Any(w => w.StartsWith("Y is")), "height mismatch must be reported: " + string.Join("\n", r.warnings));
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ScratchFolder.Path + "/TestWall.prefab");
             Assert.IsNotNull(prefab);
             Assert.AreEqual(Vector3.one, prefab.transform.Find("Model").localScale, "environment modules are never auto-scaled");
@@ -62,6 +89,40 @@ namespace Blackglass.Tests.AssetPipeline
             // A fresh copy of the cm-declared Darius FBX measures about 0.019 m: it is reported, never silently corrected (note 1).
             Assert.Greater(r.dimensions.y, 0f);
             Assert.IsEmpty(r.changedAssets.Where(p => p.EndsWith(".asset")), "no theme change unless requested");
+        }
+
+        static bool IsDimensionOrPivotWarning(string w) =>
+            w.StartsWith("X is") || w.StartsWith("Y is") || w.StartsWith("Z is") || w.Contains("pivot");
+
+        [Test]
+        public void ARightSizedWallWithTheRightPivotProducesNoDimensionOrPivotWarnings()
+        {
+            // Wall spec: 1 x 3 x 1 m, pivot at the bottom centre.
+            var item = Wall();
+            item.sourcePath = WriteBoxObj(1f, 3f, 1f);
+            var r = AssetPipelineRunner.ImportOne(item);
+            Assert.IsTrue(r.success, ImporterTestSupport.Errors(r));
+            Assert.AreEqual(3f, r.dimensions.y, 0.01f);
+            Assert.IsFalse(r.warnings.Any(IsDimensionOrPivotWarning), string.Join("\n", r.warnings));
+        }
+
+        [Test]
+        public void TheCheckUsesTheScaledDimensions()
+        {
+            // Authored at twice the wall size; the explicit scale 0.5 brings it to 1 x 3 x 1 in prefab-root space.
+            var item = Wall();
+            item.sourcePath = WriteBoxObj(2f, 6f, 2f);
+            item.environment.scale = 0.5f;
+            var r = AssetPipelineRunner.ImportOne(item);
+            Assert.IsTrue(r.success, ImporterTestSupport.Errors(r));
+            Assert.AreEqual(3f, r.dimensions.y, 0.01f);
+            Assert.IsFalse(r.warnings.Any(IsDimensionOrPivotWarning), string.Join("\n", r.warnings));
+
+            // Unscaled, the same file must be flagged (the check is not blind).
+            var unscaled = Wall("TestWall2");
+            unscaled.sourcePath = item.sourcePath;
+            var u = AssetPipelineRunner.ImportOne(unscaled);
+            Assert.IsTrue(u.warnings.Any(w => w.StartsWith("Y is")), string.Join("\n", u.warnings));
         }
 
         [Test]
