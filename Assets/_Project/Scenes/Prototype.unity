@@ -331,6 +331,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 1bc7a15e4735fca43ba0de32058bacdf, type: 2}
   - {fileID: 11400000, guid: 06ff659d075b54140ad333e14442230b, type: 2}
   encounter: {fileID: 1021927386}
+  intelligence: {fileID: 0}
 --- !u!1 &240885938
 GameObject:
   m_ObjectHideFlags: 0
@@ -587,6 +588,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 1bc7a15e4735fca43ba0de32058bacdf, type: 2}
   - {fileID: 11400000, guid: 06ff659d075b54140ad333e14442230b, type: 2}
   encounter: {fileID: 1021927386}
+  intelligence: {fileID: 0}
 --- !u!1 &341328419
 GameObject:
   m_ObjectHideFlags: 0
@@ -1972,6 +1974,7 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 1bc7a15e4735fca43ba0de32058bacdf, type: 2}
   - {fileID: 11400000, guid: 06ff659d075b54140ad333e14442230b, type: 2}
   encounter: {fileID: 1021927386}
+  intelligence: {fileID: 0}
 --- !u!1 &975532998
 GameObject:
   m_ObjectHideFlags: 0
@@ -2122,6 +2125,9 @@ MonoBehaviour:
   activeCharacter: {fileID: 1021927385}
   inputDevice: {fileID: 1021927392}
   controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  missionDirector: {fileID: 0}
+  intelligence: {fileID: 0}
+  overlay: {fileID: 1665861947}
 --- !u!114 &1021927380
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2141,6 +2147,9 @@ MonoBehaviour:
   coverRegistry: {fileID: 1021927387}
   cursor: {fileID: 1021927391}
   abilityTargeting: {fileID: 1021927396}
+  interactables: {fileID: 0}
+  intelligence: {fileID: 0}
+  pointerBlocker: {fileID: 1547631581}
   commandAction: {fileID: -7655432171402092998, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   pointerPositionAction: {fileID: -226529708325634134, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   togglePauseAction: {fileID: 7531348965491062000, guid: 052faaac586de48259a63d0c4782560b, type: 3}
@@ -2149,6 +2158,7 @@ MonoBehaviour:
   clearSelectionAction: {fileID: 1827706152267695989, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   confirmAction: {fileID: -9117388939999025853, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   attackAction: {fileID: 8182434138458065465, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  interactAction: {fileID: 0}
   dragThresholdPixels: 6
   maxClickDistance: 500
   clickableLayers:
@@ -2156,6 +2166,7 @@ MonoBehaviour:
     m_Bits: 4294967295
   groupSpacing: 1.5
   coverClickRadius: 0.5
+  contextInteractRadius: 3
 --- !u!114 &1021927381
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2285,6 +2296,7 @@ MonoBehaviour:
   markerMaterial: {fileID: 2100000, guid: b42da9722a5649248a5574266db4a807, type: 2}
   discDiameter: 0.5
   groundHeight: 0.05
+  intelligence: {fileID: 0}
 --- !u!114 &1021927389
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2343,6 +2355,8 @@ MonoBehaviour:
   selection: {fileID: 1021927383}
   encounter: {fileID: 1021927386}
   coverRegistry: {fileID: 1021927387}
+  interactables: {fileID: 0}
+  intelligence: {fileID: 0}
   inputDevice: {fileID: 1021927392}
   cursorMoveAction: {fileID: 4528992505967548537, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   cameraModifierAction: {fileID: -1192274556771156902, guid: 052faaac586de48259a63d0c4782560b, type: 3}
@@ -2352,6 +2366,7 @@ MonoBehaviour:
   responseExponent: 1.5
   unitSnapRadius: 1.2
   coverSnapRadius: 0.75
+  interactableSnapRadius: 1.5
   maxDistance: 500
   clickableLayers:
     serializedVersion: 2
@@ -2385,6 +2400,7 @@ MonoBehaviour:
   inputDevice: {fileID: 1021927392}
   controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   menuAction: {fileID: -6384645869983828662, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  overlay: {fileID: 1665861947}
 --- !u!114 &1021927394
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2435,6 +2451,7 @@ MonoBehaviour:
   selection: {fileID: 1021927383}
   activeCharacter: {fileID: 1021927385}
   cursor: {fileID: 1021927391}
+  intelligence: {fileID: 0}
   maxDistance: 500
   clickableLayers:
     serializedVersion: 2
@@ -3029,6 +3046,79 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9954ad40d7a7ef443832fbdca5ea3221, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.Health
+--- !u!1 &1547631580
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1547631583}
+  - component: {fileID: 1547631582}
+  - component: {fileID: 1547631581}
+  m_Layer: 0
+  m_Name: TacticalHud
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1547631581
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1547631580}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 16feece894cee504997f8c7c8b570682, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.PointerBlocker
+--- !u!114 &1547631582
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1547631580}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b85ff8b2b6cc8644caad5ef257e42af1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.TacticalHud
+  sources:
+    activeCharacter: {fileID: 1021927385}
+    selection: {fileID: 1021927383}
+    tacticalPause: {fileID: 1021927381}
+    encounter: {fileID: 1021927386}
+    director: {fileID: 0}
+    roster: {fileID: 0}
+    intelligence: {fileID: 0}
+    abilityTargeting: {fileID: 1021927396}
+    cursor: {fileID: 1021927391}
+    commandInput: {fileID: 1021927380}
+    inputDevice: {fileID: 1021927392}
+    controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+    camera: {fileID: 678505232}
+  pointerBlocker: {fileID: 1547631581}
+  queueModifier: {fileID: 3622529144628067995, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+--- !u!4 &1547631583
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1547631580}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1635730849
 GameObject:
   m_ObjectHideFlags: 0
@@ -3102,6 +3192,66 @@ MonoBehaviour:
   maxPitch: 85
   boundsHalfSize: 25
   followSharpness: 10
+--- !u!1 &1665861945
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1665861948}
+  - component: {fileID: 1665861947}
+  - component: {fileID: 1665861946}
+  m_Layer: 0
+  m_Name: DeveloperOverlay
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1665861946
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1665861945}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bc834557138a650428bf35cb0b949a4b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.DeveloperOverlayInput
+  overlay: {fileID: 1665861947}
+  toggleAction: {fileID: 2970530211467921257, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+--- !u!114 &1665861947
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1665861945}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 998602e31c44ac14ea675a6fde1e05c7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.DeveloperOverlay
+  visible: 0
+--- !u!4 &1665861948
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1665861945}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1833863200
 GameObject:
   m_ObjectHideFlags: 0
@@ -3617,3 +3767,5 @@ SceneRoots:
   - {fileID: 802515751}
   - {fileID: 145679767}
   - {fileID: 1538312277}
+  - {fileID: 1547631583}
+  - {fileID: 1665861948}
