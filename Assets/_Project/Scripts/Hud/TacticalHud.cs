@@ -19,10 +19,6 @@ namespace Blackglass
         const int SortingOrder = 10;
         static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);
 
-        // Final footprints of the zones later tasks fill; each task replaces its empty rect with its panel.
-        const float ZoneGap = 16f;
-        static readonly Vector2 TargetSize = new Vector2(340f, 140f);
-
         [SerializeField] HudSources sources;
         [SerializeField] PointerBlocker pointerBlocker;   // the HUD installs its pointer test here (Task 9)
 
@@ -37,6 +33,8 @@ namespace Blackglass
         internal SquadPanel Squad { get; private set; }
         internal OperativePanel Operative { get; private set; }
         internal PromptPanel Prompts { get; private set; }
+        internal TargetPanel Target { get; private set; }
+        internal WorldMarkLayer Marks { get; private set; }
 
         internal void Initialize(HudSources hudSources, PointerBlocker blocker)
         {
@@ -57,13 +55,14 @@ namespace Blackglass
             }
             Root = root;
 
-            HudFactory.Rect("WorldMarks", root);   // first child: drawn beneath every panel
+            Marks = Add(new WorldMarkLayer(root));   // first child: drawn beneath every panel
+            Marks.CameraSource = ResolveCamera;
             Objectives = Add(new ObjectivesPanel(root));
             Status = Add(new StatusPanel(root));
             Squad = Add(new SquadPanel(root));
             Operative = Add(new OperativePanel(root));
             Prompts = Add(new PromptPanel(root));
-            Zone("Target", root, new Vector2(1f, 0f), new Vector2(-HudTheme.Margin, HudTheme.Margin + PromptPanel.Height + ZoneGap), TargetSize);
+            Target = Add(new TargetPanel(root));
             return root;
         }
 
@@ -94,14 +93,14 @@ namespace Blackglass
             ApplySnapshot();
         }
 
+        // The world marks' camera: the wired one, else the scene's main camera.
+        Camera ResolveCamera() => sources != null && sources.camera != null ? sources.camera : Camera.main;
+
         T Add<T>(T panel) where T : HudPanel
         {
             panels.Add(panel);
             return panel;
         }
-
-        static void Zone(string name, RectTransform root, Vector2 anchor, Vector2 position, Vector2 size) =>
-            HudFactory.Place(HudFactory.Rect(name, root), anchor, position, size);
 
         void BuildCanvas()
         {
