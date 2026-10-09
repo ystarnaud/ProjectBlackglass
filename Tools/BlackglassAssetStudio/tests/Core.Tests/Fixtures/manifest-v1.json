@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "runId": "20261008-153012-ab12",
+  "resultPath": "C:\\Temp\\runs\\20261008-153012-ab12\\result.json",
+  "items": [
+    {
+      "id": "char1",
+      "profile": "HumanoidCharacter",
+      "name": "Kestrel",
+      "sourcePath": "C:\\Temp\\runs\\20261008-153012-ab12\\staged\\char1\\Kestrel Model.fbx",
+      "destinationFolder": "Assets/Art/Characters/Kestrel",
+      "allowOverwrite": false,
+      "character": { "targetHeight": 1.85, "normalizeHeight": true, "scaleOverride": 0.0, "rigHumanoid": true, "createAvatar": true, "materialMode": "Embedded", "generatePrefab": true }
+    },
+    {
+      "id": "anim1",
+      "profile": "HumanoidAnimation",
+      "name": "Kestrel_Walk",
+      "sourcePath": "C:\\Temp\\runs\\20261008-153012-ab12\\staged\\anim1\\Walk.fbx",
+      "destinationFolder": "Assets/Art/Animations",
+      "allowOverwrite": true,
+      "animation": { "category": "Locomotion", "clipName": "Walk", "sharedAvatarPath": "Assets/Art/Characters/Darius/Models/Darius Stand Idle.fbx", "loop": "Yes", "bakeRotation": true, "bakeHeight": true, "bakePositionXZ": true }
+    },
+    {
+      "id": "env1",
+      "profile": "EnvironmentModule",
+      "name": "WallStraight_B",
+      "sourcePath": "C:\\Temp\\runs\\20261008-153012-ab12\\staged\\env1\\wall.fbx",
+      "destinationFolder": "Assets/_Project/Environment/Modules",
+      "allowOverwrite": false,
+      "environment": { "element": "WallStraight", "themePath": "Assets/_Project/Environment/Themes/CorporatePrototype/CorporatePrototype.asset", "themeMode": "Append", "replaceIndex": 0, "scale": 1.0 }
+    }
+  ]
+}

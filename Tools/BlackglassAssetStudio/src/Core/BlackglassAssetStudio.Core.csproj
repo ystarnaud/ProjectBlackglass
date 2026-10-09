@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>BlackglassAssetStudio.Core</AssemblyName>
+    <RootNamespace>Blackglass.AssetStudio</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- One definition of the manifest/result contract: the same files Unity compiles. -->
+    <Compile Include="..\..\..\..\Assets\_Project\Editor\AssetPipeline\Contract\*.cs" Link="Contract\%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

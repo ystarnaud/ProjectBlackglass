@@ -86,3 +86,12 @@ Desktop.ini
 
 # Claude Code personal settings
 .claude/settings.local.json
+
+# Blackglass Asset Studio (.NET solution under Tools/; the global ignores above hide csproj/sln files)
+!/Tools/BlackglassAssetStudio/BlackglassAssetStudio.sln
+!/Tools/BlackglassAssetStudio/src/**/*.csproj
+!/Tools/BlackglassAssetStudio/tests/**/*.csproj
+/Tools/BlackglassAssetStudio/**/bin/
+/Tools/BlackglassAssetStudio/**/obj/
+/Tools/BlackglassAssetStudio/publish/
+TestResults/
