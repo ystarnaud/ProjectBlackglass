@@ -518,3 +518,13 @@ Short record of decisions that are likely to matter later. Newest last.
   - Theme registration cannot remove variants.
   - FBX unit settings are left untouched, so a centimetre-declared file (the Darius FBX measures about 0.0188 m on a fresh import; its project `.meta` compensates with `globalScale` 100) gets an automatic visual correction of about x100 with a warning, and a model measuring under 0.01 m (`MinMeasuredHeight`) fails with an "unusable measurement" error until a manual scale is given. A unit-fix feature is a v0.2 candidate.
   - Unity 6000.3 exposes no `ModelImporter` animation import warnings, so Unity's own retargeting warnings are not forwarded into `result.json`; they are only in the Editor log (`unity.log` in the run folder).
+
+## 040 — The rifle is a shared weapon asset, not part of Darius
+
+- **Decided (2026-10-09):**
+  - **Own folder.** `Assets/Art/Weapons/Rifle/` holds `Models/Rifle.fbx`, `Materials/Rifle.mat`, `Textures/Rifle_BaseMap.png` and `Rifle_Normal.png`, and `Prefabs/Rifle.prefab`. The files were moved out of `Characters/Darius/` with their `.meta` files (GUIDs unchanged), so `Darius_Visual.prefab` still finds them; the material and the two textures were renamed from `modddif_*`.
+  - **`Rifle.prefab`** is a root with the FBX instance (`RifleModel`, which carries the FBX's own x100 root scale, so the rifle is about 0.9 m long at scale 1) and a `Muzzle` child at the barrel tip: forward (+Z) points out of the barrel, up is world up. A weapon system later reads `Muzzle` for the shot origin; nothing uses it yet.
+  - **Sockets.** Darius keeps his `WeaponSocket/Darius_Rifle` (the FBX instance, unchanged). EnemyUnit has `WeaponSocket/Rifle` under the right hand, a nested instance of `Rifle.prefab` with the same hand-relative offset in metres and a local scale of 1 / 1.85 so the character's visual scale does not resize the rifle. Any unit with a Humanoid right hand can use the same pattern.
+- **Why:** the owner wants one rifle that any unit, including enemies, can carry, with its textures staying with it.
+- **Rejected:** copying the FBX (two rifles to keep in sync); leaving it under Darius (a generic weapon should not live in a character folder).
+- **Implications:** Darius's rifle is still its own FBX instance and does not follow edits to `Rifle.prefab`; relinking it to the prefab is possible later. The hand frames of Darius and EnemyUnit differ by about 21 degrees at rest, so the rifle's grip on the enemy is a first fit to check by eye. Source: the EnemyUnit material now uses its own normal map (it pointed at Darius's).

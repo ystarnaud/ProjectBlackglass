@@ -149,7 +149,7 @@ namespace Blackglass.Tests.AssetPipeline
         [Test]
         public void ARigidMeshThatCannotBeHumanoidFailsWithoutAPrefab()
         {
-            var item = ImporterTestSupport.Item(ProfileIds.HumanoidCharacter, ScratchFolder.Darius("Weapons/Rifle.fbx"), "NotAPerson");
+            var item = ImporterTestSupport.Item(ProfileIds.HumanoidCharacter, ScratchFolder.RifleModel(), "NotAPerson");
             // Unity reports the failed mapping itself on every (re)import of the model: after the settings change and after labelling.
             LogAssert.Expect(LogType.Error, new Regex("Invalid Avatar Rig Configuration"));
             LogAssert.Expect(LogType.Error, new Regex("Invalid Avatar Rig Configuration"));

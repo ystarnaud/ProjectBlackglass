@@ -14,7 +14,7 @@ namespace Blackglass.Tests.AssetPipeline
         public void TearDown() => ScratchFolder.Clean();
 
         static ImportItem Rifle(string name = "TestRifle") =>
-            ImporterTestSupport.Item(ProfileIds.GenericProp, ScratchFolder.Darius("Weapons/Rifle.fbx"), name);
+            ImporterTestSupport.Item(ProfileIds.GenericProp, ScratchFolder.RifleModel(), name);
 
         [Test]
         public void ImportsAPropWithAColliderFreePrefabAndReportsSize()
@@ -62,7 +62,7 @@ namespace Blackglass.Tests.AssetPipeline
             Assert.AreEqual(guid, AssetDatabase.AssetPathToGUID(ScratchFolder.Path + "/TestRifle.prefab"));
 
             AssetPaths.EnsureFolder(ScratchFolder.Path);
-            System.IO.File.Copy(ScratchFolder.Darius("Weapons/Rifle.fbx"), AssetPaths.Full(ScratchFolder.Path + "/Other.fbx"));
+            System.IO.File.Copy(ScratchFolder.RifleModel(), AssetPaths.Full(ScratchFolder.Path + "/Other.fbx"));
             AssetDatabase.Refresh();
             LogAssert.Expect(LogType.Error, new Regex(@"^\[AssetPipeline\] ERROR"));
             var refused = AssetPipelineRunner.ImportOne(Rifle("Other"));

@@ -13,7 +13,7 @@ public class PropEnvironmentE2ETests
         var settings = E2EFixture.Settings();
         try
         {
-            var prop = E2EFixture.Item(E2EFixture.Source("Weapons/Rifle.fbx"), ImportProfiles.Prop, "E2E_Rifle", settings);
+            var prop = E2EFixture.Item(E2EFixture.RifleModel(), ImportProfiles.Prop, "E2E_Rifle", settings);
             var wall = E2EFixture.Item(E2EFixture.Source("Models/Darius Stand Idle.fbx"), ImportProfiles.Environment, "E2E_Wall", settings,
                 i => i.environment.element = "WallStraight");
             var outcome = await E2EFixture.Run(settings, prop, wall);

@@ -23,6 +23,10 @@ internal static class E2EFixture
     public static string Source(string relativeToDarius) =>
         Path.Combine(Project, "Assets", "Art", "Characters", "Darius", relativeToDarius.Replace('/', Path.DirectorySeparatorChar));
 
+    /// <summary>The shared rifle model, used as a prop-shaped importer input.</summary>
+    public static string RifleModel() =>
+        Path.Combine(Project, "Assets", "Art", "Weapons", "Rifle", "Models", "Rifle.fbx");
+
     public static AssetItem Item(string sourcePath, string profileId, string name, AppSettings settings, Action<ImportItem>? tweak = null)
     {
         var item = AssetItemFactory.Create(sourcePath, null, settings);

@@ -197,7 +197,7 @@ The owner runs this once on a machine where the app starts. It uses the Darius f
    Fire/Reload to Combat; Hit Reaction to Reaction; Death to Death); set the shared Avatar to `Assets/_AssetStudioScratch/TestDarius.fbx`,
    destination `Assets/_AssetStudioScratch/Anims`; Import All. In Unity: Walk loops, Fire does not, Death bakes horizontal position, all show
    Humanoid copy-avatar. Check the Unity console for retargeting warnings.
-7. Drag `Assets/Art/Characters/Darius/Weapons/Rifle.fbx` as Generic Prop and a mesh as Environment Module (WallStraight): see the dimension
+7. Drag `Assets/Art/Weapons/Rifle/Models/Rifle.fbx` as Generic Prop and a mesh as Environment Module (WallStraight): see the dimension
    warnings; leave theme registration at None.
 8. Drag any `.glb`: it is refused with the Blender message. Open the Unity Editor and import again: the "Editor has this project open" message.
 9. Delete `Assets/_AssetStudioScratch` (and its `.meta`) in Unity or Explorer; `git status` must be clean of it.
