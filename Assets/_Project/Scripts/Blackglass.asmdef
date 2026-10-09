@@ -3,7 +3,7 @@
     "rootNamespace": "Blackglass",
     "references": [
         "Unity.InputSystem",
-        "Unity.ugui",
+        "UnityEngine.UI",
         "Unity.AI.Navigation",
         "Unity.RenderPipelines.Universal.Runtime"
     ],

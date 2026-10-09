@@ -8,7 +8,8 @@
         "Unity.AI.Navigation",
         "Unity.RenderPipelines.Universal.Runtime",
         "Unity.InputSystem",
-        "Unity.InputSystem.TestFramework"
+        "Unity.InputSystem.TestFramework",
+        "UnityEngine.UI"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
