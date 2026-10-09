@@ -12,6 +12,9 @@ namespace Blackglass
     /// only appear as its last-known point (IntelligenceService.StateOfEnemy / TryLastKnown). The developer truth view
     /// widens Knowledge.IsShown, so the HUD never uses it. Subscribes to nothing; the strings it can reuse (prompts, names,
     /// queue steps, the aiming line) are cached so a steady frame does no string work.
+    /// The small caches `hovered`, `stepCommands` and `armedTarget` keep per-mission references between frames only to
+    /// compare them by reference: every Build re-validates them, and nothing is ever read from them for display without
+    /// passing the CanTarget guard first (a lost hostile in the hover cache or a stale aim drops out on the next Build).
     /// </summary>
     public sealed class HudSnapshotBuilder
     {
@@ -30,6 +33,7 @@ namespace Blackglass
         readonly Func<Health, bool> canTarget;
 
         // Prompt list and resume prompt, rebuilt only when (family, paused, armed, terminal, controls) changes.
+        // It does not notice a live rebind (there is no rebind UI yet); add a binding version to the key when there is.
         readonly List<HudPromptEntry> cachedPrompts = new List<HudPromptEntry>();
         bool hasPromptKey;
         InputFamily promptFamily;
@@ -181,7 +185,10 @@ namespace Blackglass
             if (!down && !isControlled && unit.TryGetComponent<CompanionAI>(out var companion))
             {
                 var followOn = sources.activeCharacter != null && sources.activeCharacter.IsFollowOn;
-                tag = HudText.CompanionTag(companion.IsParked, companion.IsHeld, followOn);
+                // Held at spawn or holding ordered cover: either way it is not following, by design.
+                var cover = unit.Cover;
+                var coverOrdered = cover != null && cover.Status == CoverStatus.Occupied && cover.OccupiedByOrder;
+                tag = HudText.CompanionTag(companion.IsParked, companion.IsHeld || coverOrdered, followOn);
             }
             into.Squad.Add(new HudSquadCard
             {
@@ -384,6 +391,11 @@ namespace Blackglass
                 shown++;
             }
             into.QueueHidden = total - shown;
+            for (var i = shown; i < stepCommands.Length; i++)
+            {
+                stepCommands[i] = null;
+                stepTexts[i] = null;
+            }
         }
 
         static CommandableUnit FirstSelectedAlive(UnitSelection selection)

@@ -108,6 +108,55 @@ namespace Blackglass.Tests
             return secret;
         }
 
+        // A camera, selection, active character, cursor and command input around the intel rig's friendly, and optionally
+        // ability targeting. None of them knows about the intelligence service: the HUD must filter on its own.
+        (Camera, UnitSelection, ActiveCharacter, TacticalCursor, PlayerCommandInput, AbilityTargeting) WireIntelInput(bool withTargeting = false)
+        {
+            var cameraObject = intelRig.World.Track(new GameObject("Camera"));
+            cameraObject.transform.SetPositionAndRotation(new Vector3(0f, 25f, -20f), Quaternion.Euler(50f, 0f, 0f));
+            var viewCamera = cameraObject.AddComponent<Camera>();
+            var systems = intelRig.World.Track(new GameObject("Systems"));
+            systems.SetActive(false);
+            var selection = systems.AddComponent<UnitSelection>();
+            selection.Initialize(intelRig.Friendly);
+            var active = systems.AddComponent<ActiveCharacter>();
+            active.Initialize(intelRig.Friendly.Unit, null, selection);
+            var cursor = systems.AddComponent<TacticalCursor>();
+            cursor.Initialize(viewCamera, active, selection, intelRig.Encounter, null, null, null, null, null, null);
+            AbilityTargeting targeting = null;
+            if (withTargeting)
+            {
+                // No cursor here: armed, it would take over the pointer (Aiming makes it active without an input device).
+                targeting = systems.AddComponent<AbilityTargeting>();
+                targeting.Initialize(viewCamera, selection, active, null,
+                    TestControls.Ref(actions, "Commands/PointerPosition"), TestControls.Ref(actions, "Commands/QueueModifier"),
+                    TestControls.Ref(actions, "Commands/Ability1"), TestControls.Ref(actions, "Commands/Ability2"),
+                    TestControls.Ref(actions, "Commands/Ability3"), TestControls.Ref(actions, "Commands/Ability4"));
+            }
+            var input = systems.AddComponent<PlayerCommandInput>();
+            input.Initialize(viewCamera, selection, null,
+                TestControls.Ref(actions, "Commands/Command"), TestControls.Ref(actions, "Commands/PointerPosition"),
+                TestControls.Ref(actions, "Commands/ToggleTacticalPause"), TestControls.Ref(actions, "Commands/QueueModifier"),
+                TestControls.Ref(actions, "Commands/Stop"), TestControls.Ref(actions, "Commands/Cancel"), active);
+            systems.SetActive(true);
+            return (viewCamera, selection, active, cursor, input, targeting);
+        }
+
+        HudSources InputSources(Camera viewCamera, UnitSelection selection, ActiveCharacter active, TacticalCursor cursor,
+            PlayerCommandInput input, AbilityTargeting targeting) => new HudSources
+        {
+            activeCharacter = active, selection = selection, encounter = intelRig.Encounter, intelligence = intelRig.Service,
+            cursor = cursor, commandInput = input, abilityTargeting = targeting, camera = viewCamera, controls = actions,
+        };
+
+        // From the north end of room A the corridor is out of line: a hostile seen through it is lost (see the geometry tests).
+        void LookAwayFromTheCorridor()
+        {
+            intelRig.Friendly.transform.position = new Vector3(-6.5f, 1f, 1.5f);
+            Physics.SyncTransforms();
+            intelRig.Service.RunPass();
+        }
+
         // ---- leak checks ----
 
         static string AllText(HudSnapshot s)
@@ -256,6 +305,39 @@ namespace Blackglass.Tests
             Assert.That(snapshot.Squad[0].Tag, Is.Empty, "the old leader has no CompanionAI");
         }
 
+        [UnityTest]
+        public IEnumerator Tags_ACompanionInOrderedCover_ReadsHolding()
+        {
+            world = new TestWorld();
+            world.CreateEnvironment();
+            var encounter = world.CreateEncounter();
+            var selection = world.Track(new GameObject("Selection")).AddComponent<UnitSelection>();
+            var leader = world.CreateFighter(Vector3.zero);
+            var active = world.Track(new GameObject("ActiveCharacter")).AddComponent<ActiveCharacter>();
+            active.Initialize(leader, null, selection);
+            var inCover = world.CreateCompanion(new Vector3(3f, 0f, 0f), active, encounter);
+            var following = world.CreateCompanion(new Vector3(-3f, 0f, 0f), active, encounter);
+            var members = new Component[] { leader, inCover, following };
+            selection.Initialize(members.Select(m => m.gameObject.AddComponent<SelectableUnit>()).ToArray());
+            encounter.Initialize(members.Select(m => m.GetComponent<Health>()), new Health[0]);
+            var sources = new HudSources { activeCharacter = active, selection = selection, encounter = encounter };
+            yield return null;
+            yield return null;
+
+            var ground = inCover.transform.position;
+            ground.y = 0f;
+            var point = world.CreateCoverPoint(ground, Vector3.forward, null);
+            var cover = inCover.GetComponent<UnitCover>();
+            cover.Initialize(world.CreateRegistry(point));
+            Assert.That(cover.TryReserve(point) && cover.TryOccupy(), Is.True, "Precondition");
+            Assert.That(cover.OccupiedByOrder, Is.True, "Precondition: an ordered occupancy");
+            Assert.That(inCover.IsHeld || inCover.IsParked, Is.False, "Precondition: only the cover order holds it");
+
+            Build(sources);
+            Assert.That(snapshot.Squad[1].Tag, Is.EqualTo("HOLDING"));
+            Assert.That(snapshot.Squad[2].Tag, Is.EqualTo("FOLLOWING"));
+        }
+
         // ---- abilities ----
 
         [UnityTest]
@@ -281,6 +363,7 @@ namespace Blackglass.Tests
             Assert.That(blast.State, Is.EqualTo(HudAbilityState.Cooldown));
             Assert.That(blast.Remaining, Is.GreaterThan(0f));
             Assert.That(blast.Fraction, Is.GreaterThan(0f).And.LessThanOrEqualTo(1f));
+            Assert.That(blast.Fraction, Is.EqualTo(blast.Remaining / abilityRig.Abilities.EffectiveCooldown(abilityRig.Blast)).Within(1e-5f));
             Assert.That(snapshot.Abilities[0].State, Is.EqualTo(HudAbilityState.Ready));
 
             abilityRig.CasterHealth.TakeDamage(10000);
@@ -500,24 +583,7 @@ namespace Blackglass.Tests
             intelRig = new IntelRig(corridor: false);
             var secret = AddSecretHostile(IntelRig.InLineGround);
             intelRig.Begin(IntelRig.Fog());
-            var cameraObject = intelRig.World.Track(new GameObject("Camera"));
-            cameraObject.transform.SetPositionAndRotation(new Vector3(0f, 25f, -20f), Quaternion.Euler(50f, 0f, 0f));
-            var viewCamera = cameraObject.AddComponent<Camera>();
-            var systems = intelRig.World.Track(new GameObject("Systems"));
-            systems.SetActive(false);
-            var selection = systems.AddComponent<UnitSelection>();
-            selection.Initialize(intelRig.Friendly);
-            var active = systems.AddComponent<ActiveCharacter>();
-            active.Initialize(intelRig.Friendly.Unit, null, selection);
-            // Neither input component knows about the intelligence service: the HUD must filter on its own.
-            var cursor = systems.AddComponent<TacticalCursor>();
-            cursor.Initialize(viewCamera, active, selection, intelRig.Encounter, null, null, null, null, null, null);
-            var input = systems.AddComponent<PlayerCommandInput>();
-            input.Initialize(viewCamera, selection, null,
-                TestControls.Ref(actions, "Commands/Command"), TestControls.Ref(actions, "Commands/PointerPosition"),
-                TestControls.Ref(actions, "Commands/ToggleTacticalPause"), TestControls.Ref(actions, "Commands/QueueModifier"),
-                TestControls.Ref(actions, "Commands/Stop"), TestControls.Ref(actions, "Commands/Cancel"), active);
-            systems.SetActive(true);
+            var (viewCamera, selection, active, cursor, input, _) = WireIntelInput();
             yield return null;
 
             Assert.That(intelRig.Service.CanTarget(secret), Is.False, "Precondition");
@@ -527,11 +593,7 @@ namespace Blackglass.Tests
             Set(mouse.position, (Vector2)viewCamera.WorldToScreenPoint(secret.transform.position));
             yield return null;
             Assert.That(input.ResolveAt(input.PointerScreenPosition).Hostile, Is.SameAs(secret), "Precondition: under the pointer");
-            var sources = new HudSources
-            {
-                activeCharacter = active, selection = selection, encounter = intelRig.Encounter, intelligence = intelRig.Service,
-                cursor = cursor, commandInput = input, camera = viewCamera, controls = actions,
-            };
+            var sources = InputSources(viewCamera, selection, active, cursor, input, null);
 
             Build(sources, 0f);
             Assert.That(snapshot.Target.Visible, Is.False, "attack target, soft target and hover are all unobserved");
@@ -559,6 +621,63 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Target_AHoveredHostileThatIsLost_DisappearsAtOnce_EvenFromTheHoverCache()
+        {
+            intelRig = new IntelRig(corridor: true);
+            var secret = AddSecretHostile(IntelRig.InLineGround);   // seen through the corridor
+            intelRig.Begin(IntelRig.Fog());
+            var (viewCamera, selection, active, cursor, input, _) = WireIntelInput();
+            yield return null;
+            Assert.That(intelRig.Service.CanTarget(secret), Is.True, "Precondition: observed");
+            Assert.That(intelRig.Friendly.Unit.Issue(new AttackCommand(secret)), Is.True);
+            Set(mouse.position, (Vector2)viewCamera.WorldToScreenPoint(secret.transform.position));
+            yield return null;
+            var sources = InputSources(viewCamera, selection, active, cursor, input, null);
+
+            Build(sources, 10f);
+            Assert.That(snapshot.Target.Visible && snapshot.Target.Tag == "HOVERED", Is.True, "Precondition: hovered");
+            Assert.That(snapshot.Queue[0].Text, Is.EqualTo("Attack " + SecretName), "Precondition: named while observed");
+
+            LookAwayFromTheCorridor();
+            Assert.That(intelRig.Service.StateOfEnemy(secret), Is.EqualTo(KnowledgeState.Discovered), "Precondition: lost");
+            Build(sources, 10.05f);   // inside the hover window: the cached hover result is still this hostile
+
+            Assert.That(snapshot.Target.Visible, Is.False);
+            Assert.That(snapshot.Queue[0].Text, Is.EqualTo("Attack (target lost)"));
+            Assert.That(snapshot.Marks.Count(m => m.Kind == HudMarkKind.LastKnown), Is.EqualTo(1));
+            Assert.That(snapshot.Marks.Any(m => m.Kind == HudMarkKind.Hostile), Is.False);
+            Assert.That(AllText(snapshot), Does.Not.Contain(SecretName));
+        }
+
+        [UnityTest]
+        public IEnumerator ArmedLine_DropsTheTarget_TheMomentItIsNoLongerObserved()
+        {
+            intelRig = new IntelRig(corridor: true);
+            var secret = AddSecretHostile(IntelRig.InLineGround);
+            intelRig.Begin(IntelRig.Fog());
+            var aimed = intelRig.World.CreateAimedShot();
+            intelRig.World.AddAbilities(intelRig.Friendly.Unit, intelRig.Encounter, aimed);
+            var (viewCamera, selection, active, cursor, input, targeting) = WireIntelInput(withTargeting: true);
+            yield return null;
+            Assert.That(targeting.Arm(0), Is.True);
+            Set(mouse.position, (Vector2)viewCamera.WorldToScreenPoint(secret.transform.position));
+            yield return null;
+            yield return null;
+            Assert.That(targeting.Preview.HasAim && targeting.Preview.Target == secret, Is.True, "Precondition: aiming at it");
+            var sources = InputSources(viewCamera, selection, active, cursor, input, targeting);
+            Build(sources);
+            Assert.That(snapshot.ArmedLine, Does.StartWith("AIMING: Aimed Shot | " + SecretName + " | "), "Precondition");
+
+            LookAwayFromTheCorridor();   // no yield: the preview still holds the target
+            Assert.That(targeting.Preview.Target, Is.SameAs(secret), "Precondition: a stale preview");
+            Build(sources);
+
+            Assert.That(snapshot.ArmedLine, Is.EqualTo("AIMING: Aimed Shot"));
+            Assert.That(snapshot.Target.Visible, Is.False);
+            Assert.That(AllText(snapshot), Does.Not.Contain(SecretName));
+        }
+
+        [UnityTest]
         public IEnumerator Marks_ObservedLastKnownAndUnknown()
         {
             intelRig = new IntelRig(corridor: true);
@@ -577,9 +696,7 @@ namespace Blackglass.Tests
             Assert.That(snapshot.Marks[0].Text, Is.Empty);
             AssertNoTraceOf(secret);
 
-            intelRig.Friendly.transform.position = new Vector3(-6.5f, 1f, 1.5f);   // the corridor is out of line now
-            Physics.SyncTransforms();
-            intelRig.Service.RunPass();
+            LookAwayFromTheCorridor();
             Assert.That(intelRig.Service.StateOfEnemy(seen), Is.EqualTo(KnowledgeState.Discovered), "Precondition: lost");
             Assert.That(intelRig.Service.TryLastKnown(seen, out var lastSeen), Is.True);
 
