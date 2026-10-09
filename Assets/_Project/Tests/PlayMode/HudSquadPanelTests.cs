@@ -179,6 +179,9 @@ namespace Blackglass.Tests
             Assert.That(c.HealthFill.fillAmount, Is.Zero, "the health bar is empty");
             Assert.That(c.HealthLabel.text, Is.EqualTo(HudText.Health(0, 100)));
             Assert.That(c.ContentAlpha, Is.LessThan(1f), "the card is dimmed");
+            Assert.That(EffectiveAlpha(c.DownLabel), Is.GreaterThanOrEqualTo(0.8f), "the DOWN word stays legible on a dimmed card");
+            Assert.That(EffectiveAlpha(c.TagLabel), Is.GreaterThanOrEqualTo(0.8f));
+            Assert.That(EffectiveAlpha(c.NameLabel), Is.LessThan(0.8f), "the name is dimmed");
 
             var d = hud.Squad.CardAt(3);
             Assert.That(d.ContentAlpha, Is.EqualTo(1f));
@@ -197,6 +200,26 @@ namespace Blackglass.Tests
             Assert.That(hud.Squad.CardAt(0).ControlMark.gameObject.activeSelf, Is.False);
             Assert.That(hud.Squad.CardAt(2).DownLabel.gameObject.activeSelf, Is.False);
             Assert.That(hud.Squad.CardAt(2).ContentAlpha, Is.EqualTo(1f));
+        }
+
+        static float EffectiveAlpha(Text label)
+        {
+            var alpha = 1f;
+            foreach (var group in label.GetComponentsInParent<CanvasGroup>(true))
+                alpha *= group.alpha;
+            return alpha;
+        }
+
+        [Test]
+        public void ARoleLessCard_ShowsTheRankWithoutASeparator()
+        {
+            Build();
+            hud.Snapshot.Squad.Add(Member("Kestrel", null, 2));
+            hud.ApplySnapshot();
+            Assert.That(hud.Squad.CardAt(0).RoleLabel.text, Is.EqualTo("Rank 2"));
+            hud.Snapshot.Squad[0] = Member("Kestrel", null, 0);
+            hud.ApplySnapshot();
+            Assert.That(hud.Squad.CardAt(0).RoleLabel.text, Is.EqualTo(string.Empty));
         }
 
         [Test]
@@ -270,6 +293,45 @@ namespace Blackglass.Tests
             foreach (var label in hud.Squad.Root.GetComponentsInChildren<Text>(false))
                 actual.Append(label.text);
             Assert.That(actual.ToString(), Is.EqualTo(expected.ToString()));
+        }
+
+        [Test]
+        public void NoUnitNameOrId_AppearsInThePanelText()
+        {
+            Build();
+            const string leak = "3f9a2c71-5b0e-4d38-a6c4-91e7d02b8f55";
+            var unitObject = new GameObject("Unit-" + leak, typeof(CommandableUnit));
+            created.Add(unitObject);
+            var member = Member("Darius Vale");
+            member.Unit = unitObject.GetComponent<CommandableUnit>();
+            hud.Snapshot.Squad.Add(member);
+            hud.ApplySnapshot();
+
+            foreach (var label in hud.Squad.Root.GetComponentsInChildren<Text>(true))
+                Assert.That(label.text, Does.Not.Contain(leak).And.Not.Contain("Unit-"), $"{label.name} leaks the unit object's name");
+            Assert.That(VisibleText(hud.Squad.CardAt(0)), Does.Not.Contain(leak));
+        }
+
+        [Test]
+        public void TheCard_FollowsTheUnit_EvenWhenEveryFieldIsTheSame()
+        {
+            Build();
+            var first = new GameObject("first", typeof(CommandableUnit));
+            var second = new GameObject("second", typeof(CommandableUnit));
+            created.Add(first);
+            created.Add(second);
+            var member = Member("Alpha");
+            member.Unit = first.GetComponent<CommandableUnit>();
+            hud.Snapshot.Squad.Add(member);
+            hud.ApplySnapshot();
+            Assert.That(hud.Squad.CardAt(0).Card.Unit, Is.SameAs(first.GetComponent<CommandableUnit>()));
+
+            var afterFirst = HudFactory.TextWrites;
+            member.Unit = second.GetComponent<CommandableUnit>();
+            hud.Snapshot.Squad[0] = member;
+            hud.ApplySnapshot();
+            Assert.That(hud.Squad.CardAt(0).Card.Unit, Is.SameAs(second.GetComponent<CommandableUnit>()), "no stale unit for a click");
+            Assert.That(HudFactory.TextWrites, Is.EqualTo(afterFirst), "the text did not change");
         }
 
         static void AppendCard(StringBuilder text, HudSquadCard m)

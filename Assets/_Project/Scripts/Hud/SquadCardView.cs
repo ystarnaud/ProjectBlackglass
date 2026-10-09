@@ -7,7 +7,7 @@ namespace Blackglass
     /// <summary>
     /// One squad member's card (460 x 72): portrait badge with initials, name, "Role - Rank n" line, health bar and number,
     /// and the state column. Every state has a word as well as a colour: controlled = a filled square at the left edge and
-    /// CONTROL, selected = an outline frame and SELECTED, down = a dimmed card and DOWN with an empty bar, and a companion
+    /// CONTROL, selected = an outline frame and SELECTED, down = a dimmed portrait, name and bar plus DOWN (undimmed) with an empty bar, and a companion
     /// tag in its own line. The card root is the pointer target (a Button), wired to requests in a later task; this class
     /// only keeps the last applied data and writes what changed.
     /// </summary>
@@ -72,7 +72,8 @@ namespace Blackglass
             HudFactory.Place(healthBar, new Vector2(0f, 1f), new Vector2(72f, -52f), new Vector2(140f, 10f));
             healthLabel = Line("Health", body, HudTheme.FontSmall, HudTheme.Text, TextAnchor.MiddleLeft, 220f, 47f, 72f, 18f);
 
-            var states = HudFactory.Rect("States", body);
+            // The state words sit outside the dimmed content: DOWN is the one non-colour cue of a down card and must stay legible.
+            var states = HudFactory.Rect("States", root);
             HudFactory.Place(states, new Vector2(1f, 1f), new Vector2(-8f, -2f), new Vector2(148f, 68f));
             var stack = HudFactory.Stack(states, true, new RectOffset(), 0f, TextAnchor.UpperRight);
             stack.childForceExpandWidth = true;
@@ -81,7 +82,7 @@ namespace Blackglass
             tagLabel = State("Tag", states, string.Empty, HudTheme.Text);
             downLabel = State("Down", states, DownWord, HudTheme.Bad);
 
-            // The selection frame is outside the dimmed content, so it stays crisp.
+            // The selection frame is outside the dimmed content too, so it stays crisp.
             selectedFrame = HudFactory.Rect("SelectedFrame", root);
             Edge(selectedFrame, "Top", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(0f, 2f));
             Edge(selectedFrame, "Bottom", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 0f), new Vector2(0f, 2f));
@@ -167,7 +168,9 @@ namespace Blackglass
         }
 
         static string RoleLine(string role, int rank) =>
-            rank > 0 ? role + RankSeparator + "Rank " + rank.ToString(System.Globalization.CultureInfo.InvariantCulture) : role ?? string.Empty;
+            rank <= 0 ? role ?? string.Empty
+            : string.IsNullOrEmpty(role) ? "Rank " + rank.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : role + RankSeparator + "Rank " + rank.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
         static bool SameFields(HudSquadCard a, HudSquadCard b) =>
             a.Rank == b.Rank && a.Health == b.Health && a.MaxHealth == b.MaxHealth
