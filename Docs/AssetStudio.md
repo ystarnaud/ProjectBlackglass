@@ -105,6 +105,56 @@ dotnet publish Tools/BlackglassAssetStudio/src/App -c Release -r win-x64 --self-
 
 The result is `Tools/BlackglassAssetStudio/publish/BlackglassAssetStudio.exe` (not committed, about 140 MB). On first run choose the project path in Settings.
 
+## 11. Worked example: a character FBX with an idle animation and textures (EnemyUnit)
+
+First real use of the tool, 2026-10-09. The source is one FBX that holds the skinned model **and** an idle clip, with two PNG textures
+(colour map and normal map) exported from Blender.
+
+**Blender, textures.** A model imported from a GLB carries its images packed inside the `.blend`. Save the `.blend` where the textures should go,
+then File > External Data > Unpack Resources: this writes the PNGs (here `modddif_image_0.png` and `modddif_image_1.png`, the second is the normal
+map) into a `textures` folder. Export the FBX **after** unpacking. An FBX exported while the images are still packed stores the file names as
+`textures\packed\<name>_png` (no extension, absolute path), which Unity cannot match to `<name>.png`, so the model stays grey.
+
+**Asset Studio.** The Humanoid Character profile turns animation import off, so a model-plus-idle FBX is dropped twice:
+1. Humanoid Character: name `EnemyUnit`, destination `Assets/Art/Characters/EnemyUnit`, target height as wanted. Gives `EnemyUnit.fbx` (Humanoid, Avatar)
+   and `EnemyUnit_Visual.prefab`.
+2. Humanoid Animation, profile Locomotion (idle loops, root bake on), name `EnemyUnit Idle`, clip name `Idle`, shared Avatar = the character FBX from step 1.
+   The tool does not detect a duplicate drop. The name of the second import must differ from the first.
+
+**Unity, by hand (the tool does not do this yet).**
+1. Copy the PNGs into the project (a `Textures` folder, as for Darius).
+2. Select the FBX > Materials tab > **Extract Materials...** into a `Materials` folder.
+3. On each `.mat`: Base Map = the colour PNG, Normal Map = the normal PNG (accept "Fix now" so the texture is marked as a normal map).
+
+**Folder layout.** The tool writes the model and prefab flat into the destination folder, and animations into `Assets/Art/Animations` unless the
+destination is changed. The Darius layout (`Models/`, `Prefabs/`, `Animations/`, `Textures/`, `Materials/`) was made by hand; to get it, type the
+folder into the Destination box of each import, or move the files in Unity (the `.meta` files keep every GUID). Re-importing after a move writes a
+second prefab at the destination, so re-import into the folder where the assets now live.
+
+**What to drag into a scene.** The `_Visual.prefab`, never the FBX. The prefab holds the height correction (EnemyUnit: the model measures 1.0 m, so
+the child `ImportedCharacter` has scale 1.85 for the default 1.85 m target). The FBX is the raw source at native size. To change the height of a
+finished character, set the scale of `ImportedCharacter` inside the prefab to (desired height / measured height) or re-import with a new target.
+
+**Character Test Scene.** It holds a `Darius_Visual` prefab instance, a camera and a light. To look at another model: delete that instance, drag in
+the new `_Visual.prefab` (rotation Y 180, feet on the floor), drag the clip onto it so Unity makes an Animator Controller, press Play.
+
+## 12. v0.2 candidates from first real use (not scheduled)
+
+Nothing below is built. Start only when the owner asks.
+
+1. **Loose textures.** Copy the image files an FBX references (resolve the name even when Blender wrote `<name>_png`, search `Textures` and the
+   source folder) next to or under the model, under the same ownership rule as the `.fbm` folder, and **warn** when a referenced texture cannot be
+   found. Today the tool copies only a sibling `<name>.fbm` folder and says nothing about missing textures.
+2. **Materials.** Extract materials into a `Materials` folder and assign Base Map and Normal Map (mark the normal map texture type), so a character
+   arrives textured. Needs a rule to tell the colour map from the normal map (file name, or the FBX's own texture slots).
+3. **Character with an embedded clip.** One drop that produces the character and its idle (or a chosen clip), instead of two drops and two copies of the
+   same FBX.
+4. **Folder layout.** An optional "Darius layout" that creates `Models/`, `Prefabs/`, `Animations/`, `Textures/`, `Materials/` under the character and
+   routes each result there.
+5. **Duplicate-drop and name checks.** Warn when the same source file is added twice or two items would write the same target.
+6. **Test bench.** A menu command that puts a chosen `_Visual.prefab` into the Character Test Scene with an Animator Controller for its clip.
+7. **Unit fix** for centimetre-declared FBXs (decision 039), and **forwarding Unity's retargeting warnings** (not available through the 6000.3 API).
+
 ## Tests
 
 `dotnet test` runs the pure-logic suite. Real Unity runs are opt-in: close the Editor and set `BLACKGLASS_E2E=1`
