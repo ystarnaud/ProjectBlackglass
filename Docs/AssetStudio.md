@@ -67,6 +67,12 @@ asset name `<Character> <Action>` (`EnemyUnit-Crouch-Idle-Rifle.fbx` becomes `En
 file name: the character's own name at the start, Mixamo's `mixamo.com`, `Without Skin` and a `(1)` copy suffix are dropped. A field you edited by
 hand is never overwritten. The profile (Locomotion, Combat, Reaction, Death) is still a suggestion from the name: check the **Loop** setting for
 one-shot moves the name does not reveal (for example Fall, Stand-Ground, Stand-Crouch or a bare Crouch, which default to Locomotion and loop).
+**Editing several at once.** Select two or more items (Ctrl-click, Shift-click or Ctrl+A) and the right-hand panel becomes **Edit N selected items**:
+asset type, save into folder, allow overwrite and, when every selected item is an animation, the skeleton to copy, Loop and the three root-bake
+checkboxes. A change applies to every selected item immediately and counts as a hand edit, so the Character box will not overwrite it. A field the
+items disagree on shows empty (text boxes) or a filled square (check boxes); leave it alone to keep each item's own value. Asset name and clip name
+stay per item. Changing the asset type resets that item's loop and root settings to the type's defaults; items already of that type are left as they
+are. Import Selected and Remove act on the whole selection.
 **Add Folder...** adds every model file under a folder. **Browse...** next to Save into folder, Skeleton to copy and Theme asset opens a picker
 inside the project and fills in the `Assets/...` path; a pick outside the project is refused.
 4. Defaults: Locomotion loops, all root axes baked (in place); Combat and Reaction do not loop, bake height; Death does not loop, bakes
@@ -151,8 +157,8 @@ the new `_Visual.prefab` (rotation Y 180, feet on the floor), drag the clip onto
 
 ## 12. v0.2 candidates from first real use (not scheduled)
 
-Done in the batch-animation round (2026-10-09): browse pickers for project paths, Add Folder, plainer labels with help lines, and the Character
-box for animations (section 6). Nothing else below is built. Start only when the owner asks.
+Done in the batch-animation round (2026-10-09): browse pickers for project paths, Add Folder, plainer labels with help lines, the Character
+box for animations, and multi-select with a batch edit panel (section 6). Nothing else below is built. Start only when the owner asks.
 
 1. **Loose textures.** Copy the image files an FBX references (resolve the name even when Blender wrote `<name>_png`, search `Textures` and the
    source folder) next to or under the model, under the same ownership rule as the `.fbm` folder, and **warn** when a referenced texture cannot be

@@ -66,6 +66,23 @@ public partial class MainWindow : Window
         return null;
     }
 
+    void OnSelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e) =>
+        vm.SetSelection(ItemList.SelectedItems.Cast<AssetItemViewModel>().ToList());
+
+    void BrowseBatchDestination(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not BatchSelectionViewModel batch) return;
+        var picked = PickInProject(true, "Choose the folder to save into", "", batch.Destination);
+        if (picked != null) batch.Destination = picked;
+    }
+
+    void BrowseBatchSkeleton(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not BatchSelectionViewModel batch) return;
+        var picked = PickInProject(false, "Choose the character's model FBX", "Models (*.fbx)|*.fbx", batch.Skeleton);
+        if (picked != null) batch.Skeleton = picked;
+    }
+
     static AssetItemViewModel? ItemOf(object sender) => (sender as FrameworkElement)?.DataContext as AssetItemViewModel;
 
     void BrowseDestination(object sender, RoutedEventArgs e)

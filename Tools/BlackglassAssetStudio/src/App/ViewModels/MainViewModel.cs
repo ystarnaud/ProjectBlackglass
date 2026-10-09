@@ -37,10 +37,10 @@ public sealed class MainViewModel : ViewModelBase
             if (!string.IsNullOrEmpty(picked)) CharacterModelPath = picked;
         }, () => !IsBusy, ReportError);
         ClearCharacterCommand = new RelayCommand(() => CharacterModelPath = "", () => characterModelPath.Length > 0 && !IsBusy, ReportError);
-        RemoveCommand = new RelayCommand(() => { if (Selected != null) Items.Remove(Selected); }, () => Selected != null && !IsBusy, ReportError);
+        RemoveCommand = new RelayCommand(() => { foreach (var vm in SelectedForAction()) Items.Remove(vm); }, () => Selected != null && !IsBusy, ReportError);
         ClearCommand = new RelayCommand(() => Items.Clear(), () => Items.Count > 0 && !IsBusy, ReportError);
         ValidateCommand = new RelayCommand(Validate, () => Items.Count > 0 && !IsBusy, ReportError);
-        ImportSelectedCommand = new RelayCommand(() => ImportAsync(Selected == null ? new List<AssetItemViewModel>() : new List<AssetItemViewModel> { Selected }),
+        ImportSelectedCommand = new RelayCommand(() => ImportAsync(SelectedForAction()),
             () => Selected != null && !IsBusy, ReportError);
         ImportAllCommand = new RelayCommand(() => ImportAsync(Items.ToList()), () => Items.Count > 0 && !IsBusy, ReportError);
         SettingsCommand = new RelayCommand(OpenSettings, () => !IsBusy, ReportError);
@@ -53,6 +53,25 @@ public sealed class MainViewModel : ViewModelBase
 
     public AssetItemViewModel? Selected { get => selected; set { selected = value; Raise(); Raise(nameof(HasSelection)); CommandManager.InvalidateRequerySuggested(); } }
     public bool HasSelection => Selected != null;
+
+    IReadOnlyList<AssetItemViewModel> selection = Array.Empty<AssetItemViewModel>();
+    BatchSelectionViewModel? batch;
+
+    /// <summary>The panel for editing several selected items at once; null unless two or more are selected.</summary>
+    public BatchSelectionViewModel? Batch { get => batch; private set { batch = value; Raise(); Raise(nameof(IsMultiSelect)); Raise(nameof(IsSingleSelect)); } }
+    public bool IsMultiSelect => batch != null;
+    public bool IsSingleSelect => batch == null;
+
+    /// <summary>Called by the window whenever the list's multi-selection changes.</summary>
+    public void SetSelection(IReadOnlyList<AssetItemViewModel> items)
+    {
+        selection = items;
+        Batch = items.Count > 1 ? new BatchSelectionViewModel(items) : null;
+        CommandManager.InvalidateRequerySuggested();
+    }
+
+    List<AssetItemViewModel> SelectedForAction() =>
+        selection.Count > 0 ? selection.ToList() : Selected != null ? new List<AssetItemViewModel> { Selected } : new List<AssetItemViewModel>();
     public bool HasItems => Items.Count > 0;
     public string StatusText { get => statusText; private set { statusText = value; Raise(); } }
     public string ResultText { get => resultText; private set { resultText = value; Raise(); } }

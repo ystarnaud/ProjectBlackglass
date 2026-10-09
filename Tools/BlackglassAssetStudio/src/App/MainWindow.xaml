@@ -40,7 +40,7 @@
             <Grid Grid.Row="0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="460" /><ColumnDefinition Width="8" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                 <Grid Grid.Column="0">
-                    <ListView ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}">
+                    <ListView x:Name="ItemList" ItemsSource="{Binding Items}" SelectedItem="{Binding Selected}" SelectionMode="Extended" SelectionChanged="OnSelectionChanged">
                         <ListView.View>
                             <GridView>
                                 <GridViewColumn Header="File" Width="170" DisplayMemberBinding="{Binding FileName}" />
@@ -54,7 +54,40 @@
                             <Style.Triggers><DataTrigger Binding="{Binding HasItems}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                     </TextBlock>
                 </Grid>
-                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto">
+                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsMultiSelect, Converter={StaticResource Vis}}">
+                    <StackPanel DataContext="{Binding Batch}" Margin="4,0,12,0">
+                        <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="14" />
+                        <TextBlock Text="Only the fields you change are applied, to every selected item. An empty box or a filled square means the selected items have different values." Style="{StaticResource Help}" />
+                        <TextBlock Text="Asset type" Style="{StaticResource Label}" />
+                        <ComboBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding Profile}" DisplayMemberPath="DisplayName" />
+                        <TextBlock Text="Changing the type resets that item's loop and root settings to the type's defaults. Items already of that type are left as they are." Style="{StaticResource Help}" />
+                        <TextBlock Text="Save into folder" Style="{StaticResource Label}" />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Browse..." Click="BrowseBatchDestination" Margin="6,0,0,0" />
+                            <TextBox Text="{Binding Destination, UpdateSourceTrigger=LostFocus}" />
+                        </DockPanel>
+                        <TextBlock Text="The selected items save into different folders." Style="{StaticResource Help}" Visibility="{Binding DestinationMixed, Converter={StaticResource Vis}}" />
+                        <CheckBox Content="Allow overwrite of existing assets not created by Asset Studio" IsThreeState="True" IsChecked="{Binding AllowOverwrite}" Margin="0,6,0,0" />
+
+                        <GroupBox Header="Humanoid animations" Visibility="{Binding AllAnimations, Converter={StaticResource Vis}}">
+                            <StackPanel>
+                                <TextBlock Text="Skeleton to copy (the character's model FBX)" Style="{StaticResource Label}" />
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Browse..." Click="BrowseBatchSkeleton" Margin="6,0,0,0" />
+                                    <TextBox Text="{Binding Skeleton, UpdateSourceTrigger=LostFocus}" />
+                                </DockPanel>
+                                <TextBlock Text="The selected items use different skeletons." Style="{StaticResource Help}" Visibility="{Binding SkeletonMixed, Converter={StaticResource Vis}}" />
+                                <TextBlock Text="Loop" Style="{StaticResource Label}" />
+                                <ComboBox ItemsSource="{Binding LoopOptions}" SelectedItem="{Binding Loop}" />
+                                <TextBlock Text="Bake into pose (in-place)" Style="{StaticResource Label}" />
+                                <CheckBox Content="Root rotation" IsThreeState="True" IsChecked="{Binding BakeRotation}" />
+                                <CheckBox Content="Root height (Y)" IsThreeState="True" IsChecked="{Binding BakeHeight}" />
+                                <CheckBox Content="Root position (XZ)" IsThreeState="True" IsChecked="{Binding BakePositionXZ}" />
+                            </StackPanel>
+                        </GroupBox>
+                    </StackPanel>
+                </ScrollViewer>
+                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsSingleSelect, Converter={StaticResource Vis}}">
                     <StackPanel DataContext="{Binding Selected}" Margin="4,0,12,0">
                         <TextBlock Text="{Binding FullPath}" TextWrapping="Wrap" Foreground="Gray" />
                         <TextBlock Text="{Binding Reason}" TextWrapping="Wrap" Foreground="Gray" FontStyle="Italic" />

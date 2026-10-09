@@ -142,4 +142,7 @@ public sealed class AssetItemViewModel : ViewModelBase
     }
 
     public void SetStatus(string text) => Status = text;
+
+    /// <summary>Re-reads every bound value, after the manifest item was changed through another view (the batch panel).</summary>
+    public void Refresh() => RaiseAll();
 }
