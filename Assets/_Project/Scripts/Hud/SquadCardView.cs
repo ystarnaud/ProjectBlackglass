@@ -8,8 +8,8 @@ namespace Blackglass
     /// One squad member's card (460 x 72): portrait badge with initials, name, "Role - Rank n" line, health bar and number,
     /// and the state column. Every state has a word as well as a colour: controlled = a filled square at the left edge and
     /// CONTROL, selected = an outline frame and SELECTED, down = a dimmed portrait, name and bar plus DOWN (undimmed) with an empty bar, and a companion
-    /// tag in its own line. The card root is the pointer target (a Button), wired to requests in a later task; this class
-    /// only keeps the last applied data and writes what changed.
+    /// tag in its own line. The card root is the pointer target: a click raises Clicked (TacticalHud turns it into a select
+    /// or take-control request); otherwise this class only keeps the last applied data and writes what changed.
     /// </summary>
     internal sealed class SquadCardView
     {
@@ -49,6 +49,7 @@ namespace Blackglass
             button.targetGraphic = background;
             button.transition = Selectable.Transition.None;
             button.navigation = new Navigation { mode = Navigation.Mode.None };
+            root.gameObject.AddComponent<HudClickRelay>().Clicked += OnClicked;
 
             var body = HudFactory.Rect("Content", root);
             content = body.gameObject.AddComponent<CanvasGroup>();
@@ -97,10 +98,11 @@ namespace Blackglass
             downLabel.gameObject.SetActive(false);
         }
 
-        /// <summary>Raised with the card's unit and whether it was a double activation. Nothing raises it yet.</summary>
-#pragma warning disable CS0067
+        /// <summary>
+        /// Raised on a primary-button click with the card's unit (as of the last Apply) and whether it was the second click
+        /// of a double click. Not raised for an empty or destroyed unit.
+        /// </summary>
         internal event Action<CommandableUnit, bool> Clicked;
-#pragma warning restore CS0067
 
         internal RectTransform Root { get; }
         /// <summary>The data applied last (the unit for requests); empty before the first Apply.</summary>
@@ -157,6 +159,13 @@ namespace Blackglass
             }
             Card = c;
             applied = true;
+        }
+
+        void OnClicked(int clickCount)
+        {
+            var unit = Card.Unit;
+            if (unit != null)
+                Clicked?.Invoke(unit, clickCount == 2);
         }
 
         void ShowPortrait(Sprite sprite)

@@ -485,6 +485,7 @@ namespace Blackglass.Tests
             s.IsPaused = true;
             s.ResumePrompt = "Options";
             s.HasFollow = true;
+            s.HasPause = true;
             for (var i = 0; i < 6; i++)
                 s.Squad.Add(new HudSquadCard { Name = "Operative Number " + i, Role = "Ranged", Initials = "ON", Tag = "FOLLOWING", Rank = 3, Health = 80, MaxHealth = 100 });
             for (var i = 0; i < 6; i++)

@@ -25,6 +25,7 @@ namespace Blackglass.Tests
         Camera viewCamera;
         SelectableUnit unit;
         UnitSelection selection;
+        PointerBlocker blocker;
 
         public override void Setup()
         {
@@ -50,6 +51,7 @@ namespace Blackglass.Tests
             active.Initialize(null, pause);
             var device = systems.AddComponent<ActiveInputDevice>();
             device.Initialize(actions);
+            blocker = systems.AddComponent<PointerBlocker>();
             var input = systems.AddComponent<PlayerCommandInput>();
             input.Initialize(viewCamera, selection, pause,
                 TestControls.Ref(actions, "Commands/Command"),
@@ -59,6 +61,7 @@ namespace Blackglass.Tests
                 TestControls.Ref(actions, "Commands/Stop"),
                 TestControls.Ref(actions, "Commands/Cancel"),
                 active);
+            input.SetPointerBlocker(blocker);
             systems.SetActive(true);
         }
 
@@ -104,6 +107,37 @@ namespace Blackglass.Tests
             Release(mouse.leftButton);
             yield return null;
             Assert.That(unit.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "A normal click still orders");
+        }
+
+        [UnityTest]
+        public IEnumerator ASpuriousCancelOfAPressOverTheHud_DoesNotSwallowTheNextClick()
+        {
+            var ground = (Vector2)viewCamera.WorldToScreenPoint(GroundPoint);
+            var hudEdge = ground.x - 60f;
+            blocker.SetTest(p => p.x < hudEdge);   // the "HUD" covers everything left of the edge
+            selection.Select(unit);
+            yield return null;
+            Set(mouse.position, new Vector2(hudEdge - 30f, ground.y));
+            yield return null;
+            Press(mouse.leftButton);                // a press over the HUD
+            yield return null;
+
+            yield return Tap(pad.selectButton);     // the family switch cancels the held press
+            yield return null;
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            yield return Tap(keyboard.f12Key);      // back to keyboard/mouse
+            yield return null;
+            Assert.That(unit.Unit.CurrentCommand, Is.Null, "nothing so far was a world click");
+
+            Set(mouse.position, ground);
+            yield return null;
+            Press(mouse.leftButton);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            Assert.That(unit.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "the next click off the HUD still orders");
         }
 
         [UnityTest]

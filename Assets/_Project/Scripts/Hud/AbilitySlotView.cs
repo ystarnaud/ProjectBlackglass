@@ -7,8 +7,8 @@ namespace Blackglass
     /// <summary>
     /// One ability slot (170 x 64): prompt chip, name and a state word. The state is always a word as well as a colour:
     /// READY, the cooldown seconds (over a vertical fill that darkens by the cooldown fraction), ARMED (plus a bright frame
-    /// and a "&gt; " name prefix) or an em dash (plus a dimmed slot). The slot root is the pointer target (a Button), wired
-    /// to a request in a later task; this class only keeps the last applied data and writes what changed.
+    /// and a "&gt; " name prefix) or an em dash (plus a dimmed slot). The slot root is the pointer target (a Button) and raises
+    /// Clicked; otherwise this class only keeps the last applied data and writes what changed.
     /// </summary>
     internal sealed class AbilitySlotView
     {
@@ -45,6 +45,7 @@ namespace Blackglass
             button.targetGraphic = background;
             button.transition = Selectable.Transition.None;
             button.navigation = new Navigation { mode = Navigation.Mode.None };
+            button.onClick.AddListener(() => Clicked?.Invoke(Slot.Slot));
 
             var body = HudFactory.Rect("Content", root);
             content = body.gameObject.AddComponent<CanvasGroup>();
@@ -77,10 +78,8 @@ namespace Blackglass
             armedFrame.gameObject.SetActive(false);
         }
 
-        /// <summary>Raised with the slot index when the slot is clicked. Nothing raises it yet.</summary>
-#pragma warning disable CS0067
+        /// <summary>Raised with the slot index (as of the last Apply) when the slot is clicked.</summary>
         internal event Action<int> Clicked;
-#pragma warning restore CS0067
 
         internal RectTransform Root { get; }
         /// <summary>The data applied last (its Slot is what a click requests); empty before the first Apply.</summary>

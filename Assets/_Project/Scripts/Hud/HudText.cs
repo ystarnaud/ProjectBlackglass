@@ -125,5 +125,8 @@ namespace Blackglass
 
         /// <summary>The follow chip's text (constant strings, no allocation).</summary>
         public static string Follow(bool on) => on ? "FOLLOW: ON" : "FOLLOW: OFF";
+
+        /// <summary>The pause chip's text: what a click on it does (constant strings, no allocation).</summary>
+        public static string PauseChip(bool paused) => paused ? "RESUME" : "PAUSE";
     }
 }

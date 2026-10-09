@@ -6,8 +6,9 @@ namespace Blackglass
 {
     /// <summary>
     /// The mission-wide status: the tactical pause banner at top centre (framed, with a double-bar glyph so pause is not
-    /// shown by colour alone), the mission result banner below it, and the top-right block with the extraction state and
-    /// the follow chip. The panel root is a non-drawing full-screen rect; its three blocks are the parts that take space.
+    /// shown by colour alone), the mission result banner below it, and the top-right block with the extraction state, the
+    /// follow chip and the pause chip. The two chips are pointer targets that raise FollowClicked / PauseClicked. The panel
+    /// root is a non-drawing full-screen rect; its three blocks are the parts that take space.
     /// </summary>
     internal sealed class StatusPanel : HudPanel
     {
@@ -27,6 +28,8 @@ namespace Blackglass
         readonly Text extractionLabel;
         readonly RectTransform followChip;
         readonly Text followLabel;
+        readonly RectTransform pauseChip;
+        readonly Text pauseChipLabel;
 
         string shownResume;
         string shownBanner;
@@ -68,6 +71,9 @@ namespace Blackglass
             HudFactory.FitContent(rightBlock, false, true);
             extractionChip = Chip("Extraction", rightBlock, out extractionLabel);
             followChip = Chip("Follow", rightBlock, out followLabel);
+            pauseChip = Chip("PauseChip", rightBlock, out pauseChipLabel);
+            Clickable(followChip, () => FollowClicked?.Invoke());
+            Clickable(pauseChip, () => PauseClicked?.Invoke());
             rightBlock.gameObject.SetActive(false);
         }
 
@@ -81,6 +87,13 @@ namespace Blackglass
         internal Text ExtractionLabel => extractionLabel;
         internal RectTransform FollowChip => followChip;
         internal Text FollowLabel => followLabel;
+        internal RectTransform PauseChip => pauseChip;
+        internal Text PauseChipLabel => pauseChipLabel;
+
+        /// <summary>Raised when the follow chip is clicked.</summary>
+        internal event Action FollowClicked;
+        /// <summary>Raised when the pause chip is clicked.</summary>
+        internal event Action PauseClicked;
 
         public override void Apply(HudSnapshot s)
         {
@@ -114,9 +127,10 @@ namespace Blackglass
         void ApplyRight(HudSnapshot s)
         {
             var showExtraction = s.Extraction != HudExtractionState.Hidden;
-            HudFactory.SetActive(rightBlock.gameObject, showExtraction || s.HasFollow);
+            HudFactory.SetActive(rightBlock.gameObject, showExtraction || s.HasFollow || s.HasPause);
             HudFactory.SetActive(extractionChip.gameObject, showExtraction);
             HudFactory.SetActive(followChip.gameObject, s.HasFollow);
+            HudFactory.SetActive(pauseChip.gameObject, s.HasPause);
 
             if (showExtraction && (!hasExtraction || shownExtraction != s.Extraction
                 || shownInside != s.ExtractionInside || shownRequired != s.ExtractionRequired))
@@ -133,6 +147,12 @@ namespace Blackglass
             {
                 HudFactory.SetText(followLabel, HudText.Follow(s.FollowOn));
                 HudFactory.SetColor(followLabel, s.FollowOn ? HudTheme.Accent : HudTheme.TextDim);
+            }
+
+            if (s.HasPause)
+            {
+                HudFactory.SetText(pauseChipLabel, HudText.PauseChip(s.IsPaused));
+                HudFactory.SetColor(pauseChipLabel, s.IsPaused ? HudTheme.Warn : HudTheme.Text);
             }
         }
 
@@ -154,6 +174,18 @@ namespace Blackglass
             HudFactory.Anchor(bar, new Vector2(side, 0f), new Vector2(side, 1f), new Vector2(side, 0.5f), Vector2.zero, Vector2.zero);
             bar.sizeDelta = new Vector2(5f, 0f);
             return bar.GetComponent<Image>();
+        }
+
+        // A chip that takes pointer clicks: its background catches raycasts and a Button with no navigation raises `onClick`.
+        static void Clickable(RectTransform chip, UnityEngine.Events.UnityAction onClick)
+        {
+            var background = chip.GetComponent<Image>();
+            background.raycastTarget = true;
+            var button = chip.gameObject.AddComponent<Button>();
+            button.targetGraphic = background;
+            button.transition = Selectable.Transition.None;
+            button.navigation = new Navigation { mode = Navigation.Mode.None };
+            button.onClick.AddListener(onClick);
         }
 
         static RectTransform Chip(string name, RectTransform parent, out Text label)

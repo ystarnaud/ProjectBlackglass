@@ -47,6 +47,7 @@ namespace Blackglass
         public bool HasMission; public string PhaseText = string.Empty, BannerText = string.Empty;
         public HudExtractionState Extraction; public int ExtractionInside, ExtractionRequired;
         public bool IsPaused; public string ResumePrompt = string.Empty;
+        public bool HasPause;                                      // a tactical pause exists: the pause chip is shown
         public bool HasControlled; public string ControlledName = string.Empty, ControlledRole = string.Empty, ControlledCover = string.Empty; public int ControlledRank, ControlledHealth, ControlledMaxHealth;
         public bool HasFollow, FollowOn;
         public string QueueOwner = string.Empty; public int QueueHidden;          // QueueHidden = steps beyond the shown limit
@@ -65,7 +66,7 @@ namespace Blackglass
             Marks.Clear();
             HasMission = false; PhaseText = string.Empty; BannerText = string.Empty;
             Extraction = HudExtractionState.Hidden; ExtractionInside = 0; ExtractionRequired = 0;
-            IsPaused = false; ResumePrompt = string.Empty;
+            IsPaused = false; ResumePrompt = string.Empty; HasPause = false;
             HasControlled = false; ControlledName = string.Empty; ControlledRole = string.Empty; ControlledCover = string.Empty;
             ControlledRank = 0; ControlledHealth = 0; ControlledMaxHealth = 0;
             HasFollow = false; FollowOn = false;

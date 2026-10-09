@@ -13,6 +13,9 @@ namespace Blackglass
 
         internal void SetTest(Func<Vector2, bool> overHud) => test = overHud;
 
+        /// <summary>Whether a test is installed (tests: the HUD removes its own when it is disabled).</summary>
+        internal bool HasTest => test != null;
+
         public bool IsBlocking(Vector2 screen) => test != null && test(screen);
     }
 }

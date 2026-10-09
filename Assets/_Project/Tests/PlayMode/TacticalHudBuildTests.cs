@@ -286,7 +286,8 @@ namespace Blackglass.Tests
             }
             HudLayout.AssertInside(status.PauseBanner, status.PauseLabel.rectTransform, status.PauseGlyph[0].rectTransform, status.PauseGlyph[1].rectTransform);
             HudLayout.AssertInside(status.ResultBanner, status.ResultLabel.rectTransform);
-            HudLayout.AssertInside(status.RightBlock, status.ExtractionChip, status.FollowChip);
+            HudLayout.AssertInside(status.RightBlock, status.ExtractionChip, status.FollowChip, status.PauseChip);
+            Assert.That(status.PauseChip.gameObject.activeInHierarchy, Is.True);
             Assert.That(HudLayout.WorldRect(squad).width, Is.EqualTo(460f).Within(0.5f));
             Assert.That(HudLayout.WorldRect(squad).height, Is.EqualTo(6 * 72f + 5 * 8f).Within(0.5f));
             Assert.That(HudLayout.WorldRect(operative).size, Is.EqualTo(new Vector2(760f, 280f)));
@@ -403,6 +404,7 @@ namespace Blackglass.Tests
             s.ResumePrompt = "Options";
             s.HasFollow = true;
             s.FollowOn = true;
+            s.HasPause = true;
             for (var i = 0; i < 6; i++)
                 s.Squad.Add(new HudSquadCard
                 {

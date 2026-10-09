@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 
@@ -11,6 +12,8 @@ namespace Blackglass
     /// The player's tactical HUD root. On enable it creates a screen-space overlay canvas, builds the panel hierarchy once
     /// and, if the scene has no EventSystem, a pointer-only one. Each LateUpdate (unscaled time, so it runs in tactical
     /// pause) the snapshot builder reads gameplay into the snapshot and every panel applies it, writing only what changed.
+    /// Clicks on the HUD's buttons become HudRequests (the same calls the existing input makes). While enabled it installs
+    /// its pointer gate in the PointerBlocker and the hover target, so a press over a visible panel is not a world click.
     /// Gameplay never references this class.
     /// </summary>
     [DisallowMultipleComponent]
@@ -20,10 +23,14 @@ namespace Blackglass
         static readonly Vector2 ReferenceResolution = new Vector2(1920f, 1080f);
 
         [SerializeField] HudSources sources;
-        [SerializeField] PointerBlocker pointerBlocker;   // the HUD installs its pointer test here (Task 9)
+        [SerializeField] PointerBlocker pointerBlocker;   // the HUD installs its pointer gate here while enabled
+        // The queue modifier: held, a card click adds or removes the unit instead of selecting only it.
+        [SerializeField] InputActionReference queueModifier;
 
         readonly HudSnapshotBuilder builder = new HudSnapshotBuilder();
         readonly List<HudPanel> panels = new List<HudPanel>();
+        readonly HudPointerGate gate = new HudPointerGate();
+        HudRequests requests;
         GameObject canvasObject;
 
         internal HudSnapshot Snapshot { get; } = new HudSnapshot();
@@ -35,11 +42,23 @@ namespace Blackglass
         internal PromptPanel Prompts { get; private set; }
         internal TargetPanel Target { get; private set; }
         internal WorldMarkLayer Marks { get; private set; }
+        internal HudPointerGate Gate => gate;
+        internal HudSnapshotBuilder Builder => builder;
+
+        /// <summary>The requests the buttons send, over the current sources and queue modifier.</summary>
+        internal HudRequests Requests => requests ?? (requests = new HudRequests(sources, queueModifier));
 
         internal void Initialize(HudSources hudSources, PointerBlocker blocker)
         {
             sources = hudSources;
             pointerBlocker = blocker;
+            requests = null;
+        }
+
+        internal void SetQueueModifier(InputActionReference modifier)
+        {
+            queueModifier = modifier;
+            requests = null;
         }
 
         /// <summary>Builds the whole hierarchy under `root`, once (tests pass their own rect to check layout).</summary>
@@ -63,7 +82,40 @@ namespace Blackglass
             Operative = Add(new OperativePanel(root));
             Prompts = Add(new PromptPanel(root));
             Target = Add(new TargetPanel(root));
+            RegisterBlockingRects();
+            WireButtons();
             return root;
+        }
+
+        // What blocks a world click: the panels that take space, while visible. Not the full-screen roots (the world marks,
+        // the status root) and not the pause banner; the squad and prompt zones count only where they draw something.
+        void RegisterBlockingRects()
+        {
+            gate.Register(Objectives.Root);
+            gate.Register(Status.RightBlock);
+            gate.Register(Squad.Footprint);
+            gate.Register(Operative.Root);
+            gate.Register(Prompts.Background);
+            gate.Register(Target.Root);
+        }
+
+        void WireButtons()
+        {
+            for (var i = 0; i < Squad.CardCapacity; i++)
+                Squad.CardAt(i).Clicked += OnCardClicked;
+            for (var i = 0; i < Operative.SlotCapacity; i++)
+                Operative.SlotAt(i).Clicked += slot => Requests.ToggleAbility(slot);
+            Operative.ClearClicked += unit => Requests.ClearOrders(unit);
+            Status.FollowClicked += () => Requests.ToggleFollow();
+            Status.PauseClicked += () => Requests.TogglePause();
+        }
+
+        void OnCardClicked(CommandableUnit unit, bool doubleClick)
+        {
+            if (doubleClick)
+                Requests.TakeControl(unit);
+            else
+                Requests.SelectUnit(unit, Requests.AdditiveHeld);
         }
 
         internal void ApplySnapshot()
@@ -79,10 +131,16 @@ namespace Blackglass
             else if (canvasObject != null)
                 canvasObject.SetActive(true);
             EnsureEventSystem();
+            if (pointerBlocker != null)
+                pointerBlocker.SetTest(gate.IsOver);
+            builder.PointerOverHud = gate.IsOver;
         }
 
         void OnDisable()
         {
+            if (pointerBlocker != null)
+                pointerBlocker.SetTest(null);
+            builder.PointerOverHud = null;
             if (canvasObject != null)
                 canvasObject.SetActive(false);
         }

@@ -92,29 +92,57 @@ namespace Blackglass.Tests
             Assert.That(selection.Selected, Is.EqualTo(new[] { unitA }));
         }
 
+        // A friendly unit right of the split (off the HUD), with a box around it: from (startX, -40) to (+60, +40) pixels.
+        SelectableUnit BoxedUnit(out Vector2 around)
+        {
+            var boxed = world.CreateFriendly(new Vector3(4f, 0f, -2f));
+            selection.AddToRoster(boxed);
+            around = ScreenPointOf(boxed.transform.position);
+            Assert.That(around.x, Is.GreaterThan(split + 40f), "precondition: the unit is off the HUD");
+            return boxed;
+        }
+
+        IEnumerator DragFrom(float startX, Vector2 around)
+        {
+            Set(mouse.position, new Vector2(startX, around.y - 40f));
+            yield return null;
+            Press(mouse.leftButton);
+            yield return null;
+            Set(mouse.position, new Vector2(around.x + 60f, around.y + 40f));
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+        }
+
         [UnityTest]
         public IEnumerator ADragThatBeganOverTheHud_SelectsNothing()
         {
             yield return null;
             input.SetPointerBlocker(blocker);
             InstallBlocker();
+            var boxed = BoxedUnit(out var around);
             selection.Select(unitB);
-            var around = (Vector2)ScreenPointOf(unitA.transform.position);
-            var from = new Vector2(split - 30f, around.y - 40f);
-            var to = new Vector2(split + 400f, around.y + 40f);
-            Assert.That(from.x, Is.LessThan(split));
+            yield return null;
 
-            Set(mouse.position, from);
-            yield return null;
-            Press(mouse.leftButton);
-            yield return null;
-            Set(mouse.position, to);
-            yield return null;
-            Release(mouse.leftButton);
-            yield return null;
+            yield return DragFrom(split - 30f, around);
 
             Assert.That(input.IsDragging, Is.False);
-            Assert.That(selection.Selected, Is.EqualTo(new[] { unitB }), "The box must not have selected anything");
+            Assert.That(selection.Selected, Is.EqualTo(new[] { unitB }), $"The box must not have selected {boxed.name} inside it");
+        }
+
+        [UnityTest]
+        public IEnumerator TheSameDragOffTheHud_SelectsTheUnitInTheBox()
+        {
+            yield return null;
+            input.SetPointerBlocker(blocker);
+            InstallBlocker();
+            var boxed = BoxedUnit(out var around);
+            selection.Select(unitB);
+            yield return null;
+
+            yield return DragFrom(split + 10f, around);
+
+            Assert.That(selection.Selected, Is.EqualTo(new[] { boxed }), "the box geometry does catch the unit");
         }
 
         [UnityTest]

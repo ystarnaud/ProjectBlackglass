@@ -193,11 +193,10 @@ namespace Blackglass
         void OnCommandPressed(InputAction.CallbackContext context)
         {
             pressPosition = PointerPosition;
-            if (pointerBlocker != null && pointerBlocker.IsBlocking(pressPosition))
-            {
-                pressBlocked = true;
+            // Assigned on every press, so a flag left over from an abandoned press can never swallow this one.
+            pressBlocked = pointerBlocker != null && pointerBlocker.IsBlocking(pressPosition);
+            if (pressBlocked)
                 return;
-            }
             clickDetector.Press(pressPosition);
         }
 
@@ -208,6 +207,7 @@ namespace Blackglass
             if (context.control is ButtonControl button && button.isPressed)
             {
                 clickDetector.Cancel();
+                pressBlocked = false;
                 return;
             }
             if (pressBlocked)

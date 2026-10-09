@@ -330,7 +330,7 @@ namespace Blackglass.Tests
             var clicks = 0;
             slot.Clicked += _ => clicks++;
             hud.ApplySnapshot();
-            Assert.That(clicks, Is.Zero, "nothing raises the event yet");
+            Assert.That(clicks, Is.Zero, "applying a snapshot is not a click");
             foreach (var graphic in slot.Root.GetComponentsInChildren<Graphic>(true))
             {
                 if (graphic != slot.Background)
@@ -494,7 +494,7 @@ namespace Blackglass.Tests
             var clears = 0;
             panel.ClearClicked += _ => clears++;
             hud.ApplySnapshot();
-            Assert.That(clears, Is.Zero, "nothing raises the event yet");
+            Assert.That(clears, Is.Zero, "applying a snapshot is not a click");
 
             var other = new GameObject("other", typeof(CommandableUnit));
             created.Add(other);
@@ -556,6 +556,7 @@ namespace Blackglass.Tests
             s.ExtractionInside = 3;
             s.ExtractionRequired = 4;
             s.HasFollow = true;
+            s.HasPause = true;
             for (var i = 0; i < 6; i++)
                 s.Squad.Add(new HudSquadCard { Name = "Operative Number " + i, Role = "Support", Initials = "ON", Tag = "FOLLOWING", Rank = 12, Health = 100, MaxHealth = 100 });
             for (var i = 0; i < 6; i++)

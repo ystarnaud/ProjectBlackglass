@@ -8,8 +8,8 @@ namespace Blackglass
     /// Bottom centre (760 x 280): the controlled operative (name, role and rank, health, cover), the ability slots with the
     /// aiming strip, and the command queue with its CLEAR button. Without a controlled unit it says so and shows nothing
     /// else. The queue lists up to eight steps in two columns of four, so the zone stays low; the step marked current
-    /// starts with "&gt; " and the others with their number. Slots and CLEAR are pointer targets (wired in a later task); this
-    /// class only draws the snapshot and writes what changed.
+    /// starts with "&gt; " and the others with their number. Slots and CLEAR are pointer targets that raise their Clicked
+    /// events; otherwise this class only draws the snapshot and writes what changed.
     /// </summary>
     internal sealed class OperativePanel : HudPanel
     {
@@ -93,6 +93,7 @@ namespace Blackglass
             button.targetGraphic = clearBackground;
             button.transition = Selectable.Transition.None;
             button.navigation = new Navigation { mode = Navigation.Mode.None };
+            button.onClick.AddListener(() => ClearClicked?.Invoke(QueueUnit));
             var clearLabel = HudFactory.Label("Label", clearButton, HudTheme.FontSmall, HudTheme.Warn, TextAnchor.MiddleCenter);
             clearLabel.text = ClearWord;
             clearButton.gameObject.SetActive(false);
@@ -112,10 +113,8 @@ namespace Blackglass
             queue.gameObject.SetActive(false);
         }
 
-        /// <summary>Raised with the queue's unit when CLEAR is clicked. Nothing raises it yet.</summary>
-#pragma warning disable CS0067
+        /// <summary>Raised with the queue's unit (as of the last Apply) when CLEAR is clicked.</summary>
         internal event Action<CommandableUnit> ClearClicked;
-#pragma warning restore CS0067
 
         /// <summary>The unit the queue shows, as of the last Apply (what CLEAR would stop); null without a controlled unit.</summary>
         internal CommandableUnit QueueUnit { get; private set; }

@@ -364,7 +364,7 @@ namespace Blackglass.Tests
             var clicks = 0;
             card.Clicked += (u, doubleClick) => clicks++;
             hud.ApplySnapshot();
-            Assert.That(clicks, Is.Zero, "nothing invokes the event yet");
+            Assert.That(clicks, Is.Zero, "applying a snapshot is not a click");
             foreach (var graphic in card.Root.GetComponentsInChildren<Graphic>(true))
             {
                 if (graphic != card.Background)
@@ -434,6 +434,7 @@ namespace Blackglass.Tests
             s.ExtractionInside = 3;
             s.ExtractionRequired = 4;
             s.HasFollow = true;
+            s.HasPause = true;
             for (var i = 0; i < 6; i++)
             {
                 var m = Member("Operative Number " + i, "Support", 12, 100, 100, "FOLLOWING");

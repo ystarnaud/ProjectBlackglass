@@ -100,6 +100,7 @@ namespace Blackglass
                 var runtime = sources.director != null ? sources.director.Runtime : null;
 
                 into.IsPaused = sources.tacticalPause != null && sources.tacticalPause.IsPaused;
+                into.HasPause = sources.tacticalPause != null;
                 into.HasFollow = active != null;
                 into.FollowOn = active != null && active.IsFollowOn;
 
