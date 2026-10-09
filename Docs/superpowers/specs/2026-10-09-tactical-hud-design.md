@@ -67,13 +67,13 @@ The centre of the viewport stays empty. Panels use anchors and the scaler, and a
 
 ## 6. Content rules
 
-**Squad card:** portrait badge, display name (never the operative id), role, rank, health bar plus `current/max`, state tags. Tags carry meaning by text and shape, not colour alone: `CONTROLLED` (filled marker), `SELECTED` (outline marker), `ATTACHED` / `PARKED` / `HOLDING` (companions only), `DOWN` (greyed, health 0). Order is the friendly list order, which is the Tab order.
+**Squad card:** portrait badge, display name (never the operative id), role, rank, health bar plus `current/max`, state tags. Tags carry meaning by text and shape, not colour alone: `CONTROLLED` (filled marker), `SELECTED` (outline marker), `FOLLOWING` (attached, follow on) / `ATTACHED` (attached, follow off) / `PARKED` / `HOLDING` (holding ordered cover) on companions only, `DOWN` (greyed, health 0). Order is the friendly list order, which is the Tab order.
 
-**Controlled operative panel:** name, role, rank, health, follow line (`Following`, `Attached (follow off)`, `Parked`, `Holding cover`), cover line (`Exposed`, `Low cover`, `Corner cover`) from `UnitCover.Status` and `CoverLocation.Height/Placement` only when occupied; no controlled unit shows "No unit in control".
+**Controlled operative panel:** name, role, rank, health, cover line (`Exposed`, `Low cover`, `Corner cover`) from `UnitCover.Status` and `CoverLocation.Height/Placement` only when occupied; no controlled unit shows "No unit in control".
 
 **Abilities:** shown for `AbilityTargeting.Caster` (first eligible selected unit, else the active character, as targeting already decides). Slot count comes from `UnitAbilities.Count` (at most four today); the pool is sized to four and hides unused slots. Each slot: prompt (from `Commands/Ability{n}`, chord text for pads), name, state: ready, cooldown (fill = remaining / `EffectiveCooldown`, number), armed (marker plus text), unusable (caster dead). Cooldown values come from scaled time, so they freeze in tactical pause with no HUD logic. When an ability is armed, a strip shows `AIMING: <name>`, the target (if shown), `distance/range`, and `OK` / `Moving into range` / the failure wording, with Confirm and Cancel prompts. The existing world preview (`AbilityTargetingView`) is unchanged.
 
-**Command queue:** subject is the first selected unit while paused, else the controlled unit. Steps are numbered; step 1 is highlighted as current. Real time shows up to 3 steps, pause up to 8, then `+N`. Wording: `Move`, `Attack <name>`, `Cover`, `Interact <terminal>`, `<ability name>`, plus `Moving into range` for an approaching ability. An `Attack` step names its target only while `Knowledge.IsShown`; otherwise it reads `Attack (target lost)`. A `Clear orders` button issues `StopCommand` (see section 8).
+**Command queue:** subject is the first selected unit while paused, else the controlled unit. Steps are numbered; step 1 is highlighted as current. Real time shows up to 3 steps, pause up to 8, then `+N`. Wording: `Move`, `Attack <name>`, `Cover`, `Interact <terminal>`, `<ability name>`, plus `Moving into range` for an approaching ability. An `Attack` step names its target only while `Knowledge.CanTarget`; otherwise it reads `Attack (target lost)`. A `Clear orders` button issues `StopCommand` (see section 8).
 
 **Objectives:** rows are built from `MissionRuntime.Objectives` (extraction excluded here; it has its own status). Known: `[ ]` active, `[x]` completed (dimmed), `[FAILED]`, `[LOCKED]`, with `Describe()` text. Unknown: listed as `[?] <VagueTitle>` only when `IntelligenceService.ListsUnknownObjectives` and a vague title exists; otherwise omitted. The real title, count and position of an unknown objective are never read into the snapshot. This mirrors `MissionHudText.Panel`, which becomes the shared source of truth (the IMGUI panel and the HUD call the same functions).
 
@@ -89,7 +89,7 @@ The centre of the viewport stays empty. Panels use anchors and the scaler, and a
 
 ## 7. Intelligence and fog rules (critical)
 
-- `HudSnapshotBuilder` is the only reader of hostile data. Hostile name, health, position, cover, count, target-ability preview and existence pass through `Knowledge` (`CanTarget` / `IsShown`) or `IntelligenceService.StateOfEnemy` / `TryLastKnown`.
+- `HudSnapshotBuilder` is the only reader of hostile data. Hostile name, health, position, cover, count, target-ability preview and existence pass through `Knowledge.CanTarget` (observed only) or `IntelligenceService.StateOfEnemy` / `TryLastKnown`. `Knowledge.IsShown` is never used by the HUD: the F12 truth view widens it, and the truth view must not change the player HUD.
 - No hostile or kill counters. `Encounter.Hostiles` is iterated only to find observed ones and last-known marks; `transform.position` is read only for observed units, otherwise only the last-known point.
 - Objective existence, title, count and position follow section 6. Developer truth view (F12) is display-only and does not change the HUD.
 - Command queue and target lines never name an unshown target.
