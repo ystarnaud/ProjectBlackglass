@@ -36,14 +36,14 @@ public sealed class BatchSelectionViewModel : ViewModelBase
     public string Destination
     {
         get => BatchEdit.Common(items.Select(i => i.Destination)).Value ?? "";
-        set { if (string.IsNullOrWhiteSpace(value)) return; foreach (var i in items) i.Destination = value.Trim(); Changed(); }
+        set { if (string.IsNullOrWhiteSpace(value)) { RaiseAll(); return; } foreach (var i in items) i.Destination = value.Trim(); Changed(); }
     }
     public bool DestinationMixed => BatchEdit.Common(items.Select(i => i.Destination)).Mixed;
 
     public string Skeleton
     {
         get => BatchEdit.Common(Animations.Select(i => i.SharedAvatarPath)).Value ?? "";
-        set { if (string.IsNullOrWhiteSpace(value)) return; foreach (var i in Animations) i.SharedAvatarPath = value.Trim(); Changed(); }
+        set { if (string.IsNullOrWhiteSpace(value)) { RaiseAll(); return; } foreach (var i in Animations) i.SharedAvatarPath = value.Trim(); Changed(); }
     }
     public bool SkeletonMixed => BatchEdit.Common(Animations.Select(i => i.SharedAvatarPath)).Mixed;
 
@@ -62,8 +62,8 @@ public sealed class BatchSelectionViewModel : ViewModelBase
         get { var c = BatchEdit.Common(items.Select(i => i.AllowOverwrite)); return c.Mixed ? null : c.Value; }
         set
         {
-            if (value == null) { RaiseAll(); return; } // a three-state box cycles through "mixed"; that is not a choice
-            foreach (var i in items) i.AllowOverwrite = value.Value;
+            // A three-state box goes checked -> indeterminate -> unchecked on clicks, so a click on an all-checked box arrives as null and means "unchecked".
+            foreach (var i in items) i.AllowOverwrite = value ?? false;
             Changed();
         }
     }
@@ -76,10 +76,13 @@ public sealed class BatchSelectionViewModel : ViewModelBase
 
     void SetFlag(bool? value, Action<AssetItemViewModel, bool> write)
     {
-        if (value == null) { RaiseAll(); return; }
-        foreach (var i in Animations) write(i, value.Value);
+        // Same three-state cycle as AllowOverwrite: null from a click means "unchecked".
+        foreach (var i in Animations) write(i, value ?? false);
         Changed();
     }
+
+    /// <summary>Re-reads the panel after the items were changed from elsewhere (the Character box).</summary>
+    public void Refresh() => RaiseAll();
 
     void Changed()
     {

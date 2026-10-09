@@ -45,7 +45,13 @@ public sealed class MainViewModel : ViewModelBase
         ImportAllCommand = new RelayCommand(() => ImportAsync(Items.ToList()), () => Items.Count > 0 && !IsBusy, ReportError);
         SettingsCommand = new RelayCommand(OpenSettings, () => !IsBusy, ReportError);
         OpenLogCommand = new RelayCommand(() => OpenPath?.Invoke(LogPath), () => LogPath.Length > 0, ReportError);
-        Items.CollectionChanged += (_, _) => { Raise(nameof(HasItems)); CommandManager.InvalidateRequerySuggested(); };
+        Items.CollectionChanged += (_, _) =>
+        {
+            Raise(nameof(HasItems));
+            // Items.Clear() may not raise SelectionChanged, so drop anything that left the list.
+            if (selection.Any(s => !Items.Contains(s))) SetSelection(selection.Where(Items.Contains).ToList());
+            CommandManager.InvalidateRequerySuggested();
+        };
     }
 
     public AppSettings Settings { get; }
@@ -71,12 +77,14 @@ public sealed class MainViewModel : ViewModelBase
     }
 
     List<AssetItemViewModel> SelectedForAction() =>
-        selection.Count > 0 ? selection.ToList() : Selected != null ? new List<AssetItemViewModel> { Selected } : new List<AssetItemViewModel>();
+        selection.Count > 0 ? selection.OrderBy(Items.IndexOf).ToList() : Selected != null ? new List<AssetItemViewModel> { Selected } : new List<AssetItemViewModel>();
     public bool HasItems => Items.Count > 0;
     public string StatusText { get => statusText; private set { statusText = value; Raise(); } }
     public string ResultText { get => resultText; private set { resultText = value; Raise(); } }
     public string LogPath { get => logPath; private set { logPath = value; Raise(); } }
-    public bool IsBusy { get => isBusy; private set { isBusy = value; Raise(); CommandManager.InvalidateRequerySuggested(); } }
+    public bool IsBusy { get => isBusy; private set { isBusy = value; Raise(); Raise(nameof(IsIdle)); CommandManager.InvalidateRequerySuggested(); } }
+    /// <summary>False while an import runs: the manifest items are being read, so the edit panels are disabled.</summary>
+    public bool IsIdle => !isBusy;
 
     public RelayCommand AddFilesCommand { get; }
     public RelayCommand AddFolderCommand { get; }
@@ -121,6 +129,7 @@ public sealed class MainViewModel : ViewModelBase
 
         character = CharacterContext.FromModel(characterModelPath);
         foreach (var vm in Items) vm.ApplyCharacter(character);
+        Batch?.Refresh();
         CharacterSummary = $"Character: {character.Name}. Animations are named \"{character.Name} <Action>\", saved into {character.AnimationsFolder} and use this model's skeleton. Fields you edit by hand are kept.";
     }
 

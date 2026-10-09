@@ -54,7 +54,7 @@
                             <Style.Triggers><DataTrigger Binding="{Binding HasItems}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                     </TextBlock>
                 </Grid>
-                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsMultiSelect, Converter={StaticResource Vis}}">
+                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" IsEnabled="{Binding IsIdle}" Visibility="{Binding IsMultiSelect, Converter={StaticResource Vis}}">
                     <StackPanel DataContext="{Binding Batch}" Margin="4,0,12,0">
                         <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="14" />
                         <TextBlock Text="Only the fields you change are applied, to every selected item. An empty box or a filled square means the selected items have different values." Style="{StaticResource Help}" />
@@ -87,7 +87,7 @@
                         </GroupBox>
                     </StackPanel>
                 </ScrollViewer>
-                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" Visibility="{Binding IsSingleSelect, Converter={StaticResource Vis}}">
+                <ScrollViewer Grid.Column="2" VerticalScrollBarVisibility="Auto" IsEnabled="{Binding IsIdle}" Visibility="{Binding IsSingleSelect, Converter={StaticResource Vis}}">
                     <StackPanel DataContext="{Binding Selected}" Margin="4,0,12,0">
                         <TextBlock Text="{Binding FullPath}" TextWrapping="Wrap" Foreground="Gray" />
                         <TextBlock Text="{Binding Reason}" TextWrapping="Wrap" Foreground="Gray" FontStyle="Italic" />
