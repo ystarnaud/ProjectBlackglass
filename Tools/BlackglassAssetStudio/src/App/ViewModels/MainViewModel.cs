@@ -1,12 +1,11 @@
 using System.IO;
 using System.Collections.ObjectModel;
+using System.Windows.Input;
 
 namespace Blackglass.AssetStudio.App.ViewModels;
 
 public sealed class MainViewModel : ViewModelBase
 {
-    static readonly string[] ModelExtensions = { ".fbx", ".obj", ".glb", ".gltf" };
-
     readonly SettingsStore store;
     AssetItemViewModel? selected;
     string statusText = "Add files to begin.";
@@ -21,28 +20,28 @@ public sealed class MainViewModel : ViewModelBase
         SettingsDefaults.Fill(Settings, AppContext.BaseDirectory);
         store.Save(Settings);
 
-        AddFilesCommand = new RelayCommand(() => { if (PickFiles != null) AddFiles(PickFiles(), null); });
-        RemoveCommand = new RelayCommand(() => { if (Selected != null) Items.Remove(Selected); }, () => Selected != null && !IsBusy);
-        ClearCommand = new RelayCommand(() => Items.Clear(), () => Items.Count > 0 && !IsBusy);
-        ValidateCommand = new RelayCommand(Validate, () => Items.Count > 0 && !IsBusy);
+        AddFilesCommand = new RelayCommand(() => { if (PickFiles != null) AddFiles(PickFiles(), null); }, null, ReportError);
+        RemoveCommand = new RelayCommand(() => { if (Selected != null) Items.Remove(Selected); }, () => Selected != null && !IsBusy, ReportError);
+        ClearCommand = new RelayCommand(() => Items.Clear(), () => Items.Count > 0 && !IsBusy, ReportError);
+        ValidateCommand = new RelayCommand(Validate, () => Items.Count > 0 && !IsBusy, ReportError);
         ImportSelectedCommand = new RelayCommand(() => ImportAsync(Selected == null ? new List<AssetItemViewModel>() : new List<AssetItemViewModel> { Selected }),
-            () => Selected != null && !IsBusy);
-        ImportAllCommand = new RelayCommand(() => ImportAsync(Items.ToList()), () => Items.Count > 0 && !IsBusy);
-        SettingsCommand = new RelayCommand(OpenSettings, () => !IsBusy);
-        OpenLogCommand = new RelayCommand(() => OpenPath?.Invoke(LogPath), () => LogPath.Length > 0);
-        Items.CollectionChanged += (_, _) => Raise(nameof(HasItems));
+            () => Selected != null && !IsBusy, ReportError);
+        ImportAllCommand = new RelayCommand(() => ImportAsync(Items.ToList()), () => Items.Count > 0 && !IsBusy, ReportError);
+        SettingsCommand = new RelayCommand(OpenSettings, () => !IsBusy, ReportError);
+        OpenLogCommand = new RelayCommand(() => OpenPath?.Invoke(LogPath), () => LogPath.Length > 0, ReportError);
+        Items.CollectionChanged += (_, _) => { Raise(nameof(HasItems)); CommandManager.InvalidateRequerySuggested(); };
     }
 
     public AppSettings Settings { get; }
     public ObservableCollection<AssetItemViewModel> Items { get; } = new();
 
-    public AssetItemViewModel? Selected { get => selected; set { selected = value; Raise(); Raise(nameof(HasSelection)); } }
+    public AssetItemViewModel? Selected { get => selected; set { selected = value; Raise(); Raise(nameof(HasSelection)); CommandManager.InvalidateRequerySuggested(); } }
     public bool HasSelection => Selected != null;
     public bool HasItems => Items.Count > 0;
     public string StatusText { get => statusText; private set { statusText = value; Raise(); } }
     public string ResultText { get => resultText; private set { resultText = value; Raise(); } }
     public string LogPath { get => logPath; private set { logPath = value; Raise(); } }
-    public bool IsBusy { get => isBusy; private set { isBusy = value; Raise(); } }
+    public bool IsBusy { get => isBusy; private set { isBusy = value; Raise(); CommandManager.InvalidateRequerySuggested(); } }
 
     public RelayCommand AddFilesCommand { get; }
     public RelayCommand RemoveCommand { get; }
@@ -64,8 +63,7 @@ public sealed class MainViewModel : ViewModelBase
         foreach (var path in paths)
         {
             if (Directory.Exists(path))
-                AddFiles(Directory.EnumerateFiles(path, "*.*", SearchOption.AllDirectories)
-                    .Where(f => ModelExtensions.Contains(Path.GetExtension(f), StringComparer.OrdinalIgnoreCase)), path);
+                AddFiles(ModelFileScanner.Find(path), path);
             else
                 AddFiles(new[] { path }, Path.GetDirectoryName(path));
         }
@@ -86,6 +84,13 @@ public sealed class MainViewModel : ViewModelBase
             if (dropFolder != null) { Settings.LastDropFolder = dropFolder; store.Save(Settings); }
         }
         StatusText = added == 0 ? "No new files were added." : $"Added {added} file(s). Check each profile, then Validate or Import.";
+    }
+
+    /// <summary>Shows an unexpected exception in the status line and Result tab instead of letting it crash the app.</summary>
+    public void ReportError(Exception e)
+    {
+        StatusText = "Unexpected error: " + e.Message;
+        ResultText = string.Join(Environment.NewLine + Environment.NewLine, "Unexpected error: " + e.Message, e.ToString());
     }
 
     void Validate()
@@ -112,13 +117,17 @@ public sealed class MainViewModel : ViewModelBase
             var progress = new Progress<string>(text => StatusText = text);
             var runner = new ImportRunner(Settings, new UnityProcess());
             var outcome = await runner.RunAsync(subset.Select(i => i.Item).ToList(), progress);
-            LogPath = outcome.LogPath;
+            if (outcome.LogPath.Length > 0) LogPath = outcome.LogPath;
             var names = Items.ToDictionary(i => i.Item.Id, i => i.Item.Import.name);
             if (outcome.FatalError != null)
             {
-                ResultText = outcome.FatalError;
-                foreach (var vm in subset) vm.SetStatus("Not run");
-                StatusText = "Import did not run. See the Result tab.";
+                // ExitCode stays -1 when Unity never started (validation, staging or launch failure).
+                var unityRan = outcome.ExitCode != -1 || outcome.ChangedFiles.Count > 0;
+                ResultText = unityRan ? FormatAfterRunFailure(outcome) : outcome.FatalError;
+                foreach (var vm in subset) vm.SetStatus(unityRan ? "No result" : "Not run");
+                StatusText = unityRan
+                    ? "Unity ran but returned no usable result; project files may have changed. See the Result tab."
+                    : "Import did not run. See the Result tab.";
                 return;
             }
             foreach (var r in outcome.Result!.items)
@@ -126,6 +135,23 @@ public sealed class MainViewModel : ViewModelBase
             ResultText = ResultFormatter.Format(outcome.Result, id => names.GetValueOrDefault(id, id), outcome.ChangedFiles, outcome.LogPath);
             StatusText = outcome.Success ? "Import finished." : "Import finished with errors. See the Result tab.";
         }
+        catch (Exception e)
+        {
+            // Anything unexpected (for example while reading results back): never leave entries stuck on "Queued".
+            foreach (var vm in subset) vm.SetStatus("Error");
+            ReportError(e);
+        }
         finally { IsBusy = false; }
+    }
+
+    static string FormatAfterRunFailure(RunOutcome outcome)
+    {
+        var nl = Environment.NewLine;
+        var text = outcome.FatalError ?? "";
+        if (outcome.ChangedFiles.Count > 0)
+            text += nl + nl + "Project files changed during the run (check with git status):" + nl + "  " + string.Join(nl + "  ", outcome.ChangedFiles);
+        else
+            text += nl + nl + "No project file changes were detected (or git was unavailable).";
+        return text;
     }
 }

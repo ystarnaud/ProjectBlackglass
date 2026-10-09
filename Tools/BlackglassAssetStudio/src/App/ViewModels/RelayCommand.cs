@@ -6,15 +6,18 @@ public sealed class RelayCommand : ICommand
 {
     readonly Func<Task> execute;
     readonly Func<bool>? canExecute;
+    readonly Action<Exception>? onError;
     bool running;
 
-    public RelayCommand(Action execute, Func<bool>? canExecute = null)
-        : this(() => { execute(); return Task.CompletedTask; }, canExecute) { }
+    /// <param name="onError">Receives any exception the command throws. Without it an exception in this async-void handler would crash the app.</param>
+    public RelayCommand(Action execute, Func<bool>? canExecute = null, Action<Exception>? onError = null)
+        : this(() => { execute(); return Task.CompletedTask; }, canExecute, onError) { }
 
-    public RelayCommand(Func<Task> execute, Func<bool>? canExecute = null)
+    public RelayCommand(Func<Task> execute, Func<bool>? canExecute = null, Action<Exception>? onError = null)
     {
         this.execute = execute;
         this.canExecute = canExecute;
+        this.onError = onError;
     }
 
     public event EventHandler? CanExecuteChanged
@@ -30,6 +33,10 @@ public sealed class RelayCommand : ICommand
         running = true;
         CommandManager.InvalidateRequerySuggested();
         try { await execute(); }
+        catch (Exception e) when (onError != null)
+        {
+            try { onError(e); } catch { /* the error handler must never take the app down */ }
+        }
         finally { running = false; CommandManager.InvalidateRequerySuggested(); }
     }
 }
