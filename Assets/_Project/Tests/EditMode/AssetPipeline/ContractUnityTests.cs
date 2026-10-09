@@ -65,6 +65,18 @@ namespace Blackglass.Tests.AssetPipeline
         }
 
         [Test]
+        public void PathRulesRefuseNamesUnityIgnoresAndWindowsReserves()
+        {
+            foreach (var folder in new[] { "Assets/.hidden/x", "Assets/Art~/x", "Assets/CON", "Assets/aux/x", "Assets/Com1", "Assets/NUL.v2" })
+                Assert.IsNotNull(PathRules.ValidateDestination(folder), folder);
+            foreach (var name in new[] { "hidden~", "CON", "prn", "COM9", "lpt1", "NUL.txt" })
+                Assert.IsNotNull(PathRules.ValidateAssetName(name), name);
+            Assert.IsNull(PathRules.ValidateDestination("Assets/Console/COM10"));
+            Assert.IsNull(PathRules.ValidateAssetName("Console"));
+            Assert.IsNull(PathRules.ValidateAssetName("a~b"));
+        }
+
+        [Test]
         public void EntryMethodNameMatchesWhatTheAppLaunches()
         {
             Assert.AreEqual("Blackglass.AssetPipeline.AssetPipelineRunner.RunFromCommandLine",

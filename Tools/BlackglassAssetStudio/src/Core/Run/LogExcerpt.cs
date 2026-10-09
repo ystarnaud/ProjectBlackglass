@@ -21,6 +21,7 @@ public static class LogExcerpt
             using var reader = new StreamReader(fs);
             return reader.ReadToEnd().Split('\n');
         }
-        catch (IOException) { return Array.Empty<string>(); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        { return Array.Empty<string>(); }
     }
 }

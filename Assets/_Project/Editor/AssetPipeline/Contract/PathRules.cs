@@ -8,6 +8,13 @@ namespace Blackglass.AssetPipeline
     {
         static readonly char[] InvalidSegmentChars = { '<', '>', ':', '"', '|', '?', '*' };
 
+        static readonly string[] ReservedDeviceNames =
+        {
+            "CON", "PRN", "AUX", "NUL",
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+        };
+
         public static string Normalize(string folder)
         {
             if (folder == null) return "";
@@ -29,6 +36,8 @@ namespace Blackglass.AssetPipeline
                     return "The destination folder name '" + segment + "' contains an invalid character.";
                 if (segment.EndsWith(".", StringComparison.Ordinal) || segment.EndsWith(" ", StringComparison.Ordinal))
                     return "The destination folder name '" + segment + "' must not end with a dot or a space.";
+                var segmentProblem = IgnoredOrReserved(segment);
+                if (segmentProblem != null) return "The destination folder name '" + segment + "' " + segmentProblem;
             }
             return null;
         }
@@ -42,6 +51,21 @@ namespace Blackglass.AssetPipeline
             if (name.StartsWith(".", StringComparison.Ordinal) || name.EndsWith(".", StringComparison.Ordinal))
                 return "The asset name must not start or end with a dot.";
             if (name != name.Trim()) return "The asset name must not start or end with a space.";
+            var nameProblem = IgnoredOrReserved(name);
+            if (nameProblem != null) return "The asset name '" + name + "' " + nameProblem;
+            return null;
+        }
+
+        /// <summary>Null when fine. Unity ignores names starting with a dot or ending with a tilde; Windows reserves device names (CON.txt included).</summary>
+        static string IgnoredOrReserved(string segment)
+        {
+            if (segment.StartsWith(".", StringComparison.Ordinal)) return "must not start with a dot (Unity ignores it).";
+            if (segment.EndsWith("~", StringComparison.Ordinal)) return "must not end with a tilde (Unity ignores it).";
+            var dot = segment.IndexOf('.');
+            var stem = (dot < 0 ? segment : segment.Substring(0, dot)).TrimEnd(' ');
+            foreach (var reserved in ReservedDeviceNames)
+                if (string.Equals(stem, reserved, StringComparison.OrdinalIgnoreCase))
+                    return "is a reserved Windows device name.";
             return null;
         }
 

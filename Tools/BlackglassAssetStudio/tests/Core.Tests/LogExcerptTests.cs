@@ -30,4 +30,28 @@ public class LogExcerptTests
         writer.Write(bytes); writer.Flush();
         Assert.Equal("second line", LogExcerpt.LastLine(path));
     }
+
+    [Fact]
+    public void An_unreadable_log_gives_nothing_instead_of_throwing()
+    {
+        using var t = new TempDir();
+        var path = t.Write("unity.log", "error CS0001: x");
+        var info = new FileInfo(path);
+        var security = info.GetAccessControl();
+        var me = System.Security.Principal.WindowsIdentity.GetCurrent().User!;
+        var deny = new System.Security.AccessControl.FileSystemAccessRule(me,
+            System.Security.AccessControl.FileSystemRights.ReadData, System.Security.AccessControl.AccessControlType.Deny);
+        security.AddAccessRule(deny);
+        info.SetAccessControl(security);
+        try
+        {
+            Assert.Empty(LogExcerpt.ErrorLines(path));
+            Assert.Equal("", LogExcerpt.LastLine(path));
+        }
+        finally
+        {
+            security.RemoveAccessRule(deny);
+            info.SetAccessControl(security);
+        }
+    }
 }

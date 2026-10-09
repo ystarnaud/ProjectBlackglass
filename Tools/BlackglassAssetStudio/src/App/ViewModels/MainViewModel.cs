@@ -111,6 +111,9 @@ public sealed class MainViewModel : ViewModelBase
     {
         if (subset.Count == 0 || IsBusy) return;
         IsBusy = true;
+        // A new run starts clean: after a pre-run failure there is no log, so Open log must not open the previous run's.
+        LogPath = "";
+        ResultText = "";
         try
         {
             foreach (var vm in subset) vm.SetStatus("Queued");

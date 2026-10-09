@@ -31,6 +31,20 @@ public class CharacterE2ETests
             Assert.Contains("Assets/_AssetStudioScratch/E2E_Char_Visual.prefab", r.createdPrefabs);
             Assert.Equal(before, E2EFixture.Hash(source));
             Assert.DoesNotContain(outcome.ChangedFiles, f => f.EndsWith("Darius Stand Idle.fbx") || f.EndsWith("Darius Stand Idle.fbx.meta"));
+
+            // Same item again: the ownership label the first (real Unity) run wrote must make this an update, not a conflict.
+            var between = new ItemValidator(settings.ProjectPath).Validate(item);
+            Assert.DoesNotContain(between, m => m.Severity == Severity.Error);
+            Assert.Contains(between, m => m.Severity == Severity.Info && m.Text.Contains("will be updated"));
+
+            var second = await E2EFixture.Run(settings, item);
+
+            Assert.Null(second.FatalError);
+            var r2 = second.Result!.items.Single();
+            Assert.True(r2.success, string.Join("; ", r2.errors));
+            Assert.Contains("Assets/_AssetStudioScratch/E2E_Char.fbx", r2.changedAssets);
+            Assert.Contains("Assets/_AssetStudioScratch/E2E_Char_Visual.prefab", r2.changedAssets);
+            Assert.Equal(before, E2EFixture.Hash(source));
         }
         finally { E2EFixture.CleanScratch(); }
     }

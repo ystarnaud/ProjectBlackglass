@@ -53,6 +53,22 @@ namespace Blackglass.Tests.AssetPipeline
         }
 
         [Test]
+        public void AFailingSaveOrRefreshBecomesAFatalErrorAndTheResultIsStillWritten()
+        {
+            var resultPath = System.IO.Path.Combine(dir, "result.json");
+            ExpectPipelineErrors(2);
+            var manifest = Write(new ImportManifest { runId = "r1", resultPath = resultPath });
+            var result = AssetPipelineRunner.Run(manifest, null, () => throw new IOException("disk full"));
+            Assert.IsFalse(result.success);
+            StringAssert.Contains("disk full", string.Join(" ", result.errors));
+            Assert.IsTrue(File.Exists(resultPath));
+            var written = JsonUtility.FromJson<ImportResult>(File.ReadAllText(resultPath));
+            Assert.IsFalse(written.success);
+            Assert.AreEqual("r1", written.runId);
+            StringAssert.Contains("disk full", string.Join(" ", written.errors));
+        }
+
+        [Test]
         public void MissingManifestIsReportedThroughTheResultOverride()
         {
             var resultPath = System.IO.Path.Combine(dir, "result.json");

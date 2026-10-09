@@ -77,6 +77,43 @@ public class ValidatorTests
         Assert.Empty(Errors(new ItemValidator(project).Validate(item)));
     }
 
+
+    [Theory]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NegativeInfinity)]
+    [InlineData(float.NaN)]
+    public void Non_finite_character_numbers_are_errors_not_a_serialiser_crash(float bad)
+    {
+        using var t = new TempDir();
+        var project = t.MakeProject();
+
+        var height = Make(ImportProfiles.Character, t);
+        height.Import.character.targetHeight = bad;
+        Assert.Contains(Errors(new ItemValidator(project).Validate(height)), m => m.Text.Contains("target height", StringComparison.OrdinalIgnoreCase));
+        height.Import.character.normalizeHeight = false;
+        Assert.Contains(Errors(new ItemValidator(project).Validate(height)), m => m.Text.Contains("target height", StringComparison.OrdinalIgnoreCase));
+
+        var scale = Make(ImportProfiles.Character, t);
+        scale.Import.character.scaleOverride = bad;
+        Assert.Contains(Errors(new ItemValidator(project).Validate(scale)), m => m.Text.Contains("manual scale", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Theory]
+    [InlineData(float.PositiveInfinity)]
+    [InlineData(float.NaN)]
+    public void Non_finite_prop_and_module_scales_are_errors(float bad)
+    {
+        using var t = new TempDir();
+        var project = t.MakeProject();
+        var prop = Make(ImportProfiles.Prop, t, "crate.fbx");
+        prop.Import.prop.scale = bad;
+        Assert.Contains(Errors(new ItemValidator(project).Validate(prop)), m => m.Text.Contains("scale"));
+
+        var module = Make(ImportProfiles.Environment, t, "wall.fbx");
+        module.Import.environment.element = "WallStraight";
+        module.Import.environment.scale = bad;
+        Assert.Contains(Errors(new ItemValidator(project).Validate(module)), m => m.Text.Contains("scale"));
+    }
     [Fact]
     public void Humanoid_character_requires_an_avatar()
     {

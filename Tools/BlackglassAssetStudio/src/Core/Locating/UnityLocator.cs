@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Blackglass.AssetStudio;
 
@@ -36,14 +38,51 @@ public static class UnityLocator
         if (!string.IsNullOrWhiteSpace(extra)) yield return extra;
     }
 
+    static readonly Regex VersionPattern = new(@"^\d{4}\.\d+\.\d+[abfpc]\d+$", RegexOptions.Compiled);
+    static readonly Regex VersionInProduct = new(@"\d{4}\.\d+\.\d+[abfpc]\d+", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Best-effort editor version of a Unity.exe: the Unity Hub folder name (<c>&lt;version&gt;\Editor\Unity.exe</c>) when it looks like a
+    /// version, else the executable's product version resource. Null when neither is known.
+    /// </summary>
+    public static string? DetectEditorVersion(string exePath)
+    {
+        try
+        {
+            var editorDir = Path.GetDirectoryName(exePath);
+            var versionDir = editorDir == null ? null : Path.GetFileName(Path.GetDirectoryName(editorDir));
+            if (versionDir != null && VersionPattern.IsMatch(versionDir)) return versionDir;
+
+            var product = FileVersionInfo.GetVersionInfo(exePath).ProductVersion;
+            if (!string.IsNullOrEmpty(product))
+            {
+                var m = VersionInProduct.Match(product);
+                if (m.Success) return m.Value;
+            }
+        }
+        catch (Exception e) when (e is IOException or ArgumentException or NotSupportedException or UnauthorizedAccessException) { }
+        return null;
+    }
+
     public static UnityResolution Resolve(AppSettings settings, string projectPath, IEnumerable<string>? hubRoots = null)
     {
-        if (!string.IsNullOrWhiteSpace(settings.UnityExePath))
-            return File.Exists(settings.UnityExePath)
-                ? new UnityResolution(settings.UnityExePath, "Using the Unity executable from settings.")
-                : new UnityResolution(null, $"The Unity executable in settings does not exist: {settings.UnityExePath}");
-
         var version = ProjectLocator.ReadEditorVersion(projectPath);
+
+        if (!string.IsNullOrWhiteSpace(settings.UnityExePath))
+        {
+            var chosen = settings.UnityExePath;
+            if (!File.Exists(chosen))
+                return new UnityResolution(null, $"The Unity executable in settings does not exist: {chosen}");
+            var chosenVersion = DetectEditorVersion(chosen);
+            if (chosenVersion != null && version != null && !string.Equals(chosenVersion, version, StringComparison.OrdinalIgnoreCase))
+                return new UnityResolution(null, $"Unity {chosenVersion} is selected in Settings, but the project uses Unity {version}. Browse to the Unity.exe of Unity {version}, or clear the Unity executable setting so it is found automatically.");
+            if (chosenVersion != null)
+                return new UnityResolution(chosen, $"Using Unity {chosenVersion} from settings.");
+            return new UnityResolution(chosen, version == null
+                ? "Using the Unity executable from settings (its version could not be verified)."
+                : $"Using the Unity executable from settings; its version could not be verified against the project's Unity {version}.");
+        }
+
         if (version == null)
             return new UnityResolution(null, "Could not read the Unity version from ProjectSettings/ProjectVersion.txt. Set the Unity executable in Settings.");
         var exe = FindExecutable(version, hubRoots ?? DefaultHubRoots());

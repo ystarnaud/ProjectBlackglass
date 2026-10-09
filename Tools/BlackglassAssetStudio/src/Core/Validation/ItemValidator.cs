@@ -37,8 +37,9 @@ public sealed class ItemValidator
         {
             case ProfileIds.HumanoidCharacter:
                 var c = i.character;
-                if (c.normalizeHeight && c.scaleOverride == 0 && !(c.targetHeight > 0)) Error("The target height must be greater than 0.");
-                if (c.scaleOverride < 0 || float.IsNaN(c.scaleOverride)) Error("The manual scale must be positive (or 0 for none).");
+                if (!float.IsFinite(c.targetHeight)) Error("The target height must be a finite number.");
+                else if (c.normalizeHeight && c.scaleOverride == 0 && !(c.targetHeight > 0)) Error("The target height must be greater than 0.");
+                if (!float.IsFinite(c.scaleOverride) || c.scaleOverride < 0) Error("The manual scale must be positive (or 0 for none).");
                 if (c.rigHumanoid && !c.createAvatar) Error("A Humanoid rig needs an Avatar: tick Create Avatar or untick Humanoid.");
                 break;
             case ProfileIds.HumanoidAnimation:
@@ -50,12 +51,12 @@ public sealed class ItemValidator
                     Error($"The shared Avatar model does not exist in the project: {a.sharedAvatarPath}");
                 break;
             case ProfileIds.GenericProp:
-                if (!(i.prop.scale > 0)) Error("The prop scale must be greater than 0.");
+                if (!(float.IsFinite(i.prop.scale) && i.prop.scale > 0)) Error("The prop scale must be greater than 0.");
                 break;
             case ProfileIds.EnvironmentModule:
                 var e = i.environment;
                 if (!EnvironmentElements.All.Contains(e.element)) Error("Choose the environment element (wall, floor, cover, ...) this module is.");
-                if (!(e.scale > 0)) Error("The module scale must be greater than 0.");
+                if (!(float.IsFinite(e.scale) && e.scale > 0)) Error("The module scale must be greater than 0.");
                 else if (Math.Abs(e.scale - 1f) > 1e-6f) Warn($"A scale of {e.scale:0.###} will be applied to this module. Environment modules are never rescaled automatically; check it is what you want.");
                 if (e.themeMode is ThemeModes.Append or ThemeModes.Replace)
                 {

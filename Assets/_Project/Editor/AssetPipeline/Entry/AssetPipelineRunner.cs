@@ -43,6 +43,18 @@ namespace Blackglass.AssetPipeline
 
         public static ImportResult Run(string manifestPath, string resultPathOverride)
         {
+            return Run(manifestPath, resultPathOverride, SaveAndRefreshAssets);
+        }
+
+        static void SaveAndRefreshAssets()
+        {
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+        }
+
+        /// <summary>The overload takes the save/refresh step so tests can prove a throwing refresh still yields a written result.</summary>
+        public static ImportResult Run(string manifestPath, string resultPathOverride, Action saveAndRefreshAssets)
+        {
             var result = new ImportResult { unityVersion = Application.unityVersion };
             var resultPath = resultPathOverride;
             try
@@ -75,8 +87,16 @@ namespace Blackglass.AssetPipeline
                 Fatal(result, e.Message);
                 Debug.LogError(LogPrefix + "ERROR " + e);
             }
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
+            try
+            {
+                saveAndRefreshAssets();
+            }
+            catch (Exception e)
+            {
+                // The items are already imported; a failing save or refresh must not cost us the result file.
+                Fatal(result, "Saving or refreshing the asset database failed: " + e.Message);
+                Debug.LogError(LogPrefix + "ERROR " + e);
+            }
             return Finish(result, resultPath);
         }
 

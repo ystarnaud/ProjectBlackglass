@@ -83,7 +83,7 @@ originals are never modified. The result tab lists project files that changed (v
 ## 9. Troubleshooting
 
 - "The Unity Editor has this project open": close it. A leftover `Temp/UnityLockfile` after a crash is ignored.
-- "Unity <version> was not found": install that exact version in Unity Hub or browse to `Unity.exe`.
+- "Unity X is selected in Settings, but the project uses Unity Y": the Unity executable in Settings must be the exact version listed in `ProjectSettings/ProjectVersion.txt`. The version is read from the Unity Hub folder name (`<version>/Editor/Unity.exe`) or the executable's product version. Browse to the right `Unity.exe` or clear the setting. If the version cannot be determined the executable is used and Settings says it could not be verified.
 - "finished without a usable result": open the log (Log tab); the last error lines are quoted in the message. Usual causes: a compile error in
   the project, or an import crash.
 - Humanoid mapping failed: open the model in Unity > Rig > Configure, or fix the skeleton in Blender.
