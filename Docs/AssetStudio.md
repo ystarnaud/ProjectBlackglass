@@ -58,6 +58,17 @@ about x100 with a warning; the posed prefab instance still ends up at the target
    locomotion.
 2. Drop it; the name usually picks Locomotion / Combat / Reaction / Death. Override if wrong.
 3. Shared Avatar: a Humanoid model already in the project (default `Assets/Art/Characters/Darius/Models/Darius Stand Idle.fbx`, offered when present).
+   For a whole set of clips use the **Character for animations** box instead (next paragraph).
+
+**Many animations for one character.** Above the list, **Character for animations**: Browse to the character's model FBX (for example
+`Assets/Art/Characters/EnemyUnit/Models/EnemyUnit.fbx`). Every animation in the list, and every one you add later, is then filled in for you:
+asset name `<Character> <Action>` (`EnemyUnit-Crouch-Idle-Rifle.fbx` becomes `EnemyUnit Crouch Idle Rifle`), clip name `<Action>` without spaces
+(`CrouchIdleRifle`), destination `<character folder>/Animations`, and the character model as the skeleton to copy. The action words come from the
+file name: the character's own name at the start, Mixamo's `mixamo.com`, `Without Skin` and a `(1)` copy suffix are dropped. A field you edited by
+hand is never overwritten. The profile (Locomotion, Combat, Reaction, Death) is still a suggestion from the name: check the **Loop** setting for
+one-shot moves the name does not reveal (for example Fall, Stand-Ground, Stand-Crouch or a bare Crouch, which default to Locomotion and loop).
+**Add Folder...** adds every model file under a folder. **Browse...** next to Save into folder, Skeleton to copy and Theme asset opens a picker
+inside the project and fills in the `Assets/...` path; a pick outside the project is refused.
 4. Defaults: Locomotion loops, all root axes baked (in place); Combat and Reaction do not loop, bake height; Death does not loop, bakes
    height and horizontal position. The FBX import settings carry these (no `.anim` copies).
 
@@ -140,7 +151,8 @@ the new `_Visual.prefab` (rotation Y 180, feet on the floor), drag the clip onto
 
 ## 12. v0.2 candidates from first real use (not scheduled)
 
-Nothing below is built. Start only when the owner asks.
+Done in the batch-animation round (2026-10-09): browse pickers for project paths, Add Folder, plainer labels with help lines, and the Character
+box for animations (section 6). Nothing else below is built. Start only when the owner asks.
 
 1. **Loose textures.** Copy the image files an FBX references (resolve the name even when Blender wrote `<name>_png`, search `Textures` and the
    source folder) next to or under the model, under the same ownership rule as the `.fbm` folder, and **warn** when a referenced texture cannot be
@@ -151,7 +163,8 @@ Nothing below is built. Start only when the owner asks.
    same FBX.
 4. **Folder layout.** An optional "Darius layout" that creates `Models/`, `Prefabs/`, `Animations/`, `Textures/`, `Materials/` under the character and
    routes each result there.
-5. **Duplicate-drop and name checks.** Warn when the same source file is added twice or two items would write the same target.
+5. **Duplicate-drop and name checks.** Warn when the same source file is added twice or two items would write the same target. (Two files with
+   identical content under different names, such as `EnemyUnit-Crouch-Idle-Rifle.fbx` and `EnemyUnit-Rifle-Idle.fbx`, would need a content check.)
 6. **Test bench.** A menu command that puts a chosen `_Visual.prefab` into the Character Test Scene with an Animator Controller for its clip.
 7. **Unit fix** for centimetre-declared FBXs (decision 039), and **forwarding Unity's retargeting warnings** (not available through the 6000.3 API).
 
