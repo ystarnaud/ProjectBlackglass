@@ -17,7 +17,7 @@ namespace Blackglass.Tests
     public class TacticalHudBuildTests
     {
         static readonly string[] PanelNames = { "Objectives", "Status", "Squad", "Operative", "Prompts", "Target", "WorldMarks" };
-        static readonly string[] LaterPanels = { "Prompts", "Target", "WorldMarks" };
+        static readonly string[] LaterPanels = { "Target", "WorldMarks" };
 
         readonly List<Object> created = new List<Object>();
         TacticalHud hud;
