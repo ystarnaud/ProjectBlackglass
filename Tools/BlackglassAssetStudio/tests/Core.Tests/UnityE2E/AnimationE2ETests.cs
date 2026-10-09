@@ -2,6 +2,8 @@ using Xunit;
 
 namespace Blackglass.AssetStudio.Tests;
 
+// One Unity instance per project: all E2E classes share a collection so xunit does not run them in parallel.
+[Collection("UnityE2E")]
 public class AnimationE2ETests
 {
     [Fact]
