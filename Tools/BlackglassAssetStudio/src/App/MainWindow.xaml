@@ -8,10 +8,12 @@
         <Style TargetType="TextBlock" x:Key="Label"><Setter Property="Margin" Value="0,6,0,2" /><Setter Property="FontWeight" Value="SemiBold" /></Style>
         <Style TargetType="GroupBox"><Setter Property="Margin" Value="0,8,0,0" /><Setter Property="Padding" Value="6" /></Style>
         <Style TargetType="Button"><Setter Property="Margin" Value="0,0,6,0" /><Setter Property="Padding" Value="10,4" /></Style>
+        <Style TargetType="TextBlock" x:Key="Help"><Setter Property="Foreground" Value="Gray" /><Setter Property="FontSize" Value="11" /><Setter Property="TextWrapping" Value="Wrap" /></Style>
     </Window.Resources>
     <DockPanel Margin="8">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button Content="Add Files..." Command="{Binding AddFilesCommand}" />
+            <Button Content="Add Folder..." Command="{Binding AddFolderCommand}" />
             <Button Content="Remove" Command="{Binding RemoveCommand}" />
             <Button Content="Clear" Command="{Binding ClearCommand}" />
             <Button Content="Validate" Command="{Binding ValidateCommand}" />
@@ -19,6 +21,16 @@
             <Button Content="Import All" Command="{Binding ImportAllCommand}" />
             <Button Content="Settings..." Command="{Binding SettingsCommand}" />
         </StackPanel>
+        <GroupBox DockPanel.Dock="Top" Header="Character for animations (optional)" Margin="0,0,0,4">
+            <StackPanel>
+                <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Clear" Command="{Binding ClearCharacterCommand}" Margin="6,0,0,0" />
+                    <Button DockPanel.Dock="Right" Content="Browse..." Command="{Binding BrowseCharacterCommand}" Margin="6,0,0,0" />
+                    <TextBox Text="{Binding CharacterModelPath, UpdateSourceTrigger=LostFocus}" ToolTip="The character's model FBX inside the project, e.g. Assets/Art/Characters/EnemyUnit/Models/EnemyUnit.fbx" />
+                </DockPanel>
+                <TextBlock Text="{Binding CharacterSummary}" Style="{StaticResource Help}" Margin="0,3,0,0" />
+            </StackPanel>
+        </GroupBox>
         <StatusBar DockPanel.Dock="Bottom">
             <StatusBarItem><TextBlock Text="{Binding StatusText}" /></StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right"><ProgressBar Width="120" Height="12" IsIndeterminate="True" Visibility="{Binding IsBusy, Converter={StaticResource Vis}}" /></StatusBarItem>
@@ -46,12 +58,17 @@
                     <StackPanel DataContext="{Binding Selected}" Margin="4,0,12,0">
                         <TextBlock Text="{Binding FullPath}" TextWrapping="Wrap" Foreground="Gray" />
                         <TextBlock Text="{Binding Reason}" TextWrapping="Wrap" Foreground="Gray" FontStyle="Italic" />
-                        <TextBlock Text="Profile" Style="{StaticResource Label}" />
+                        <TextBlock Text="Asset type" Style="{StaticResource Label}" />
                         <ComboBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding Profile}" DisplayMemberPath="DisplayName" />
                         <TextBlock Text="Asset name" Style="{StaticResource Label}" />
                         <TextBox Text="{Binding Name, UpdateSourceTrigger=LostFocus}" />
-                        <TextBlock Text="Destination folder (inside Assets)" Style="{StaticResource Label}" />
-                        <TextBox Text="{Binding Destination, UpdateSourceTrigger=LostFocus}" />
+                        <TextBlock Text="The file name in Unity. For a character it is also the folder name, e.g. EnemyUnit." Style="{StaticResource Help}" />
+                        <TextBlock Text="Save into folder" Style="{StaticResource Label}" />
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Browse..." Click="BrowseDestination" Margin="6,0,0,0" />
+                            <TextBox Text="{Binding Destination, UpdateSourceTrigger=LostFocus}" />
+                        </DockPanel>
+                        <TextBlock Text="A folder inside the project's Assets folder." Style="{StaticResource Help}" />
                         <CheckBox Content="Allow overwrite of existing assets not created by Asset Studio" IsChecked="{Binding AllowOverwrite}" Margin="0,6,0,0" />
 
                         <GroupBox Header="Humanoid character" Visibility="{Binding IsCharacter, Converter={StaticResource Vis}}">
@@ -72,10 +89,14 @@
 
                         <GroupBox Header="Humanoid animation" Visibility="{Binding IsAnimation, Converter={StaticResource Vis}}">
                             <StackPanel>
-                                <TextBlock Text="Clip name" Style="{StaticResource Label}" />
+                                <TextBlock Text="Clip name (shown in the Animator)" Style="{StaticResource Label}" />
                                 <TextBox Text="{Binding ClipName, UpdateSourceTrigger=LostFocus}" />
-                                <TextBlock Text="Shared Avatar model (project path)" Style="{StaticResource Label}" />
-                                <TextBox Text="{Binding SharedAvatarPath, UpdateSourceTrigger=LostFocus}" />
+                                <TextBlock Text="Skeleton to copy (the character's model FBX)" Style="{StaticResource Label}" />
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Browse..." Click="BrowseAvatar" Margin="6,0,0,0" />
+                                    <TextBox Text="{Binding SharedAvatarPath, UpdateSourceTrigger=LostFocus}" />
+                                </DockPanel>
+                                <TextBlock Text="The clip is retargeted onto this model's Humanoid Avatar. Set it once for the whole list in the Character box above." Style="{StaticResource Help}" />
                                 <TextBlock Text="Loop" Style="{StaticResource Label}" />
                                 <ComboBox ItemsSource="{Binding LoopOptions}" SelectedItem="{Binding Loop}" />
                                 <TextBlock Text="Bake into pose (in-place)" Style="{StaticResource Label}" />
@@ -101,8 +122,11 @@
                                 <TextBox Text="{Binding EnvScale, UpdateSourceTrigger=LostFocus, StringFormat=0.###}" />
                                 <TextBlock Text="Register in theme" Style="{StaticResource Label}" />
                                 <ComboBox ItemsSource="{Binding ThemeModeOptions}" SelectedItem="{Binding ThemeMode}" />
-                                <TextBlock Text="Theme asset (project path)" Style="{StaticResource Label}" />
-                                <TextBox Text="{Binding ThemePath, UpdateSourceTrigger=LostFocus}" />
+                                <TextBlock Text="Theme asset" Style="{StaticResource Label}" />
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Right" Content="Browse..." Click="BrowseTheme" Margin="6,0,0,0" />
+                                    <TextBox Text="{Binding ThemePath, UpdateSourceTrigger=LostFocus}" />
+                                </DockPanel>
                                 <TextBlock Text="Variant index to replace" Style="{StaticResource Label}" />
                                 <TextBox Text="{Binding ReplaceIndex, UpdateSourceTrigger=LostFocus}" />
                             </StackPanel>

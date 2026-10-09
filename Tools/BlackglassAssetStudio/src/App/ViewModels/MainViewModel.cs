@@ -12,6 +12,11 @@ public sealed class MainViewModel : ViewModelBase
     string resultText = "";
     string logPath = "";
     bool isBusy;
+    CharacterContext? character;
+    string characterModelPath = "";
+    string characterSummary = NoCharacterText;
+
+    const string NoCharacterText = "Optional. Pick the character's model FBX and every animation you add is named, saved and linked to it automatically.";
 
     public MainViewModel(SettingsStore store)
     {
@@ -21,6 +26,17 @@ public sealed class MainViewModel : ViewModelBase
         store.Save(Settings);
 
         AddFilesCommand = new RelayCommand(() => { if (PickFiles != null) AddFiles(PickFiles(), null); }, null, ReportError);
+        AddFolderCommand = new RelayCommand(() =>
+        {
+            var folder = PickFolder?.Invoke();
+            if (!string.IsNullOrEmpty(folder)) AddDropped(new[] { folder });
+        }, () => !IsBusy, ReportError);
+        BrowseCharacterCommand = new RelayCommand(() =>
+        {
+            var picked = PickProjectFile?.Invoke("Choose the character's model FBX", "Models (*.fbx)|*.fbx", character?.ModelPath ?? "Assets/Art/Characters");
+            if (!string.IsNullOrEmpty(picked)) CharacterModelPath = picked;
+        }, () => !IsBusy, ReportError);
+        ClearCharacterCommand = new RelayCommand(() => CharacterModelPath = "", () => characterModelPath.Length > 0, ReportError);
         RemoveCommand = new RelayCommand(() => { if (Selected != null) Items.Remove(Selected); }, () => Selected != null && !IsBusy, ReportError);
         ClearCommand = new RelayCommand(() => Items.Clear(), () => Items.Count > 0 && !IsBusy, ReportError);
         ValidateCommand = new RelayCommand(Validate, () => Items.Count > 0 && !IsBusy, ReportError);
@@ -44,6 +60,9 @@ public sealed class MainViewModel : ViewModelBase
     public bool IsBusy { get => isBusy; private set { isBusy = value; Raise(); CommandManager.InvalidateRequerySuggested(); } }
 
     public RelayCommand AddFilesCommand { get; }
+    public RelayCommand AddFolderCommand { get; }
+    public RelayCommand BrowseCharacterCommand { get; }
+    public RelayCommand ClearCharacterCommand { get; }
     public RelayCommand RemoveCommand { get; }
     public RelayCommand ClearCommand { get; }
     public RelayCommand ValidateCommand { get; }
@@ -54,8 +73,50 @@ public sealed class MainViewModel : ViewModelBase
 
     /// <summary>Set by the window: a file picker, the settings dialog (true when saved) and "show this file in Explorer".</summary>
     public Func<IEnumerable<string>>? PickFiles { get; set; }
+    /// <summary>A folder anywhere on disk, or null if cancelled.</summary>
+    public Func<string?>? PickFolder { get; set; }
+    /// <summary>Title, file filter, project path to start near; returns an Assets/... path, or null if cancelled or outside the project.</summary>
+    public Func<string, string, string, string?>? PickProjectFile { get; set; }
     public Func<AppSettings, bool>? ShowSettings { get; set; }
     public Action<string>? OpenPath { get; set; }
+
+    /// <summary>Project path of the character model the animations belong to; empty for none. Setting it names and routes every animation in the list.</summary>
+    public string CharacterModelPath
+    {
+        get => characterModelPath;
+        set => SetCharacter(value);
+    }
+
+    public string CharacterSummary { get => characterSummary; private set { characterSummary = value; Raise(); } }
+
+    void SetCharacter(string? text)
+    {
+        characterModelPath = (text ?? "").Trim().Replace('\\', '/');
+        Raise(nameof(CharacterModelPath));
+        CommandManager.InvalidateRequerySuggested();
+        if (characterModelPath.Length == 0) { character = null; CharacterSummary = NoCharacterText; return; }
+
+        var problem = CheckCharacterModel(characterModelPath);
+        if (problem != null) { character = null; CharacterSummary = problem; return; }
+
+        character = CharacterContext.FromModel(characterModelPath);
+        foreach (var vm in Items) vm.ApplyCharacter(character);
+        CharacterSummary = $"Character: {character.Name}. Animations are named \"{character.Name} <Action>\", saved into {character.AnimationsFolder} and use this model's skeleton. Fields you edit by hand are kept.";
+    }
+
+    string? CheckCharacterModel(string path)
+    {
+        if (!path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) || !path.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase))
+            return "Pick the character's model FBX inside the project's Assets folder, for example Assets/Art/Characters/EnemyUnit/Models/EnemyUnit.fbx.";
+        if (ProjectLocator.IsProject(Settings.ProjectPath) && !File.Exists(ProjectPaths.ToAbsolute(Settings.ProjectPath, path)))
+            return $"Not found in the project: {path}";
+        return null;
+    }
+
+    void ApplyCharacterTo(AssetItemViewModel vm)
+    {
+        if (character != null) vm.ApplyCharacter(character);
+    }
 
     /// <summary>Files, or folders (searched recursively for model files; the dropped folder is the classification context).</summary>
     public void AddDropped(IEnumerable<string> paths)
@@ -75,7 +136,9 @@ public sealed class MainViewModel : ViewModelBase
         foreach (var path in paths)
         {
             if (Items.Any(i => string.Equals(i.FullPath, path, StringComparison.OrdinalIgnoreCase))) continue;
-            Items.Add(new AssetItemViewModel(AssetItemFactory.Create(path, dropFolder, Settings), Settings));
+            var vm = new AssetItemViewModel(AssetItemFactory.Create(path, dropFolder, Settings), Settings) { AfterProfileChange = ApplyCharacterTo };
+            ApplyCharacterTo(vm);
+            Items.Add(vm);
             added++;
         }
         if (added > 0)

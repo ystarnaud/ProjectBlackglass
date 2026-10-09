@@ -42,7 +42,11 @@ public sealed class AssetItemViewModel : ViewModelBase
             if (value == null || value.Id == Item.ProfileId) return;
             Item.ProfileId = value.Id;
             ImportProfiles.Apply(Import, value, settings);
+            // Apply reset these two to the profile defaults, so they are no longer hand-edited.
+            Item.EditedFields.Remove(ItemFields.Destination);
+            Item.EditedFields.Remove(ItemFields.SharedAvatar);
             RaiseAll();
+            AfterProfileChange?.Invoke(this);
         }
     }
 
@@ -51,8 +55,20 @@ public sealed class AssetItemViewModel : ViewModelBase
     public bool IsProp => Profile.Kind == ProfileIds.GenericProp;
     public bool IsEnvironment => Profile.Kind == ProfileIds.EnvironmentModule;
 
-    public string Name { get => Import.name; set { Import.name = value; Raise(); } }
-    public string Destination { get => Import.destinationFolder; set { Import.destinationFolder = value; Raise(); } }
+    /// <summary>Called after the profile changes, so the window can re-apply the chosen character to a clip that just became an animation.</summary>
+    public Action<AssetItemViewModel>? AfterProfileChange { get; set; }
+
+    /// <summary>Fills this item from the character if it is an animation; fields edited by hand are kept.</summary>
+    public void ApplyCharacter(CharacterContext character)
+    {
+        AnimationBatch.Apply(Item, character);
+        RaiseAll();
+    }
+
+    void Edited(string field) => Item.EditedFields.Add(field);
+
+    public string Name { get => Import.name; set { Import.name = value; Edited(ItemFields.Name); Raise(); } }
+    public string Destination { get => Import.destinationFolder; set { Import.destinationFolder = value; Edited(ItemFields.Destination); Raise(); } }
     public bool AllowOverwrite { get => Import.allowOverwrite; set { Import.allowOverwrite = value; Raise(); } }
 
     public float TargetHeight { get => Import.character.targetHeight; set { Import.character.targetHeight = value; Raise(); Raise(nameof(ScaleSummary)); } }
@@ -63,8 +79,8 @@ public sealed class AssetItemViewModel : ViewModelBase
     public string MaterialMode { get => Import.character.materialMode; set { Import.character.materialMode = value; Raise(); } }
     public bool GeneratePrefab { get => Import.character.generatePrefab; set { Import.character.generatePrefab = value; Raise(); } }
 
-    public string ClipName { get => Import.animation.clipName; set { Import.animation.clipName = value; Raise(); } }
-    public string SharedAvatarPath { get => Import.animation.sharedAvatarPath; set { Import.animation.sharedAvatarPath = value; Raise(); } }
+    public string ClipName { get => Import.animation.clipName; set { Import.animation.clipName = value; Edited(ItemFields.ClipName); Raise(); } }
+    public string SharedAvatarPath { get => Import.animation.sharedAvatarPath; set { Import.animation.sharedAvatarPath = value; Edited(ItemFields.SharedAvatar); Raise(); } }
     public string Loop { get => Import.animation.loop; set { Import.animation.loop = value; Raise(); } }
     public bool BakeRotation { get => Import.animation.bakeRotation; set { Import.animation.bakeRotation = value; Raise(); } }
     public bool BakeHeight { get => Import.animation.bakeHeight; set { Import.animation.bakeHeight = value; Raise(); } }
