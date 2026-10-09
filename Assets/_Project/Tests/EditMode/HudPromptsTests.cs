@@ -123,6 +123,31 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void AnEntryWhosePathsAllResolveToNothing_IsSkipped()
+        {
+            // Only the pause action exists, bound for keyboard: every other entry resolves to "-" and must not be listed.
+            var asset = UnityEngine.ScriptableObject.CreateInstance<InputActionAsset>();
+            try
+            {
+                var map = asset.AddActionMap("Commands");
+                map.AddAction("ToggleTacticalPause").AddBinding("<Keyboard>/space", groups: "KeyboardMouse");
+                var entries = new List<HudPromptEntry>();
+
+                HudPrompts.Build(default, InputFamily.KeyboardMouse, asset, entries);
+
+                Assert.That(Labels(entries), Is.EqualTo(new[] { "Pause" }));
+                Assert.That(entries[0].Prompt, Is.Not.EqualTo("-").And.Not.Empty);
+
+                HudPrompts.Build(default, InputFamily.Xbox, asset, entries);
+                Assert.That(entries, Is.Empty, "nothing is bound for the pad");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(asset);
+            }
+        }
+
+        [Test]
         public void NullControls_GiveNothingAndDoNotThrow()
         {
             var entries = new List<HudPromptEntry> { new HudPromptEntry { Label = "stale", Prompt = "x" } };

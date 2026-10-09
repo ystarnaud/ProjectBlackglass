@@ -44,15 +44,15 @@ namespace Blackglass
         public readonly List<HudObjectiveRow> Objectives = new List<HudObjectiveRow>();
         public readonly List<HudPromptEntry> Prompts = new List<HudPromptEntry>();
         public readonly List<HudWorldMark> Marks = new List<HudWorldMark>();
-        public bool HasMission; public string PhaseText, BannerText;
+        public bool HasMission; public string PhaseText = string.Empty, BannerText = string.Empty;
         public HudExtractionState Extraction; public int ExtractionInside, ExtractionRequired;
-        public bool IsPaused; public string ResumePrompt;
-        public bool HasControlled; public string ControlledName, ControlledRole, ControlledCover; public int ControlledRank, ControlledHealth, ControlledMaxHealth;
+        public bool IsPaused; public string ResumePrompt = string.Empty;
+        public bool HasControlled; public string ControlledName = string.Empty, ControlledRole = string.Empty, ControlledCover = string.Empty; public int ControlledRank, ControlledHealth, ControlledMaxHealth;
         public bool HasFollow, FollowOn;
-        public string QueueOwner; public int QueueHidden;          // QueueHidden = steps beyond the shown limit
+        public string QueueOwner = string.Empty; public int QueueHidden;          // QueueHidden = steps beyond the shown limit
         public CommandableUnit QueueUnit;                          // the queue subject, for the CLEAR request
         public bool CanClearOrders;
-        public string CasterName; public bool IsArmed; public string ArmedLine;   // "" when not armed
+        public string CasterName = string.Empty; public bool IsArmed; public string ArmedLine = string.Empty;   // "" when not armed
         public HudTarget Target;
 
         public void Clear()

@@ -14,10 +14,15 @@ namespace Blackglass
 
         public static string Health(int current, int max) => current.ToString(Invariant) + "/" + max.ToString(Invariant);
 
+        /// <summary>
+        /// Seconds rounded up to the tenth ("4.3"); from ten seconds on, whole seconds ("25"). The rounded value decides, so
+        /// 9.94 reads "10", never "10.0".
+        /// </summary>
         public static string Seconds(float seconds)
         {
-            if (seconds >= 9.95f) return Mathf.CeilToInt(seconds).ToString(Invariant);
-            return (Mathf.Ceil(Mathf.Max(0f, seconds) * 10f) / 10f).ToString("0.0", Invariant);
+            var tenths = Mathf.Ceil(Mathf.Max(0f, seconds) * 10f) / 10f;
+            if (tenths >= 10f) return Mathf.CeilToInt(seconds).ToString(Invariant);
+            return tenths.ToString("0.0", Invariant);
         }
 
         public static string CleanName(string raw)

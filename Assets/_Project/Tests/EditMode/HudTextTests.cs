@@ -30,6 +30,7 @@ namespace Blackglass.Tests
         [Test] public void Health_IsCurrentOverMax() => Assert.That(HudText.Health(42, 60), Is.EqualTo("42/60"));
 
         [TestCase(0f, "0.0")] [TestCase(0.01f, "0.1")] [TestCase(4.21f, "4.3")] [TestCase(9.99f, "10")] [TestCase(24.2f, "25")]
+        [TestCase(9.94f, "10")] [TestCase(9.92f, "10")] [TestCase(9.9f, "9.9")] [TestCase(9.89f, "9.9")] [TestCase(10f, "10")]
         public void Seconds_RoundsUp_AndDropsDecimalsFromTen(float value, string expected) =>
             Assert.That(HudText.Seconds(value), Is.EqualTo(expected));
 
@@ -67,6 +68,17 @@ namespace Blackglass.Tests
             Assert.That(HudText.Step(attack, unit => true), Is.EqualTo("Attack HostileUnit_1"));
             Assert.That(HudText.Step(attack, unit => false), Is.EqualTo("Attack (target lost)"));
             Assert.That(HudText.Step(attack, null), Is.EqualTo("Attack HostileUnit_1"));
+        }
+
+        [Test]
+        public void Step_AttackOnADestroyedTarget_ReadsTargetLost()
+        {
+            var target = Unit("HostileUnit_2");
+            var attack = new AttackCommand(target);
+            Object.DestroyImmediate(target.gameObject);
+
+            Assert.That(HudText.Step(attack, unit => true), Is.EqualTo("Attack (target lost)"));
+            Assert.That(HudText.Step(attack, null), Is.EqualTo("Attack (target lost)"));
         }
 
         [TestCase(CoverStatus.None, "Exposed")] [TestCase(CoverStatus.Reserved, "Moving to cover")]
@@ -215,6 +227,20 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void ExtractionOf_AFailedObjective_IsHidden()
+        {
+            var terminal = new GameObject("T");
+            created.Add(terminal);
+            var failing = new InteractObjective("hack", "Hack", terminal.AddComponent<MissionInteractable>());
+            failing.Activate();
+            Object.DestroyImmediate(terminal);
+            failing.Evaluate();
+            Assert.That(failing.State, Is.EqualTo(ObjectiveState.Failed), "Precondition");
+
+            Assert.That(HudText.ExtractionOf(failing, MissionPhase.ExtractionOpen, 1), Is.EqualTo(HudExtractionState.Hidden));
+        }
+
+        [Test]
         public void ExtractionLabel_PerState()
         {
             Assert.That(HudText.ExtractionLabel(HudExtractionState.Unknown, 0, 2), Is.EqualTo("EXTRACTION UNKNOWN"));
@@ -228,6 +254,15 @@ namespace Blackglass.Tests
         [Test]
         public void Pause_NamesTheResumePrompt() =>
             Assert.That(HudText.Pause("Space"), Is.EqualTo("TACTICAL PAUSE - Space to resume"));
+
+        [Test]
+        public void Snapshot_StringsAreEmptyNotNull_BeforeTheFirstClear()
+        {
+            var snapshot = new HudSnapshot();
+            foreach (var text in new[] { snapshot.PhaseText, snapshot.BannerText, snapshot.ResumePrompt, snapshot.ControlledName,
+                         snapshot.ControlledRole, snapshot.ControlledCover, snapshot.QueueOwner, snapshot.CasterName, snapshot.ArmedLine })
+                Assert.That(text, Is.Not.Null.And.Empty);
+        }
 
         [Test]
         public void Snapshot_ClearEmptiesEverything()
