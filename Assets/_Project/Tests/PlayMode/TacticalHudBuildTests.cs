@@ -17,7 +17,7 @@ namespace Blackglass.Tests
     public class TacticalHudBuildTests
     {
         static readonly string[] PanelNames = { "Objectives", "Status", "Squad", "Operative", "Prompts", "Target", "WorldMarks" };
-        static readonly string[] LaterPanels = { "Operative", "Prompts", "Target", "WorldMarks" };
+        static readonly string[] LaterPanels = { "Prompts", "Target", "WorldMarks" };
 
         readonly List<Object> created = new List<Object>();
         TacticalHud hud;
@@ -71,6 +71,7 @@ namespace Blackglass.Tests
             Assert.That(hud.Status.ExtractionLabel, Is.Not.Null);
             Assert.That(hud.Status.FollowLabel, Is.Not.Null);
             Assert.That(hud.Squad.Root, Is.SameAs(Panel("Squad")));
+            Assert.That(hud.Operative.Root, Is.SameAs(Panel("Operative")));
             foreach (var name in LaterPanels)
             {
                 Assert.That(Panel(name).childCount, Is.Zero, $"{name} is an empty rect until its task fills it");
@@ -291,7 +292,7 @@ namespace Blackglass.Tests
             HudLayout.AssertInside(status.RightBlock, status.ExtractionChip, status.FollowChip);
             Assert.That(HudLayout.WorldRect(squad).width, Is.EqualTo(460f).Within(0.5f));
             Assert.That(HudLayout.WorldRect(squad).height, Is.EqualTo(6 * 72f + 5 * 8f).Within(0.5f));
-            Assert.That(HudLayout.WorldRect(operative).size, Is.EqualTo(new Vector2(760f, 250f)));
+            Assert.That(HudLayout.WorldRect(operative).size, Is.EqualTo(new Vector2(760f, 280f)));
             Assert.That(HudLayout.WorldRect(prompts).width, Is.EqualTo(380f).Within(0.5f));
             Assert.That(HudLayout.WorldRect(target).size, Is.EqualTo(new Vector2(340f, 140f)));
             Assert.That(HudLayout.WorldRect(Panel("WorldMarks")).width, Is.EqualTo(units.x).Within(0.5f));

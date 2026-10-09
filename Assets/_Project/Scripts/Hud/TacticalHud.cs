@@ -21,7 +21,6 @@ namespace Blackglass
 
         // Final footprints of the zones later tasks fill; each task replaces its empty rect with its panel.
         const float ZoneGap = 16f;
-        static readonly Vector2 OperativeSize = new Vector2(760f, 250f);
         static readonly Vector2 PromptsSize = new Vector2(380f, 220f);
         static readonly Vector2 TargetSize = new Vector2(340f, 140f);
 
@@ -37,6 +36,7 @@ namespace Blackglass
         internal ObjectivesPanel Objectives { get; private set; }
         internal StatusPanel Status { get; private set; }
         internal SquadPanel Squad { get; private set; }
+        internal OperativePanel Operative { get; private set; }
 
         internal void Initialize(HudSources hudSources, PointerBlocker blocker)
         {
@@ -61,7 +61,7 @@ namespace Blackglass
             Objectives = Add(new ObjectivesPanel(root));
             Status = Add(new StatusPanel(root));
             Squad = Add(new SquadPanel(root));
-            Zone("Operative", root, new Vector2(0.5f, 0f), new Vector2(0f, HudTheme.Margin), OperativeSize);
+            Operative = Add(new OperativePanel(root));
             Zone("Prompts", root, new Vector2(1f, 0f), new Vector2(-HudTheme.Margin, HudTheme.Margin), PromptsSize);
             Zone("Target", root, new Vector2(1f, 0f), new Vector2(-HudTheme.Margin, HudTheme.Margin + PromptsSize.y + ZoneGap), TargetSize);
             return root;

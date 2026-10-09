@@ -167,7 +167,7 @@ namespace Blackglass
             HudFactory.SetActive(initials.gameObject, sprite == null);
         }
 
-        static string RoleLine(string role, int rank) =>
+        internal static string RoleLine(string role, int rank) =>
             rank <= 0 ? role ?? string.Empty
             : string.IsNullOrEmpty(role) ? "Rank " + rank.ToString(System.Globalization.CultureInfo.InvariantCulture)
             : role + RankSeparator + "Rank " + rank.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -193,7 +193,7 @@ namespace Blackglass
             return label;
         }
 
-        static void Edge(RectTransform frame, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 size)
+        internal static void Edge(RectTransform frame, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 pivot, Vector2 size)
         {
             var edge = HudFactory.Box(name, frame, HudTheme.Accent, false);
             HudFactory.Anchor(edge, anchorMin, anchorMax, pivot, Vector2.zero, Vector2.zero);
