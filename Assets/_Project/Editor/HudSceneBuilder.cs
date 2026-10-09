@@ -97,6 +97,7 @@ namespace Blackglass.EditorTools
             Put(serialized, "sources.inputDevice", Find<ActiveInputDevice>());
             Put(serialized, "sources.controls", controls);
             Put(serialized, "sources.camera", camera);
+            Put(serialized, "sources.intelMap", Find<IntelMapView>());
             Put(serialized, "pointerBlocker", blocker);
             Put(serialized, "queueModifier", ActionReference("Commands", "QueueModifier"));
             serialized.ApplyModifiedPropertiesWithoutUndo();

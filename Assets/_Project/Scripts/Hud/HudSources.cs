@@ -24,5 +24,7 @@ namespace Blackglass
         public ActiveInputDevice inputDevice;
         public InputActionAsset controls;
         public Camera camera;
+        // Optional: the prototype intel map; the HUD places it above the squad roster.
+        public IntelMapView intelMap;
     }
 }

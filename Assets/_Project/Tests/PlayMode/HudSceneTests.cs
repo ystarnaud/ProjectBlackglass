@@ -92,6 +92,7 @@ namespace Blackglass.Tests
             Check<MissionDirector>("director");
             Check<SquadRoster>("roster");
             Check<IntelligenceService>("intelligence");
+            Check<IntelMapView>("intelMap");
             Check<AbilityTargeting>("abilityTargeting");
             Check<TacticalCursor>("cursor");
             Check<PlayerCommandInput>("commandInput");

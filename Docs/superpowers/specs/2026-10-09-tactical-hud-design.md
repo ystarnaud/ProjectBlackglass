@@ -47,7 +47,7 @@ All new runtime code is in `Assets/_Project/Scripts/Hud/` in the existing `Black
 - `DebugUI/DeveloperOverlay` (MonoBehaviour): `IsVisible`, `Toggle()`. `DeveloperOverlayInput` reads `Developer/ToggleDebugOverlay`. A null overlay reference means "visible", so existing scenes and tests are unchanged.
 - `ActiveCharacter.TakeControl(CommandableUnit)`: same hand-over rules as Tab (eligible unit becomes active; selection follows).
 - `Input/BlackglassControls.inputactions`: `Developer/ToggleDebugOverlay` on F1.
-- Debug IMGUI views gain an optional `DeveloperOverlay` reference and return early when it is hidden: `PrototypeHud` (everything except the drag box), `AbilityBarView`, `MissionHud`, `MissionDebugView`. `OperativePanelView`, `IntelligenceDebugView` and `IntelMapView` keep their own toggles.
+- Debug IMGUI views gain an optional `DeveloperOverlay` reference and return early when it is hidden: `PrototypeHud` (everything except the drag box), `AbilityBarView`, `MissionHud`, `MissionDebugView`. `OperativePanelView`, `IntelligenceDebugView` and `IntelMapView` keep their own toggles; the HUD only places the intel map above the squad roster (`HudSources.intelMap`).
 - Editor: `HudSceneBuilder` (`Blackglass/HUD/Wire Scenes`, and a `-executeMethod` entry) adds the HUD (with its `PointerBlocker`), the `DeveloperOverlay` and its input to `ProceduralMission` and `Prototype`, and wires the sources. It does not add an EventSystem: it only converts the module of an EventSystem the scene already has to `PointerOnlyInputModule` (neither scene has one). When the scene has none, `TacticalHud.EnsureEventSystem` creates one at runtime, as a child of the `TacticalHud` object (a sibling of `HudCanvas`). Idempotent.
 
 ## 5. Layout (1920×1080 reference, 24 px margins)

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -75,7 +76,7 @@ namespace Blackglass
     }
 
     /// <summary>
-    /// The prototype tactical map (IMGUI, bottom right, works while paused): the regions coloured by what the player knows
+    /// The prototype tactical map (IMGUI, bottom right unless a placement source moves it, works while paused): the regions coloured by what the player knows
     /// (unknown dark, discovered grey, observed light), the squad, hostiles that are in sight, a marker where a hostile was
     /// last seen, discovered security devices and known objectives. Shown only while fog is on; the developer truth view
     /// also draws the unknown regions and every hostile. Not a production minimap. The marks are built by BuildMarks so tests
@@ -105,6 +106,27 @@ namespace Blackglass
         GUIStyle labelStyle;
 
         public bool IsVisible => visible;
+
+        /// <summary>
+        /// Optional placement from whoever lays out the screen (the tactical HUD puts the map above the squad roster): given
+        /// the map's natural size, the panel in IMGUI coordinates (y down), or null for the default. Without one the map
+        /// sits in the bottom-right corner.
+        /// </summary>
+        internal Func<Vector2, Rect?> PanelSource { get; set; }
+
+        /// <summary>The panel to draw this frame: the placement source's, kept on screen, else the bottom-right default.</summary>
+        internal Rect CurrentPanel(float screenWidth, float screenHeight)
+        {
+            var placed = PanelSource?.Invoke(size);
+            if (placed.HasValue)
+            {
+                var panel = placed.Value;
+                panel.x = Mathf.Clamp(panel.x, 0f, Mathf.Max(0f, screenWidth - panel.width));
+                panel.y = Mathf.Clamp(panel.y, 0f, Mathf.Max(0f, screenHeight - panel.height));
+                return panel;
+            }
+            return new Rect(screenWidth - size.x - 10f, screenHeight - size.y - 10f, size.x, size.y);
+        }
 
         public void Toggle() => visible = !visible;
 
@@ -178,7 +200,7 @@ namespace Blackglass
         {
             if (!visible || intelligence == null || !intelligence.IsFogActive)
                 return;
-            var panel = new Rect(Screen.width - size.x - 10f, Screen.height - size.y - 10f, size.x, size.y);
+            var panel = CurrentPanel(Screen.width, Screen.height);
             labelStyle ??= new GUIStyle(GUI.skin.label) { fontSize = 11, alignment = TextAnchor.MiddleCenter };
             GUI.color = new Color(0f, 0f, 0f, 0.75f);
             GUI.DrawTexture(panel, Texture2D.whiteTexture);

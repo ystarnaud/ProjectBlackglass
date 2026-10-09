@@ -1363,6 +1363,7 @@ MonoBehaviour:
     inputDevice: {fileID: 1021927392}
     controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
     camera: {fileID: 678505232}
+    intelMap: {fileID: 26027900}
   pointerBlocker: {fileID: 1547631581}
   queueModifier: {fileID: 3622529144628067995, guid: 052faaac586de48259a63d0c4782560b, type: 3}
 --- !u!4 &1547631583

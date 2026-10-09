@@ -58,9 +58,13 @@ namespace Blackglass
                 if (blocker != null)
                     blocker.SetTest(gate.IsOver);
             }
+            if (isActiveAndEnabled)
+                WithdrawMapPlacement();
             sources = hudSources;
             pointerBlocker = blocker;
             requests = null;
+            if (isActiveAndEnabled)
+                InstallMapPlacement();
         }
 
         internal void SetQueueModifier(InputActionReference modifier)
@@ -147,10 +151,12 @@ namespace Blackglass
             if (pointerBlocker != null)
                 pointerBlocker.SetTest(gate.IsOver);
             builder.PointerOverHud = gate.IsOver;
+            InstallMapPlacement();
         }
 
         void OnDisable()
         {
+            WithdrawMapPlacement();
             if (pointerBlocker != null)
                 pointerBlocker.SetTest(null);
             builder.PointerOverHud = null;
@@ -162,6 +168,41 @@ namespace Blackglass
         {
             builder.Build(sources, Snapshot, Time.unscaledTime);
             ApplySnapshot();
+        }
+
+        // Gap between the squad roster and the intel map above it, in canvas units.
+        const float MapGap = 12f;
+        readonly Vector3[] mapCorners = new Vector3[4];
+        Func<Vector2, Rect?> mapPlacement;   // created once; compared on withdraw so only our own placement is removed
+
+        void InstallMapPlacement()
+        {
+            if (sources != null && sources.intelMap != null)
+                sources.intelMap.PanelSource = mapPlacement ??= MapPanelAbove;
+        }
+
+        void WithdrawMapPlacement()
+        {
+            if (sources != null && sources.intelMap != null && sources.intelMap.PanelSource == mapPlacement)
+                sources.intelMap.PanelSource = null;
+        }
+
+        /// <summary>
+        /// Where the intel map goes: left-aligned with the squad cards, its bottom edge MapGap above the top card (above the
+        /// zone's bottom margin when the squad has no cards), in IMGUI coordinates (y down) and scaled with the canvas, so it
+        /// follows the roster as the squad shrinks or grows.
+        /// </summary>
+        internal Rect? MapPanelAbove(Vector2 naturalSize)
+        {
+            if (Squad == null)
+                return null;
+            var hasCards = Squad.Footprint.gameObject.activeInHierarchy;
+            var anchor = hasCards ? Squad.Footprint : Squad.Root;
+            anchor.GetWorldCorners(mapCorners);   // an overlay canvas lays its corners out in screen pixels, y up
+            var scale = Root != null ? Root.lossyScale.x : 1f;
+            var size = naturalSize * scale;
+            var restingY = hasCards ? mapCorners[1].y + MapGap * scale : mapCorners[0].y;
+            return new Rect(mapCorners[0].x, Screen.height - restingY - size.y, size.x, size.y);
         }
 
         // The world marks' camera: the wired one, else the scene's main camera.
