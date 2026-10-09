@@ -1,0 +1,24 @@
+<Window x:Class="Blackglass.AssetStudio.App.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Settings" Width="640" SizeToContent="Height" WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <StackPanel Margin="12">
+        <TextBlock Text="Blackglass project folder (contains Assets and ProjectSettings)" />
+        <DockPanel><Button DockPanel.Dock="Right" Content="Browse..." Click="BrowseProject" Margin="6,0,0,0" /><TextBox x:Name="ProjectBox" /></DockPanel>
+        <TextBlock x:Name="ProjectNote" Foreground="DimGray" Margin="0,2,0,8" />
+        <TextBlock Text="Unity executable (leave empty to detect the project's version)" />
+        <DockPanel><Button DockPanel.Dock="Right" Content="Browse..." Click="BrowseUnity" Margin="6,0,0,0" /><TextBox x:Name="UnityBox" /></DockPanel>
+        <TextBlock x:Name="UnityNote" Foreground="DimGray" Margin="0,2,0,8" />
+        <TextBlock Text="Staging / run folder (leave empty for %LocalAppData%\BlackglassAssetStudio\runs)" />
+        <TextBox x:Name="StagingBox" Margin="0,0,0,8" />
+        <TextBlock Text="Default character target height (m)" />
+        <TextBox x:Name="HeightBox" Margin="0,0,0,8" />
+        <TextBlock Text="Default shared Avatar model (project path, for animation clips)" />
+        <TextBox x:Name="AvatarBox" Margin="0,0,0,12" />
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="Check" Click="Check" Width="80" Margin="0,0,8,0" />
+            <Button Content="Save" IsDefault="True" Click="Save" Width="80" Margin="0,0,8,0" />
+            <Button Content="Cancel" IsCancel="True" Width="80" />
+        </StackPanel>
+    </StackPanel>
+</Window>
