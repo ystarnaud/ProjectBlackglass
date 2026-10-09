@@ -14,9 +14,15 @@ public sealed record CharacterContext(string Name, string Folder, string ModelPa
         var segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
         var stem = Path.GetFileNameWithoutExtension(segments.Length > 0 ? segments[^1] : "");
 
-        for (var i = 0; i + 2 < segments.Length; i++)
-            if (segments[i].Equals("Characters", StringComparison.OrdinalIgnoreCase))
-                return new CharacterContext(segments[i + 1], string.Join('/', segments.Take(i + 2)), path);
+        for (var i = 0; i + 1 < segments.Length; i++)
+        {
+            if (!segments[i].Equals("Characters", StringComparison.OrdinalIgnoreCase)) continue;
+            var next = segments[i + 1];
+            var nextIsFileOrModels = i + 2 >= segments.Length || next.Equals("Models", StringComparison.OrdinalIgnoreCase) || next.Equals("Model", StringComparison.OrdinalIgnoreCase);
+            // Assets/.../Characters/<Name>/... names the character; Characters/X.fbx or Characters/Models/X.fbx use the file name instead.
+            var name = nextIsFileOrModels ? stem : next;
+            return new CharacterContext(name, string.Join('/', segments.Take(i + 1)) + "/" + name, path);
+        }
 
         var folder = segments.Take(Math.Max(0, segments.Length - 1)).ToList();
         if (folder.Count > 1 && (folder[^1].Equals("Models", StringComparison.OrdinalIgnoreCase) || folder[^1].Equals("Model", StringComparison.OrdinalIgnoreCase)))

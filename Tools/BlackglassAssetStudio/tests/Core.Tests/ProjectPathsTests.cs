@@ -32,6 +32,28 @@ public class ProjectPathsTests
         Assert.Contains("Assets", error);
     }
 
+    [Theory]
+    [InlineData("assets/Art/X.fbx", "Assets/Art/X.fbx")]
+    [InlineData(@"ASSETS\Art\X.fbx", "Assets/Art/X.fbx")]
+    [InlineData("  Assets/Art/X.fbx  ", "Assets/Art/X.fbx")]
+    [InlineData("Assets", "Assets")]
+    [InlineData("assets", "Assets")]
+    [InlineData("Other/Assets/X.fbx", "Other/Assets/X.fbx")]
+    [InlineData("", "")]
+    public void Normalize_gives_forward_slashes_and_the_exact_case_of_Assets(string typed, string expected) =>
+        Assert.Equal(expected, ProjectPaths.Normalize(typed));
+
+    [Theory]
+    [InlineData("Assets/Art/X.fbx", true)]
+    [InlineData("Assets", true)]
+    [InlineData("Assets/../ProjectSettings/x.asset", false)]
+    [InlineData("Assets/./X.fbx", false)]
+    [InlineData("Library/X.fbx", false)]
+    [InlineData("AssetsExtra/X.fbx", false)]
+    [InlineData("", false)]
+    public void IsProjectPath_needs_the_Assets_root_and_no_dot_segments(string path, bool expected) =>
+        Assert.Equal(expected, ProjectPaths.IsProjectPath(path));
+
     [Fact]
     public void ToAbsolute_joins_under_the_project_root() =>
         Assert.Equal(@"C:\Games\Blackglass\Assets\Art\X", ProjectPaths.ToAbsolute(Root, "Assets/Art/X"));

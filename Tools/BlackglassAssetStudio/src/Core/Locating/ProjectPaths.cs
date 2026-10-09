@@ -28,6 +28,22 @@ public static class ProjectPaths
         }
     }
 
+    /// <summary>A typed project path with forward slashes, no surrounding spaces and the exact case of the leading "Assets" (the manifest rules are case-sensitive).</summary>
+    public static string Normalize(string? typed)
+    {
+        var path = (typed ?? "").Trim().Replace('\\', '/');
+        if (path.Equals("assets", StringComparison.OrdinalIgnoreCase)) return "Assets";
+        return path.StartsWith("assets/", StringComparison.OrdinalIgnoreCase) ? "Assets" + path.Substring(6) : path;
+    }
+
+    /// <summary>True for "Assets" or "Assets/..." with no "." or ".." segments.</summary>
+    public static bool IsProjectPath(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        var segments = path.Split('/');
+        return segments[0] == "Assets" && !segments.Any(s => s is "." or "..");
+    }
+
     /// <summary>The disk path of a project path; an empty project path is the Assets folder.</summary>
     public static string ToAbsolute(string projectRoot, string projectPath) =>
         string.IsNullOrWhiteSpace(projectPath)

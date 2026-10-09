@@ -12,6 +12,8 @@ public class CharacterContextTests
     [InlineData("Assets/Other/Kestrel/Kestrel.fbx", "Kestrel", "Assets/Other/Kestrel")]
     [InlineData("Assets/Other/Kestrel/Models/Kestrel.fbx", "Kestrel", "Assets/Other/Kestrel")]
     [InlineData("Assets/Kestrel.fbx", "Kestrel", "Assets")]
+    [InlineData("Assets/Art/Characters/EnemyUnit.fbx", "EnemyUnit", "Assets/Art/Characters/EnemyUnit")]
+    [InlineData("Assets/Art/Characters/Models/EnemyUnit.fbx", "EnemyUnit", "Assets/Art/Characters/EnemyUnit")]
     public void The_character_is_found_from_its_model_path(string model, string name, string folder)
     {
         var c = CharacterContext.FromModel(model);

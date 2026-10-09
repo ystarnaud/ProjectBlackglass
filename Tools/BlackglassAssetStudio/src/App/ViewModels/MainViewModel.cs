@@ -36,7 +36,7 @@ public sealed class MainViewModel : ViewModelBase
             var picked = PickProjectFile?.Invoke("Choose the character's model FBX", "Models (*.fbx)|*.fbx", character?.ModelPath ?? "Assets/Art/Characters");
             if (!string.IsNullOrEmpty(picked)) CharacterModelPath = picked;
         }, () => !IsBusy, ReportError);
-        ClearCharacterCommand = new RelayCommand(() => CharacterModelPath = "", () => characterModelPath.Length > 0, ReportError);
+        ClearCharacterCommand = new RelayCommand(() => CharacterModelPath = "", () => characterModelPath.Length > 0 && !IsBusy, ReportError);
         RemoveCommand = new RelayCommand(() => { if (Selected != null) Items.Remove(Selected); }, () => Selected != null && !IsBusy, ReportError);
         ClearCommand = new RelayCommand(() => Items.Clear(), () => Items.Count > 0 && !IsBusy, ReportError);
         ValidateCommand = new RelayCommand(Validate, () => Items.Count > 0 && !IsBusy, ReportError);
@@ -91,7 +91,8 @@ public sealed class MainViewModel : ViewModelBase
 
     void SetCharacter(string? text)
     {
-        characterModelPath = (text ?? "").Trim().Replace('\\', '/');
+        if (IsBusy) { Raise(nameof(CharacterModelPath)); return; } // the manifest items are being read by the running import
+        characterModelPath = ProjectPaths.Normalize(text);
         Raise(nameof(CharacterModelPath));
         CommandManager.InvalidateRequerySuggested();
         if (characterModelPath.Length == 0) { character = null; CharacterSummary = NoCharacterText; return; }
@@ -106,7 +107,7 @@ public sealed class MainViewModel : ViewModelBase
 
     string? CheckCharacterModel(string path)
     {
-        if (!path.StartsWith("Assets/", StringComparison.OrdinalIgnoreCase) || !path.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase))
+        if (!ProjectPaths.IsProjectPath(path) || !path.EndsWith(".fbx", StringComparison.OrdinalIgnoreCase))
             return "Pick the character's model FBX inside the project's Assets folder, for example Assets/Art/Characters/EnemyUnit/Models/EnemyUnit.fbx.";
         if (ProjectLocator.IsProject(Settings.ProjectPath) && !File.Exists(ProjectPaths.ToAbsolute(Settings.ProjectPath, path)))
             return $"Not found in the project: {path}";

@@ -67,7 +67,20 @@ public sealed class AssetItemViewModel : ViewModelBase
 
     void Edited(string field) => Item.EditedFields.Add(field);
 
-    public string Name { get => Import.name; set { Import.name = value; Edited(ItemFields.Name); Raise(); } }
+    public string Name
+    {
+        get => Import.name;
+        set
+        {
+            Import.name = value;
+            Edited(ItemFields.Name);
+            // A character is saved into a folder named after it, so renaming it moves the folder unless the folder was typed by hand.
+            if (Profile.Kind == ProfileIds.HumanoidCharacter && !Item.EditedFields.Contains(ItemFields.Destination))
+                Import.destinationFolder = ImportProfiles.DefaultDestination(Profile, value);
+            Raise();
+            Raise(nameof(Destination));
+        }
+    }
     public string Destination { get => Import.destinationFolder; set { Import.destinationFolder = value; Edited(ItemFields.Destination); Raise(); } }
     public bool AllowOverwrite { get => Import.allowOverwrite; set { Import.allowOverwrite = value; Raise(); } }
 
