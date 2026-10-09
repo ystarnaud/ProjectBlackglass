@@ -232,12 +232,28 @@ namespace Blackglass.Tests
             Assert.That(HudFactory.TextWrites, Is.EqualTo(afterFirst + 1), "one changed value writes one text");
         }
 
-        [TestCase(1920f, 1080f)]
-        [TestCase(1920f, 1200f)]
-        [TestCase(2560f, 1080f)]
-        public void Layout_StaysInsideAndDoesNotOverlap_At16x9_16x10_21x9(float width, float height)
+        [Test]
+        public void CanvasUnits_FollowTheScalerAtMatchHalf()
         {
-            Build(width, height);
+            Assert.That(HudLayout.CanvasUnits(1920, 1080), Is.EqualTo(new Vector2(1920f, 1080f)));
+            Assert.That(HudLayout.CanvasUnits(1280, 720).x, Is.EqualTo(1920f).Within(0.5f));
+            Assert.That(HudLayout.CanvasUnits(2560, 1080).x, Is.EqualTo(2217f).Within(1f));
+            Assert.That(HudLayout.CanvasUnits(2560, 1080).y, Is.EqualTo(935f).Within(1f));
+            Assert.That(HudLayout.CanvasUnits(1920, 1200).x, Is.EqualTo(1822f).Within(1f));
+            Assert.That(HudLayout.CanvasUnits(1920, 1200).y, Is.EqualTo(1138f).Within(1f));
+        }
+
+        /// <summary>
+        /// The root is sized in canvas units, as the CanvasScaler sizes the real canvas for that screen (1920x1200 is about
+        /// 1822x1138 units, 2560x1080 about 2217x935).
+        /// </summary>
+        [TestCase(1920, 1080, TestName = "Layout_StaysInsideAndDoesNotOverlap_AtScreen1920x1080_16x9")]
+        [TestCase(1920, 1200, TestName = "Layout_StaysInsideAndDoesNotOverlap_AtScreen1920x1200_16x10")]
+        [TestCase(2560, 1080, TestName = "Layout_StaysInsideAndDoesNotOverlap_AtScreen2560x1080_21x9")]
+        public void Layout_StaysInsideAndDoesNotOverlap(int screenWidth, int screenHeight)
+        {
+            var units = HudLayout.CanvasUnits(screenWidth, screenHeight);
+            Build(units.x, units.y);
             FillMaximum(hud.Snapshot);
             hud.ApplySnapshot();
             HudLayout.Rebuild(root);
@@ -261,6 +277,14 @@ namespace Blackglass.Tests
             Assert.That(HudLayout.WorldRect(objectives).width, Is.EqualTo(420f).Within(0.5f));
             Assert.That(HudLayout.WorldRect(objectives).height, Is.GreaterThan(8 * HudTheme.FontBody), "the layout sized the panel to its rows");
             HudLayout.AssertInside(objectives, (RectTransform)hud.Objectives.Row(7).transform, hud.Objectives.Header.rectTransform);
+            for (var i = 0; i < hud.Objectives.RowCapacity; i++)
+            {
+                var text = hud.Objectives.RowText(i);
+                var rowHeight = ((RectTransform)hud.Objectives.Row(i).transform).rect.height;
+                Assert.That(text.preferredHeight, Is.GreaterThan(HudTheme.FontBody), $"row {i} wraps (the content is long)");
+                Assert.That(rowHeight, Is.GreaterThanOrEqualTo(text.preferredHeight - 0.5f), $"row {i} holds its wrapped text");
+                Assert.That(text.rectTransform.rect.height, Is.GreaterThanOrEqualTo(text.preferredHeight - 0.5f), $"row {i} text rect");
+            }
             HudLayout.AssertInside(status.PauseBanner, status.PauseLabel.rectTransform, status.PauseGlyph[0].rectTransform, status.PauseGlyph[1].rectTransform);
             HudLayout.AssertInside(status.ResultBanner, status.ResultLabel.rectTransform);
             HudLayout.AssertInside(status.RightBlock, status.ExtractionChip, status.FollowChip);
@@ -269,7 +293,8 @@ namespace Blackglass.Tests
             Assert.That(HudLayout.WorldRect(operative).size, Is.EqualTo(new Vector2(760f, 250f)));
             Assert.That(HudLayout.WorldRect(prompts).width, Is.EqualTo(380f).Within(0.5f));
             Assert.That(HudLayout.WorldRect(target).size, Is.EqualTo(new Vector2(340f, 140f)));
-            Assert.That(HudLayout.WorldRect(Panel("WorldMarks")).size, Is.EqualTo(new Vector2(width, height)));
+            Assert.That(HudLayout.WorldRect(Panel("WorldMarks")).width, Is.EqualTo(units.x).Within(0.5f));
+            Assert.That(HudLayout.WorldRect(Panel("WorldMarks")).height, Is.EqualTo(units.y).Within(0.5f));
             Assert.That(HudLayout.WorldRect(operative).center.x, Is.EqualTo(HudLayout.WorldRect(root).center.x).Within(0.5f),
                 "the operative panel is centred");
             Assert.That(HudLayout.WorldRect(status.PauseBanner).center.x,
@@ -324,6 +349,21 @@ namespace Blackglass.Tests
 
             Assert.That(Object.FindObjectsByType<EventSystem>(FindObjectsSortMode.None).Length, Is.EqualTo(1));
             Assert.That(existing.GetComponent<EventSystem>(), Is.Not.Null);
+        }
+
+        [UnityTest]
+        public IEnumerator AnExistingPlainUIModule_LosesItsNavigationActions()
+        {
+            var existing = Track(new GameObject("SceneEventSystem"));
+            existing.AddComponent<EventSystem>();
+            var module = existing.AddComponent<InputSystemUIInputModule>();
+            Assert.That(module.move, Is.Not.Null, "precondition: a plain module enables with the default navigation actions");
+            var hudObject = Track(new GameObject("hud"));
+            hudObject.AddComponent<TacticalHud>();
+            yield return null;
+
+            Assert.That(Object.FindObjectsByType<EventSystem>(FindObjectsSortMode.None).Length, Is.EqualTo(1), "the scene's system is reused");
+            AssertPointerOnly(module);
         }
 
         static void AssertPointerOnly(InputSystemUIInputModule module)

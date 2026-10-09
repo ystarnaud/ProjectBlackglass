@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 
 namespace Blackglass
@@ -118,11 +119,19 @@ namespace Blackglass
             BuildInto((RectTransform)canvasObject.transform);
         }
 
-        /// <summary>A pointer-only EventSystem under the HUD, only when the scene has none.</summary>
+        /// <summary>
+        /// A pointer-only EventSystem under the HUD, only when the scene has none. A scene's own EventSystem is reused, but
+        /// a plain Input System UI module on it loses its navigation actions, so a pad never moves UI focus there either.
+        /// </summary>
         void EnsureEventSystem()
         {
-            if (EventSystem.current != null || FindFirstObjectByType<EventSystem>() != null)
+            var existing = EventSystem.current != null ? EventSystem.current : FindFirstObjectByType<EventSystem>();
+            if (existing != null)
+            {
+                if (existing.TryGetComponent<InputSystemUIInputModule>(out var module) && !(module is PointerOnlyInputModule))
+                    PointerOnlyInputModule.StripNavigation(module);
                 return;
+            }
             var eventSystem = new GameObject("EventSystem");
             eventSystem.transform.SetParent(transform, false);
             eventSystem.AddComponent<EventSystem>();

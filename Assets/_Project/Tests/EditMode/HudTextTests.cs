@@ -255,6 +255,10 @@ namespace Blackglass.Tests
         public void Pause_NamesTheResumePrompt() =>
             Assert.That(HudText.Pause("Space"), Is.EqualTo("TACTICAL PAUSE - Space to resume"));
 
+        [TestCase(true, "FOLLOW: ON")]
+        [TestCase(false, "FOLLOW: OFF")]
+        public void Follow_NamesTheState(bool on, string expected) => Assert.That(HudText.Follow(on), Is.EqualTo(expected));
+
         [Test]
         public void Snapshot_StringsAreEmptyNotNull_BeforeTheFirstClear()
         {

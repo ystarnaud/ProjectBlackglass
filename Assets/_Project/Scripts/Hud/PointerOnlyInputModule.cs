@@ -12,9 +12,15 @@ namespace Blackglass
         protected override void OnEnable()
         {
             base.OnEnable();
-            move = null;
-            submit = null;
-            cancel = null;
+            StripNavigation(this);
+        }
+
+        /// <summary>Clears the navigation actions of any Input System UI module; its pointer actions stay.</summary>
+        public static void StripNavigation(InputSystemUIInputModule module)
+        {
+            module.move = null;
+            module.submit = null;
+            module.cancel = null;
         }
     }
 }

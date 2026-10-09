@@ -56,9 +56,10 @@ namespace Blackglass
             if (!s.HasMission)
                 return;
 
-            if (shownPhase == null || !string.Equals(shownPhase, s.PhaseText, StringComparison.Ordinal))
+            var phase = s.PhaseText ?? string.Empty;
+            if (shownPhase == null || !string.Equals(shownPhase, phase, StringComparison.Ordinal))
             {
-                shownPhase = s.PhaseText ?? string.Empty;
+                shownPhase = phase;
                 HudFactory.SetText(header, HeaderPrefix + shownPhase);
             }
 

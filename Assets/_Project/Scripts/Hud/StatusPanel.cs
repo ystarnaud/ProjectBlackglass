@@ -15,8 +15,6 @@ namespace Blackglass
         /// <summary>Height kept free for the pause banner, so the result banner below never moves.</summary>
         const float PauseReserve = 56f;
         const float BlockGap = 8f;
-        const string FollowOnText = "FOLLOW: ON";
-        const string FollowOffText = "FOLLOW: OFF";
         static readonly string FailedBanner = MissionHudText.Banner(MissionPhase.Failure);
 
         readonly RectTransform pauseBanner;
@@ -133,7 +131,7 @@ namespace Blackglass
 
             if (s.HasFollow)
             {
-                HudFactory.SetText(followLabel, s.FollowOn ? FollowOnText : FollowOffText);
+                HudFactory.SetText(followLabel, HudText.Follow(s.FollowOn));
                 HudFactory.SetColor(followLabel, s.FollowOn ? HudTheme.Accent : HudTheme.TextDim);
             }
         }

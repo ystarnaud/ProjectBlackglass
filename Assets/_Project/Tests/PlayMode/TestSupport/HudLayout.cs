@@ -13,6 +13,18 @@ namespace Blackglass.Tests
     {
         const float Tolerance = 0.5f;
 
+        /// <summary>
+        /// The canvas size, in reference units, of a screen of `screenW` x `screenH` pixels under the HUD's CanvasScaler
+        /// (ScaleWithScreenSize, 1920x1080, match 0.5): scale s = 2^lerp(log2(w/1920), log2(h/1080), 0.5), size (w/s, h/s).
+        /// </summary>
+        public static Vector2 CanvasUnits(int screenW, int screenH)
+        {
+            var logWidth = Mathf.Log(screenW / 1920f, 2f);
+            var logHeight = Mathf.Log(screenH / 1080f, 2f);
+            var scale = Mathf.Pow(2f, Mathf.Lerp(logWidth, logHeight, 0.5f));
+            return new Vector2(screenW / scale, screenH / scale);
+        }
+
         /// <summary>An active plain RectTransform of the given size, centred at the origin, to build a HUD under.</summary>
         public static RectTransform CreateRoot(float width, float height)
         {

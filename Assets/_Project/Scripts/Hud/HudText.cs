@@ -122,5 +122,8 @@ namespace Blackglass
         }
 
         public static string Pause(string resumePrompt) => "TACTICAL PAUSE - " + resumePrompt + " to resume";
+
+        /// <summary>The follow chip's text (constant strings, no allocation).</summary>
+        public static string Follow(bool on) => on ? "FOLLOW: ON" : "FOLLOW: OFF";
     }
 }
