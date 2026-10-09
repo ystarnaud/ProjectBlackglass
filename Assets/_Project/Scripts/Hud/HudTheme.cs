@@ -17,5 +17,7 @@ namespace Blackglass
         public static readonly Color Bad = new Color(0.92f, 0.36f, 0.34f, 1f);        // hostile, failed, low health
         public static readonly Color Good = new Color(0.46f, 0.82f, 0.52f, 1f);       // completed
         public const int Margin = 24, FontSmall = 14, FontBody = 16, FontLarge = 22, FontBanner = 34;
+        /// <summary>The gap between two stacked zones in one screen corner (the target panel above the prompts).</summary>
+        public const float ZoneGap = 16f;
     }
 }

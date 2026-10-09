@@ -161,6 +161,16 @@ namespace Blackglass
             applied = true;
         }
 
+        /// <summary>Forgets the unit of a hidden card; the shown fields stay, so the next Apply still writes only what changed.</summary>
+        internal void ReleaseUnit()
+        {
+            if (ReferenceEquals(Card.Unit, null))
+                return;
+            var card = Card;
+            card.Unit = null;
+            Card = card;
+        }
+
         void OnClicked(int clickCount)
         {
             var unit = Card.Unit;

@@ -7,8 +7,8 @@ namespace Blackglass
     /// Bottom right (380 x 220): the contextual control hints, one row per snapshot entry, at most six. Each row is a boxed
     /// chip with the prompt text and the label beside it. The text is whatever the snapshot carries (it is resolved per
     /// input family upstream), so a controller switch changes the chips and nothing here names a key or button. The rows
-    /// are pooled, rest on the bottom of the zone (row 0 on top) and are hidden when unused; with no entries nothing is
-    /// drawn. Nothing in it is a pointer target.
+    /// are pooled, rest on the bottom of the zone (row 0 on top) and are hidden and blanked when unused (a hidden row never
+    /// keeps an old terminal name); with no entries nothing is drawn. Nothing in it is a pointer target.
     /// </summary>
     internal sealed class PromptPanel : HudPanel
     {
@@ -16,7 +16,7 @@ namespace Blackglass
         public const float Width = 380f;
         public const float Height = 220f;
         public const float MinChipWidth = 44f;
-        public const float MaxChipWidth = 230f;
+        public const float MaxChipWidth = 250f;
         const float Pad = 8f;
         const float RowHeight = 30f;
         const float ChipHeight = 26f;
@@ -78,7 +78,11 @@ namespace Blackglass
                 var visible = i < count;
                 HudFactory.SetActive(rows[i].gameObject, visible);
                 if (!visible)
+                {
+                    HudFactory.SetText(chips[i], string.Empty);
+                    HudFactory.SetText(labels[i], string.Empty);
                     continue;
+                }
                 var entry = s.Prompts[i];
                 HudFactory.SetText(chips[i], entry.Prompt);
                 HudFactory.SetText(labels[i], entry.Label);

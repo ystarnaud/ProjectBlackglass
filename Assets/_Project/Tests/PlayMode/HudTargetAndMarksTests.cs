@@ -175,6 +175,7 @@ namespace Blackglass.Tests
             s.Target = SomeTarget("TARGETED");
             hud.ApplySnapshot();
             Assert.That(hud.Target.CoverLabel.gameObject.activeSelf, Is.False, "targeted in real time: hidden again");
+            Assert.That(hud.Target.CoverLabel.text, Is.Empty, "and the hidden line keeps no text");
 
             s.IsPaused = true;
             hud.ApplySnapshot();
@@ -458,12 +459,96 @@ namespace Blackglass.Tests
             Assert.That(LocalOf(0), Is.Not.EqualTo(position), "a real movement repositions");
             Assert.That(HudFactory.TextWrites, Is.EqualTo(before), "and rewrites no text");
 
-            // A change of kind in the same slot writes its text once.
+            // A change of kind and text in the same slot writes the label once, and nothing on the next frame.
+            hud.Snapshot.Marks[0] = Mark(HudMarkKind.Objective, new Vector3(1f, 0f, 10f), "Relay");
+            hud.ApplySnapshot();
+            Assert.That(HudFactory.TextWrites, Is.EqualTo(before + 1), "the new label is written once");
+            Assert.That(hud.Marks.View(0).Label.text, Is.EqualTo("Relay"));
+            hud.ApplySnapshot();
+            Assert.That(HudFactory.TextWrites, Is.EqualTo(before + 1), "and not again");
+
+            // A hostile mark has no text: its label hides and is blanked, once.
             hud.Snapshot.Marks[0] = Mark(HudMarkKind.Hostile, new Vector3(1f, 0f, 10f));
             hud.ApplySnapshot();
             Assert.That(hud.Marks.View(0).Filled.gameObject.activeSelf, Is.True);
             Assert.That(hud.Marks.View(0).Hollow.gameObject.activeSelf, Is.False);
             Assert.That(hud.Marks.View(0).Label.gameObject.activeSelf, Is.False);
+            Assert.That(hud.Marks.View(0).Label.text, Is.Empty);
+            Assert.That(HudFactory.TextWrites, Is.EqualTo(before + 2));
+            hud.ApplySnapshot();
+            Assert.That(HudFactory.TextWrites, Is.EqualTo(before + 2), "a steady hostile mark writes nothing");
+        }
+
+        [Test]
+        public void Marks_AHiddenOrTextlessLabel_KeepsNoOldTitle()
+        {
+            Build();
+            AddCamera(Vector3.zero, Quaternion.identity);
+            hud.Snapshot.Marks.Add(Mark(HudMarkKind.Objective, new Vector3(-1f, 0f, 10f), "Access data terminal"));
+            hud.Snapshot.Marks.Add(Mark(HudMarkKind.Extraction, new Vector3(1f, 0f, 10f), "Extraction"));
+            hud.ApplySnapshot();
+            Assert.That(hud.Marks.View(0).Label.text, Is.EqualTo("Access data terminal"), "precondition");
+
+            // The same slot now draws a mark without text (a hostile): the old title is gone.
+            hud.Snapshot.Marks[0] = Mark(HudMarkKind.Hostile, new Vector3(-1f, 0f, 10f));
+            hud.ApplySnapshot();
+            Assert.That(hud.Marks.View(0).Label.text, Is.Empty, "a textless mark keeps no label text");
+
+            // Fewer marks, then none: the hidden pooled entries keep no text either.
+            hud.Snapshot.Marks.RemoveAt(1);
+            hud.ApplySnapshot();
+            Assert.That(hud.Marks.View(1).Root.gameObject.activeSelf, Is.False);
+            Assert.That(hud.Marks.View(1).Label.text, Is.Empty, "a hidden entry keeps no label text");
+            hud.Snapshot.Marks.Clear();
+            hud.ApplySnapshot();
+            var texts = Panel("WorldMarks").GetComponentsInChildren<Text>(true).Select(t => t.text).Where(t => t != "?").ToArray();
+            Assert.That(texts.All(string.IsNullOrEmpty), Is.True, "no mark label holds text: " + string.Join("|", texts));
+        }
+
+        [Test]
+        public void Marks_FarOutsideTheRoot_OrNotANumber_AreHidden()
+        {
+            Build();
+            AddCamera(Vector3.zero, Quaternion.identity);
+            var half = HudLayout.WorldRect(root).width * 0.5f;
+            var centre = new Vector2(viewCamera.pixelWidth * 0.5f, viewCamera.pixelHeight * 0.5f);
+            // In root units (scale 1): just outside the right edge, inside the 200-unit margin; and well beyond it.
+            var nearEdge = viewCamera.ScreenToWorldPoint(new Vector3(centre.x + half + 100f, centre.y, 10f));
+            var farOut = viewCamera.ScreenToWorldPoint(new Vector3(centre.x + half + 400f, centre.y, 10f));
+            hud.Snapshot.Marks.Add(Mark(HudMarkKind.Hostile, new Vector3(0f, 0f, 10f)));
+            hud.Snapshot.Marks.Add(Mark(HudMarkKind.Hostile, nearEdge));
+            hud.Snapshot.Marks.Add(Mark(HudMarkKind.Objective, farOut, "Far away"));
+            hud.Snapshot.Marks.Add(Mark(HudMarkKind.Hostile, new Vector3(float.NaN, 0f, 10f)));
+            Assert.DoesNotThrow(() => hud.ApplySnapshot());
+
+            Assert.That(hud.Marks.View(0).Root.gameObject.activeSelf, Is.True, "on screen");
+            Assert.That(hud.Marks.View(1).Root.gameObject.activeSelf, Is.True, "just off the edge, within the margin");
+            Assert.That(hud.Marks.View(2).Root.gameObject.activeSelf, Is.False, "far beyond the root: culled");
+            Assert.That(hud.Marks.View(2).Label.text, Is.Empty);
+            Assert.That(hud.Marks.View(3).Root.gameObject.activeSelf, Is.False, "a NaN point hides");
+            Assert.That(hud.Marks.VisibleCount, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Marks_LandOnTheProjectedPoint_WhateverTheRootSizeAndPivot()
+        {
+            Build(1280f, 720f);
+            AddCamera(Vector3.zero, Quaternion.identity);
+            hud.Marks.Root.pivot = Vector2.zero;   // the layer's local points are then relative to its bottom-left corner
+            Assert.That(HudLayout.WorldRect(hud.Marks.Root).center.x, Is.EqualTo(viewCamera.pixelWidth * 0.5f).Within(0.5f),
+                "precondition: the layer still covers the root");
+            hud.Snapshot.Marks.Add(Mark(HudMarkKind.Hostile, new Vector3(0f, 0f, 10f)));
+            var offAxis = new Vector3(1.5f, 0.7f, 9f);
+            hud.Snapshot.Marks.Add(Mark(HudMarkKind.Hostile, offAxis));
+            hud.ApplySnapshot();
+
+            var onAxis = hud.Marks.View(0).Root.position;
+            Assert.That(onAxis.x, Is.EqualTo(viewCamera.pixelWidth * 0.5f).Within(0.5f), "an on-axis mark sits on the screen centre");
+            Assert.That(onAxis.y, Is.EqualTo(viewCamera.pixelHeight * 0.5f).Within(0.5f));
+            var screen = viewCamera.WorldToScreenPoint(offAxis);
+            var drawn = hud.Marks.View(1).Root.position;
+            Assert.That(drawn.x, Is.EqualTo(screen.x).Within(0.5f), "an off-axis mark sits on its projected point");
+            Assert.That(drawn.y, Is.EqualTo(screen.y).Within(0.5f));
         }
 
         [Test]

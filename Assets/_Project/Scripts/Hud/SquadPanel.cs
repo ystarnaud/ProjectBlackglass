@@ -50,6 +50,8 @@ namespace Blackglass
                 HudFactory.SetActive(cards[i].Root.gameObject, visible);
                 if (visible)
                     cards[i].Apply(s.Squad[i]);
+                else
+                    cards[i].ReleaseUnit();   // a hidden card keeps no (possibly destroyed) unit
             }
         }
 

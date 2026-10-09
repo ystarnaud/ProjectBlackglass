@@ -84,7 +84,8 @@ namespace Blackglass
             strip.gameObject.SetActive(false);
 
             queue = HudFactory.Rect("Queue", Root);
-            ordersLabel = Line("Orders", queue, HudTheme.FontBody, HudTheme.Text, TextAnchor.MiddleLeft, Pad, 164f, 330f, 22f);
+            // Up to the "+N more" label: ORDERS and a long operative name stay on one line.
+            ordersLabel = Line("Orders", queue, HudTheme.FontBody, HudTheme.Text, TextAnchor.MiddleLeft, Pad, 164f, 420f, 22f);
             moreLabel = Line("More", queue, HudTheme.FontBody, HudTheme.TextDim, TextAnchor.MiddleRight, 440f, 164f, 200f, 22f);
             clearButton = HudFactory.Box("Clear", queue, HudTheme.PanelEdge, true);
             clearBackground = clearButton.GetComponent<Image>();

@@ -5,10 +5,13 @@ using UnityEngine.UI;
 namespace Blackglass
 {
     /// <summary>
-    /// One ability slot (170 x 64): prompt chip, name and a state word. The state is always a word as well as a colour:
+    /// One ability slot (170 x 64): the prompt chip across the top (a pad's chord such as "RT + D-pad Down" needs the whole
+    /// width), then the name (up to two lines) with the state word on its right. The state is always a word as well as a colour:
     /// READY, the cooldown seconds (over a vertical fill that darkens by the cooldown fraction), ARMED (plus a bright frame
     /// and a "&gt; " name prefix) or an em dash (plus a dimmed slot). The slot root is the pointer target (a Button) and raises
-    /// Clicked; otherwise this class only keeps the last applied data and writes what changed.
+    /// Clicked; otherwise this class only keeps the last applied data and writes what changed. The three texts shrink to
+    /// fit (best fit, with a readable floor) rather than lose characters: the generic pad's long chord names, a long ability
+    /// name and ARMED.
     /// </summary>
     internal sealed class AbilitySlotView
     {
@@ -19,6 +22,11 @@ namespace Blackglass
         const string ArmedWord = "ARMED";
         const string UnavailableWord = "—";   // em dash; the HUD tests check the built-in font has it
         const string ArmedPrefix = "> ";
+        const float Inset = 6f;
+        const float ChipHeight = 18f;
+        const float NameWidth = 100f;
+        const float StateWidth = 54f;
+        const int MinPromptSize = 10, MinNameSize = 12, MinStateSize = 11;
         static readonly Color SlotBack = new Color(0.10f, 0.12f, 0.16f, 0.92f);
         static readonly Color ArmedBack = new Color(0.12f, 0.28f, 0.36f, 0.96f);
         static readonly Color CooldownShade = new Color(0f, 0f, 0f, 0.62f);
@@ -59,15 +67,18 @@ namespace Blackglass
             overlay.gameObject.SetActive(false);
 
             chip = HudFactory.Box("PromptChip", body, HudTheme.PanelEdge, false);
-            HudFactory.Place(chip, new Vector2(0f, 1f), new Vector2(6f, -5f), new Vector2(78f, 18f));
+            HudFactory.Place(chip, new Vector2(0f, 1f), new Vector2(Inset, -5f), new Vector2(Width - 2f * Inset, ChipHeight));
             promptLabel = Line("Prompt", chip, HudTheme.FontSmall, HudTheme.Text, TextAnchor.MiddleCenter);
             HudFactory.Anchor(promptLabel.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            ShrinkToFit(promptLabel, MinPromptSize);
 
             stateLabel = Line("State", body, HudTheme.FontBody, HudTheme.Accent, TextAnchor.MiddleRight);
-            HudFactory.Place(stateLabel.rectTransform, new Vector2(0f, 1f), new Vector2(88f, -4f), new Vector2(76f, 20f));
+            HudFactory.Place(stateLabel.rectTransform, new Vector2(0f, 1f), new Vector2(Width - Inset - StateWidth, -26f), new Vector2(StateWidth, 20f));
+            ShrinkToFit(stateLabel, MinStateSize);
 
             nameLabel = Line("Name", body, HudTheme.FontBody, HudTheme.Text, TextAnchor.UpperLeft);
-            HudFactory.Place(nameLabel.rectTransform, new Vector2(0f, 1f), new Vector2(6f, -26f), new Vector2(158f, 36f));
+            HudFactory.Place(nameLabel.rectTransform, new Vector2(0f, 1f), new Vector2(Inset, -26f), new Vector2(NameWidth, 36f));
+            ShrinkToFit(nameLabel, MinNameSize);
 
             // The frame is outside the dimmed content, so an armed slot's frame is always crisp.
             armedFrame = HudFactory.Rect("ArmedFrame", root);
@@ -157,6 +168,13 @@ namespace Blackglass
         {
             var tenths = Mathf.Ceil(Mathf.Max(0f, seconds) * 10f);
             return tenths >= 100f ? -Mathf.CeilToInt(seconds) : (int)tenths;
+        }
+
+        static void ShrinkToFit(Text label, int minSize)
+        {
+            label.resizeTextForBestFit = true;
+            label.resizeTextMinSize = minSize;
+            label.resizeTextMaxSize = label.fontSize;
         }
 
         static Text Line(string name, Transform parent, int size, Color color, TextAnchor anchor)

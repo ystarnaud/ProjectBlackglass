@@ -334,6 +334,39 @@ namespace Blackglass.Tests
             Assert.That(HudFactory.TextWrites, Is.EqualTo(afterFirst), "the text did not change");
         }
 
+        [Test]
+        public void ACardHiddenBecauseTheSquadShrank_DropsItsUnit_AndStillWritesOnlyChangesWhenShownAgain()
+        {
+            Build();
+            var units = new CommandableUnit[3];
+            for (var i = 0; i < 3; i++)
+            {
+                var unitObject = new GameObject("unit" + i, typeof(CommandableUnit));
+                created.Add(unitObject);
+                units[i] = unitObject.GetComponent<CommandableUnit>();
+                var member = Member("Operative " + i);
+                member.Unit = units[i];
+                hud.Snapshot.Squad.Add(member);
+            }
+            hud.ApplySnapshot();
+            Assert.That(hud.Squad.CardAt(2).Card.Unit, Is.SameAs(units[2]), "precondition");
+
+            hud.Snapshot.Squad.RemoveAt(2);   // the squad shrank (a regeneration with fewer operatives)
+            hud.ApplySnapshot();
+            var hidden = hud.Squad.CardAt(2);
+            Assert.That(hidden.Root.gameObject.activeSelf, Is.False);
+            Assert.That(ReferenceEquals(hidden.Card.Unit, null), Is.True, "the hidden card keeps no unit, destroyed or not");
+            Assert.That(hidden.Card.Name, Is.EqualTo("Operative 2"), "its shown fields stay for the change-only writes");
+
+            var member2 = Member("Operative 2");
+            member2.Unit = units[2];
+            hud.Snapshot.Squad.Add(member2);
+            var before = HudFactory.TextWrites;
+            hud.ApplySnapshot();
+            Assert.That(hidden.Card.Unit, Is.SameAs(units[2]), "shown again, it takes the unit back");
+            Assert.That(HudFactory.TextWrites, Is.EqualTo(before), "the same fields write no text");
+        }
+
         static void AppendCard(StringBuilder text, HudSquadCard m)
         {
             text.Append(m.Initials).Append(m.Name).Append(RoleLine(m.Role, m.Rank)).Append(HudText.Health(m.Health, m.MaxHealth));

@@ -58,7 +58,14 @@ namespace Blackglass.Tests
             Assert.That(rig.VisibleCards(), Is.EqualTo(friendlies.Count), $"{step}: visible cards");
             for (var i = 0; i < friendlies.Count; i++)
                 Assert.That(rig.Hud.Squad.CardAt(i).Card.Unit, Is.SameAs(friendlies[i]), $"{step}: card {i}");
-            Assert.That(rig.Hud.Marks.PoolCount, Is.LessThanOrEqualTo(WorldMarkLayer.Capacity), $"{step}: the mark pool stays within its cap");
+            // Every pooled mark beyond the snapshot's is hidden and blank; none drawn is from another mission.
+            var marks = rig.Hud.Marks;
+            Assert.That(marks.VisibleCount, Is.LessThanOrEqualTo(snapshot.Marks.Count), $"{step}: no more marks drawn than the snapshot holds");
+            for (var i = snapshot.Marks.Count; i < marks.PoolCount; i++)
+            {
+                Assert.That(marks.View(i).Root.gameObject.activeSelf, Is.False, $"{step}: pooled mark {i} is hidden");
+                Assert.That(marks.View(i).Label.text, Is.Empty, $"{step}: pooled mark {i} keeps no label");
+            }
             Assert.That(rig.ShownObjectiveRows(), Is.EqualTo(rig.ExpectedObjectiveRows()), $"{step}: objective rows from the new runtime");
             Assert.That(rig.Hud.Status.ExtractionLabel.text, Is.EqualTo(rig.ExpectedExtractionLabel()), $"{step}: extraction");
             if (rig.Active.HasUnit)
@@ -103,13 +110,36 @@ namespace Blackglass.Tests
             var hostile = rig.Director.Hostiles[0].GetComponent<Health>();
             foreach (var friendly in rig.Director.Friendlies)
                 Assert.That(friendly.Issue(new AttackCommand(hostile)), Is.True);
-            var start = hostile.Current;
-            yield return TestWorld.WaitUntil(() => hostile.Current < start || rig.Director.Friendlies.Any(f => f.GetComponent<Health>().Current < f.GetComponent<Health>().Max), 10f);
+            bool Fighting() => rig.Director.Friendlies.Concat(rig.Director.Hostiles)
+                .Select(u => u.GetComponent<Health>()).Any(h => h.Current < h.Max);
+            yield return TestWorld.WaitUntil(Fighting, 30f);
+            Assert.That(Fighting(), Is.True, "precondition: the fight started (someone took damage)");
             Assert.That(rig.Hud.Snapshot.QueueUnit, Is.Not.Null, "precondition: the HUD shows an order");
 
             yield return Regenerate(sameSeed: true);
             AssertBoundToTheCurrentMission("regenerated mid-fight");
             Assert.That(rig.Hud.Snapshot.Queue.Count, Is.Zero, "the new squad has no orders");
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        [UnityTest]
+        public IEnumerator FromFullKnowledgeToBlind_NoUnknownObjectiveTitle_SurvivesAnywhereInTheHud()
+        {
+            // Full knowledge: every objective is known, so its rows and world marks carry the real titles.
+            yield return rig.LoadMission(HudSceneRig.Seed, IntelligenceSettings.Full());
+            var titles = rig.Director.Runtime.Objectives.Where(o => o != rig.Director.Runtime.Extraction).Select(o => o.Title).ToList();
+            Assert.That(rig.MarksOf(HudMarkKind.Objective), Is.GreaterThan(0), "precondition: objective marks with labels");
+            Assert.That(titles.Any(t => rig.AllTexts().Any(text => text.Contains(t))), Is.True, "precondition: a real title is on screen");
+
+            rig.Director.Settings.intelligence = IntelligenceSettings.Blind();
+            yield return Regenerate(sameSeed: true);
+            var unknown = rig.Director.Runtime.Objectives.Where(o => !o.IsKnown).ToList();
+            Assert.That(unknown, Is.Not.Empty, "precondition: the blind mission hides objectives");
+            var texts = rig.AllTexts();
+            foreach (var objective in unknown)
+                Assert.That(texts.Any(text => text.Contains(objective.Title)), Is.False,
+                    $"the unknown {objective.Id}'s title \"{objective.Title}\" survives in the HUD (hidden or pooled texts included)");
+            AssertBoundToTheCurrentMission("blind after full");
             LogAssert.NoUnexpectedReceived();
         }
 

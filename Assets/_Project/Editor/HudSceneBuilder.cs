@@ -32,13 +32,30 @@ namespace Blackglass.EditorTools
         /// <summary>Unity -batchmode -executeMethod entry.</summary>
         public static void WireFromCommandLine() => Wire();
 
+        /// <summary>
+        /// Wires both scenes. In the Editor, unsaved changes in any open scene are offered for saving first (Cancel stops
+        /// here, nothing is touched), and the scenes that were open are reopened afterwards.
+        /// </summary>
         public static void Wire()
         {
-            if (EditorSceneManager.GetActiveScene().isDirty && !Application.isBatchMode
-                && !EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
-                return;
-            foreach (var path in ScenePaths)
-                WireScene(path);
+            SceneSetup[] previous = null;
+            if (!Application.isBatchMode)
+            {
+                if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+                    return;
+                previous = EditorSceneManager.GetSceneManagerSetup();
+            }
+            try
+            {
+                foreach (var path in ScenePaths)
+                    WireScene(path);
+            }
+            finally
+            {
+                // An untitled scene has no path to reopen; then the last wired scene stays open.
+                if (previous != null && previous.Length > 0 && previous.All(setup => !string.IsNullOrEmpty(setup.path)))
+                    EditorSceneManager.RestoreSceneManagerSetup(previous);
+            }
         }
 
         static void WireScene(string path)

@@ -340,6 +340,93 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void TheCooldownNumber_MatchesHudTextSeconds_AllTheWayDown()
+        {
+            Build();
+            var s = hud.Snapshot;
+            Controlled(s);
+            s.Abilities.Add(Slot(0, HudAbilityState.Cooldown, remaining: 12f, fraction: 1f));
+            var label = hud.Operative.SlotAt(0).StateLabel;
+            var seen = new HashSet<float>();
+            for (var hundredths = 1200; hundredths >= 0; hundredths--)
+            {
+                var remaining = hundredths / 100f;
+                seen.Add(remaining);
+                s.Abilities[0] = Slot(0, HudAbilityState.Cooldown, remaining: remaining, fraction: remaining / 12f);
+                hud.ApplySnapshot();
+                Assert.That(label.text, Is.EqualTo(HudText.Seconds(remaining)), $"at {remaining.ToString("0.00", CultureInfo.InvariantCulture)} s");
+            }
+            Assert.That(seen, Has.Member(9.94f).And.Member(9.95f).And.Member(10f), "the sweep crosses the ten-second boundary");
+            Assert.That(HudText.Seconds(9.94f), Is.EqualTo("10"), "9.94 rounds up to ten: whole seconds, never 10.0");
+        }
+
+        [Test]
+        public void FewerAbilities_HideTheSlotsThatAreNoLongerUsed()
+        {
+            Build();
+            var s = hud.Snapshot;
+            Controlled(s);
+            for (var i = 0; i < 4; i++)
+                s.Abilities.Add(Slot(i));
+            hud.ApplySnapshot();
+            for (var i = 0; i < 4; i++)
+                Assert.That(hud.Operative.SlotAt(i).Root.gameObject.activeSelf, Is.True, $"precondition: slot {i}");
+
+            s.Abilities.RemoveRange(2, 2);
+            hud.ApplySnapshot();
+            Assert.That(hud.Operative.SlotAt(0).Root.gameObject.activeSelf, Is.True);
+            Assert.That(hud.Operative.SlotAt(1).Root.gameObject.activeSelf, Is.True);
+            Assert.That(hud.Operative.SlotAt(2).Root.gameObject.activeSelf, Is.False, "slot 3 hides");
+            Assert.That(hud.Operative.SlotAt(3).Root.gameObject.activeSelf, Is.False, "slot 4 hides");
+        }
+
+        [Test]
+        public void TheLongestRealAbilityPrompt_FitsItsChip_AndALongOrdersOwnerFitsOneLine()
+        {
+            Build();
+            var actions = TestControls.Load();
+            var s = hud.Snapshot;
+            Controlled(s);
+            var families = new[] { InputFamily.Xbox, InputFamily.PlayStation, InputFamily.Nintendo, InputFamily.GenericGamepad, InputFamily.KeyboardMouse };
+            var longest = string.Empty;
+            var widest = 0f;
+            var slot = hud.Operative.SlotAt(0);
+            foreach (var family in families)
+            {
+                for (var i = 0; i < OperativePanel.MaxSlots; i++)
+                {
+                    var prompt = HudPrompts.AbilityPrompt(i, family, actions);
+                    s.Abilities.Clear();
+                    s.Abilities.Add(new HudAbilitySlot { Slot = 0, Prompt = prompt, Name = "Recon Scan", State = HudAbilityState.Ready });
+                    hud.ApplySnapshot();
+                    HudLayout.Rebuild(root);
+                    var label = slot.PromptLabel;
+                    if (label.preferredWidth > widest)
+                    {
+                        widest = label.preferredWidth;
+                        longest = prompt;
+                    }
+                    Assert.That(slot.PromptChip.rect.size, Is.EqualTo(new Vector2(158f, 18f)), "the chip spans the slot");
+                    Assert.That(HudLayout.DrawsWhole(label, out var size), Is.True, $"{family} '{prompt}' loses characters in its chip");
+                    Assert.That(size, Is.GreaterThanOrEqualTo(10), $"{family} '{prompt}' shrinks below a readable size");
+                    if (family != InputFamily.GenericGamepad)
+                        Assert.That(size, Is.EqualTo(HudTheme.FontSmall), $"{family} '{prompt}' fits at full size");
+                }
+            }
+            Assert.That(longest, Is.Not.Empty, "the sweep found real prompts");
+
+            Orders(s, 1, owner: "Darius Valentinian Okonkwo-Reyes");
+            Assert.That(s.QueueOwner.Length, Is.EqualTo(32));
+            hud.ApplySnapshot();
+            HudLayout.Rebuild(root);
+            var orders = hud.Operative.OrdersLabel;
+            Assert.That(orders.text, Is.EqualTo("ORDERS: " + s.QueueOwner));
+            Assert.That(orders.preferredHeight, Is.LessThanOrEqualTo(orders.rectTransform.rect.height + 0.5f), "ORDERS and a 32-character name fit one line");
+            Assert.That(orders.preferredWidth, Is.LessThanOrEqualTo(orders.rectTransform.rect.width + 0.5f), "and are not cut off");
+            HudLayout.AssertNoOverlap(orders.rectTransform, hud.Operative.MoreLabel.rectTransform, hud.Operative.ClearButton);
+        }
+
+        [Test]
         public void ASlot_IsAClickTarget_ThatKeepsItsData()
         {
             Build();
@@ -623,7 +710,9 @@ namespace Blackglass.Tests
                 HudLayout.AssertInside(slot.Root, slot.PromptChip, slot.PromptLabel.rectTransform, slot.NameLabel.rectTransform,
                     slot.StateLabel.rectTransform, slot.ArmedFrame);
                 HudLayout.AssertNoOverlap(slot.PromptChip, slot.StateLabel.rectTransform, slot.NameLabel.rectTransform);
-                Assert.That(slot.NameLabel.preferredHeight, Is.LessThanOrEqualTo(slot.NameLabel.rectTransform.rect.height + 0.5f), "a long name fits its box");
+                Assert.That(HudLayout.DrawsWhole(slot.NameLabel, out var nameSize), Is.True, "a long name fits its box");
+                Assert.That(nameSize, Is.GreaterThanOrEqualTo(12), "at a readable size");
+                Assert.That(HudLayout.DrawsWhole(slot.StateLabel, out _), Is.True, $"the state word '{slot.StateLabel.text}' fits");
                 parts.Add(slot.Root);
             }
             HudLayout.AssertNoOverlap(Enumerable.Range(0, 4).Select(i => panel.SlotAt(i).Root).ToArray());

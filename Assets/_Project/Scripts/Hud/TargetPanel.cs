@@ -16,7 +16,6 @@ namespace Blackglass
         public const float Width = 340f;
         public const float Height = 140f;
         const float Pad = 12f;
-        const float ZoneGap = 16f;
         const float DiamondSide = 10f;
         const string HostileWord = "HOSTILE";
         const string AttackingTag = "ATTACKING";
@@ -35,7 +34,7 @@ namespace Blackglass
 
         public TargetPanel(Transform parent) : base(HudFactory.Box("Target", parent, HudTheme.Panel, false))
         {
-            HudFactory.Place(Root, new Vector2(1f, 0f), new Vector2(-HudTheme.Margin, HudTheme.Margin + PromptPanel.Height + ZoneGap), Size);
+            HudFactory.Place(Root, new Vector2(1f, 0f), new Vector2(-HudTheme.Margin, HudTheme.Margin + PromptPanel.Height + HudTheme.ZoneGap), Size);
 
             var diamondBox = HudFactory.Box("HostileDiamond", Root, HudTheme.Bad, false);
             diamond = diamondBox.GetComponent<Image>();
@@ -96,8 +95,7 @@ namespace Blackglass
             var showCover = !string.IsNullOrEmpty(cover)
                 && (s.IsPaused || string.Equals(target.Tag, AttackingTag, System.StringComparison.Ordinal));
             HudFactory.SetActive(coverLabel.gameObject, showCover);
-            if (showCover)
-                HudFactory.SetText(coverLabel, cover);
+            HudFactory.SetText(coverLabel, showCover ? cover : string.Empty);
         }
 
         // Forgets the last target: its name, detail, attention, health and cover.

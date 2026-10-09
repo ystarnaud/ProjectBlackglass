@@ -7,10 +7,12 @@ namespace Blackglass
     /// <summary>
     /// Full-screen layer beneath every panel that draws the snapshot's world marks as screen markers. Each Apply projects
     /// every mark's world point into the root rect (camera.WorldToScreenPoint, then the overlay-canvas conversion, so the
-    /// canvas scale is honoured); a mark behind the camera is hidden. A hostile is a small filled diamond with no text, a
+    /// canvas scale is honoured, and the root's pivot does not matter); a mark behind the camera, or projected more than
+    /// CullMargin units outside the root, is hidden. A hostile is a small filled diamond with no text, a
     /// last-known position a hollow diamond with "?" and its label, an objective or the extraction a small square with its
     /// label: shape and text differ, never colour alone. Entries are pooled (grown on demand up to Capacity, extra marks
-    /// are dropped) and written only on change; nothing here is a pointer target.
+    /// are dropped) and written only on change; a label that hides or loses its text is blanked, so a pooled entry never
+    /// keeps an old title. Nothing here is a pointer target.
     /// </summary>
     internal sealed class WorldMarkLayer : HudPanel
     {
@@ -23,6 +25,7 @@ namespace Blackglass
         const float LabelWidth = 200f;
         const float LabelHeight = 20f;
         const float MoveEpsilonSquared = 0.01f;   // 0.1 canvas units
+        const float CullMargin = 200f;            // canvas units beyond the root's edges before a mark is hidden
         const string GlyphText = "?";
 
         /// <summary>One pooled marker: its root (moved to the projected point) and every shape and text a kind can show.</summary>
@@ -95,14 +98,23 @@ namespace Blackglass
             if (camera == null)
                 return false;
             var screen = camera.WorldToScreenPoint(world);
-            if (screen.z <= 0f)
+            if (!(screen.z > 0f))   // behind the camera, on its plane, or NaN
                 return false;
-            return RectTransformUtility.ScreenPointToLocalPointInRectangle(Root, new Vector2(screen.x, screen.y), null, out local);
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(Root, new Vector2(screen.x, screen.y), null, out var point))
+                return false;
+            // `point` is relative to the root's pivot; a mark is anchored at the root's centre.
+            var rect = Root.rect;
+            if (!(point.x >= rect.xMin - CullMargin && point.x <= rect.xMax + CullMargin
+                  && point.y >= rect.yMin - CullMargin && point.y <= rect.yMax + CullMargin))
+                return false;
+            local = point - rect.center;
+            return true;
         }
 
         static void Hide(MarkView view)
         {
             HudFactory.SetActive(view.Root.gameObject, false);
+            HudFactory.SetText(view.Label, string.Empty);
             view.HasPosition = false;
         }
 
@@ -130,8 +142,7 @@ namespace Blackglass
             var text = mark.Text;
             var hasText = !string.IsNullOrEmpty(text);
             HudFactory.SetActive(view.Label.gameObject, hasText);
-            if (hasText)
-                HudFactory.SetText(view.Label, text);
+            HudFactory.SetText(view.Label, hasText ? text : string.Empty);
         }
 
         MarkView CreateView(int index)

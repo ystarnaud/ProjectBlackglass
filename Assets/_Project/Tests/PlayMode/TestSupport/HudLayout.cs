@@ -50,6 +50,18 @@ namespace Blackglass.Tests
             Canvas.ForceUpdateCanvases();
         }
 
+        /// <summary>
+        /// Whether every character of the label's text is drawn inside its rect (wrapping, truncation and best fit as the
+        /// label is set up), and the font size used (the best-fit size when the label shrinks to fit).
+        /// </summary>
+        public static bool DrawsWhole(Text label, out int fontSizeUsed)
+        {
+            var generator = new TextGenerator();
+            generator.Populate(label.text, label.GetGenerationSettings(label.rectTransform.rect.size));
+            fontSizeUsed = label.resizeTextForBestFit ? generator.fontSizeUsedForBestFit : label.fontSize;
+            return generator.characterCountVisible >= label.text.Length;
+        }
+
         public static Rect WorldRect(RectTransform rect)
         {
             var corners = new Vector3[4];

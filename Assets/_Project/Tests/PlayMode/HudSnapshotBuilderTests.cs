@@ -709,6 +709,27 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator TruthView_OnALostHostile_StillGivesOnlyItsLastKnownMark()
+        {
+            intelRig = new IntelRig(corridor: true);
+            var seen = intelRig.AddHostile(IntelRig.InLineGround);
+            intelRig.Begin(IntelRig.Fog());
+            yield return null;
+            Assert.That(intelRig.Service.CanTarget(seen), Is.True, "Precondition: observed");
+            LookAwayFromTheCorridor();
+            Assert.That(intelRig.Service.StateOfEnemy(seen), Is.EqualTo(KnowledgeState.Discovered), "Precondition: lost");
+            Assert.That(intelRig.Service.TryLastKnown(seen, out var lastSeen), Is.True);
+
+            intelRig.Service.TruthView = true;
+            Assert.That(Knowledge.IsShown(intelRig.Service, seen), Is.True, "Precondition: the truth view shows it in the debug views");
+            Build(new HudSources { encounter = intelRig.Encounter, intelligence = intelRig.Service });
+
+            Assert.That(snapshot.Marks.Count(m => m.Kind == HudMarkKind.Hostile), Is.Zero, "no hostile mark for a lost hostile, truth view or not");
+            Assert.That(snapshot.Marks.Count(m => m.Kind == HudMarkKind.LastKnown), Is.EqualTo(1));
+            Assert.That(snapshot.Marks.Single(m => m.Kind == HudMarkKind.LastKnown).World, Is.EqualTo(lastSeen), "at its last-known point");
+        }
+
+        [UnityTest]
         public IEnumerator TruthView_DoesNotWidenTheHud()
         {
             intelRig = new IntelRig(corridor: false);

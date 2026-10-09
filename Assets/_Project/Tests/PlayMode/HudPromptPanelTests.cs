@@ -269,11 +269,61 @@ namespace Blackglass.Tests
                         var terminalOnWidePad = family == InputFamily.GenericGamepad && list[i].Label.StartsWith("Interact");
                         if (!terminalOnWidePad)   // the widest chord leaves too little room for a long terminal name; it truncates
                             Assert.That(label.preferredHeight, Is.LessThan(label.fontSize * 1.8f), $"{family} label '{list[i].Label}' wraps");
+                        else
+                            Assert.That(VisibleText(label), Does.StartWith("Interact"), $"{family}: the truncated label still reads as Interact");
                     }
                 }
             }
             Assert.That(longest.Length, Is.GreaterThan(5), "the sweep found real prompts");
             Debug.Log($"Longest prompt text: '{longest}', widest '{widestText}' = {widest}");
+        }
+
+        /// <summary>The part of a label's text that its rect actually draws (vertical overflow truncates whole lines).</summary>
+        static string VisibleText(Text label)
+        {
+            var generator = new TextGenerator();
+            generator.Populate(label.text, label.GetGenerationSettings(label.rectTransform.rect.size));
+            return label.text.Substring(0, Mathf.Min(label.text.Length, generator.characterCountVisible));
+        }
+
+        [Test]
+        public void TheChipColumn_ShrinksBack_WhenTheLongPromptsGo()
+        {
+            Build();
+            var panel = hud.Prompts;
+            Show(Fullest(InputFamily.GenericGamepad));
+            var wide = panel.ChipBox(0).rect.width;
+            Assert.That(wide, Is.GreaterThan(PromptPanel.MinChipWidth), "precondition: the generic pad's chords widen the column");
+
+            var shortList = new List<HudPromptEntry>();
+            HudPrompts.Build(default, InputFamily.KeyboardMouse, actions, shortList);
+            Show(shortList);
+            var narrow = panel.ChipBox(0).rect.width;
+            Assert.That(narrow, Is.LessThan(wide), "the column shrinks back for the short keyboard prompts");
+            Assert.That(narrow, Is.GreaterThanOrEqualTo(PromptPanel.MinChipWidth));
+            for (var i = 0; i < shortList.Count; i++)
+                Assert.That(panel.ChipBox(i).rect.width, Is.EqualTo(narrow), $"row {i} shares the column width");
+        }
+
+        [Test]
+        public void HiddenRows_KeepNoText()
+        {
+            Build();
+            var panel = hud.Prompts;
+            Show(Fullest(InputFamily.KeyboardMouse));   // includes "Interact <terminal>"
+            Assert.That(Enumerable.Range(0, panel.RowCapacity).Any(i => panel.Label(i).text.Contains(TerminalName)), Is.True, "precondition");
+
+            var shortList = new List<HudPromptEntry>();
+            HudPrompts.Build(default, InputFamily.KeyboardMouse, actions, shortList);
+            Show(shortList);
+            for (var i = shortList.Count; i < panel.RowCapacity; i++)
+            {
+                Assert.That(panel.Row(i).activeSelf, Is.False);
+                Assert.That(panel.Label(i).text, Is.Empty, $"hidden row {i} label");
+                Assert.That(panel.Chip(i).text, Is.Empty, $"hidden row {i} chip");
+            }
+            Assert.That(hud.Prompts.Root.GetComponentsInChildren<Text>(true).Any(t => t.text.Contains(TerminalName)), Is.False,
+                "the terminal's name is gone from the panel");
         }
 
         [TestCase(1920, 1080, TestName = "Prompts_Layout_At1920x1080_16x9")]
@@ -361,6 +411,7 @@ namespace Blackglass.Tests
                 "Gamepad.current", "Keyboard.current", "Mouse.current", "Pointer.current",
                 "buttonSouth", "buttonEast", "buttonWest", "buttonNorth",
                 "XInputController", "DualShock", "DualSense", "SwitchPro",
+                "Keyboard.", "Gamepad.", "Mouse.", "KeyCode", "leftTrigger", "Input.GetKey", "<Gamepad>", "\"Esc\"", "\"Enter\"",
             };
             var folder = Path.Combine(Application.dataPath, "_Project", "Scripts", "Hud");
             var files = Directory.GetFiles(folder, "*.cs");
