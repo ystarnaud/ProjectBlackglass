@@ -20,7 +20,7 @@ namespace Blackglass.EditorTools
         const string RoleDir = Root + "/Roles";
         const string ChoiceDir = Root + "/Choices";
         const string DefinitionDir = Root + "/Definitions";
-        const string CapsulePrefab = "Assets/_Project/Prefabs/FriendlyUnit.prefab";
+        const string CapsulePrefab = "Assets/Art/Characters/EnemyUnit/Prefabs/EnemyUnit_Friendly.prefab"; // the generic squad member until new designs exist
         const string DariusPrefab = "Assets/Art/Characters/Darius/Prefabs/Darius_Player.prefab";
         const string DataRoot = "Assets/_Project/Data";
         const string ScenePath = "Assets/_Project/Scenes/ProceduralMission.unity";

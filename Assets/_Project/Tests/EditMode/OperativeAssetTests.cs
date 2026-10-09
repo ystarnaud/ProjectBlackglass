@@ -74,12 +74,12 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void TheUnitPrefabs_AreDariusForDarius_AndTheCapsuleForTheOthers()
+        public void TheUnitPrefabs_AreDariusForDarius_AndTheGenericEnemyUnitSquadPrefabForTheOthers()
         {
             var squad = Squad();
             Assert.That(AssetDatabase.GetAssetPath(squad[0].UnitPrefab), Does.EndWith("Darius_Player.prefab"));
-            Assert.That(AssetDatabase.GetAssetPath(squad[1].UnitPrefab), Does.EndWith("FriendlyUnit.prefab"));
-            Assert.That(AssetDatabase.GetAssetPath(squad[2].UnitPrefab), Does.EndWith("FriendlyUnit.prefab"));
+            Assert.That(AssetDatabase.GetAssetPath(squad[1].UnitPrefab), Does.EndWith("EnemyUnit_Friendly.prefab"));
+            Assert.That(AssetDatabase.GetAssetPath(squad[2].UnitPrefab), Does.EndWith("EnemyUnit_Friendly.prefab"));
         }
 
         [Test]

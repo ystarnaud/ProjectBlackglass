@@ -15,7 +15,7 @@ MonoBehaviour:
   id: a93e5c17-0d48-4f2b-b6a3-7e1c8d4f9a02
   displayName: Kestrel
   role: {fileID: 11400000, guid: 2784b06b99f98ab468204c7de596dfb6, type: 2}
-  unitPrefab: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+  unitPrefab: {fileID: 8625124316356739363, guid: b84e202bd9f08714da412c5c85c494a2, type: 3}
   portrait: {fileID: 0}
   baseMaxHealth: 80
   baseMoveSpeed: 6.5

@@ -464,24 +464,24 @@ MonoBehaviour:
     - {fileID: 11400000, guid: 16e5ffde35c26b247801b5abe39ef689, type: 2}
     - {fileID: 11400000, guid: 1bc7a15e4735fca43ba0de32058bacdf, type: 2}
     - {fileID: 11400000, guid: 06ff659d075b54140ad333e14442230b, type: 2}
-  - prefab: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+  - prefab: {fileID: 8625124316356739363, guid: b84e202bd9f08714da412c5c85c494a2, type: 3}
     archetype: {fileID: 11400000, guid: 59316995ca8031d48934711d037a6f92, type: 2}
     abilities:
     - {fileID: 11400000, guid: 16e5ffde35c26b247801b5abe39ef689, type: 2}
     - {fileID: 11400000, guid: 1bc7a15e4735fca43ba0de32058bacdf, type: 2}
     - {fileID: 11400000, guid: 06ff659d075b54140ad333e14442230b, type: 2}
-  - prefab: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+  - prefab: {fileID: 8625124316356739363, guid: b84e202bd9f08714da412c5c85c494a2, type: 3}
     archetype: {fileID: 11400000, guid: 259b96d2956e23041ad792fc4fec3196, type: 2}
     abilities:
     - {fileID: 11400000, guid: 16e5ffde35c26b247801b5abe39ef689, type: 2}
     - {fileID: 11400000, guid: 1bc7a15e4735fca43ba0de32058bacdf, type: 2}
     - {fileID: 11400000, guid: 06ff659d075b54140ad333e14442230b, type: 2}
   hostileSlots:
-  - prefab: {fileID: 8744270717196842595, guid: b08e52db2bae1e1428921679d69ff95d, type: 3}
+  - prefab: {fileID: 7867316277808384537, guid: f106bb73c503ed04db9ac090db5c2b4c, type: 3}
     archetype: {fileID: 0}
-  - prefab: {fileID: 8744270717196842595, guid: b08e52db2bae1e1428921679d69ff95d, type: 3}
+  - prefab: {fileID: 7867316277808384537, guid: f106bb73c503ed04db9ac090db5c2b4c, type: 3}
     archetype: {fileID: 11400000, guid: 259b96d2956e23041ad792fc4fec3196, type: 2}
-  - prefab: {fileID: 8744270717196842595, guid: b08e52db2bae1e1428921679d69ff95d, type: 3}
+  - prefab: {fileID: 7867316277808384537, guid: f106bb73c503ed04db9ac090db5c2b4c, type: 3}
     archetype: {fileID: 0}
   systems:
     encounter: {fileID: 1021927386}

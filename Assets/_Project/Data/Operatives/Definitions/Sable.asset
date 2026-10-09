@@ -15,7 +15,7 @@ MonoBehaviour:
   id: 2c84b7e9-51a6-4d03-9f7e-c3a0165d8b03
   displayName: Sable
   role: {fileID: 11400000, guid: 8f3c328b3c53b8644923c6348a7a5fcc, type: 2}
-  unitPrefab: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+  unitPrefab: {fileID: 8625124316356739363, guid: b84e202bd9f08714da412c5c85c494a2, type: 3}
   portrait: {fileID: 0}
   baseMaxHealth: 100
   baseMoveSpeed: 5.5
