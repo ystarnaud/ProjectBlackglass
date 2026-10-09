@@ -18,7 +18,7 @@ public sealed class UnityProcess : IUnityProcess
         var clock = Stopwatch.StartNew();
         while (!exited.IsCompleted)
         {
-            await Task.WhenAny(exited, Task.Delay(1000));
+            await Task.WhenAny(exited, Task.Delay(1000)).ConfigureAwait(false);
             if (!exited.IsCompleted)
                 progress?.Report($"Unity is working ({clock.Elapsed:mm\\:ss}) {LogExcerpt.LastLine(logPath)}".TrimEnd());
         }

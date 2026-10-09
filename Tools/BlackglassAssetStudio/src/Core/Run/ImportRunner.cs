@@ -44,11 +44,19 @@ public sealed class ImportRunner
 
         progress?.Report("Staging files...");
         StagedRun run;
-        try { run = new RunStaging(AppPaths.RunsRoot(settings)).Create(items); }
+        try
+        {
+            // File copies and the manifest write are blocking I/O; keep them off the caller's (UI) thread.
+            run = await Task.Run(() =>
+            {
+                var staged = new RunStaging(AppPaths.RunsRoot(settings)).Create(items);
+                File.WriteAllText(staged.ManifestPath, ManifestJson.Serialize(ManifestBuilder.Build(staged, items)));
+                return staged;
+            });
+        }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        { return Fatal($"Could not stage the source files: {e.Message}"); }
+        { return Fatal($"Could not stage the source files or write the manifest: {e.Message}"); }
 
-        File.WriteAllText(run.ManifestPath, ManifestJson.Serialize(ManifestBuilder.Build(run, items)));
         var projectPath = settings.ProjectPath;
         // git runs as a blocking child process; keep it off the caller's (UI) thread.
         var before = await Task.Run(() => gitSnapshot(projectPath));
@@ -86,6 +94,7 @@ public sealed class ImportRunner
                 ? (result, "")
                 : (null, $"The result file has schema version {result.schemaVersion}; this app expects {ContractInfo.SchemaVersion}.");
         }
-        catch (System.Text.Json.JsonException e) { return (null, $"The result file could not be read: {e.Message}"); }
+        catch (Exception e) when (e is System.Text.Json.JsonException or IOException or UnauthorizedAccessException)
+        { return (null, $"The result file could not be read: {e.Message}"); }
     }
 }

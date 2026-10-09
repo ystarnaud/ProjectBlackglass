@@ -27,10 +27,21 @@ public class ImportRunnerTests
         public readonly AppSettings Settings;
         public readonly FakeUnity Unity = new();
 
-        public World()
+        public World(string? parentFolder = null)
         {
-            Project = T.MakeProject();
-            Settings = new AppSettings { ProjectPath = Project, UnityExePath = T.Write("fake/Unity.exe"), StagingFolder = T.Combine("runs") };
+            if (parentFolder == null)
+            {
+                Project = T.MakeProject();
+                Settings = new AppSettings { ProjectPath = Project, UnityExePath = T.Write("fake/Unity.exe"), StagingFolder = T.Combine("runs") };
+            }
+            else
+            {
+                // Project and runs root both live under a folder whose name has a space and a non-ASCII character.
+                Project = T.Combine(parentFolder, "My Project");
+                Directory.CreateDirectory(Path.Combine(Project, "Assets"));
+                T.Write(parentFolder + "/My Project/ProjectSettings/ProjectVersion.txt", "m_EditorVersion: 6000.3.25f1\n");
+                Settings = new AppSettings { ProjectPath = Project, UnityExePath = T.Write("fake/Unity.exe"), StagingFolder = T.Combine(parentFolder, "runs") };
+            }
         }
 
         /// <summary>A valid list entry for a file with a space in its name (classified as an environment piece; any valid entry will do).</summary>
@@ -173,11 +184,36 @@ public class ImportRunnerTests
     [Fact]
     public async Task Unity_receives_every_path_as_one_argument_even_with_spaces_and_accents()
     {
-        using var w = new World();
+        var folder = "Café Dir";
+        using var w = new World(folder);
         w.Echo();
-        await w.Runner().RunAsync(new[] { w.Item("Café Prop.fbx") });
+        var outcome = await w.Runner().RunAsync(new[] { w.Item("Café Prop.fbx") });
+        Assert.Null(outcome.FatalError);
         var args = w.Unity.Calls.Single();
+        foreach (var name in new[] { "-projectPath", "-blackglassManifest", "-blackglassResult", "-logFile" })
+            Assert.Contains(folder, FakeUnity.Arg(args, name));
         Assert.Equal(w.Project, FakeUnity.Arg(args, "-projectPath"));
         Assert.True(File.Exists(FakeUnity.Arg(args, "-blackglassManifest")));
+        Assert.Equal(1, args.Count(a => a == FakeUnity.Arg(args, "-blackglassManifest")));
+    }
+
+    [Fact]
+    public async Task An_unreadable_result_file_is_reported_not_thrown()
+    {
+        using var w = new World();
+        FileStream? held = null;
+        w.Unity.Behaviour = args =>
+        {
+            held = new FileStream(FakeUnity.Arg(args, "-blackglassResult"), FileMode.Create, FileAccess.ReadWrite, FileShare.None);
+            return 0;
+        };
+        try
+        {
+            var outcome = await w.Runner().RunAsync(new[] { w.Item() });
+            Assert.NotNull(outcome.FatalError);
+            Assert.Contains("result", outcome.FatalError, StringComparison.OrdinalIgnoreCase);
+            Assert.Null(outcome.Result);
+        }
+        finally { held?.Dispose(); }
     }
 }
