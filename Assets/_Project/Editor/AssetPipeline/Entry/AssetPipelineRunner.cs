@@ -101,6 +101,9 @@ namespace Blackglass.AssetPipeline
                         switch (item.profile)
                         {
                             // One case per profile is added by the importer tasks.
+                            case ProfileIds.HumanoidCharacter:
+                                CharacterImporter.Import(item, r);
+                                break;
                             default:
                                 r.errors.Add("Unknown or not yet supported import profile '" + item.profile + "'.");
                                 break;

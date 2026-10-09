@@ -34,6 +34,8 @@ internal static class E2EFixture
         return item;
     }
 
+    public static string Hash(string path) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
+
     public static Task<RunOutcome> Run(AppSettings settings, params AssetItem[] items) =>
         new ImportRunner(settings, new UnityProcess()).RunAsync(items);
 

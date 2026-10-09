@@ -16,10 +16,38 @@ namespace Blackglass.AssetPipeline
                 result.errors.Add(target + " already exists and was not created by Asset Studio. Tick Allow overwrite to replace it.");
                 ok = false;
             }
+
+            // The texture folder follows the same rule: it is only replaced when the model it belongs to is Studio-owned (or overwrite is allowed).
+            var fbmTarget = FbmTargetPath(item);
+            if (SourceFbm(item) != null && Directory.Exists(AssetPaths.Full(fbmTarget)))
+            {
+                var model = AssetNaming.ModelPath(item);
+                var modelOwned = File.Exists(AssetPaths.Full(model)) && OwnershipLabel.IsOwned(model);
+                if (!modelOwned && !item.allowOverwrite)
+                {
+                    result.errors.Add(fbmTarget + " already exists and was not created by Asset Studio. Tick Allow overwrite to replace it.");
+                    ok = false;
+                }
+            }
             return ok;
         }
 
-        /// <summary>Copies the staged source (and a sibling .fbm texture folder) into the destination and imports it synchronously. Returns the model's asset path.</summary>
+        /// <summary>The source's sibling "&lt;source name&gt;.fbm" texture folder, or null when there is none.</summary>
+        static string SourceFbm(ImportItem item)
+        {
+            var directory = Path.GetDirectoryName(item.sourcePath);
+            if (string.IsNullOrEmpty(directory)) return null;
+            var fbm = Path.Combine(directory, Path.GetFileNameWithoutExtension(item.sourcePath) + ".fbm");
+            return Directory.Exists(fbm) ? fbm : null;
+        }
+
+        /// <summary>Unity looks for a model's extracted textures in "&lt;model file name&gt;.fbm", so the folder is named after the target model, not the source.</summary>
+        static string FbmTargetPath(ImportItem item)
+        {
+            return PathRules.Normalize(item.destinationFolder) + "/" + item.name + ".fbm";
+        }
+
+        /// <summary>Copies the staged source (and a sibling .fbm texture folder, renamed after the target model) into the destination and imports it synchronously. Returns the model's asset path.</summary>
         public static string CopyAndImport(ImportItem item, ItemResult result)
         {
             var folder = PathRules.Normalize(item.destinationFolder);
@@ -33,9 +61,9 @@ namespace Blackglass.AssetPipeline
             var existed = File.Exists(target);
             File.Copy(item.sourcePath, target, true);
 
-            var fbm = Path.Combine(Path.GetDirectoryName(item.sourcePath), Path.GetFileNameWithoutExtension(item.sourcePath) + ".fbm");
-            if (Directory.Exists(fbm))
-                CopyDirectory(fbm, Path.Combine(AssetPaths.Full(folder), Path.GetFileName(fbm)));
+            var fbm = SourceFbm(item);
+            if (fbm != null)
+                CopyDirectory(fbm, AssetPaths.Full(FbmTargetPath(item)));
 
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             AssetDatabase.ImportAsset(modelPath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);

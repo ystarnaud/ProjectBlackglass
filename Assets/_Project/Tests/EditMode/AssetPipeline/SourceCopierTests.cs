@@ -85,6 +85,57 @@ namespace Blackglass.Tests.AssetPipeline
             CollectionAssert.Contains(again.changedAssets, path);
         }
 
+        string SourceWithTextureFolder()
+        {
+            var source = System.IO.Path.Combine(dir, "Src Model.fbx");
+            File.Copy(ScratchFolder.Darius("Models/Darius Stand Idle.fbx"), source);
+            var fbm = System.IO.Path.Combine(dir, "Src Model.fbm");
+            Directory.CreateDirectory(fbm);
+            File.WriteAllText(System.IO.Path.Combine(fbm, "note.txt"), "texture stand-in");
+            return source;
+        }
+
+        [Test]
+        public void TextureFolderIsCopiedUnderTheTargetModelName()
+        {
+            Assume.That(File.Exists(ScratchFolder.Darius("Models/Darius Stand Idle.fbx")), "Darius test model is missing");
+            var item = Item(false);
+            item.sourcePath = SourceWithTextureFolder();
+
+            SourceCopier.CopyAndImport(item, new ItemResult());
+
+            Assert.IsTrue(File.Exists(AssetPaths.Full(ScratchFolder.Path + "/Sub/Copied Model.fbm/note.txt")), "named after the target model, where Unity extracts textures");
+            Assert.IsFalse(Directory.Exists(AssetPaths.Full(ScratchFolder.Path + "/Sub/Src Model.fbm")), "no orphan folder under the source name");
+        }
+
+        [Test]
+        public void ExistingUnlabelledTextureFolderIsRefusedUnlessOverwriteIsAllowedOrTheModelIsOwned()
+        {
+            Assume.That(File.Exists(ScratchFolder.Darius("Models/Darius Stand Idle.fbx")), "Darius test model is missing");
+            var source = SourceWithTextureFolder();
+            var strayFolder = ScratchFolder.Path + "/Sub/Copied Model.fbm";
+            AssetPaths.EnsureFolder(ScratchFolder.Path + "/Sub");
+            Directory.CreateDirectory(AssetPaths.Full(strayFolder));
+            File.WriteAllText(AssetPaths.Full(strayFolder + "/user.txt"), "somebody else's file");
+
+            var item = Item(false);
+            item.sourcePath = source;
+            var refused = new ItemResult();
+            Assert.IsFalse(SourceCopier.CheckConflicts(item, refused));
+            StringAssert.Contains(".fbm", refused.errors[0]);
+            StringAssert.Contains("already exists", refused.errors[0]);
+
+            var allowed = Item(true);
+            allowed.sourcePath = source;
+            Assert.IsTrue(SourceCopier.CheckConflicts(allowed, new ItemResult()));
+
+            // Once the model is Studio-owned, its texture folder is Studio's to update.
+            var path = SourceCopier.CopyAndImport(allowed, new ItemResult());
+            OwnershipLabel.Mark(path);
+            AssetDatabase.SaveAssets();
+            Assert.IsTrue(SourceCopier.CheckConflicts(item, new ItemResult()));
+        }
+
         [Test]
         public void SourceInsideTheDestinationIsRefused()
         {
