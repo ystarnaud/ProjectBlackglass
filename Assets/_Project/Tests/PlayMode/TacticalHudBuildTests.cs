@@ -124,6 +124,29 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Objectives_AHiddenRowKeepsNoTitle()
+        {
+            Build();
+            var s = hud.Snapshot;
+            s.HasMission = true;
+            AddObjective(s, HudObjectiveKind.Active, "Access data terminal");
+            AddObjective(s, HudObjectiveKind.Active, "Reach the relay");
+            hud.ApplySnapshot();
+
+            // A regeneration: the terminal objective is unknown again and no longer listed.
+            s.Objectives.Clear();
+            AddObjective(s, HudObjectiveKind.Active, "Reach the relay");
+            hud.ApplySnapshot();
+            Assert.That(hud.Objectives.Row(1).activeSelf, Is.False);
+            Assert.That(hud.Objectives.RowText(1).text, Is.Empty, "the hidden row forgot its title");
+
+            s.HasMission = false;
+            hud.ApplySnapshot();
+            for (var i = 0; i < hud.Objectives.RowCapacity; i++)
+                Assert.That(hud.Objectives.RowText(i).text, Is.Empty, $"row {i} without a mission");
+        }
+
+        [Test]
         public void PauseBanner_ShowsWhilePausedAndNamesTheResumePrompt()
         {
             Build();

@@ -149,7 +149,13 @@ namespace Blackglass
             HudFactory.SetActive(abilities.gameObject, has);
             HudFactory.SetActive(queue.gameObject, has);
             if (!has)
+            {
+                // Hidden groups keep no target names: the aiming line and the steps may name a hostile.
+                HudFactory.SetText(stripLabel, string.Empty);
+                for (var i = 0; i < MaxSteps; i++)
+                    BlankStep(i);
                 return;
+            }
 
             ApplyInfo(s);
             ApplyAbilities(s);
@@ -198,8 +204,7 @@ namespace Blackglass
             }
 
             HudFactory.SetActive(strip.gameObject, s.IsArmed);
-            if (s.IsArmed)
-                HudFactory.SetText(stripLabel, s.ArmedLine);
+            HudFactory.SetText(stripLabel, s.IsArmed ? s.ArmedLine : string.Empty);
         }
 
         void ApplyQueue(HudSnapshot s)
@@ -220,12 +225,8 @@ namespace Blackglass
                 HudFactory.SetActive(steps[i].gameObject, visible);
                 if (visible)
                     ApplyStep(i, s.Queue[i]);
-                else if (shownNumbers[i] != -1)
-                {
-                    shownNumbers[i] = -1;
-                    shownStepText[i] = null;
-                    HudFactory.SetText(steps[i], string.Empty);
-                }
+                else
+                    BlankStep(i);
             }
 
             var hidden = hasOwner ? Mathf.Max(s.QueueHidden, 0) : 0;
@@ -237,6 +238,15 @@ namespace Blackglass
             }
 
             HudFactory.SetActive(clearButton.gameObject, hasOwner && s.CanClearOrders);
+        }
+
+        void BlankStep(int i)
+        {
+            if (shownNumbers[i] == -1)
+                return;
+            shownNumbers[i] = -1;
+            shownStepText[i] = null;
+            HudFactory.SetText(steps[i], string.Empty);
         }
 
         void ApplyStep(int i, HudCommandStep step)

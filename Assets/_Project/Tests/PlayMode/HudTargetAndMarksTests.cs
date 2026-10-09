@@ -117,6 +117,29 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void TargetPanel_BlanksItsTextsAsItHides_AndRefillsWhenShownAgain()
+        {
+            Build();
+            hud.Snapshot.Target = SomeTarget("ATTACKING");
+            hud.ApplySnapshot();
+            var panel = hud.Target;
+            Assert.That(panel.NameLabel.text, Is.EqualTo("Hostile Rifleman"), "precondition");
+
+            hud.Snapshot.Target = default;   // the hostile was lost from sight
+            hud.ApplySnapshot();
+            Assert.That(panel.Root.gameObject.activeSelf, Is.False);
+            foreach (var label in new[] { panel.NameLabel, panel.DetailLabel, panel.TagLabel, panel.HealthLabel, panel.CoverLabel })
+                Assert.That(label.text, Is.Empty, $"the hidden panel keeps no {label.name}");
+            Assert.That(panel.HealthFill.fillAmount, Is.Zero, "nor its health bar");
+
+            hud.Snapshot.Target = SomeTarget("ATTACKING");
+            hud.ApplySnapshot();
+            Assert.That(panel.NameLabel.text, Is.EqualTo("Hostile Rifleman"));
+            Assert.That(panel.HealthLabel.text, Is.EqualTo(HudText.Health(60, 100)), "the same health is written again");
+            Assert.That(panel.HealthFill.fillAmount, Is.EqualTo(0.6f).Within(1e-4f));
+        }
+
+        [Test]
         public void TargetPanel_MarksHostility_WithTextAndAShape()
         {
             Build();

@@ -8,7 +8,8 @@ namespace Blackglass
     /// attacking. Hostility reads as the word HOSTILE and a filled diamond, not as a colour alone. Name, detail, health bar
     /// with numbers and the kind of attention (AIMING, HOVERED, TARGETED, ATTACKING) are the snapshot's; the cover line is
     /// drawn only while the game is paused or the target is being attacked, so a hovering pointer does not flicker with
-    /// hit-chance changes. Hidden without a target; nothing in it is a pointer target.
+    /// hit-chance changes. Hidden without a target, and blanked as it hides: a hostile lost from sight keeps no name or
+    /// health in the hidden panel either. Nothing in it is a pointer target.
     /// </summary>
     internal sealed class TargetPanel : HudPanel
     {
@@ -30,6 +31,7 @@ namespace Blackglass
         readonly Text healthLabel;
         readonly Text coverLabel;
         int shownHealth = -1, shownMax = -1;
+        bool hasContent;
 
         public TargetPanel(Transform parent) : base(HudFactory.Box("Target", parent, HudTheme.Panel, false))
         {
@@ -71,8 +73,13 @@ namespace Blackglass
             var target = s.Target;
             HudFactory.SetActive(Root.gameObject, target.Visible);
             if (!target.Visible)
+            {
+                if (hasContent)
+                    Blank();
                 return;
+            }
 
+            hasContent = true;
             HudFactory.SetText(nameLabel, target.Name);
             HudFactory.SetText(detailLabel, target.Detail);
             HudFactory.SetText(tagLabel, target.Tag);
@@ -91,6 +98,20 @@ namespace Blackglass
             HudFactory.SetActive(coverLabel.gameObject, showCover);
             if (showCover)
                 HudFactory.SetText(coverLabel, cover);
+        }
+
+        // Forgets the last target: its name, detail, attention, health and cover.
+        void Blank()
+        {
+            hasContent = false;
+            HudFactory.SetText(nameLabel, string.Empty);
+            HudFactory.SetText(detailLabel, string.Empty);
+            HudFactory.SetText(tagLabel, string.Empty);
+            HudFactory.SetText(healthLabel, string.Empty);
+            HudFactory.SetText(coverLabel, string.Empty);
+            HudFactory.SetFill(healthFill, 0f);
+            shownHealth = -1;
+            shownMax = -1;
         }
 
         static void Top(RectTransform r, float x, float y, float width, float height) =>

@@ -6,7 +6,8 @@ namespace Blackglass
 {
     /// <summary>
     /// Top left: the mission phase line and one row per objective (the snapshot already applied the fog rules). Each row's
-    /// state is a text marker as well as a colour, so it never relies on colour alone. Hidden without a mission.
+    /// state is a text marker as well as a colour, so it never relies on colour alone. Hidden without a mission. A row is
+    /// blanked as it hides, so a hidden row never keeps a title (after a regeneration an objective is unknown again).
     /// </summary>
     internal sealed class ObjectivesPanel : HudPanel
     {
@@ -54,7 +55,11 @@ namespace Blackglass
         {
             HudFactory.SetActive(Root.gameObject, s.HasMission);
             if (!s.HasMission)
+            {
+                for (var i = 0; i < MaxRows; i++)
+                    HudFactory.SetText(texts[i], string.Empty);
                 return;
+            }
 
             var phase = s.PhaseText ?? string.Empty;
             if (shownPhase == null || !string.Equals(shownPhase, phase, StringComparison.Ordinal))
@@ -69,7 +74,10 @@ namespace Blackglass
                 var visible = i < count;
                 HudFactory.SetActive(rows[i], visible);
                 if (!visible)
+                {
+                    HudFactory.SetText(texts[i], string.Empty);
                     continue;
+                }
                 var row = s.Objectives[i];
                 HudFactory.SetText(texts[i], row.Text);
                 if (shownKinds[i] == (int)row.Kind)

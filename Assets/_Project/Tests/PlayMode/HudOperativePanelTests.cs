@@ -72,6 +72,32 @@ namespace Blackglass.Tests
                 s.Queue.Add(new HudCommandStep { Number = i + 1, Text = "Step " + (i + 1), IsCurrent = i == 0 });
         }
 
+        [Test]
+        public void WithoutAControlledUnit_TheHiddenQueueAndAimingLine_KeepNoText()
+        {
+            Build();
+            var s = hud.Snapshot;
+            Controlled(s);
+            Orders(s, 3);
+            s.IsArmed = true;
+            s.ArmedLine = "AIMING: Aimed Shot | Hostile Rifleman | 8.0/18.0 m | OK";
+            hud.ApplySnapshot();
+            var panel = hud.Operative;
+            Assert.That(panel.StepAt(0).text, Does.Contain("Step 1"), "precondition");
+
+            s.Clear();   // the controlled operative is gone (down, or the mission regenerating)
+            hud.ApplySnapshot();
+            Assert.That(panel.NoUnitLabel.gameObject.activeSelf, Is.True);
+            for (var i = 0; i < panel.StepCapacity; i++)
+                Assert.That(panel.StepAt(i).text, Is.Empty, $"step {i}");
+            Assert.That(panel.AimingLabel.text, Is.Empty, "the aiming line, which can name a target");
+
+            Controlled(s);
+            Orders(s, 1);
+            hud.ApplySnapshot();
+            Assert.That(panel.StepAt(0).text, Does.Contain("Step 1"), "shown again");
+        }
+
         // ---- font ----
 
         [Test]
