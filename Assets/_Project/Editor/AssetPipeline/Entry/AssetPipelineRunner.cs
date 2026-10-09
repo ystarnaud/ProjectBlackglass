@@ -104,6 +104,9 @@ namespace Blackglass.AssetPipeline
                             case ProfileIds.HumanoidCharacter:
                                 CharacterImporter.Import(item, r);
                                 break;
+                            case ProfileIds.HumanoidAnimation:
+                                AnimationImporter.Import(item, r);
+                                break;
                             default:
                                 r.errors.Add("Unknown or not yet supported import profile '" + item.profile + "'.");
                                 break;
