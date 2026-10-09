@@ -23,7 +23,13 @@ namespace Blackglass
         // Read only (the AbilityMenuGate owns it): true while a controller's menu trigger is held.
         [SerializeField] InputActionReference menuAction;
 
+        // The developer overlay (F1) shows or hides this debug text; no overlay assigned means shown.
+        [SerializeField] DeveloperOverlay overlay;
+
         readonly List<string> lines = new List<string>();
+
+        internal void SetOverlay(DeveloperOverlay o) => overlay = o;
+        internal bool IsDrawing => DeveloperOverlay.Shows(overlay);
 
         internal void Initialize(AbilityTargeting abilityTargeting, ActiveInputDevice device, InputActionAsset actions, InputActionReference menu)
         {
@@ -89,6 +95,8 @@ namespace Blackglass
 
         void OnGUI()
         {
+            if (!IsDrawing)
+                return;
             var shown = BuildLines();
             for (var i = 0; i < shown.Count; i++)
                 GUI.Label(new Rect(10f, Screen.height - 10f - LineHeight * (shown.Count - i), 900f, LineHeight + 2f), shown[i]);

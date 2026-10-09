@@ -53,8 +53,16 @@ namespace Blackglass
 
         internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
+        // The developer overlay (F1) shows or hides this debug text; no overlay assigned means shown.
+        [SerializeField] DeveloperOverlay overlay;
+
+        internal void SetOverlay(DeveloperOverlay o) => overlay = o;
+        internal bool IsDrawing => DeveloperOverlay.Shows(overlay);
+
         void OnGUI()
         {
+            if (!IsDrawing)
+                return;
             if (director == null)
                 return;
             style ??= new GUIStyle(GUI.skin.label) { fontSize = 14, alignment = TextAnchor.UpperRight, wordWrap = true };

@@ -97,12 +97,20 @@ namespace Blackglass
 
         internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
+        // The developer overlay (F1) shows or hides this debug text; no overlay assigned means shown.
+        [SerializeField] DeveloperOverlay overlay;
+
+        internal void SetOverlay(DeveloperOverlay o) => overlay = o;
+        internal bool IsDrawing => DeveloperOverlay.Shows(overlay);
+
         GUIStyle panelStyle;
         GUIStyle bannerStyle;
         GUIStyle labelStyle;
 
         void OnGUI()
         {
+            if (!IsDrawing)
+                return;
             if (director == null || director.Runtime == null)
                 return;
             var runtime = director.Runtime;

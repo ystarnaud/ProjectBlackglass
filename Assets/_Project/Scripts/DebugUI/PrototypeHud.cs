@@ -33,6 +33,16 @@ namespace Blackglass
 
         internal void SetIntelligence(IntelligenceService service) => intelligence = service;
 
+        // The developer overlay (F1) shows or hides this debug text; no overlay assigned means shown.
+        [SerializeField] DeveloperOverlay overlay;
+
+        internal void SetOverlay(DeveloperOverlay o) => overlay = o;
+        internal bool IsDrawing => DeveloperOverlay.Shows(overlay);
+        internal void SetCommandInput(PlayerCommandInput input) => commandInput = input;
+
+        /// <summary>The drag-select box is player-facing: it shows whether or not the developer overlay does.</summary>
+        internal bool DrawsDragBox => commandInput != null && commandInput.IsDragging;
+
         GUIStyle pausedStyle;
         GUIStyle outcomeStyle;
         GUIStyle unitLabelStyle;
@@ -175,6 +185,11 @@ namespace Blackglass
 
         void OnGUI()
         {
+            if (DrawsDragBox)
+                GUI.Box(ScreenBox.ToGuiRect(commandInput.DragRect, Screen.height), GUIContent.none);
+            if (!IsDrawing)
+                return;
+
             GUI.Label(new Rect(10f, 10f, 820f, 80f), ControlHints);
             DrawInputInfo();
 
@@ -200,9 +215,6 @@ namespace Blackglass
             }
 
             DrawUnitLabels();
-
-            if (commandInput != null && commandInput.IsDragging)
-                GUI.Box(ScreenBox.ToGuiRect(commandInput.DragRect, Screen.height), GUIContent.none);
 
             if (tacticalPause != null && tacticalPause.IsPaused)
             {
