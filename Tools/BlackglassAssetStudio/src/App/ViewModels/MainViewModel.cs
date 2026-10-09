@@ -170,13 +170,27 @@ public sealed class MainViewModel : ViewModelBase
             Items.Add(vm);
             added++;
         }
+        var insideProject = false;
         if (added > 0)
         {
             Selected ??= Items[^1];
-            if (dropFolder != null) { Settings.LastDropFolder = dropFolder; store.Save(Settings); }
+            var folder = dropFolder ?? Path.GetDirectoryName(Items[^1].FullPath);
+            if (folder != null)
+            {
+                insideProject = IsInsideProject(folder);
+                Settings.LastDropFolder = folder;
+                if (!insideProject) Settings.LastSourceFolder = folder;
+                store.Save(Settings);
+            }
         }
-        StatusText = added == 0 ? "No new files were added." : $"Added {added} file(s). Check each profile, then Validate or Import.";
+        StatusText = added == 0
+            ? "No new files were added."
+            : $"Added {added} file(s). Check each profile, then Validate or Import." +
+              (insideProject ? " Note: these files are inside the project; your original exported files are usually in another folder." : "");
     }
+
+    bool IsInsideProject(string folder) =>
+        ProjectLocator.IsProject(Settings.ProjectPath) && ProjectPaths.TryToProjectPath(Settings.ProjectPath, folder, out _, out _);
 
     /// <summary>Shows an unexpected exception in the status line and Result tab instead of letting it crash the app.</summary>
     public void ReportError(Exception e)

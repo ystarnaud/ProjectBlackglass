@@ -11,4 +11,6 @@ public sealed class AppSettings
     /// <summary>Project-relative path of the Humanoid model whose Avatar animation clips copy.</summary>
     public string DefaultSharedAvatarPath { get; set; } = "";
     public string LastDropFolder { get; set; } = "";
+    /// <summary>The last folder files were added from that is outside the project; the Add dialogs start there.</summary>
+    public string LastSourceFolder { get; set; } = "";
 }

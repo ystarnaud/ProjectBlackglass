@@ -18,12 +18,12 @@ public partial class MainWindow : Window
         {
             PickFiles = () =>
             {
-                var dialog = new OpenFileDialog { Multiselect = true, Filter = "3D models (*.fbx;*.obj;*.glb;*.gltf)|*.fbx;*.obj;*.glb;*.gltf|All files|*.*" };
+                var dialog = new OpenFileDialog { Multiselect = true, InitialDirectory = StartFolder(), Filter = "3D models (*.fbx;*.obj;*.glb;*.gltf)|*.fbx;*.obj;*.glb;*.gltf|All files|*.*" };
                 return dialog.ShowDialog(this) == true ? dialog.FileNames : Array.Empty<string>();
             },
             PickFolder = () =>
             {
-                var dialog = new OpenFolderDialog { Title = "Choose a folder of FBX / OBJ files" };
+                var dialog = new OpenFolderDialog { Title = "Choose a folder of FBX / OBJ files", InitialDirectory = StartFolder() };
                 return dialog.ShowDialog(this) == true ? dialog.FolderName : null;
             },
             PickProjectFile = (title, filter, current) => PickInProject(false, title, filter, current),
@@ -35,6 +35,10 @@ public partial class MainWindow : Window
         };
         DataContext = vm;
     }
+
+    /// <summary>Where the Add dialogs open: the last folder files were added from outside the project, if it still exists.</summary>
+    string StartFolder() =>
+        Directory.Exists(vm.Settings.LastSourceFolder) ? vm.Settings.LastSourceFolder : "";
 
     /// <summary>A file or folder picked inside the project, as an Assets/... path; null if cancelled or outside the project.</summary>
     string? PickInProject(bool folder, string title, string filter, string current)
