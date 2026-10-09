@@ -109,8 +109,11 @@ namespace Blackglass.Tests
             Assert.That(unit.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "A normal click still orders");
         }
 
+        // A press over the HUD that a family switch cancels never gets its release, so its "blocked" flag must not survive to
+        // the next press. Either guard alone passes this (the flag assigned on every press, or cleared on the spurious
+        // cancel); it pins that at least one holds. The second is defence in depth.
         [UnityTest]
-        public IEnumerator ASpuriousCancelOfAPressOverTheHud_DoesNotSwallowTheNextClick()
+        public IEnumerator ABlockedPressCancelledByAFamilySwitch_DoesNotSwallowTheNextClick()
         {
             var ground = (Vector2)viewCamera.WorldToScreenPoint(GroundPoint);
             var hudEdge = ground.x - 60f;

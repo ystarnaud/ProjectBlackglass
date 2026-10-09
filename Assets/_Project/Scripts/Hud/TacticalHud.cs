@@ -50,6 +50,14 @@ namespace Blackglass
 
         internal void Initialize(HudSources hudSources, PointerBlocker blocker)
         {
+            // While enabled the gate is installed: move it from the old blocker to the new one.
+            if (isActiveAndEnabled && pointerBlocker != blocker)
+            {
+                if (pointerBlocker != null)
+                    pointerBlocker.SetTest(null);
+                if (blocker != null)
+                    blocker.SetTest(gate.IsOver);
+            }
             sources = hudSources;
             pointerBlocker = blocker;
             requests = null;
@@ -88,7 +96,10 @@ namespace Blackglass
         }
 
         // What blocks a world click: the panels that take space, while visible. Not the full-screen roots (the world marks,
-        // the status root) and not the pause banner; the squad and prompt zones count only where they draw something.
+        // the status root), not the banners, and not the target panel: it is information only and it appears and hides with
+        // the hover, which reads this gate, so blocking there would make it flicker over a hostile behind it and swallow the
+        // click on that hostile. Nothing that follows the hover may be registered. The squad and prompt zones count only
+        // where they draw something.
         void RegisterBlockingRects()
         {
             gate.Register(Objectives.Root);
@@ -96,7 +107,6 @@ namespace Blackglass
             gate.Register(Squad.Footprint);
             gate.Register(Operative.Root);
             gate.Register(Prompts.Background);
-            gate.Register(Target.Root);
         }
 
         void WireButtons()

@@ -7,6 +7,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.Controls;
 using UnityEngine.TestTools;
+using UnityEngine.UI;
 
 namespace Blackglass.Tests
 {
@@ -172,7 +173,7 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator ClearOrders_EmptiesTheQueue_LikeTheStopAction_IncludingTheCompanionParking()
+        public IEnumerator ClearOrders_EmptiesTheQueue_LikeTheStopAction()
         {
             var companionA = rig.World.CreateCompanion(new Vector3(-3f, 0f, -9f), rig.Active, rig.Encounter);
             var companionB = rig.World.CreateCompanion(new Vector3(3f, 0f, -9f), rig.Active, rig.Encounter);
@@ -205,8 +206,41 @@ namespace Blackglass.Tests
             Assert.That(b.PendingCommands, Is.Empty);
             Assert.That(a.CurrentCommand, Is.Null, "precondition: the Stop action stopped A");
             Assert.That(b.StopCount - stopsB, Is.EqualTo(a.StopCount - stopsA), "the same Stop");
-            Assert.That(companionB.IsParked, Is.EqualTo(companionA.IsParked), "parked the same way as the Stop action");
             Assert.That(rig.Selection.Selected, Is.EqualTo(new[] { selectableA }), "clearing orders does not select");
+        }
+
+        [UnityTest]
+        public IEnumerator ClearOrders_ParksAnAttachedCompanion_LikeTheStopAction()
+        {
+            // Inside the leader's magnet and with no explicit order: attached, so only the Stop can park them.
+            var companionA = rig.World.CreateCompanion(new Vector3(-2f, 0f, -8f), rig.Active, rig.Encounter);
+            var companionB = rig.World.CreateCompanion(new Vector3(2f, 0f, -8f), rig.Active, rig.Encounter);
+            var selectableA = companionA.gameObject.AddComponent<SelectableUnit>();
+            companionB.gameObject.AddComponent<SelectableUnit>();
+            rig.Selection.AddToRoster(selectableA);
+            yield return null;
+            yield return null;
+            var a = companionA.GetComponent<CommandableUnit>();
+            var b = companionB.GetComponent<CommandableUnit>();
+            Assert.That(companionA.IsParked, Is.False, "precondition: A is attached");
+            Assert.That(companionB.IsParked, Is.False, "precondition: B is attached");
+            Assert.That(a.CurrentCommand, Is.Null);
+            Assert.That(b.CurrentCommand, Is.Null);
+            var stopsA = a.StopCount;
+            var stopsB = b.StopCount;
+
+            rig.Selection.Select(selectableA);
+            Press(keyboard.xKey);       // the Stop action, on the selected companion A
+            requests.ClearOrders(b);    // the HUD's CLEAR, on companion B
+            yield return null;
+            Release(keyboard.xKey);
+            yield return null;
+            yield return null;
+
+            Assert.That(a.StopCount - stopsA, Is.EqualTo(1), "the Stop action issued one Stop");
+            Assert.That(b.StopCount - stopsB, Is.EqualTo(1), "CLEAR issued one Stop");
+            Assert.That(companionA.IsParked, Is.True, "the Stop action parks");
+            Assert.That(companionB.IsParked, Is.True, "CLEAR parks the same way");
         }
 
         [UnityTest]
@@ -346,12 +380,38 @@ namespace Blackglass.Tests
             var action = actions.FindAction(actionPath, throwIfNotFound: true);
             foreach (var group in PadGroups)
             {
-                var bindings = action.bindings.Where(b => b.groups != null && b.groups.Split(InputBinding.Separator).Contains(group)).ToArray();
+                var bindings = action.bindings.Where(b => InGroup(b, group)).ToArray();
                 Assert.That(bindings.Any(b => !b.isComposite && !string.IsNullOrEmpty(b.path)), Is.True, $"{actionPath} has no {group} binding");
                 if (chord)
-                    Assert.That(bindings.Any(b => b.isComposite) && bindings.Any(b => b.isPartOfComposite && b.name == "modifier"),
-                        Is.True, $"{actionPath} in {group} is a chord");
+                    Assert.That(HasChordIn(action, group), Is.True,
+                        $"{actionPath} in {group}: one composite whose modifier and button parts are both bound in {group}");
             }
+        }
+
+        static bool InGroup(InputBinding binding, string group) =>
+            binding.groups != null && binding.groups.Split(InputBinding.Separator).Contains(group);
+
+        // A composite followed by its own parts, among them a bound "modifier" and a bound "button" in this group.
+        static bool HasChordIn(InputAction action, string group)
+        {
+            var bindings = action.bindings;
+            for (var i = 0; i < bindings.Count; i++)
+            {
+                if (!bindings[i].isComposite)
+                    continue;
+                bool modifier = false, button = false;
+                for (var j = i + 1; j < bindings.Count && bindings[j].isPartOfComposite; j++)
+                {
+                    var part = bindings[j];
+                    if (!InGroup(part, group) || string.IsNullOrEmpty(part.path))
+                        continue;
+                    modifier |= part.name == "modifier";
+                    button |= part.name == "button";
+                }
+                if (modifier && button)
+                    return true;
+            }
+            return false;
         }
 
         // ---- pointer gate ----
@@ -431,7 +491,9 @@ namespace Blackglass.Tests
             s.Squad.Clear();
             hud.ApplySnapshot();
             HudLayout.Rebuild(root);
-            Assert.That(gate.IsOver(Centre(hud.Target.Root)), Is.True, "a shown target panel blocks");
+            Assert.That(hud.Target.Root.gameObject.activeInHierarchy, Is.True, "precondition: the target panel is shown");
+            Assert.That(gate.IsOver(Centre(hud.Target.Root)), Is.False,
+                "the target panel is information only: it never blocks, even when shown (it follows the hover)");
             Assert.That(gate.IsOver(Centre(hud.Prompts.Background)), Is.True, "shown prompts block");
             Assert.That(gate.IsOver(Centre(hud.Status.FollowChip)), Is.True, "the follow chip blocks");
             Assert.That(gate.IsOver(Centre(hud.Status.PauseChip)), Is.True, "the pause chip blocks");
@@ -476,6 +538,111 @@ namespace Blackglass.Tests
             yield return null;
 
             Assert.That(rig.Caster.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
+        }
+
+        [UnityTest]
+        public IEnumerator AHostileBehindTheTargetZone_KeepsThePanelSteady_AndCanStillBeAttacked()
+        {
+            yield return null;
+            rig.Selection.Select(rig.Caster);
+            yield return StartHud();
+            var zone = Centre(hud.Target.Root);
+            Assert.That(zone.x, Is.InRange(0f, Screen.width), "precondition: the target zone is on screen");
+            Assert.That(zone.y, Is.InRange(0f, Screen.height), "precondition: the target zone is on screen");
+
+            // An observed hostile (no intelligence: everything is observed) right behind the zone's centre.
+            var ray = rig.ViewCamera.ScreenPointToRay(zone);
+            Assert.That(new Plane(Vector3.up, Vector3.zero).Raycast(ray, out var distance), Is.True);
+            rig.FarHostile.transform.position = ray.GetPoint(distance) + Vector3.up;
+            Physics.SyncTransforms();
+            var pointed = rig.Input.ResolveAt(zone);
+            Assert.That(pointed.Kind, Is.EqualTo(PointerTargetKind.Hostile), "precondition: the hostile is under the zone centre");
+            Assert.That(pointed.Hostile, Is.SameAs(rig.FarHostile));
+
+            Set(mouse.position, zone);
+            yield return TestWorld.WaitUntil(() => hud.Snapshot.Target.Visible, 2f);
+            Assert.That(hud.Snapshot.Target.Visible, Is.True, "hovering the hostile shows the target panel");
+            for (var frame = 0; frame < 15; frame++)
+            {
+                yield return null;
+                Assert.That(hud.Snapshot.Target.Visible, Is.True, $"frame {frame}: the target stays in the snapshot");
+                Assert.That(hud.Target.Root.gameObject.activeSelf, Is.True, $"frame {frame}: the panel does not flicker");
+            }
+            Assert.That(blocker.IsBlocking(zone), Is.False, "the shown target panel does not block");
+
+            Press(mouse.leftButton);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            Assert.That(rig.Caster.Unit.CurrentCommand, Is.TypeOf<AttackCommand>(), "a click there still attacks the hostile");
+            Assert.That(((AttackCommand)rig.Caster.Unit.CurrentCommand).Target, Is.SameAs(rig.FarHostile));
+        }
+
+        [Test]
+        public void EveryRaycastTarget_LiesInsideTheGate_WithMaximumContent()
+        {
+            var hostObject = rig.World.Track(new GameObject("hud"));
+            hostObject.SetActive(false);
+            hud = hostObject.AddComponent<TacticalHud>();
+            hud.Initialize(new HudSources(), null);
+            var root = HudLayout.CreateRoot(1920f, 1080f);
+            rig.World.Track(root.gameObject);
+            root.position = new Vector3(960f, 540f, 0f);
+            hud.BuildInto(root);
+            var s = hud.Snapshot;
+            s.HasMission = true;
+            s.PhaseText = "in progress";
+            s.Objectives.Add(new HudObjectiveRow { Kind = HudObjectiveKind.Active, Text = "Reach the terminal" });
+            s.Extraction = HudExtractionState.Active;
+            s.ExtractionInside = 1;
+            s.ExtractionRequired = 3;
+            s.IsPaused = true;
+            s.HasPause = true;
+            s.HasFollow = true;
+            for (var i = 0; i < 6; i++)
+                s.Squad.Add(new HudSquadCard { Name = "Operative " + i, MaxHealth = 100, Health = 100 });
+            s.HasControlled = true;
+            s.ControlledName = "Operative 0";
+            for (var i = 0; i < 4; i++)
+                s.Abilities.Add(new HudAbilitySlot { Slot = i, Name = "Ability " + i, Prompt = "P" + i });
+            s.QueueOwner = "Operative 0";
+            s.Queue.Add(new HudCommandStep { Number = 1, Text = "Move", IsCurrent = true });
+            s.CanClearOrders = true;
+            s.Prompts.Add(new HudPromptEntry { Prompt = "P", Label = "Label" });
+            s.Target = new HudTarget { Visible = true, Name = "Hostile", MaxHealth = 10, Health = 10 };
+            hud.ApplySnapshot();
+            HudLayout.Rebuild(root);
+
+            var targets = 0;
+            foreach (var graphic in root.GetComponentsInChildren<Graphic>(false))
+            {
+                if (!graphic.raycastTarget)
+                    continue;
+                targets++;
+                var r = HudLayout.WorldRect(graphic.rectTransform);
+                Vector2[] points =
+                {
+                    r.center, new Vector2(r.xMin + 0.5f, r.yMin + 0.5f), new Vector2(r.xMax - 0.5f, r.yMin + 0.5f),
+                    new Vector2(r.xMin + 0.5f, r.yMax - 0.5f), new Vector2(r.xMax - 0.5f, r.yMax - 0.5f),
+                };
+                foreach (var point in points)
+                    Assert.That(hud.Gate.IsOver(point), Is.True, $"{graphic.name} catches clicks at {point} outside the gate");
+            }
+            Assert.That(targets, Is.GreaterThanOrEqualTo(6 + 4 + 1 + 2), "cards, slots, CLEAR and the two chips");
+        }
+
+        [UnityTest]
+        public IEnumerator InitializeWhileEnabled_MovesTheGateToTheNewBlocker()
+        {
+            yield return StartHud();
+            var other = rig.World.Track(new GameObject("OtherBlocker")).AddComponent<PointerBlocker>();
+
+            hud.Initialize(sources, other);
+            Assert.That(blocker.HasTest, Is.False, "the old blocker no longer carries the gate");
+            Assert.That(other.HasTest, Is.True);
+
+            hudObject.SetActive(false);
+            Assert.That(other.HasTest, Is.False);
         }
 
         [UnityTest]
