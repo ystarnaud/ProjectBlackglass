@@ -1,6 +1,6 @@
 # Phase 11.5: Functional Tactical HUD — design
 
-Status: approved in chat 2026-10-09 (five decisions below). Next: implementation plan.
+Status: implemented (branch `tactical-hud`; recorded as decision 042, manual checks in `Docs/Phase11.5-ManualTests.md`). Design approved in chat 2026-10-09 (five decisions below); sections 4, 5, 6, 8 and 13 updated to match what was built.
 
 ## 1. Goal
 
@@ -20,13 +20,13 @@ Not in scope (owner list): inventory, equipment, loot, character sheet, skill tr
 
 1. **uGUI, built from code.** Screen-space overlay Canvas, `CanvasScaler` ScaleWithScreenSize 1920×1080, match 0.5. Text uses the built-in legacy `Text` (font `LegacyRuntime.ttf`) through one factory (`HudFactory`) so a later TextMeshPro switch is one class. No TMP essential-resources import, no prefabs, no binary assets. Rejected: UI Toolkit (second UI stack, separate picking, asynchronous layout in tests), TMP (asset import).
 2. **Snapshot boundary.** `HudSnapshotBuilder` reads gameplay through `HudSources` (serialized references) into reused snapshot structs each frame (unscaled time, `LateUpdate`). Views compare each value with what they last showed and touch a `Text`/`Image` only on change (cached strings; no per-frame allocation). The HUD subscribes to no gameplay events, so a regenerated mission cannot leave stale references. Gameplay code never references HUD code; the only seams are two small neutral classes (`PointerBlocker`, `DeveloperOverlay`) and one method on `ActiveCharacter`.
-3. **Interaction without a focus mode.** The EventSystem runs in pointer-only mode (`InputSystemUIInputModule` with its move/submit/cancel actions left empty), so the HUD never takes stick or button input. Every clickable element sends the request the existing input sends, and each has a controller equivalent that already exists (table in section 8). No new bindings in any pad family. Rejected for now: letting the tactical cursor click HUD elements (changes `PointerTarget` and the input pipeline).
+3. **Interaction without a focus mode.** The EventSystem runs in pointer-only mode (`PointerOnlyInputModule`, an `InputSystemUIInputModule` that clears its move/submit/cancel actions on every enable), so the HUD never takes stick or button input. Every clickable element sends the request the existing input sends, and each has a controller equivalent that already exists (table in section 8). No new bindings in any pad family. Rejected for now: letting the tactical cursor click HUD elements (changes `PointerTarget` and the input pipeline).
 4. **Player HUD versus developer overlay.** The IMGUI views become the developer overlay, hidden by default, toggled by new `Developer/ToggleDebugOverlay` (F1, keyboard only like the other Developer actions). World feedback views stay visible. The drag-select box and the controller cursor are player-facing and are never hidden.
 5. **Portraits:** a placeholder badge (initials plus role letter) behind `HudPortraits.Resolve(...)`, which returns `null` today. Real art needs no data change now.
 
 ## 4. Architecture
 
-All new runtime code is in `Assets/_Project/Scripts/Hud/` in the existing `Blackglass` assembly (add `Unity.ugui` to its references).
+All new runtime code is in `Assets/_Project/Scripts/Hud/` in the existing `Blackglass` assembly (references `UnityEngine.UI`, the ugui package's assembly).
 
 **Data layer (plain C#, EditMode-testable):**
 - `HudSnapshot` with `HudSquadCard`, `HudAbilitySlot`, `HudCommandStep`, `HudObjectiveRow`, `HudTarget`, `HudPromptEntry`, `HudWorldMark` structs held in reused lists.
@@ -56,36 +56,36 @@ All new runtime code is in `Assets/_Project/Scripts/Hud/` in the existing `Black
 | --- | --- |
 | Top left | Objectives panel (mission phase line, one row per objective). |
 | Top centre | `TACTICAL PAUSE` banner (always present while paused); mission result banner (SUCCESS / FAILED) below it. |
-| Top right | Extraction state; Follow chip (`FOLLOW: ON/OFF`, clickable). |
-| Bottom left | Squad cards, stacked, one per operative. |
-| Bottom centre | Controlled operative panel; ability slots; command queue; armed-ability strip. |
-| Bottom right | Contextual prompt list. |
-| Near the pointer or soft target | Target panel (right of centre, above the prompts) for an observed hostile. |
+| Top right | Extraction state; Follow chip (`FOLLOW: ON/OFF`, clickable); Pause chip (`PAUSE` / `RESUME`, clickable). |
+| Bottom left | Squad cards, stacked, one per operative (zone 460 x 472: six cards of 72 plus gaps). |
+| Bottom centre | Controlled operative panel (zone 760 x 280); ability slots; command queue; armed-ability strip. |
+| Bottom right | Contextual prompt list (zone 380 x 220): one chip column, sized to the widest shown prompt, then the label. |
+| Above the prompts | Target panel (340 x 140) for an observed hostile; information only, never a click blocker. |
 | World | Pooled labels (objective, extraction, observed hostile tag, last-known marker). |
 
 The centre of the viewport stays empty. Panels use anchors and the scaler, and are checked at 1920×1080, 1280×720, 2560×1440 and 1920×1200.
 
 ## 6. Content rules
 
-**Squad card:** portrait badge, display name (never the operative id), role, rank, health bar plus `current/max`, state tags. Tags carry meaning by text and shape, not colour alone: `CONTROLLED` (filled marker), `SELECTED` (outline marker), `FOLLOWING` (attached, follow on) / `ATTACHED` (attached, follow off) / `PARKED` / `HOLDING` (holding ordered cover) on companions only, `DOWN` (greyed, health 0). Order is the friendly list order, which is the Tab order.
+**Squad card:** portrait badge, display name (never the operative id), role, rank, health bar plus `current/max`, state tags. Tags carry meaning by text and shape, not colour alone: `CONTROL` (filled marker), `SELECTED` (outline marker), `FOLLOWING` (attached, follow on) / `ATTACHED` (attached, follow off) / `PARKED` / `HOLDING` on companions only, `DOWN` (greyed, health 0). `HOLDING` means not following by design: the spawn hold (`CompanionAI.IsHeld`) or ordered cover occupancy. Order is the friendly list order, which is the Tab order.
 
-**Controlled operative panel:** name, role, rank, health, cover line (`Exposed`, `Low cover`, `Corner cover`) from `UnitCover.Status` and `CoverLocation.Height/Placement` only when occupied; no controlled unit shows "No unit in control".
+**Controlled operative panel:** name, role, rank, health, cover line (`Exposed`, `Low cover`, `Corner cover`, `Tall cover`, `Moving to cover`) from `UnitCover.Status` and `CoverLocation.Height/Placement` (the last three only when occupied); no controlled unit shows "No unit in control".
 
 **Abilities:** shown for `AbilityTargeting.Caster` (first eligible selected unit, else the active character, as targeting already decides). Slot count comes from `UnitAbilities.Count` (at most four today); the pool is sized to four and hides unused slots. Each slot: prompt (from `Commands/Ability{n}`, chord text for pads), name, state: ready, cooldown (fill = remaining / `EffectiveCooldown`, number), armed (marker plus text), unusable (caster dead). Cooldown values come from scaled time, so they freeze in tactical pause with no HUD logic. When an ability is armed, a strip shows `AIMING: <name>`, the target (if shown), `distance/range`, and `OK` / `Moving into range` / the failure wording, with Confirm and Cancel prompts. The existing world preview (`AbilityTargetingView`) is unchanged.
 
-**Command queue:** subject is the first selected unit while paused, else the controlled unit. Steps are numbered; step 1 is highlighted as current. Real time shows up to 3 steps, pause up to 8, then `+N`. Wording: `Move`, `Attack <name>`, `Cover`, `Interact <terminal>`, `<ability name>`, plus `Moving into range` for an approaching ability. An `Attack` step names its target only while `Knowledge.CanTarget`; otherwise it reads `Attack (target lost)`. A `Clear orders` button issues `StopCommand` (see section 8).
+**Command queue:** subject is the first selected unit while paused, else the controlled unit. The current step is prefixed `> ` and highlighted; the others are numbered ("2 "). Real time shows up to 3 steps, pause up to 8, then `+N`. Wording: `Move`, `Attack <name>`, `Take cover`, `Interact <terminal>`, `<ability name>`, plus `Moving into range` for an approaching ability. An `Attack` step names its target only while `Knowledge.CanTarget`; otherwise it reads `Attack (target lost)`. A `Clear orders` button issues `StopCommand` (see section 8).
 
-**Objectives:** rows are built from `MissionRuntime.Objectives` (extraction excluded here; it has its own status). Known: `[ ]` active, `[x]` completed (dimmed), `[FAILED]`, `[LOCKED]`, with `Describe()` text. Unknown: listed as `[?] <VagueTitle>` only when `IntelligenceService.ListsUnknownObjectives` and a vague title exists; otherwise omitted. The real title, count and position of an unknown objective are never read into the snapshot. This mirrors `MissionHudText.Panel`, which becomes the shared source of truth (the IMGUI panel and the HUD call the same functions).
+**Objectives:** rows are built from `MissionRuntime.Objectives` (extraction excluded here; it has its own status). Known: `[ ]` active, `[x]` completed (dimmed), `[!]` failed, `[-]` locked, with `Describe()` text. Unknown: listed as `[?] <VagueTitle>` only when `IntelligenceService.ListsUnknownObjectives` and a vague title exists; otherwise omitted. The real title, count and position of an unknown objective are never read into the snapshot. This mirrors `MissionHudText.Panel`, which becomes the shared source of truth (the IMGUI panel and the HUD call the same functions).
 
 **Extraction:** `UNKNOWN` (not `IsKnown`), `LOCKED` (Inactive), `AVAILABLE` (Active, nobody inside), `ACTIVE n/m IN ZONE` (Active, some squad members inside), `EXTRACTED` (success). Its world label obeys `IsKnown`.
 
-**Target panel (observed hostile only):** subject priority: armed-ability preview target, hostile under the mouse (resolved at 10 Hz when the pointer is not over the HUD) or under the controller cursor, the soft target, the controlled unit's current attack target. Every candidate must pass `Knowledge.CanTarget`. Content: `HOSTILE` tag with a diamond, name, archetype or role, health bar and numbers, whether the controlled unit's shot is in cover (`UnitAttacker.IsTargetInCover` → `Cover 65%` / `Exposed`, shown while paused or when it is the attack target), and targeting state (`TARGETED`, `AIMING`).
+**Target panel (observed hostile only):** subject priority: armed-ability preview target, hostile under the mouse (resolved at 10 Hz when the pointer is not over the HUD) or under the controller cursor, the soft target, the controlled unit's current attack target. Every candidate must pass `Knowledge.CanTarget`. Content: `HOSTILE` tag with a diamond (plus `AIMING` / `HOVERED` / `TARGETED` / `ATTACKING`), name, archetype or role, health bar and numbers, whether the controlled unit's shot is in cover (`UnitAttacker.IsTargetInCover` → `Cover 65%` / `Exposed`, shown while paused or when it is the attack target), and targeting state (`TARGETED`, `AIMING`).
 
 **World marks:** observed hostile: small filled diamond above the unit. Last-known hostile: hollow diamond with `?` and `LAST KNOWN` at the last seen position only (`IntelligenceService.TryLastKnown`). Neither is drawn for Unknown. Known objective and extraction labels reuse `MissionHudText.MarkerLabel`. Labels are pooled and projected each frame; labels behind the camera are hidden.
 
-**Pause:** `TACTICAL PAUSE — <Resume prompt> to resume` stays visible at top centre. Paused mode additionally expands the queue (8 steps), shows cover detail in the target panel, and shows the cursor-related prompts. It is the same component set, not a second HUD.
+**Pause:** `TACTICAL PAUSE - <Resume prompt> to resume` stays visible at top centre. Paused mode additionally expands the queue (8 steps), shows cover detail in the target panel, and shows the cursor-related prompts. It is the same component set, not a second HUD.
 
-**Prompts:** context drives the list: real time (Attack or Order, Pause, Switch character, Follow, Stop); a terminal in reach (`Interact: <name>`, reusing `PlayerCommandInput.PromptInteractable`); paused (Resume, Order, Queue, Cancel, Cursor/Select); ability armed (Confirm, Cancel, Queue). At most six entries. Keyboard/mouse entries use the keyboard actions (`Commands/Command` for the mouse order button, since `Confirm`/`Attack` are pad actions); pad families use the pad actions. All text comes from `PromptResolver`, so Nintendo's swapped Confirm/Cancel, PlayStation and Generic labels follow the bindings. The list refreshes when `ActiveInputDevice.Family` changes (polled), with no restart. Prompt text is plain label text; no glyph art.
+**Prompts:** context drives the list: real time (Attack or Order, Pause, Switch character, Follow, Stop); a terminal in reach (`Interact: <name>`, reusing `PlayerCommandInput.PromptInteractable`); paused (Resume, Order, Queue, Cancel, Switch); ability armed (Cast, Cancel, Queue). At most six entries. Keyboard/mouse entries use the keyboard actions (`Commands/Command` for the mouse order button, since `Confirm`/`Attack` are pad actions); pad families use the pad actions. All text comes from `PromptResolver`, so Nintendo, PlayStation and Generic labels follow the bindings (Nintendo Cancel and Xbox Cancel both read "B"). The list refreshes when `ActiveInputDevice.Family` changes (polled), with no restart. Prompt text is plain label text; no glyph art.
 
 ## 7. Intelligence and fog rules (critical)
 
@@ -107,7 +107,7 @@ The centre of the viewport stays empty. Panels use anchors and the scaler, and a
 | Follow chip | click | `ActiveCharacter.ToggleFollow()` | Follow (D-pad up) |
 | Pause chip | click | `TacticalPause.Toggle()` | Start / Menu / Options / + |
 
-`PointerBlocker` keeps HUD panels from letting a click fall through to the world. The EventSystem has no navigation actions, so the HUD takes no focus. A test pins each row (mouse request and that the controller action exists in all four pad groups).
+`PointerBlocker` keeps HUD panels from letting a click fall through to the world; the Target panel and the world marks are information only and never block. The EventSystem runs `PointerOnlyInputModule` (no navigation actions), so the HUD takes no focus. A test pins each row (mouse request and that the controller action exists in all four pad groups).
 
 ## 9. Debug separation
 
@@ -131,15 +131,22 @@ The HUD holds no per-mission reference between frames. Squad cards re-bind when 
 ## 13. Known limits and risks to report
 
 - Legacy `Text` and the built-in font: no icon glyphs, no portrait art.
-- No controller focus mode; controller reaches HUD functions only through existing actions.
-- Cover status shows only what `UnitCover` reliably reports.
+- No controller focus mode; controller reaches HUD functions only through existing actions, and the tactical cursor cannot click the HUD.
+- Cover status shows only what `UnitCover` reliably reports (Exposed / Low / Corner / Tall / Moving to cover).
 - Walk/run, hit flash and other unit-art caveats are unrelated to this phase.
-- Mouse hover resolution costs one raycast pass at 10 Hz (RaycastAll under fog).
+- Mouse hover resolution costs one raycast pass at 10 Hz (RaycastAll under fog), so the Target panel can lag the pointer by up to 0.1 s.
 - Edits to debug IMGUI views are early returns only; their text-building functions and tests are untouched.
+- 4:3: the squad column and the operative panel overlap by about 33 canvas units (16:9, 16:10 and 21:9 are tested).
+- `IntelligenceService.Clear()` without a regeneration fails open (inherited from 037); the director never does that.
+- The prompt cache does not notice a live rebind (no rebind UI).
+- Needs an eye check in the Editor: ability slot layout (chip spans the top row; text shrinks to a 10 px floor on the generic pad's longest chord) and the objective glyphs `[!]` / `[-]` / `[?]`.
+- Not gated over the HUD: camera right-drag and wheel zoom; the ability-targeting preview follows the pointer under the HUD (cosmetic).
+- Small per-frame allocations remain in pre-existing functions the builder calls (objective `Describe()`, `MarkerLabel`, `ReachZone.Inside`, `PromptInteractable`, the 10 Hz `ResolveAt`).
+- Nintendo Confirm/Cancel follow the bindings: Nintendo Cancel and Xbox Cancel both read "B".
 
 ## 14. Task outline (for the plan)
 
-1. Seams and assembly: `Unity.ugui` reference, `PointerBlocker`, `DeveloperOverlay` + input action, `ActiveCharacter.TakeControl`.
+1. Seams and assembly: `UnityEngine.UI` reference, `PointerBlocker`, `DeveloperOverlay` + input action, `ActiveCharacter.TakeControl`.
 2. Snapshot structs, `HudSources`, `HudText`, `HudPrompts` (pure, with tests).
 3. Snapshot builder with intelligence rules.
 4. `HudFactory`, `HudTheme`, `TacticalHud` root, canvas, EventSystem.
