@@ -17,7 +17,7 @@ namespace Blackglass.Tests
     public class TacticalHudBuildTests
     {
         static readonly string[] PanelNames = { "Objectives", "Status", "Squad", "Operative", "Prompts", "Target", "WorldMarks" };
-        static readonly string[] LaterPanels = { "Squad", "Operative", "Prompts", "Target", "WorldMarks" };
+        static readonly string[] LaterPanels = { "Operative", "Prompts", "Target", "WorldMarks" };
 
         readonly List<Object> created = new List<Object>();
         TacticalHud hud;
@@ -70,6 +70,7 @@ namespace Blackglass.Tests
             Assert.That(hud.Status.ResultLabel, Is.Not.Null);
             Assert.That(hud.Status.ExtractionLabel, Is.Not.Null);
             Assert.That(hud.Status.FollowLabel, Is.Not.Null);
+            Assert.That(hud.Squad.Root, Is.SameAs(Panel("Squad")));
             foreach (var name in LaterPanels)
             {
                 Assert.That(Panel(name).childCount, Is.Zero, $"{name} is an empty rect until its task fills it");
