@@ -427,6 +427,80 @@ namespace Blackglass.Tests
             Assert.That(snapshot.ArmedLine, Is.Empty);
         }
 
+        [UnityTest]
+        public IEnumerator ArmedLine_IsRebuiltOnlyWhenTheShownTenthChanges()
+        {
+            abilityRig = AbilityRig.Build(actions, false);
+            yield return null;
+            var sources = AbilitySources();
+            Assert.That(abilityRig.Targeting.Arm(1), Is.True, "the Blast: a ground aim that follows the pointer");
+            var screen = abilityRig.ScreenPointOf(AbilityRig.BlastGround);
+            Set(mouse.position, screen);
+            yield return null;
+            yield return null;
+            Assert.That(abilityRig.Targeting.Preview.HasAim, Is.True, "Precondition: aiming at the ground");
+            var first = abilityRig.Targeting.Preview.Check.Distance;
+            Build(sources);
+            var line = snapshot.ArmedLine;
+            var builds = builder.ArmedLineBuilds;
+            Assert.That(line, Does.Contain(" | " + (Mathf.RoundToInt(first * 10f) / 10f).ToString("0.0", CultureInfo.InvariantCulture) + "/"));
+
+            // A one-pixel move that keeps the same tenth: the cached line is reused, nothing is rebuilt.
+            var sameTenth = false;
+            foreach (var offset in new[] { new Vector2(1f, 0f), new Vector2(-1f, 0f), new Vector2(0f, 1f), new Vector2(0f, -1f) })
+            {
+                Set(mouse.position, screen + offset);
+                yield return null;
+                yield return null;
+                var distance = abilityRig.Targeting.Preview.Check.Distance;
+                if (distance == first || Mathf.RoundToInt(distance * 10f) != Mathf.RoundToInt(first * 10f))
+                    continue;
+                sameTenth = true;
+                Build(sources);
+                Assert.That(ReferenceEquals(snapshot.ArmedLine, line), Is.True, $"{first} -> {distance}: the same text is reused");
+                Assert.That(builder.ArmedLineBuilds, Is.EqualTo(builds), "no rebuild within a tenth");
+                break;
+            }
+            Assert.That(sameTenth, Is.True, "Precondition: a pixel move that changes the distance within its tenth");
+
+            // A move of several metres changes the number: rebuilt once.
+            Set(mouse.position, abilityRig.ScreenPointOf(AbilityRig.BlastGround + new Vector3(-3f, 0f, 0f)));
+            yield return null;
+            yield return null;
+            Build(sources);
+            Assert.That(snapshot.ArmedLine, Is.Not.EqualTo(line));
+            Assert.That(builder.ArmedLineBuilds, Is.EqualTo(builds + 1));
+        }
+
+        [UnityTest]
+        public IEnumerator CoverText_IsFilledOnlyWhenThePanelCanShowIt_PausedOrAttacking()
+        {
+            abilityRig = AbilityRig.Build(actions, false);
+            abilityRig.Caster.GetComponent<UnitAttacker>().Initialize(12f, 10, 1f, CombatRole.Ranged);   // only a ranged unit reads cover
+            yield return null;
+            var sources = AbilitySources();
+            Set(mouse.position, abilityRig.ScreenPointOf(abilityRig.Hostile.transform.position));
+            yield return null;
+            yield return null;
+
+            Build(sources, 1f);
+            Assert.That(snapshot.Target.Visible && snapshot.Target.Tag == "HOVERED", Is.True, "Precondition: hovered in real time");
+            Assert.That(snapshot.Target.CoverText, Is.Empty, "a hovered target in real time: the line is not shown, so not computed");
+
+            abilityRig.Pause.Pause();
+            Build(sources, 2f);
+            Assert.That(snapshot.Target.Tag, Is.EqualTo("HOVERED"));
+            Assert.That(snapshot.Target.CoverText, Is.EqualTo("Exposed"), "paused: the cover line is filled");
+
+            abilityRig.Pause.Resume();
+            Set(mouse.position, abilityRig.ScreenPointOf(AbilityRig.BlastGround + new Vector3(0f, 0f, -6f)));
+            yield return null;
+            Assert.That(abilityRig.Caster.Unit.Issue(new AttackCommand(abilityRig.Hostile)), Is.True);
+            Build(sources, 3f);
+            Assert.That(snapshot.Target.Tag, Is.EqualTo("ATTACKING"), "Precondition: the attack target, in real time");
+            Assert.That(snapshot.Target.CoverText, Is.EqualTo("Exposed"), "the attack target's cover line is filled");
+        }
+
         // ---- command queue ----
 
         [UnityTest]

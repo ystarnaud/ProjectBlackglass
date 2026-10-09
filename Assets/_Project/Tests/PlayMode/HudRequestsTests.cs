@@ -327,6 +327,43 @@ namespace Blackglass.Tests
             Assert.That(rig.Selection.Selected, Is.EqualTo(new[] { rig.Ally }));
         }
 
+        // Through the real UI module: the simulated mouse's presses reach the card via the pointer-only EventSystem, which
+        // counts clicks itself (two presses on the same object within its click speed make clickCount 2).
+        [UnityTest]
+        public IEnumerator ARealDoubleClickOnACard_TakesControl_AndASingleClickOnlySelects()
+        {
+            yield return null;
+            rig.Selection.Select(rig.Caster);
+            yield return StartHud();
+            var card = Centre(CardOf(rig.Ally).Root);
+            Set(mouse.position, card);
+            yield return null;
+
+            Press(mouse.leftButton);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            Assert.That(rig.Selection.Selected, Is.EqualTo(new[] { rig.Ally }), "a single click selects");
+            Assert.That(rig.Active.Unit, Is.SameAs(rig.Caster.Unit), "and does not take control");
+
+            // Let the first click's window pass (unscaled time), then click twice quickly.
+            var waitUntil = Time.unscaledTime + 0.6f;
+            while (Time.unscaledTime < waitUntil)
+                yield return null;
+            rig.Selection.Select(rig.Caster);
+            Press(mouse.leftButton);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            Press(mouse.leftButton);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            Assert.That(rig.Active.Unit, Is.SameAs(rig.Ally.Unit), "a double click through the UI module takes control");
+            Assert.That(rig.Caster.Unit.CurrentCommand, Is.Null, "and gives no world order");
+            Assert.That(rig.Ally.Unit.CurrentCommand, Is.Null);
+        }
+
         [UnityTest]
         public IEnumerator SlotClearFollowAndPauseClicks_SendTheirRequests()
         {
@@ -478,7 +515,8 @@ namespace Blackglass.Tests
             Assert.That(gate.IsOver(new Vector2(top.center.x, top.yMax + 40f)), Is.False, "empty squad space above the cards does not block");
 
             Assert.That(gate.IsOver(Centre(hud.Operative.Root)), Is.True, "the operative panel blocks");
-            Assert.That(gate.IsOver(Centre(hud.Status.PauseBanner)), Is.False, "the pause banner does not block");
+            Assert.That(gate.IsOver(Centre(hud.Status.PauseBanner)), Is.True, "the shown pause banner blocks (ruling R3)");
+            Assert.That(gate.IsOver(Centre(hud.Status.ResultBanner)), Is.False, "a hidden result banner does not block");
             Assert.That(gate.IsOver(Centre(hud.Root)), Is.False, "the full-screen root and the world marks do not block");
             Assert.That(gate.IsOver(Centre(hud.Target.Root)), Is.False, "a hidden target panel does not block");
             Assert.That(gate.IsOver(Centre(hud.Prompts.Root)), Is.False, "an empty prompt zone does not block");
@@ -499,6 +537,14 @@ namespace Blackglass.Tests
             Assert.That(gate.IsOver(Centre(hud.Status.PauseChip)), Is.True, "the pause chip blocks");
             Assert.That(gate.IsOver(Centre(hud.Objectives.Root)), Is.True, "the objectives block");
             Assert.That(gate.IsOver(top.center), Is.False, "no squad, no block");
+
+            s.BannerText = MissionHudText.Banner(MissionPhase.Success);
+            s.IsPaused = false;
+            hud.ApplySnapshot();
+            HudLayout.Rebuild(root);
+            Assert.That(gate.IsOver(Centre(hud.Status.ResultBanner)), Is.True, "a shown result banner blocks");
+            Assert.That(hud.Status.PauseBanner.gameObject.activeInHierarchy, Is.False, "precondition");
+            Assert.That(gate.IsOver(Centre(hud.Status.PauseBanner)), Is.False, "a hidden pause banner does not block");
         }
 
         // ---- end to end with PlayerCommandInput ----
@@ -538,6 +584,49 @@ namespace Blackglass.Tests
             yield return null;
 
             Assert.That(rig.Caster.Unit.CurrentCommand, Is.TypeOf<MoveCommand>());
+        }
+
+        [UnityTest]
+        public IEnumerator AClickOnThePauseBanner_IssuesNoOrder_AndOnceItHides_TheSameSpotDoes()
+        {
+            yield return null;
+            rig.Selection.Select(rig.Caster);
+            yield return StartHud();
+            rig.Pause.Pause();
+            yield return null;
+            yield return null;
+            Assert.That(hud.Status.PauseBanner.gameObject.activeInHierarchy, Is.True, "precondition: the banner is up");
+            var onBanner = Centre(hud.Status.PauseBanner);
+            // Turn the camera so that the open ground point lies under the banner.
+            var view = rig.ViewCamera.transform;
+            for (var i = 0; i < 4; i++)
+            {
+                var ray = rig.ViewCamera.ScreenPointToRay(onBanner);
+                view.rotation = Quaternion.FromToRotation(ray.direction, (GroundPoint - view.position).normalized) * view.rotation;
+            }
+            var under = rig.Input.ResolveAt(onBanner);
+            Assert.That(under.Kind, Is.EqualTo(PointerTargetKind.Ground), "precondition: without the HUD this paused click would be a move order");
+            Assert.That(blocker.IsBlocking(onBanner), Is.True);
+
+            Set(mouse.position, onBanner);
+            yield return null;
+            Press(mouse.leftButton);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            Assert.That(rig.Caster.Unit.CurrentCommand, Is.Null, "a click on TACTICAL PAUSE orders nothing");
+            Assert.That(rig.Pause.IsPaused, Is.True);
+
+            rig.Pause.Resume();
+            yield return null;
+            yield return null;
+            Assert.That(hud.Status.PauseBanner.gameObject.activeInHierarchy, Is.False, "precondition: the banner hid");
+            Assert.That(blocker.IsBlocking(onBanner), Is.False, "a hidden banner does not block");
+            Press(mouse.leftButton);
+            yield return null;
+            Release(mouse.leftButton);
+            yield return null;
+            Assert.That(rig.Caster.Unit.CurrentCommand, Is.TypeOf<MoveCommand>(), "the same spot is a world click again");
         }
 
         [UnityTest]

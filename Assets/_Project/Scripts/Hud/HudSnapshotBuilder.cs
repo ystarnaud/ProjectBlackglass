@@ -25,6 +25,7 @@ namespace Blackglass
         const int NameCacheLimit = 256;
         const string NoPrompt = "-";
         const string PauseActionPath = "Commands/ToggleTacticalPause";
+        const string AttackingTag = "ATTACKING";
         static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
         static readonly string[] CoverPercentTexts = new string[101];
 
@@ -68,7 +69,7 @@ namespace Blackglass
         AbilityDefinition armedAbility;
         Health armedTarget;
         bool armedHasAim;
-        float armedDistance;
+        int armedTenths;
         int armedStatus = -1;
 
         public HudSnapshotBuilder() => canTarget = unit => Knowledge.CanTarget(intelligence, unit);
@@ -78,6 +79,9 @@ namespace Blackglass
         /// the world, is under the pointer).
         /// </summary>
         public Func<Vector2, bool> PointerOverHud { get; set; }
+
+        /// <summary>How many times the aiming line was rebuilt (tests).</summary>
+        internal int ArmedLineBuilds { get; private set; }
 
         /// <summary>How many times the prompt list was rebuilt (tests).</summary>
         internal int PromptRebuilds { get; private set; }
@@ -330,16 +334,17 @@ namespace Blackglass
         }
 
         // "AIMING: <ability>", then, with an aim: the target's name (observed units only), distance/range and the verdict.
-        // An aim on a unit the player has not observed is treated as no aim, so its distance is never shown.
+        // An aim on a unit the player has not observed is treated as no aim, so its distance is never shown. The distance is
+        // keyed and written by tenths, so mouse movement that does not change the shown number reuses the cached line.
         string ArmedLine(AbilityDefinition ability, AbilityPreview preview)
         {
             var target = preview.Target;
             var hasAim = preview.HasAim && (target == null || canTarget(target));
             if (!hasAim)
                 target = null;
-            var distance = hasAim ? preview.Check.Distance : 0f;
+            var tenths = hasAim ? Mathf.RoundToInt(preview.Check.Distance * 10f) : 0;
             var status = !hasAim ? 0 : preview.IsValid ? 1 : preview.WillApproach ? 2 : 3 + (int)preview.Failure;
-            if (ability == armedAbility && target == armedTarget && hasAim == armedHasAim && distance == armedDistance && status == armedStatus)
+            if (ability == armedAbility && target == armedTarget && hasAim == armedHasAim && tenths == armedTenths && status == armedStatus)
                 return armedLine;
 
             var text = "AIMING: " + ability.DisplayName;
@@ -348,12 +353,13 @@ namespace Blackglass
                 if (target != null)
                     text += " | " + NameOf(target);
                 var verdict = status == 1 ? "OK" : status == 2 ? "Moving into range" : preview.Failure.Describe();
-                text += " | " + distance.ToString("0.0", Invariant) + "/" + ability.Range.ToString("0.0", Invariant) + " m | " + verdict;
+                text += " | " + (tenths / 10f).ToString("0.0", Invariant) + "/" + ability.Range.ToString("0.0", Invariant) + " m | " + verdict;
             }
             armedAbility = ability;
             armedTarget = target;
             armedHasAim = hasAim;
-            armedDistance = distance;
+            armedTenths = tenths;
+            ArmedLineBuilds++;
             armedStatus = status;
             armedLine = text;
             return text;
@@ -498,7 +504,7 @@ namespace Blackglass
                 if (IsObservedHostile(attacking, encounter))
                 {
                     target = attacking;
-                    tag = "ATTACKING";
+                    tag = AttackingTag;
                 }
             }
             if (target == null)
@@ -507,7 +513,9 @@ namespace Blackglass
             into.Target = new HudTarget
             {
                 Visible = true, Unit = target, Name = NameOf(target), Detail = DetailOf(target), Tag = tag,
-                Health = target.Current, MaxHealth = target.Max, CoverText = CoverTextFor(controlled, target),
+                Health = target.Current, MaxHealth = target.Max,
+                // The target panel shows the cover line only while paused or for the attack target: evaluate it only then.
+                CoverText = into.IsPaused || ReferenceEquals(tag, AttackingTag) ? CoverTextFor(controlled, target) : string.Empty,
             };
         }
 

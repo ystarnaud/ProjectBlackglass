@@ -95,8 +95,9 @@ namespace Blackglass
             return root;
         }
 
-        // What blocks a world click: the panels that take space, while visible. Not the full-screen roots (the world marks,
-        // the status root), not the banners, and not the target panel: it is information only and it appears and hides with
+        // What blocks a world click: the panels that take space, while visible, and the pause and result banners while shown
+        // (a click on TACTICAL PAUSE must not order a move behind it; neither banner follows the hover). Not the full-screen
+        // roots (the world marks, the status root), and not the target panel: it is information only and it appears and hides with
         // the hover, which reads this gate, so blocking there would make it flicker over a hostile behind it and swallow the
         // click on that hostile. Nothing that follows the hover may be registered. The squad and prompt zones count only
         // where they draw something.
@@ -104,6 +105,8 @@ namespace Blackglass
         {
             gate.Register(Objectives.Root);
             gate.Register(Status.RightBlock);
+            gate.Register(Status.PauseBanner);
+            gate.Register(Status.ResultBanner);
             gate.Register(Squad.Footprint);
             gate.Register(Operative.Root);
             gate.Register(Prompts.Background);

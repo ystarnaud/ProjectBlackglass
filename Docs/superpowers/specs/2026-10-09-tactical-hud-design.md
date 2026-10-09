@@ -48,14 +48,14 @@ All new runtime code is in `Assets/_Project/Scripts/Hud/` in the existing `Black
 - `ActiveCharacter.TakeControl(CommandableUnit)`: same hand-over rules as Tab (eligible unit becomes active; selection follows).
 - `Input/BlackglassControls.inputactions`: `Developer/ToggleDebugOverlay` on F1.
 - Debug IMGUI views gain an optional `DeveloperOverlay` reference and return early when it is hidden: `PrototypeHud` (everything except the drag box), `AbilityBarView`, `MissionHud`, `MissionDebugView`. `OperativePanelView`, `IntelligenceDebugView` and `IntelMapView` keep their own toggles.
-- Editor: `HudSceneBuilder` (`Blackglass/HUD/Wire Scenes`, and a `-executeMethod` entry) adds the HUD, EventSystem, `PointerBlocker`, `DeveloperOverlay` and its input to `ProceduralMission` and `Prototype`. Idempotent.
+- Editor: `HudSceneBuilder` (`Blackglass/HUD/Wire Scenes`, and a `-executeMethod` entry) adds the HUD (with its `PointerBlocker`), the `DeveloperOverlay` and its input to `ProceduralMission` and `Prototype`, and wires the sources. It does not add an EventSystem: it only converts the module of an EventSystem the scene already has to `PointerOnlyInputModule` (neither scene has one). When the scene has none, `TacticalHud.EnsureEventSystem` creates one at runtime, as a child of the `TacticalHud` object (a sibling of `HudCanvas`). Idempotent.
 
 ## 5. Layout (1920×1080 reference, 24 px margins)
 
 | Zone | Content |
 | --- | --- |
 | Top left | Objectives panel (mission phase line, one row per objective). |
-| Top centre | `TACTICAL PAUSE` banner (always present while paused); mission result banner (SUCCESS / FAILED) below it. |
+| Top centre | `TACTICAL PAUSE` banner (always present while paused); mission result banner (SUCCESS / FAILED) below it. Both block world clicks while shown. |
 | Top right | Extraction state; Follow chip (`FOLLOW: ON/OFF`, clickable); Pause chip (`PAUSE` / `RESUME`, clickable). |
 | Bottom left | Squad cards, stacked, one per operative (zone 460 x 472: six cards of 72 plus gaps). |
 | Bottom centre | Controlled operative panel (zone 760 x 280); ability slots; command queue; armed-ability strip. |
@@ -102,12 +102,12 @@ The centre of the viewport stays empty. Panels use anchors and the scaler, and a
 | --- | --- | --- | --- |
 | Squad card | click / Shift+click | `UnitSelection.Select` / `Toggle` (same as clicking the unit) | LB/RB switches control and selection; LT + Confirm on a unit adds to selection |
 | Squad card | double-click | `ActiveCharacter.TakeControl(unit)` (new, Tab's rules) | LB/RB |
-| Ability slot | click | `AbilityTargeting.Arm(slot)` (click again disarms) | RT + D-pad direction |
+| Ability slot | click | `AbilityTargeting.Pick(slot)` (click again disarms) | RT + D-pad direction |
 | Clear orders | click | `GroupOrders.Issue([unit], StopCommand)` | Stop (D-pad down) |
 | Follow chip | click | `ActiveCharacter.ToggleFollow()` | Follow (D-pad up) |
 | Pause chip | click | `TacticalPause.Toggle()` | Start / Menu / Options / + |
 
-`PointerBlocker` keeps HUD panels from letting a click fall through to the world; the Target panel and the world marks are information only and never block. The EventSystem runs `PointerOnlyInputModule` (no navigation actions), so the HUD takes no focus. A test pins each row (mouse request and that the controller action exists in all four pad groups).
+`PointerBlocker` keeps HUD panels from letting a click fall through to the world. Blocking while visible: the objectives panel, the top-right block (extraction, Follow and Pause chips), the squad cards, the operative panel, the shown prompt rows, and the pause and result banners (ruling R3: a click on `TACTICAL PAUSE` must not order a move behind it). The Target panel and the world marks are information only and never block. The EventSystem runs `PointerOnlyInputModule` (no navigation actions), so the HUD takes no focus. A test pins each row (mouse request and that the controller action exists in all four pad groups).
 
 ## 9. Debug separation
 
