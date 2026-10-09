@@ -11,4 +11,6 @@ public sealed class AssetItem
     public string ClassificationReason { get; set; } = "";
     public string? UnsupportedReason { get; init; }
     public ImportItem Import { get; init; } = new();
+    /// <summary>Fields the user changed by hand (<see cref="ItemFields"/>); a batch update leaves them alone.</summary>
+    public HashSet<string> EditedFields { get; } = new();
 }
