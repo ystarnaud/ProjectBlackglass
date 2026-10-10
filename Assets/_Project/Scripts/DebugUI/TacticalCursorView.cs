@@ -12,6 +12,12 @@ namespace Blackglass
         [SerializeField] TacticalCursor cursor;
         [SerializeField] Camera viewCamera;
         [SerializeField, Min(8f)] float crosshairSize = 28f;
+        // The developer overlay (F1) shows or hides the right-stick text; no overlay assigned means shown.
+        // The crosshair and brackets are player-facing and stay drawn either way.
+        [SerializeField] DeveloperOverlay overlay;
+
+        internal void SetOverlay(DeveloperOverlay o) => overlay = o;
+        internal bool IsDrawing => DeveloperOverlay.Shows(overlay);
 
         /// <summary>A short name for the target, e.g. "Hostile HostileUnit_1". Empty for nothing.</summary>
         internal static string Describe(PointerTarget target)
@@ -41,8 +47,9 @@ namespace Blackglass
         {
             if (cursor == null)
                 return;
-            // Below the HUD's prompt lines (y = 10, 30, 50).
-            GUI.Label(new Rect(Screen.width - 560f, 70f, 550f, 22f), DescribeRightStick(cursor.IsActive));
+            // Below the debug HUD's prompt lines (y = 10, 30, 50).
+            if (IsDrawing)
+                GUI.Label(new Rect(Screen.width - 560f, 70f, 550f, 22f), DescribeRightStick(cursor.IsActive));
             if (viewCamera == null)
                 return;
 

@@ -2338,6 +2338,7 @@ MonoBehaviour:
   cursor: {fileID: 1021927391}
   viewCamera: {fileID: 678505232}
   crosshairSize: 28
+  overlay: {fileID: 1665861947}
 --- !u!114 &1021927391
 MonoBehaviour:
   m_ObjectHideFlags: 0

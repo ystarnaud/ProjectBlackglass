@@ -147,6 +147,7 @@ namespace Blackglass.Tests
         {
             Assert.That(Object.FindFirstObjectByType<PrototypeHud>().IsDrawing, Is.EqualTo(drawing), "PrototypeHud");
             Assert.That(Object.FindFirstObjectByType<AbilityBarView>().IsDrawing, Is.EqualTo(drawing), "AbilityBarView");
+            Assert.That(Object.FindFirstObjectByType<TacticalCursorView>().IsDrawing, Is.EqualTo(drawing), "TacticalCursorView");
             if (!missionScene)
                 return;
             Assert.That(Object.FindFirstObjectByType<MissionHud>().IsDrawing, Is.EqualTo(drawing), "MissionHud");

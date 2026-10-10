@@ -18,6 +18,7 @@ namespace Blackglass.Tests
         AbilityBarView bar;
         MissionHud missionHud;
         MissionDebugView missionDebug;
+        TacticalCursorView cursorView;
         PlayerCommandInput commandInput;
 
         public override void Setup()
@@ -62,6 +63,7 @@ namespace Blackglass.Tests
             bar = views.AddComponent<AbilityBarView>();
             missionHud = views.AddComponent<MissionHud>();
             missionDebug = views.AddComponent<MissionDebugView>();
+            cursorView = views.AddComponent<TacticalCursorView>();
         }
 
         public override void TearDown()
@@ -87,22 +89,26 @@ namespace Blackglass.Tests
             bar.SetOverlay(overlay);
             missionHud.SetOverlay(overlay);
             missionDebug.SetOverlay(overlay);
+            cursorView.SetOverlay(overlay);
 
             Assert.That(overlay.IsVisible, Is.False, "Hidden by default");
             Assert.That(hud.IsDrawing, Is.False);
             Assert.That(bar.IsDrawing, Is.False);
             Assert.That(missionHud.IsDrawing, Is.False);
             Assert.That(missionDebug.IsDrawing, Is.False);
+            Assert.That(cursorView.IsDrawing, Is.False, "the 'Right stick: Camera' text");
 
             overlay.Toggle();
             Assert.That(hud.IsDrawing, Is.True);
             Assert.That(bar.IsDrawing, Is.True);
             Assert.That(missionHud.IsDrawing, Is.True);
             Assert.That(missionDebug.IsDrawing, Is.True);
+            Assert.That(cursorView.IsDrawing, Is.True);
 
             overlay.Toggle();
             Assert.That(hud.IsDrawing, Is.False);
             Assert.That(missionDebug.IsDrawing, Is.False);
+            Assert.That(cursorView.IsDrawing, Is.False);
         }
 
         [Test]
@@ -112,6 +118,7 @@ namespace Blackglass.Tests
             Assert.That(bar.IsDrawing, Is.True);
             Assert.That(missionHud.IsDrawing, Is.True);
             Assert.That(missionDebug.IsDrawing, Is.True);
+            Assert.That(cursorView.IsDrawing, Is.True);
         }
 
         [UnityTest]

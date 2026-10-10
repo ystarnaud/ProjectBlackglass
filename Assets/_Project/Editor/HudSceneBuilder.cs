@@ -112,6 +112,7 @@ namespace Blackglass.EditorTools
             GateWithOverlay<AbilityBarView>(overlay);
             GateWithOverlay<MissionHud>(overlay);
             GateWithOverlay<MissionDebugView>(overlay);
+            GateWithOverlay<TacticalCursorView>(overlay);
 
             MakeEventSystemPointerOnly();
 
