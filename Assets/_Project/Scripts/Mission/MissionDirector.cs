@@ -27,6 +27,8 @@ namespace Blackglass
         public int Connections;
         public int FloorTiles;
         public float NavArea;
+        /// <summary>Milliseconds the successful attempt's NavMesh bake took.</summary>
+        public double NavMeshBakeMs;
         public int PathsChecked;
         public int CoverTotal;
         public int CoverLow;
@@ -365,6 +367,7 @@ namespace Blackglass
                 DevicePresenter.AttachTo(mission, systems.intelligence);
             }
             Fill(Report, layout, navigation, plan);
+            Report.NavMeshBakeMs = mission.NavMeshBakeMs;
             Report.SecurityHash = security.Hash;
             Report.LootRequested = loot.Requested;
             Report.LootPlaced = loot.Placed;

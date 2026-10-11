@@ -79,6 +79,18 @@ namespace Blackglass.Tests
             Assert.That(d.Friendlies[1].GetComponent<UnitAttacker>().Archetype.DisplayName, Is.EqualTo("Marksman"));
         }
 
+        // Checkpoint A's server logs the bake time; the director records the successful attempt's bake.
+        [UnityTest]
+        public IEnumerator Generate_RecordsTheNavMeshBakeTime()
+        {
+            rig = new MissionRig();
+            yield return rig.Generate(12345);
+
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
+            Assert.That(rig.Director.Current.NavMeshBakeMs, Is.GreaterThan(0d));
+            Assert.That(rig.Director.Report.NavMeshBakeMs, Is.EqualTo(rig.Director.Current.NavMeshBakeMs));
+        }
+
         [UnityTest]
         public IEnumerator Spawns_AreOutsideGeometry_Apart_AndTheTeamsStartSeparated()
         {

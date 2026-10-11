@@ -17,6 +17,8 @@ namespace Blackglass
         /// <summary>Parent of every spawned unit.</summary>
         public Transform Actors { get; internal set; }
         public NavMeshSurface Surface { get; internal set; }
+        /// <summary>Wall-clock milliseconds the NavMesh bake took (diagnostics; the dedicated server logs it).</summary>
+        public double NavMeshBakeMs { get; internal set; }
         public MissionLayout Layout { get; internal set; }
         public ObjectivePlan Plan { get; internal set; }
         /// <summary>The terminal, or null when the mission has no hack objective.</summary>
@@ -101,7 +103,9 @@ namespace Blackglass
             var surface = geometry.AddComponent<NavMeshSurface>();
             surface.collectObjects = CollectObjects.Children;
             surface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+            var bake = System.Diagnostics.Stopwatch.StartNew();
             surface.BuildNavMesh();
+            bake.Stop();
 
             return new GeneratedMission
             {
@@ -109,6 +113,7 @@ namespace Blackglass
                 Geometry = geometry.transform,
                 Actors = actors.transform,
                 Surface = surface,
+                NavMeshBakeMs = bake.Elapsed.TotalMilliseconds,
                 Layout = layout,
                 Visuals = visuals,
             };
