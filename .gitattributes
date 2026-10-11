@@ -41,3 +41,6 @@
 *.uss                 eol=lf
 *.tss                 eol=lf
 ProjectSettings/ProjectVersion.txt eol=lf
+
+# Shell scripts that run on the Linux server must keep LF in the working tree too.
+Tools/LinuxServer/*.sh  eol=lf
