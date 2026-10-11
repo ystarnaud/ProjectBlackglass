@@ -60,10 +60,25 @@ namespace Blackglass
         public CommandableUnit Mover { get; private set; }
         public Health Target { get; private set; }
 
-        /// <summary>Prepare and issue the move. Call once, in the frame the mission became ready.</summary>
+        /// <summary>
+        /// Prepare and issue the move. Call once, in the frame the mission became ready. Never throws: an exception (a unit
+        /// destroyed, a prefab missing a component) ends the diagnostic as a FAIL that names it.
+        /// </summary>
         public void Begin(double now)
         {
             overallDeadline = now + timeoutSeconds;
+            try
+            {
+                Prepare(now);
+            }
+            catch (Exception exception)
+            {
+                Fail("prepare", $"exception: {exception.GetType().Name}: {exception.Message}");
+            }
+        }
+
+        void Prepare(double now)
+        {
             if (director == null || director.State != MissionState.Ready)
             {
                 Fail("prepare", "the mission is not ready");
@@ -104,18 +119,26 @@ namespace Blackglass
             log(Prefix + FormattableString.Invariant($"move issued to ({destination.x:0.0}, {destination.z:0.0}), {Flat(start, destination):0.0} m away"));
         }
 
+        /// <summary>Advances the running step. Never throws: an exception ends the diagnostic as a FAIL that names it.</summary>
         public void Tick(double now)
         {
             if (IsFinished)
                 return;
-            switch (step)
+            try
             {
-                case Step.Move:
-                    TickMove(now);
-                    break;
-                case Step.Attack:
-                    TickAttack(now);
-                    break;
+                switch (step)
+                {
+                    case Step.Move:
+                        TickMove(now);
+                        break;
+                    case Step.Attack:
+                        TickAttack(now);
+                        break;
+                }
+            }
+            catch (Exception exception)
+            {
+                Fail(step.ToString().ToLowerInvariant(), $"exception: {exception.GetType().Name}: {exception.Message}");
             }
         }
 

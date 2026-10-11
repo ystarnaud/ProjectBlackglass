@@ -108,6 +108,23 @@ namespace Blackglass.Tests
             StringAssert.Contains("simulationRunning=False", diagnostic.Summary);
         }
 
+        // A unit gone between Ready and the diagnostic (or a prefab missing a component) must end as a FAIL with a
+        // reason, never as an exception that leaves a -diagnostic server running.
+        [UnityTest]
+        public IEnumerator Diagnostic_WhosePreparationThrows_FailsWithTheException_InsteadOfThrowing()
+        {
+            yield return Ready();
+            Object.DestroyImmediate(rig.Director.Friendlies[0].gameObject);
+            var diagnostic = new ServerDiagnostic(rig.Director, 120, lines.Add);
+
+            Assert.DoesNotThrow(() => diagnostic.Begin(Now));
+
+            Assert.That(diagnostic.IsFinished, Is.True);
+            Assert.That(diagnostic.Passed, Is.False);
+            StringAssert.StartsWith("BLACKGLASS DIAGNOSTIC FAIL step=prepare", diagnostic.Summary);
+            StringAssert.Contains("exception", diagnostic.Summary);
+        }
+
         [UnityTest]
         public IEnumerator Diagnostic_OnAMissionThatIsNotReady_FailsAtPrepare()
         {

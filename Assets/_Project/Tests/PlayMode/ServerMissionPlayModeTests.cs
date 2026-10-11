@@ -125,6 +125,16 @@ namespace Blackglass.Tests
             Assert.That(Time.realtimeSinceStartupAsDouble - started, Is.LessThan(10d));
         }
 
+        [UnityTest]
+        public IEnumerator ADiagnosticThatCannotPrepare_ExitsOne_InsteadOfRunningOn()
+        {
+            UnityEngine.Object.DestroyImmediate(director.Friendlies[0].gameObject);
+            bootstrap.BeginDiagnostic(bootstrap.Options.With(diagnostic: true));
+            yield return TestWorld.WaitUntil(() => bootstrap.HasExited, 10f);
+            Assert.That(exitCode, Is.EqualTo(ServerExitCodes.DiagnosticFailed), bootstrap.ExitReason);
+            StringAssert.Contains("exception", bootstrap.ExitReason);
+        }
+
         [Test]
         public void AFailedGeneration_ExitsTwo()
         {
