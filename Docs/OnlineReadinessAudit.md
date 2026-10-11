@@ -510,7 +510,7 @@ Design: decision 045. Run guide: `Docs/DedicatedServer.md`.
   - It also passed when started from `/`.
 - **Smoke run** (600 s, normal mode, idle fixture mission; initial evidence only, not a stability proof):
   - launch to Ready ≤ 5 s by wall clock (5 s sampling); `navMeshBakeMs=15.4`, `generationMs=99`;
-  - CPU after Ready: mean 1.4 %, max 13.0 % of one core;
+  - CPU after Ready: mean 1.4 %, max 1.6 % of one core over 119 samples; the 0–5 s interval covering launch and generation reached 13.0 %;
   - heartbeat FPS 60.0 on all 10 lines, so the frame cap held;
   - RSS peak 102.5 MB, steady mean over the last 5 minutes 101.4 MB;
   - 0 exception or error lines;

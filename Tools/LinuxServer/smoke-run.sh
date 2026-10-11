@@ -67,7 +67,9 @@ status=$?
   awk -F, -v ready="${ready_s:-0}" -v duration="$duration" '
     NR == 1 { next }
     { t = $1 + 0; if ($4 + 0 > hwm) hwm = $4 + 0 }
-    t >= ready && $2 != "" { n++; sum += $2; if ($2 + 0 > max) max = $2 + 0 }
+    # The CPU in a row covers the interval since the previous sample: count it only when that interval began after Ready.
+    $2 != "" && prev != "" && prev + 0 >= ready { n++; sum += $2; if ($2 + 0 > max) max = $2 + 0 }
+    { prev = t }
     t >= duration - 300 && $3 != "" { s++; ssum += $3; if (first == "") first = $3; last = $3 }
     END {
       printf "cpu after ready (%% of one core): mean %.1f, max %.1f over %d samples\n", (n ? sum / n : 0), max, n
