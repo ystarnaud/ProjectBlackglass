@@ -17,26 +17,20 @@ This is an original game. Do not copy copyrighted characters, dialogue, artwork,
 
 ## Current Development Stage
 
-We are at the very beginning of development.
+Gameplay is complete through Phase 12.5 (combat presentation and VFX). The control loop, procedural missions, objectives, battlefield intelligence, persistent operatives, inventory and loot, the tactical HUD and combat presentation exist. `Docs/Decisions.md` records each decision.
 
-The immediate objective is NOT to build the full game.
+The owner is preparing an online foundation with an authoritative dedicated server; see `Docs/OnlineReadinessAudit.md`. The candidate stack (Unity Dedicated Server for Linux, FishNet, ASP.NET Core on .NET 10, PostgreSQL, Docker on isolated Linux VMs, HAProxy) is **provisional, not decided**.
 
-The objective is to establish a clean Unity project and create a very small vertical gameplay prototype proving the fundamental control loop.
+The step currently authorized is **Checkpoint A: Linux dedicated-server startup**. It is a headless server build that starts one fixture mission and proves navigation, movement and combat in the built server. It contains **no networking**.
 
-Initial prototype:
+Each of these stays out of scope until the owner authorizes it:
+- networking libraries and client/server messaging;
+- accounts, backend APIs and databases;
+- settlement redesign and reconnect;
+- Docker packaging and orchestration;
+- final production content (graphics, animation, audio, story).
 
-1. Load a simple test scene.
-2. Spawn one controllable player/unit.
-3. Allow basic camera movement.
-4. Allow movement of the controlled unit.
-5. Create one simple target/enemy.
-6. Allow a basic attack interaction.
-7. Allow gameplay to be paused/unpaused through the tactical-control system.
-8. Verify that commands can be issued cleanly without tying game logic directly to UI or input implementation.
-
-Use placeholder geometry and placeholder materials only.
-
-Do not spend time on final graphics, animations, audio, story, procedural generation, inventory depth, skill trees, multiplayer, networking, or production content yet.
+Placeholder art remains the default.
 
 ## Development Philosophy
 
@@ -219,15 +213,11 @@ Do not generate extensive documentation for trivial implementation details.
 
 ## Current Priority
 
-The current priority is establishing the smallest playable prototype that proves:
+Checkpoint A: a reproducible Linux Dedicated Server build (Mono) that starts one small fixture mission without a local player. It has a frame cap and identity and readiness logs, and a bounded diagnostic proves movement and combat through the existing command path.
 
-Player Input
-→ Command
-→ Unit
-→ Movement / Combat
-→ Tactical Pause
-→ Resume
+- Keep the server path free of input readers, cameras, HUD, debug views and cosmetic presentation.
+- Keep client scenes and gameplay behaviour unchanged.
 
-Once that loop is working cleanly, further systems will be designed one at a time.
+Later steps, each authorized separately: the networking experiment (audit §7), then Phase 13 (authenticated between-mission flow and trusted settlement).
 
-Do not begin later-stage game systems until specifically directed.
+Do not begin later-stage systems until specifically directed.

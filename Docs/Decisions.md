@@ -657,3 +657,54 @@ Short record of decisions that are likely to matter later. Newest last.
   - **No quality setting for the player.** The tier is a serialized field read when the presenter wakes (both shipped scenes are at High); `SetQuality` exists for code and the preview scene.
   - **Not wired everywhere.** Presentation is in `ProceduralMission` and the preview scene only. `EffectPool.Rent(null)` throws, `PooledEffect.Build` does not enforce scaled time on a prefab (the asset test does), and trail renderers are not reset (no prefab has one).
   - **Not run by the implementer:** a player build, a controller on hardware, and listening to any sound. `Docs/Phase12.5-ManualTests.md` lists every check the owner still has to do; the rendered frames are in `.claude/scratchpad/phase125/renders` (batch mode with a D3D12 device); the frame-time numbers (`performance.txt`) are indicative only (batch mode, 640x480, no vsync) and claim no frame-rate target.
+
+## 045 — Dedicated-server startup path (Checkpoint A): a server-only scene, a fixture mission, a bounded diagnostic
+
+- **Decided (Checkpoint A, 2026-10-11):**
+  - **A separate server scene.** `ServerMission.unity` holds only `TacticalPause`, `Encounter`, `UnitSelection`, `ActiveCharacter`, `CoverRegistry`, `CoverDiscovery`, `InteractableRegistry`, a `MissionDirector` and the `ServerBootstrap`. It has no camera, light, audio, UI, input reader or debug view. It is built by `Blackglass/Server/Build Server Scene` (`ServerSceneBuilder`, idempotent). It is not in `EditorBuildSettings`: only the server build includes it, and the client scenes are unchanged.
+  - **The fixture:**
+    - a 2×2 grid with 3 rooms;
+    - two `FriendlyUnit` capsules (slot 0 Ranged, slot 1 Melee, no abilities) and one `HostileUnit`;
+    - no guards, terminal, loot, roster, inventory or intelligence; the objective is to eliminate the hostile;
+    - seed 1, the lowest seed that generates on attempt 1 and passes the diagnostic (layout hash `cf2e14dece9cc2a6`, the same in the Editor and on Linux);
+    - `-seed` overrides the seed.
+  - **The bootstrap** sets `vSyncCount = 0` and `targetFrameRate` (`-fps`, default 60). It logs:
+    - the identity: version, revision from `build-info.txt`, `buildGUID`, Unity version, platform, `UNITY_SERVER`, batch mode and graphics device;
+    - the options;
+    - `MISSION READY`, with the instance, seed, attempt, rooms, NavMesh area, cover, spawns, layout hash, generation time, bake time and time since startup;
+    - a self-check;
+    - a heartbeat: FPS, CPU %, RSS, managed heap.
+  - At Ready it **disables the per-unit view components** (`AttackLineView`, `CommandQueueView`, `SelectionIndicator`, `HitFlash`) **on the spawned instances only**. Prefabs, renderers and colliders are unchanged.
+  - **The diagnostic** (`-diagnostic`) issues one `MoveCommand` and one `AttackCommand` through `CommandableUnit.Issue`. PASS needs:
+    - arrival within 0.75 m after at least 3 m of travel;
+    - a health drop credited to the ordered unit's hit count.
+
+    To remove chance, it disables `EnemyAI` and `AutoRetaliate` on the hostiles and `CompanionAI` and `AutoRetaliate` on the other friendlies, and forces the mover's `HitRoll` to land, all on the instances only. Real-time deadlines (move 30 s, attack 45 s, overall `-diagnosticTimeout`, default 120 s) end a paused or stalled run.
+  - **Exit codes:** 0 PASS; 1 diagnostic FAIL; 2 startup failure (generation failed, the startup deadline passed, the scene is unwired).
+  - **The build** (`Blackglass/Server/Build Linux Dedicated Server`, `Tools/build-server.sh`) targets StandaloneLinux64 with the Server subtarget and Mono, and contains only `ServerMission.unity`.
+    - It refuses, without changing anything, when a module is missing or the Server backend isn't Mono. It never edits Player Settings.
+    - It writes `build-info.txt`.
+    - It always restores the Editor's active build target.
+    - The package leaves out Unity's `*_DoNotShip` Burst debug folder.
+  - **Packaging and runs.** `Tools/deploy-server.sh` swaps the build into `/opt/blackglass/server/`. `run-diagnostic.sh` and `smoke-run.sh` write to `/opt/blackglass/logs/`.
+  - **One mission per server process** (audit F5).
+- **Why:** this proves the existing simulation (generation, runtime NavMesh, movement, combat, mission lifecycle) runs in a built Linux dedicated server before any networking is added. The audit found every presenter, camera and intelligence hook already optional, so the server needs a scene, not a fork of gameplay. The only shared-code change is the NavMesh bake time in `MissionReport`.
+- **Rejected:**
+  - A server mode inside `ProceduralMission`: it would ship input, HUD and camera objects in the server and put the client scene at risk.
+  - A code-only bootstrap under `UNITY_SERVER`: the composition would be hidden in code and would still need runtime asset references.
+  - Server-specific unit prefabs: duplicate prefabs to maintain. Disabling the views on the instances is enough.
+  - Seeding `UnityEngine.Random` to make the diagnostic repeatable: brittle, and global. The per-instance `HitRoll` seam is exact.
+  - Leaving the active build target on Linux Server after a build: the Editor and the test runner would then compile with `UNITY_SERVER`.
+- **Implications:**
+  - The networking experiment adds its transport and server gate to this scene and bootstrap, not to the client scene.
+  - Anything new the server must simulate must work with `MissionSystems`' optional slots left null, or be wired here explicitly.
+  - New per-unit view components should be added to `ServerBootstrap.IsView`.
+  - The fixture deliberately leaves out abilities, intelligence and inventory. Adding them to the server is a later, explicit step.
+- **Known limitations:**
+  - Runs as root on the VM.
+  - The VM smoke run is 10 minutes of an idle mission: initial evidence only.
+  - The heartbeat CPU figure is a percentage of one core.
+  - The archive is marked `dirty` while the owner's two settings edits are uncommitted.
+  - The Linux build has been run only on `bg-dev-mission01`.
+  - The server logs one warning: "Trying to access a shader but no shaders were included in the build because Dedicated Server Optimizations is enabled". It is probably the default material `GameObject.CreatePrimitive` gives the mission's cubes, but this is not verified. It does not affect the simulation.
+  - In the first 10-minute VM smoke run, resident memory rose steadily, about 0.43 MB/min (98.6 to 102.5 MB), while the managed heap stayed flat. A longer run must show whether this levels off before any stability claim (audit §9.2).

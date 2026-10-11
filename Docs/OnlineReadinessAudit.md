@@ -6,6 +6,8 @@ Read-only audit, 2026-10-11. No project files were changed while it was carried 
 - **[I]** inferred from what was observed.
 - **[R]** a risk that nothing has exercised yet.
 
+§1–§8 are the original audit record and are unchanged. Later checkpoints append their results in §9.
+
 The audited stack (Unity Dedicated Server for Linux, FishNet, ASP.NET Core on .NET 10, PostgreSQL, Docker on isolated Linux VMs, HAProxy) is a proposal, not a decision.
 
 ---
@@ -460,3 +462,74 @@ Paths below are relative to `Assets/_Project/Scripts/` unless stated otherwise.
 - **Linux server build behaviour:** install the modules and run a one-scene server build spike.
 - **FishNet fit:** a short spike covering per-connection visibility, Unity 6.3 and time-scale behaviour.
 - **Server CPU and memory for NavMesh baking and passes:** measure in the spike's container.
+
+---
+
+## 9. Follow-up record
+
+### 9.1 Steps after the audit
+
+| Step | Scope | Status |
+|---|---|---|
+| **Checkpoint A: headless Linux server startup** | Server-only scene and bootstrap, fixture mission, frame cap, identity and readiness logs, bounded move and attack diagnostic, Linux Dedicated Server (Mono) build, VM smoke run. **No networking, no backend.** | Done 2026-10-11 (§9.2) |
+| Networking experiment | The §7 proof: library choice (FishNet is a candidate only), server gate, per-connection visibility, two clients. | Not started; needs the owner's authorization and a library decision |
+| Phase 13 | Authenticated between-mission flow and trusted settlement (§8). | Not started |
+
+### 9.2 Checkpoint A results (2026-10-11)
+
+Design: decision 045. Run guide: `Docs/DedicatedServer.md`.
+
+**Revision and environment actually tested:**
+- branch `checkpoint-a-linux-server`, build revision `7d42506`, packaged as `blackglass-server-linux-7d42506-dirty.tar.gz`;
+- `dirty=true` comes from the owner's two uncommitted settings files and the documentation not yet committed at build time; no runtime code was uncommitted;
+- SHA-256 `78bb78730777fdc427841f0ebc210956a9b1d473aa3cd76abb02059b7da3cfd8`;
+- Editor host: Windows 10 build 19041, Unity 6000.3.25f1 with Linux Build Support (Mono) and Linux Dedicated Server Build Support, installed 2026-10-11 through Unity Hub at the owner's request;
+- VM `bg-dev-mission01`: Ubuntu 24.04.5 LTS, kernel 6.8.0-146, Intel Xeon Platinum 8260 at 2.40 GHz, 4 vCPU, 7.9 GiB RAM, no swap.
+
+**Editor validation** (Windows, batch mode, D3D12 device; Editor runs, not a Linux run):
+- baseline before changes: EditMode 1249/1249, PlayMode 1354/1354;
+- after: EditMode 1271/1271, PlayMode 1365/1365;
+- new tests: `ServerOptionsTests` (18), `ServerBuildInfoTests` (4), `ServerDiagnosticPlayModeTests` (4), `ServerMissionPlayModeTests` (6) and `MissionDirectorPlayModeTests.Generate_RecordsTheNavMeshBakeTime`;
+- fixture seed 1 generates on attempt 1 (layout hash `cf2e14dece9cc2a6`) and passes the diagnostic: move 1.5 s, attack 3.6 s;
+- no client scene, prefab, data asset or project setting changed.
+
+**Linux build** (Windows host):
+- `Tools/build-server.sh` → StandaloneLinux64, Server subtarget, Mono;
+- an 82.7 MB player and a 30 MB archive;
+- 69 s after the first Linux-target import, 13 s on rebuild;
+- the active target was restored to Windows Standalone, checked by a separate Unity launch;
+- a refused build packaged nothing.
+
+**Linux runtime** (`bg-dev-mission01`):
+- **Diagnostic:** exit 0.
+  - `UNITY_SERVER=yes`, `platform=LinuxServer`, `graphics=Null`.
+  - Same layout hash as the Editor.
+  - Self-check: 0 cameras, audio listeners, canvases and event systems; 10 unit views disabled.
+  - Move PASS in 1.4 s, travelling 5.0 m; attack PASS in 3.6 s, health 60→45.
+  - `navMeshBakeMs=16.6`, `generationMs=104`.
+  - It also passed when started from `/`.
+- **Smoke run** (600 s, normal mode, idle fixture mission; initial evidence only, not a stability proof):
+  - launch to Ready ≤ 5 s by wall clock (5 s sampling); `navMeshBakeMs=15.4`, `generationMs=99`;
+  - CPU after Ready: mean 1.4 %, max 13.0 % of one core;
+  - heartbeat FPS 60.0 on all 10 lines, so the frame cap held;
+  - RSS peak 102.5 MB, steady mean over the last 5 minutes 101.4 MB;
+  - 0 exception or error lines;
+  - stopped by SIGTERM, exit status 0;
+  - the VM had 729 MB in use before the runs.
+- **Open:** RSS rose steadily from 98.6 MB at 1 minute to 102.5 MB at 10 minutes, about 0.43 MB/min, while the managed heap stayed at 1.1–1.3 MB. This is native memory growth, and 10 minutes cannot tell allocator warm-up from a slow leak. A longer run is needed before any stability claim.
+- **One warning line per run:** "Trying to access a shader but no shaders were included in the build because Dedicated Server Optimizations is enabled". The inferred source is the default material `GameObject.CreatePrimitive` assigns to the mission's cubes; this is not verified. It does not affect the simulation.
+
+**What this resolves:**
+- F3 [R] "A Linux dedicated-server player build is unverified": verified for startup, generation, NavMesh bake, movement and a basic attack. `UNITY_SERVER` builds, the Null graphics device and an audio-free runtime were exercised, and frame pacing was measured (above).
+- F16 [O] "no Linux or dedicated-server module, no build script": modules installed, `Tools/build-server.sh` added. There is still no CI.
+
+**Still unverified:**
+- all networking;
+- multiple processes;
+- disconnect and reconnect;
+- runs longer than 10 minutes, including the RSS trend above;
+- a mission under load; the smoke run was idle;
+- abilities, intelligence, inventory and loot in the server build (not in the fixture);
+- IL2CPP;
+- running as a non-root service user;
+- Docker.
