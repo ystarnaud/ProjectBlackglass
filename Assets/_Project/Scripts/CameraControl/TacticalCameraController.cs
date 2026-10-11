@@ -54,6 +54,9 @@ namespace Blackglass
         // How quickly the pivot catches up with the active character while following or focusing (higher is tighter).
         [SerializeField, Min(0f)] float followSharpness = 10f;
 
+        // Optional: an additive wobble source (explosion impulse). Applied to the viewing camera only, never to the pivot.
+        [SerializeField] CameraImpulse impulse;
+
         ClickDragDetector dragDetector;
         Vector2 lastPointerPosition;
         int pendingZoomSteps;
@@ -63,6 +66,8 @@ namespace Blackglass
         // so it ends even if the unit walks on (no follow in free mode) or is destroyed.
         Vector3 focusPoint;
         Rect? customBounds;
+
+        internal void SetImpulse(CameraImpulse source) => impulse = source;
 
         public float Distance => distance;
         public float Yaw => transform.eulerAngles.y;
@@ -258,7 +263,8 @@ namespace Blackglass
             if (viewCamera == null)
                 return;
             var localRotation = Quaternion.Euler(pitch, 0f, 0f);
-            viewCamera.transform.SetLocalPositionAndRotation(localRotation * new Vector3(0f, 0f, -distance), localRotation);
+            var offset = impulse != null ? localRotation * impulse.LocalOffset : Vector3.zero;
+            viewCamera.transform.SetLocalPositionAndRotation(localRotation * new Vector3(0f, 0f, -distance) + offset, localRotation);
         }
     }
 }

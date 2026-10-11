@@ -17,6 +17,7 @@ namespace Blackglass
     {
         public const string SocketName = "WeaponSocket";
         public const string ManagedName = "EquippedWeapon";
+        public const string MuzzleName = "Muzzle";
 
         [SerializeField] WeaponVisualAsset defaultVisual;
 
@@ -27,6 +28,12 @@ namespace Blackglass
 
         /// <summary>The managed model currently in the hand, or null.</summary>
         public GameObject Current => current;
+
+        /// <summary>The weapon asset currently shown (null when none).</summary>
+        public WeaponVisualAsset Shown => shown;
+
+        /// <summary>The Muzzle child of the shown model (looked up once when it is placed), or null when there is none.</summary>
+        public Transform Muzzle { get; private set; }
 
         /// <summary>Raised after the managed child was replaced or removed (Current is already the new one).</summary>
         public event Action Changed;
@@ -57,7 +64,9 @@ namespace Blackglass
                 else
                     DestroyImmediate(current);
                 current = null;
+                Muzzle = null;
             }
+            Muzzle = null;
             shown = asset;
             var hand = asset != null && asset.Prefab != null ? Socket() : null;
             if (hand != null)
@@ -68,6 +77,7 @@ namespace Blackglass
                 current.transform.localRotation = Quaternion.Euler(asset.LocalEuler);
                 current.transform.localScale = asset.LocalScale;
                 EnvironmentVisualBuilder.StripColliders(current);
+                Muzzle = FindMuzzle(current.transform);
             }
             Changed?.Invoke();
         }
@@ -80,6 +90,16 @@ namespace Blackglass
             {
                 if (t.name == SocketName)
                     return socket = t;
+            }
+            return null;
+        }
+
+        static Transform FindMuzzle(Transform root)
+        {
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.name == MuzzleName)
+                    return t;
             }
             return null;
         }

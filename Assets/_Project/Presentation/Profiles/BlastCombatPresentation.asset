@@ -1,0 +1,67 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 383cc81488b6a344daa5a669cc6a8c29, type: 3}
+  m_Name: BlastCombatPresentation
+  m_EditorClassIdentifier: Blackglass::Blackglass.CombatPresentationProfile
+  muzzleEffect: {fileID: 0}
+  muzzleScale: 1
+  tracer:
+    prefab: {fileID: 0}
+    width: 0.035
+    length: 6
+    speed: 300
+    startColor: {r: 1, g: 0.88, b: 0.6, a: 0.95}
+    endColor: {r: 1, g: 0.6, b: 0.25, a: 0}
+  fireCue:
+    clips: []
+    volume: 1
+    pitchMin: 0.95
+    pitchMax: 1.05
+    priority: 128
+    minDistance: 4
+    maxDistance: 45
+    minInterval: 0.06
+  impacts: []
+  recoilKick: 0.035
+  recoilSeconds: 0.12
+  areaEffect: {fileID: 2545489369724813856, guid: df7c5ee70499d094b822b3f1b151bd77, type: 3}
+  referenceRadius: 3
+  areaCue:
+    clips:
+    - {fileID: 8300000, guid: b809f939c2c86044ab206d25c53a64cf, type: 3}
+    volume: 1
+    pitchMin: 0.95
+    pitchMax: 1.05
+    priority: 40
+    minDistance: 8
+    maxDistance: 80
+    minInterval: 0.1
+  cameraImpulse: 0.7
+  pulseEffect: {fileID: 0}
+  pulseCue:
+    clips: []
+    volume: 1
+    pitchMin: 0.95
+    pitchMax: 1.05
+    priority: 128
+    minDistance: 4
+    maxDistance: 45
+    minInterval: 0.06
+  deathCue:
+    clips: []
+    volume: 1
+    pitchMin: 0.95
+    pitchMax: 1.05
+    priority: 128
+    minDistance: 4
+    maxDistance: 45
+    minInterval: 0.06

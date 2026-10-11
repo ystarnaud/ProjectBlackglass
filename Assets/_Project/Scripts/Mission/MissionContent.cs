@@ -62,6 +62,7 @@ namespace Blackglass
                 crate.transform.SetParent(geometry, false);
                 crate.transform.position = layout.TileCenter(planned.Tile) + Vector3.up * (LootHeight * 0.5f);
                 var box = crate.AddComponent<BoxCollider>();
+                crate.AddComponent<ImpactSurface>().Set(ImpactSurfaceKind.Metal);
                 box.size = new Vector3(LootSize, LootHeight, LootSize);
                 var modifier = crate.AddComponent<NavMeshModifier>();
                 modifier.overrideArea = true;
@@ -108,6 +109,7 @@ namespace Blackglass
             terminal.transform.SetParent(geometry, false);
             terminal.transform.position = layout.TileCenter(tile) + Vector3.up * (TerminalHeight * 0.5f);
             var box = terminal.AddComponent<BoxCollider>();
+            terminal.AddComponent<ImpactSurface>().Set(ImpactSurfaceKind.Metal);
             box.size = new Vector3(TerminalSize, TerminalHeight, TerminalSize);
             // Not walkable, like every obstacle: no island forms on top and the mesh has a hole around it.
             var modifier = terminal.AddComponent<NavMeshModifier>();

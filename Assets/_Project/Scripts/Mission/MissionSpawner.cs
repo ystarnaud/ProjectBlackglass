@@ -83,6 +83,8 @@ namespace Blackglass
                     attackLine.SetIntelligence(systems.intelligence);
                 if (unit.TryGetComponent<CommandQueueView>(out var queueView))
                     queueView.SetIntelligence(systems.intelligence);
+                if (systems.presentation != null)
+                    unit.gameObject.AddComponent<UnitPresentation>().Bind(systems.presentation);
                 result.Friendlies.Add(unit);
                 grounds.Add((unit, ground));
             }
@@ -100,6 +102,8 @@ namespace Blackglass
                 unit.GetComponent<UnitCover>().Wire(systems.coverRegistry);
                 if (systems.intelligence != null)
                     unit.gameObject.AddComponent<HostilePresenter>().Bind(systems.intelligence, mission.Actors);
+                if (systems.presentation != null)
+                    unit.gameObject.AddComponent<UnitPresentation>().Bind(systems.presentation);
                 result.Hostiles.Add(unit);
                 grounds.Add((unit, ground));
             }

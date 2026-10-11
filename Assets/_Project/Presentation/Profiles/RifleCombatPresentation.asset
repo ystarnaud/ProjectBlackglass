@@ -1,0 +1,119 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 383cc81488b6a344daa5a669cc6a8c29, type: 3}
+  m_Name: RifleCombatPresentation
+  m_EditorClassIdentifier: Blackglass::Blackglass.CombatPresentationProfile
+  muzzleEffect: {fileID: 5455217528104805466, guid: 2482edfb41bb1ee4ea9ab96b9aebfa60, type: 3}
+  muzzleScale: 1
+  tracer:
+    prefab: {fileID: 6467056219176622160, guid: 6fe785173d7364c4289d50ec9a71cfa8, type: 3}
+    width: 0.035
+    length: 6
+    speed: 300
+    startColor: {r: 1, g: 0.88, b: 0.6, a: 0.95}
+    endColor: {r: 1, g: 0.6, b: 0.25, a: 0}
+  fireCue:
+    clips:
+    - {fileID: 8300000, guid: 8923715ca5fc58643b630464a662ac19, type: 3}
+    volume: 0.8
+    pitchMin: 0.95
+    pitchMax: 1.05
+    priority: 100
+    minDistance: 5
+    maxDistance: 55
+    minInterval: 0.05
+  impacts:
+  - surface: 1
+    prefab: {fileID: 4856344303291463799, guid: 61e0b1c3420a7b540bb68e3fdba34eb9, type: 3}
+    scale: 1
+    cue:
+      clips:
+      - {fileID: 8300000, guid: 8e80156e18793a24396d4d77fca983ac, type: 3}
+      volume: 0.6
+      pitchMin: 0.95
+      pitchMax: 1.05
+      priority: 160
+      minDistance: 3
+      maxDistance: 35
+      minInterval: 0.04
+  - surface: 2
+    prefab: {fileID: 2214938304494099071, guid: 388bca9909f950f4493a9319744b3cf1, type: 3}
+    scale: 1
+    cue:
+      clips:
+      - {fileID: 8300000, guid: 014ed85c69aa76a4d92ac9995324cdca, type: 3}
+      volume: 0.6
+      pitchMin: 0.95
+      pitchMax: 1.05
+      priority: 160
+      minDistance: 3
+      maxDistance: 40
+      minInterval: 0.04
+  - surface: 3
+    prefab: {fileID: 8654090116992098814, guid: 88bb4a04c79d7ab4386a5fb2a0ce5ef0, type: 3}
+    scale: 1
+    cue:
+      clips:
+      - {fileID: 8300000, guid: c4c6fd44875b85a4384f3d352db19067, type: 3}
+      volume: 0.5
+      pitchMin: 0.95
+      pitchMax: 1.05
+      priority: 160
+      minDistance: 3
+      maxDistance: 30
+      minInterval: 0.04
+  - surface: 0
+    prefab: {fileID: 160680002256195634, guid: 65e38b36766cf9740bfa6069055929d9, type: 3}
+    scale: 1
+    cue:
+      clips:
+      - {fileID: 8300000, guid: 8e80156e18793a24396d4d77fca983ac, type: 3}
+      volume: 0.6
+      pitchMin: 0.95
+      pitchMax: 1.05
+      priority: 160
+      minDistance: 3
+      maxDistance: 35
+      minInterval: 0.04
+  recoilKick: 0.035
+  recoilSeconds: 0.12
+  areaEffect: {fileID: 0}
+  referenceRadius: 3
+  areaCue:
+    clips: []
+    volume: 1
+    pitchMin: 0.95
+    pitchMax: 1.05
+    priority: 128
+    minDistance: 4
+    maxDistance: 45
+    minInterval: 0.06
+  cameraImpulse: 0.6
+  pulseEffect: {fileID: 0}
+  pulseCue:
+    clips: []
+    volume: 1
+    pitchMin: 0.95
+    pitchMax: 1.05
+    priority: 128
+    minDistance: 4
+    maxDistance: 45
+    minInterval: 0.06
+  deathCue:
+    clips: []
+    volume: 1
+    pitchMin: 0.95
+    pitchMax: 1.05
+    priority: 128
+    minDistance: 4
+    maxDistance: 45
+    minInterval: 0.06

@@ -547,6 +547,7 @@ MonoBehaviour:
     roster: {fileID: 407541413}
     intelligence: {fileID: 26027902}
     inventory: {fileID: 234722665}
+    presentation: {fileID: 430984141}
   groundMaterial: {fileID: 2100000, guid: a4af9315f320cdd47bb677d6b9585c8e, type: 2}
   obstacleMaterial: {fileID: 2100000, guid: 4269a282e4a76984985539bb4c7df2ea, type: 2}
   environmentTheme: {fileID: 11400000, guid: adea5743d781e9044b96d88b7e1653cc, type: 2}
@@ -588,6 +589,60 @@ MonoBehaviour:
   controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
   intelligence: {fileID: 26027902}
   overlay: {fileID: 1665861947}
+--- !u!1 &430984140
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 430984142}
+  - component: {fileID: 430984141}
+  m_Layer: 0
+  m_Name: Presentation
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &430984141
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 430984140}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2bb21985ca137ef47ba686259cee924a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CombatPresenter
+  settings:
+    enabled: 1
+    quality: 2
+    masterVolume: 0.8
+    cameraShake: 0.5
+  intelligence: {fileID: 26027902}
+  pause: {fileID: 1021927381}
+  cameraImpulse: {fileID: 1635730852}
+  fallbackProfile: {fileID: 11400000, guid: a59dc6ec2c8feca4384ef18020a56e71, type: 2}
+  supportProfile: {fileID: 11400000, guid: a59dc6ec2c8feca4384ef18020a56e71, type: 2}
+--- !u!4 &430984142
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 430984140}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &538365520
 GameObject:
   m_ObjectHideFlags: 0
@@ -1497,6 +1552,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1635730850}
   - component: {fileID: 1635730851}
+  - component: {fileID: 1635730852}
   m_Layer: 0
   m_Name: CameraRig
   m_TagString: Untagged
@@ -1560,6 +1616,19 @@ MonoBehaviour:
   maxPitch: 85
   boundsHalfSize: 25
   followSharpness: 10
+  impulse: {fileID: 1635730852}
+--- !u!114 &1635730852
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1635730849}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b5bdf2eafeb98e446b38a20a9861b48d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.CameraImpulse
 --- !u!1 &1665861945
 GameObject:
   m_ObjectHideFlags: 0
@@ -1637,3 +1706,4 @@ SceneRoots:
   - {fileID: 1665861948}
   - {fileID: 234722666}
   - {fileID: 923911129}
+  - {fileID: 430984142}

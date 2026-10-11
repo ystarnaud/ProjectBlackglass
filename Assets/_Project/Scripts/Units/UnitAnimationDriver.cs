@@ -30,9 +30,12 @@ namespace Blackglass
 
         Health health;
         UnitAttacker attacker;
+        UnitAbilities abilities;
         UnitCover cover;
         Vector3 lastPosition;
         bool dead;
+        bool started;
+        bool abilitiesSubscribed;
 
         /// <summary>The visual's Animator.</summary>
         public Animator Animator => animator;
@@ -54,9 +57,30 @@ namespace Blackglass
             TryGetComponent(out cover);
         }
 
+        // The spawner (and tests) add UnitAbilities after instantiating the unit, so it is looked up in Start, not Awake.
+        void Start()
+        {
+            started = true;
+            SubscribeAbilities();
+        }
+
+        void SubscribeAbilities()
+        {
+            if (abilitiesSubscribed)
+                return;
+            if (abilities == null)
+                TryGetComponent(out abilities);
+            if (abilities == null)
+                return;
+            abilities.ShotResolved += OnAbilityShot;
+            abilitiesSubscribed = true;
+        }
+
         void OnEnable()
         {
             lastPosition = transform.position;
+            if (started)
+                SubscribeAbilities();
             if (health != null)
             {
                 health.Damaged += OnDamaged;
@@ -71,6 +95,12 @@ namespace Blackglass
 
         void OnDisable()
         {
+            if (abilitiesSubscribed)
+            {
+                if (abilities != null)
+                    abilities.ShotResolved -= OnAbilityShot;
+                abilitiesSubscribed = false;
+            }
             if (health != null)
             {
                 health.Damaged -= OnDamaged;
@@ -125,6 +155,13 @@ namespace Blackglass
         void OnShot(Health target)
         {
             if (!dead && CanDrive)
+                animator.SetTrigger(FireId);
+        }
+
+        // Aimed Shot fires the weapon, so it plays the Fire clip like a basic attack. Blast and Mend have no clip.
+        void OnAbilityShot(ShotRecord record)
+        {
+            if (!dead && CanDrive && !record.IsMelee)
                 animator.SetTrigger(FireId);
         }
 

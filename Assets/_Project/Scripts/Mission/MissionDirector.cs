@@ -417,6 +417,8 @@ namespace Blackglass
         // Empties every persistent system the mission fills, so nothing keeps a reference to a unit about to be destroyed.
         void ResetSystems()
         {
+            if (systems.presentation != null)
+                systems.presentation.Clear();
             if (systems.intelligence != null)
                 systems.intelligence.Clear();
             if (systems.coverRegistry != null)

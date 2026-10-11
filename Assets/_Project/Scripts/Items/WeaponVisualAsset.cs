@@ -14,11 +14,17 @@ namespace Blackglass
         [SerializeField] Vector3 localPosition = Vector3.zero;
         [SerializeField] Vector3 localEuler = Vector3.zero;
         [SerializeField] Vector3 localScale = Vector3.one;
+        [SerializeField] CombatPresentationProfile presentation;
 
         public GameObject Prefab => prefab;
         public Vector3 LocalPosition => localPosition;
         public Vector3 LocalEuler => localEuler;
         public Vector3 LocalScale => localScale;
+
+        /// <summary>How this weapon looks and sounds when fired, or null (the presenter's fallback is used).</summary>
+        public CombatPresentationProfile Presentation => presentation;
+
+        internal void SetPresentation(CombatPresentationProfile profile) => presentation = profile;
 
         internal static WeaponVisualAsset Create(GameObject prefab, Vector3 position, Vector3 euler, Vector3 scale)
         {

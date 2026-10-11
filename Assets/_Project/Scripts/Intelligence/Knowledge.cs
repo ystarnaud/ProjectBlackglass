@@ -1,3 +1,5 @@
+using UnityEngine;
+
 namespace Blackglass
 {
     /// <summary>
@@ -23,5 +25,13 @@ namespace Blackglass
         /// <summary>The cover marker may be drawn (known ground, or the developer truth view).</summary>
         public static bool IsCoverShown(IntelligenceService intelligence, CoverLocation cover) =>
             intelligence == null || intelligence.IsCoverShown(cover);
+
+        /// <summary>The point's visibility for combat presentation; Visible without a service.</summary>
+        public static PointVisibility PointVisibilityOf(IntelligenceService intelligence, Vector3 world) =>
+            intelligence == null ? PointVisibility.Visible : intelligence.VisibilityOfPoint(world);
+
+        /// <summary>Whether the unit is observed right now (friendlies always). Unlike IsShown it ignores the developer truth view.</summary>
+        public static bool IsObserved(IntelligenceService intelligence, Health unit) =>
+            intelligence == null || intelligence.CanTarget(unit);
     }
 }

@@ -119,6 +119,14 @@ namespace Blackglass
         /// <summary>Raised when cover turned a unit-targeted or area hit away.</summary>
         public event Action<AbilityDefinition, Health> Missed;
 
+        /// <summary>Raised after a unit-targeted damage ability (Aimed Shot) was applied. Presentation only.</summary>
+        public event Action<ShotRecord> ShotResolved;
+
+        /// <summary>Raised after a ground-targeted damage ability (Blast) was applied, even when nobody was hit. Presentation only.</summary>
+        public event Action<AreaRecord> AreaResolved;
+
+        int recordSequence;
+
         Health OwnHealth => ownHealth != null ? ownHealth : ownHealth = GetComponent<Health>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
 
@@ -284,19 +292,26 @@ namespace Blackglass
                         intelligence.Scan(aim, ability.Radius, ability.RevealSeconds);
                     break;
                 case AbilityEffect.Damage when ability.TargetMode == AbilityTargetMode.Unit:
-                    Hit(ability, target, transform.position, source);
+                {
+                    var origin = transform.position + Vector3.up * LineOfSight.EyeHeight;
+                    var aimPoint = target.transform.position + Vector3.up * ShotRecord.BodyHeight;
+                    var landed = Hit(ability, target, transform.position, source);
+                    ShotResolved?.Invoke(new ShotRecord(GetInstanceID(), ++recordSequence, source, target, origin, aimPoint,
+                        landed ? ShotOutcome.Hit : ShotOutcome.CoverMiss, false, ability));
                     break;
+                }
                 case AbilityEffect.Damage:
                     // A snapshot first: a victim dying (and deactivating) mid-blast must not change who else is hit.
                     CollectArea(ability, aim, areaBuffer);
                     for (var i = 0; i < areaBuffer.Count; i++)
                         Hit(ability, areaBuffer[i], aim, source);
+                    AreaResolved?.Invoke(new AreaRecord(GetInstanceID(), ++recordSequence, source, ability, aim, ability.Radius));
                     break;
             }
         }
 
         // The effect on one unit: cover (when the ability says it applies) may turn it away; otherwise it takes the damage.
-        void Hit(AbilityDefinition ability, Health victim, Vector3 from, Health source)
+        bool Hit(AbilityDefinition ability, Health victim, Vector3 from, Health source)
         {
             var lands = true;
             if (ability.CoverRule == AbilityCoverRule.Applies && victim.TryGetComponent<UnitCover>(out var cover)
@@ -305,9 +320,10 @@ namespace Blackglass
             if (!lands)
             {
                 Missed?.Invoke(ability, victim);
-                return;
+                return false;
             }
             victim.TakeDamage(EffectiveAmount(ability), source);
+            return true;
         }
 
         static bool IsCovered(Health target, Vector3 from, out float hitChance)

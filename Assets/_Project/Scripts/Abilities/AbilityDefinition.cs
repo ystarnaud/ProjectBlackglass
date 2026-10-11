@@ -58,6 +58,7 @@ namespace Blackglass
         [SerializeField, Min(0f)] float radius;
         // Reveal only: how long the enemies inside the circle stay observed.
         [SerializeField, Min(0f)] float revealSeconds = 6f;
+        [SerializeField] CombatPresentationProfile presentation;
 
         public string DisplayName => displayName;
         public AbilityTargetMode TargetMode => targetMode;
@@ -83,6 +84,11 @@ namespace Blackglass
         public float Radius => radius;
         /// <summary>Reveal only: seconds the enemies inside the circle stay observed; 0 for every other effect.</summary>
         public float RevealSeconds => Effect == AbilityEffect.Reveal ? revealSeconds : 0f;
+
+        /// <summary>How the ability looks and sounds when it resolves (an explosion for Blast), or null. Presentation only.</summary>
+        public CombatPresentationProfile Presentation => presentation;
+
+        internal void SetPresentation(CombatPresentationProfile profile) => presentation = profile;
 
         internal static AbilityDefinition Create(string displayName, AbilityTargetMode mode,
             float range, bool requiresLineOfSight, AbilityCoverRule coverRule, float cooldown, AbilityEffect effect,

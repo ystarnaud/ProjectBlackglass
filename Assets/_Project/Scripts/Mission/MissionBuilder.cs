@@ -71,13 +71,13 @@ namespace Blackglass
             {
                 var size = new Vector3(rect.width, MissionConstants.FloorThickness, rect.height);
                 var center = layout.RectCenter(rect) + Vector3.down * (MissionConstants.FloorThickness * 0.5f);
-                Cube($"Floor_{++floorIndex}", center, size, groundMaterial, geometry.transform, false, theme == null);
+                Cube($"Floor_{++floorIndex}", center, size, groundMaterial, geometry.transform, false, theme == null, ImpactSurfaceKind.Concrete);
             }
             foreach (var box in layout.Boxes)
             {
                 var size = new Vector3(box.Footprint.width, box.Height, box.Footprint.height);
                 var center = layout.RectCenter(box.Footprint) + Vector3.up * (box.Height * 0.5f);
-                Cube(box.Name, center, size, obstacleMaterial, geometry.transform, true, theme == null);
+                Cube(box.Name, center, size, obstacleMaterial, geometry.transform, true, theme == null, ImpactSurfaces.ForBox(box.Kind));
             }
 
             // Objective content that must exist when the NavMesh is baked (the terminal) is added by the caller here. If it
@@ -114,7 +114,7 @@ namespace Blackglass
             };
         }
 
-        static void Cube(string name, Vector3 center, Vector3 size, Material material, Transform parent, bool obstacle, bool visible)
+        static void Cube(string name, Vector3 center, Vector3 size, Material material, Transform parent, bool obstacle, bool visible, ImpactSurfaceKind surface)
         {
             var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             cube.name = name;
@@ -125,6 +125,7 @@ namespace Blackglass
                 cube.GetComponent<Renderer>().sharedMaterial = material;
             if (!visible)
                 cube.GetComponent<MeshRenderer>().enabled = false;
+            cube.AddComponent<ImpactSurface>().Set(surface);
             if (!obstacle)
                 return;
             cube.AddComponent<CoverSurface>();

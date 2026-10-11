@@ -220,6 +220,19 @@ namespace Blackglass
         /// <summary>Whether a cover marker may be drawn: known ground, or the developer truth view.</summary>
         public bool IsCoverShown(CoverLocation cover) => truthView || CanSeeCover(cover);
 
+        /// <summary>
+        /// What the player's knowledge says about a world point, region-level: Visible when its region is observed (or the fog is
+        /// off / no mission), Hidden when it is in a region that is not, Outside when it is in no region. Ignores the truth view.
+        /// </summary>
+        public PointVisibility VisibilityOfPoint(Vector3 world)
+        {
+            if (model == null || model.IsOpen)
+                return PointVisibility.Visible;
+            if (map.RegionAt(world) < 0)
+                return PointVisibility.Outside;
+            return model.StateOfPoint(world) == KnowledgeState.Observed ? PointVisibility.Visible : PointVisibility.Hidden;
+        }
+
         public bool IsDeviceShown(int deviceId) =>
             model == null || truthView || model.IsOpen || model.StateOfDevice(deviceId) != KnowledgeState.Unknown;
 

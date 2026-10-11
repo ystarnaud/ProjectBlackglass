@@ -33,6 +33,7 @@ namespace Blackglass
 
         readonly RaycastHit[] sightHits = new RaycastHit[LineOfSight.HitBufferSize];
         float nextAttackTime;
+        int shotSequence;
         // The roll is replaceable so tests can force a hit or a miss; the default is Unity's random stream.
         static readonly Func<float> defaultRoll = () => UnityEngine.Random.value;
         Func<float> hitRoll;
@@ -64,6 +65,13 @@ namespace Blackglass
 
         /// <summary>Raised with the target after every shot that cover turned away.</summary>
         public event Action<Health> Missed;
+
+        /// <summary>
+        /// Raised once per discharged shot (hit or miss), after Attacked or Missed, so anything those events set in motion
+        /// (the intelligence service exposing a hostile shooter) is already in force. Never raised for a rejected attempt.
+        /// Presentation only: the record is a read-only snapshot.
+        /// </summary>
+        public event Action<ShotRecord> Fired;
 
         /// <summary>Shots fired since creation (debug counter).</summary>
         public int ShotsFired { get; private set; }
@@ -189,7 +197,12 @@ namespace Blackglass
             nextAttackTime = Time.time + cooldown;
             ShotsFired++;
             var inCover = IsTargetInCover(target, out var hitChance);
-            if (CoverRules.ResolveHit(inCover, hitChance, HitRoll()))
+            var landed = CoverRules.ResolveHit(inCover, hitChance, HitRoll());
+            // The record is a snapshot taken before damage: a victim that dies (and deactivates) changes nothing in it.
+            var record = new ShotRecord(GetInstanceID(), ++shotSequence, OwnHealth, target,
+                transform.position + Vector3.up * LineOfSight.EyeHeight, target.transform.position + Vector3.up * ShotRecord.BodyHeight,
+                landed ? ShotOutcome.Hit : ShotOutcome.CoverMiss, role == CombatRole.Melee, null);
+            if (landed)
             {
                 Hits++;
                 target.TakeDamage(damage, OwnHealth);
@@ -199,6 +212,7 @@ namespace Blackglass
             {
                 Missed?.Invoke(target);
             }
+            Fired?.Invoke(record);
             return true;
         }
     }

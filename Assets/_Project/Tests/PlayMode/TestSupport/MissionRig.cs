@@ -114,6 +114,19 @@ namespace Blackglass.Tests
             return service;
         }
 
+        /// <summary>Adds a combat presenter (with the real fallback profile) to the persistent systems. Call before the first Generate.</summary>
+        public CombatPresenter AddPresentation(IntelligenceService intelligence = null)
+        {
+            var host = World.Track(new GameObject("Presentation"));
+            host.SetActive(false);
+            var presenter = host.AddComponent<CombatPresenter>();
+            var fallback = Load<CombatPresentationProfile>("Presentation/Profiles/DefaultCombatPresentation.asset");
+            presenter.Bind(intelligence != null ? intelligence : systems.intelligence, Pause, null, fallback, fallback);
+            host.SetActive(true);
+            systems.presentation = presenter;
+            return presenter;
+        }
+
         public const string DariusPlayerPath = "Assets/Art/Characters/Darius/Prefabs/Darius_Player.prefab";
 
         /// <summary>The usual three friendly slots with Darius (rifle, humanoid visual, Ranged archetype) in slot 0, as in the scene.</summary>

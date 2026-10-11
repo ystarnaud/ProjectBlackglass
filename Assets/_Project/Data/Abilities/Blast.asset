@@ -22,3 +22,5 @@ MonoBehaviour:
   effect: 0
   amount: 35
   radius: 3
+  revealSeconds: 6
+  presentation: {fileID: 11400000, guid: 16e2b01f62088354f96d5e322a3a7dc1, type: 2}
