@@ -483,13 +483,14 @@ Design: decision 045. Run guide: `Docs/DedicatedServer.md`.
 - branch `checkpoint-a-linux-server`, build revision `7d42506`, packaged as `blackglass-server-linux-7d42506-dirty.tar.gz`;
 - `dirty=true` comes from the owner's two uncommitted settings files and the documentation not yet committed at build time; no runtime code was uncommitted;
 - SHA-256 `78bb78730777fdc427841f0ebc210956a9b1d473aa3cd76abb02059b7da3cfd8`;
+- after the final review, revision `5c7fa8d` was rebuilt (`blackglass-server-linux-5c7fa8d-dirty.tar.gz`, SHA-256 `ff01bba536a2889c11155f8545ad3d1f57284c71a08bc425fa8d9d7c2c07033e`, `dirty` from the owner's two settings files only) and its diagnostic passed on the VM with identical figures. Its only change makes a diagnostic exception end as FAIL. The smoke run below was **not** repeated on `5c7fa8d`;
 - Editor host: Windows 10 build 19041, Unity 6000.3.25f1 with Linux Build Support (Mono) and Linux Dedicated Server Build Support, installed 2026-10-11 through Unity Hub at the owner's request;
 - VM `bg-dev-mission01`: Ubuntu 24.04.5 LTS, kernel 6.8.0-146, Intel Xeon Platinum 8260 at 2.40 GHz, 4 vCPU, 7.9 GiB RAM, no swap.
 
 **Editor validation** (Windows, batch mode, D3D12 device; Editor runs, not a Linux run):
 - baseline before changes: EditMode 1249/1249, PlayMode 1354/1354;
-- after: EditMode 1271/1271, PlayMode 1365/1365;
-- new tests: `ServerOptionsTests` (18), `ServerBuildInfoTests` (4), `ServerDiagnosticPlayModeTests` (4), `ServerMissionPlayModeTests` (6) and `MissionDirectorPlayModeTests.Generate_RecordsTheNavMeshBakeTime`;
+- after, at `5c7fa8d`: EditMode 1271/1271, PlayMode 1367/1367;
+- new tests: `ServerOptionsTests` (18), `ServerBuildInfoTests` (4), `ServerDiagnosticPlayModeTests` (5), `ServerMissionPlayModeTests` (7) and `MissionDirectorPlayModeTests.Generate_RecordsTheNavMeshBakeTime`;
 - fixture seed 1 generates on attempt 1 (layout hash `cf2e14dece9cc2a6`) and passes the diagnostic: move 1.5 s, attack 3.6 s;
 - no client scene, prefab, data asset or project setting changed.
 
