@@ -1,0 +1,124 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+
+namespace Blackglass
+{
+    /// <summary>
+    /// The dedicated server's command-line options (Checkpoint A, decision 045). Pure: parsed from the argument list, never
+    /// from Unity. Unknown arguments (Unity's own -batchmode, -nographics, -logFile x) are ignored; a missing, non-numeric or
+    /// out-of-range value keeps the default and adds a warning. Names are exact and case-sensitive; a repeated argument's
+    /// last value wins.
+    /// </summary>
+    public sealed class ServerOptions
+    {
+        public const int DefaultFrameRate = 60;
+        public const int DefaultDiagnosticTimeoutSeconds = 120;
+        public const int DefaultStartupTimeoutSeconds = 60;
+        public const int DefaultHeartbeatSeconds = 60;
+
+        /// <summary>The seed to generate; null uses the scene's fixture seed.</summary>
+        public int? Seed { get; private set; }
+        public int FrameRate { get; private set; } = DefaultFrameRate;
+        public bool Diagnostic { get; private set; }
+        public int DiagnosticTimeoutSeconds { get; private set; } = DefaultDiagnosticTimeoutSeconds;
+        public int StartupTimeoutSeconds { get; private set; } = DefaultStartupTimeoutSeconds;
+        /// <summary>Seconds between heartbeat lines; 0 turns the heartbeat off.</summary>
+        public int HeartbeatSeconds { get; private set; } = DefaultHeartbeatSeconds;
+
+        public static ServerOptions Default => new ServerOptions();
+
+        public static ServerOptions Parse(IReadOnlyList<string> args, out List<string> warnings)
+        {
+            var options = new ServerOptions();
+            warnings = new List<string>();
+            if (args == null)
+                return options;
+            for (var i = 0; i < args.Count; i++)
+            {
+                switch (args[i])
+                {
+                    case "-diagnostic":
+                        options.Diagnostic = true;
+                        break;
+                    case "-seed":
+                        if (TryValue(args, ref i, int.MinValue, int.MaxValue, warnings, out var seed))
+                            options.Seed = seed;
+                        break;
+                    case "-fps":
+                        if (TryValue(args, ref i, 1, 1000, warnings, out var fps))
+                            options.FrameRate = fps;
+                        break;
+                    case "-diagnosticTimeout":
+                        if (TryValue(args, ref i, 5, 3600, warnings, out var diagnostic))
+                            options.DiagnosticTimeoutSeconds = diagnostic;
+                        break;
+                    case "-startupTimeout":
+                        if (TryValue(args, ref i, 5, 3600, warnings, out var startup))
+                            options.StartupTimeoutSeconds = startup;
+                        break;
+                    case "-heartbeat":
+                        if (TryValue(args, ref i, 0, 3600, warnings, out var heartbeat))
+                        {
+                            if (heartbeat != 0 && heartbeat < 5)
+                                warnings.Add(FormattableString.Invariant($"-heartbeat {heartbeat} is out of range (0 or 5..3600); keeping {options.HeartbeatSeconds}"));
+                            else
+                                options.HeartbeatSeconds = heartbeat;
+                        }
+                        break;
+                }
+            }
+            return options;
+        }
+
+        // Reads the value after args[i]. A next token that is an integer is the value (so "-seed -5" is a seed); another
+        // flag is left alone for the loop to read, and a missing value warns.
+        static bool TryValue(IReadOnlyList<string> args, ref int i, int min, int max, List<string> warnings, out int value)
+        {
+            var name = args[i];
+            value = 0;
+            if (i + 1 >= args.Count)
+            {
+                warnings.Add($"{name} has no value; keeping the default");
+                return false;
+            }
+            var text = args[i + 1];
+            if (!int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out value))
+            {
+                if (text.StartsWith("-", StringComparison.Ordinal))
+                {
+                    warnings.Add($"{name} has no value (next is {text}); keeping the default");
+                    return false;
+                }
+                i++;
+                warnings.Add($"{name} {text} is not an integer; keeping the default");
+                return false;
+            }
+            i++;
+            if (value < min || value > max)
+            {
+                warnings.Add(FormattableString.Invariant($"{name} {value} is out of range ({min}..{max}); keeping the default"));
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>A copy with the given values replaced (tests, and the bootstrap's diagnostic hand-off).</summary>
+        internal ServerOptions With(int? seed = null, bool? diagnostic = null, int? diagnosticTimeoutSeconds = null)
+        {
+            var copy = (ServerOptions)MemberwiseClone();
+            if (seed.HasValue)
+                copy.Seed = seed;
+            if (diagnostic.HasValue)
+                copy.Diagnostic = diagnostic.Value;
+            if (diagnosticTimeoutSeconds.HasValue)
+                copy.DiagnosticTimeoutSeconds = diagnosticTimeoutSeconds.Value;
+            return copy;
+        }
+
+        /// <summary>One log line; `fixtureSeed` is the scene's seed, shown when there is no override.</summary>
+        public string Describe(int fixtureSeed) =>
+            FormattableString.Invariant($"seed={Seed ?? fixtureSeed}({(Seed.HasValue ? "override" : "fixture")}) fps={FrameRate} diagnostic={(Diagnostic ? "yes" : "no")} ") +
+            FormattableString.Invariant($"diagnosticTimeout={DiagnosticTimeoutSeconds}s startupTimeout={StartupTimeoutSeconds}s heartbeat={(HeartbeatSeconds > 0 ? HeartbeatSeconds + "s" : "off")}");
+    }
+}
