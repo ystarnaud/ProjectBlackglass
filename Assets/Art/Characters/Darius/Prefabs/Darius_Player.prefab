@@ -70,6 +70,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
       insertIndex: -1
       addedObject: {fileID: 3527443555089369466}
+    - targetCorrespondingSourceObject: {fileID: 6099463895615464185, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 62964018433270033}
   m_SourcePrefab: {fileID: 100100000, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
 --- !u!1 &1656404560095664011 stripped
 GameObject:
@@ -92,6 +95,19 @@ MonoBehaviour:
   speedDamping: 0.1
   corpseSeconds: 8
   teleportSpeed: 40
+--- !u!114 &62964018433270033
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1656404560095664011}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 83819f17f6b5e174e9317d703f6c02bf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.UnitWeaponVisual
+  defaultVisual: {fileID: 11400000, guid: 3d76d5ae85de845458d18554d2f9ad01, type: 2}
 --- !u!4 &5059000779962431032 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 318686113713193802, guid: 78432e38721aaa3438e66f59ff53f796, type: 3}
@@ -108,6 +124,18 @@ PrefabInstance:
     - target: {fileID: 5089537261977561915, guid: 02f1be1fa0c7dc24cab9d63f34c647b5, type: 3}
       propertyPath: m_Name
       value: Visual
+      objectReference: {fileID: 0}
+    - target: {fileID: 5614435675189883265, guid: 02f1be1fa0c7dc24cab9d63f34c647b5, type: 3}
+      propertyPath: m_LocalScale.x
+      value: 1.0639
+      objectReference: {fileID: 0}
+    - target: {fileID: 5614435675189883265, guid: 02f1be1fa0c7dc24cab9d63f34c647b5, type: 3}
+      propertyPath: m_LocalScale.y
+      value: 1.0639
+      objectReference: {fileID: 0}
+    - target: {fileID: 5614435675189883265, guid: 02f1be1fa0c7dc24cab9d63f34c647b5, type: 3}
+      propertyPath: m_LocalScale.z
+      value: 1.0639
       objectReference: {fileID: 0}
     - target: {fileID: 5614435675189883265, guid: 02f1be1fa0c7dc24cab9d63f34c647b5, type: 3}
       propertyPath: m_LocalPosition.x
@@ -148,18 +176,6 @@ PrefabInstance:
     - target: {fileID: 5614435675189883265, guid: 02f1be1fa0c7dc24cab9d63f34c647b5, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 5614435675189883265, guid: 02f1be1fa0c7dc24cab9d63f34c647b5, type: 3}
-      propertyPath: m_LocalScale.x
-      value: 1.0639
-      objectReference: {fileID: 0}
-    - target: {fileID: 5614435675189883265, guid: 02f1be1fa0c7dc24cab9d63f34c647b5, type: 3}
-      propertyPath: m_LocalScale.y
-      value: 1.0639
-      objectReference: {fileID: 0}
-    - target: {fileID: 5614435675189883265, guid: 02f1be1fa0c7dc24cab9d63f34c647b5, type: 3}
-      propertyPath: m_LocalScale.z
-      value: 1.0639
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

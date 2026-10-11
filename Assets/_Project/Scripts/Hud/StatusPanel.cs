@@ -30,9 +30,12 @@ namespace Blackglass
         readonly Text followLabel;
         readonly RectTransform pauseChip;
         readonly Text pauseChipLabel;
+        readonly RectTransform bagChip;
+        readonly Text bagLabel;
 
         string shownResume;
         string shownBanner;
+        string shownBag;
         bool hasExtraction;
         HudExtractionState shownExtraction;
         int shownInside;
@@ -72,8 +75,10 @@ namespace Blackglass
             extractionChip = Chip("Extraction", rightBlock, out extractionLabel);
             followChip = Chip("Follow", rightBlock, out followLabel);
             pauseChip = Chip("PauseChip", rightBlock, out pauseChipLabel);
+            bagChip = Chip("BagChip", rightBlock, out bagLabel);
             Clickable(followChip, () => FollowClicked?.Invoke());
             Clickable(pauseChip, () => PauseClicked?.Invoke());
+            Clickable(bagChip, () => BagClicked?.Invoke());
             rightBlock.gameObject.SetActive(false);
         }
 
@@ -89,11 +94,15 @@ namespace Blackglass
         internal Text FollowLabel => followLabel;
         internal RectTransform PauseChip => pauseChip;
         internal Text PauseChipLabel => pauseChipLabel;
+        internal RectTransform BagChip => bagChip;
+        internal Text BagLabel => bagLabel;
 
         /// <summary>Raised when the follow chip is clicked.</summary>
         internal event Action FollowClicked;
         /// <summary>Raised when the pause chip is clicked.</summary>
         internal event Action PauseClicked;
+        /// <summary>Raised when the bag chip is clicked.</summary>
+        internal event Action BagClicked;
 
         public override void Apply(HudSnapshot s)
         {
@@ -127,10 +136,11 @@ namespace Blackglass
         void ApplyRight(HudSnapshot s)
         {
             var showExtraction = s.Extraction != HudExtractionState.Hidden;
-            HudFactory.SetActive(rightBlock.gameObject, showExtraction || s.HasFollow || s.HasPause);
+            HudFactory.SetActive(rightBlock.gameObject, showExtraction || s.HasFollow || s.HasPause || s.HasBag);
             HudFactory.SetActive(extractionChip.gameObject, showExtraction);
             HudFactory.SetActive(followChip.gameObject, s.HasFollow);
             HudFactory.SetActive(pauseChip.gameObject, s.HasPause);
+            HudFactory.SetActive(bagChip.gameObject, s.HasBag);
 
             if (showExtraction && (!hasExtraction || shownExtraction != s.Extraction
                 || shownInside != s.ExtractionInside || shownRequired != s.ExtractionRequired))
@@ -147,6 +157,12 @@ namespace Blackglass
             {
                 HudFactory.SetText(followLabel, HudText.Follow(s.FollowOn));
                 HudFactory.SetColor(followLabel, s.FollowOn ? HudTheme.Accent : HudTheme.TextDim);
+            }
+
+            if (s.HasBag && !string.Equals(shownBag, s.BagPrompt, StringComparison.Ordinal))
+            {
+                shownBag = s.BagPrompt;
+                HudFactory.SetText(bagLabel, HudText.BagChip(shownBag));
             }
 
             if (s.HasPause)

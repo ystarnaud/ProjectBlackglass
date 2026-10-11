@@ -6,7 +6,7 @@ namespace Blackglass
     /// <summary>
     /// An order for a unit. Commands are plain data: whoever creates one (player input, groups, AI or scripts)
     /// hands it to CommandableUnit.Issue, and the unit decides how to carry it out. The commands are Move, Attack,
-    /// MoveToCover, Ability, Interact and Stop.
+    /// MoveToCover, Ability, Interact, UseItem, Collect and Stop.
     /// </summary>
     public abstract class UnitCommand { }
 
@@ -108,6 +108,64 @@ namespace Blackglass
         }
 
         public MissionInteractable Target { get; }
+    }
+
+    /// <summary>
+    /// Use an owned consumable on the unit itself. Plain data like every order: the unit checks it when it is issued and
+    /// again when it runs (UnitItems), and a failure ends the order without consuming anything. Instant; it names the
+    /// item by its entry's instance id, never by its name.
+    /// </summary>
+    public sealed class UseItemCommand : UnitCommand
+    {
+        public UseItemCommand(string instanceId)
+        {
+            if (string.IsNullOrWhiteSpace(instanceId))
+                throw new ArgumentException("An item order needs the entry's instance id.", nameof(instanceId));
+            InstanceId = instanceId;
+        }
+
+        public string InstanceId { get; }
+    }
+
+    /// <summary>
+    /// Swap in an equippable item from the unit's own bag. Takes UnitItems.SwapSeconds, during which the unit does nothing
+    /// else (it is the running order) and any new order cancels the swap without changing its gear. Plain data like every
+    /// order; it names the entry by instance id, and the unit checks it when issued and again when the time is up.
+    /// </summary>
+    public sealed class EquipItemCommand : UnitCommand
+    {
+        public EquipItemCommand(string instanceId)
+        {
+            if (string.IsNullOrWhiteSpace(instanceId))
+                throw new ArgumentException("An item order needs the entry's instance id.", nameof(instanceId));
+            InstanceId = instanceId;
+        }
+
+        public string InstanceId { get; }
+    }
+
+    /// <summary>
+    /// Walk to a searched loot container and move items from it into the unit's own bag: one entry, or everything that fits
+    /// (no instance id). Plain data like every order: the unit checks it when it is issued and again when it runs
+    /// (UnitItems), so another unit taking the entry first, a full bag or a vanished container end the order without losing
+    /// anything. Leftovers stay in the container.
+    /// </summary>
+    public sealed class CollectCommand : UnitCommand
+    {
+        public CollectCommand(LootContainer container, string instanceId = null)
+        {
+            if (container == null)
+                throw new ArgumentNullException(nameof(container));
+            Container = container;
+            InstanceId = instanceId;
+        }
+
+        public LootContainer Container { get; }
+
+        /// <summary>The container entry to take, or null/empty for everything that fits.</summary>
+        public string InstanceId { get; }
+
+        public bool TakeAll => string.IsNullOrEmpty(InstanceId);
     }
 
     /// <summary>Halts the unit and clears all of its orders. Never queued.</summary>

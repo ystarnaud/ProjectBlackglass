@@ -47,8 +47,9 @@ namespace Blackglass
         public bool HasMission; public string PhaseText = string.Empty, BannerText = string.Empty;
         public HudExtractionState Extraction; public int ExtractionInside, ExtractionRequired;
         public bool IsPaused; public string ResumePrompt = string.Empty;
+        public bool HasBag; public string BagPrompt = string.Empty;   // an inventory panel exists: the bag chip is shown
         public bool HasPause;                                      // a tactical pause exists: the pause chip is shown
-        public bool HasControlled; public string ControlledName = string.Empty, ControlledRole = string.Empty, ControlledCover = string.Empty; public int ControlledRank, ControlledHealth, ControlledMaxHealth;
+        public bool HasControlled; public string ControlledName = string.Empty, ControlledRole = string.Empty, ControlledCover = string.Empty, ControlledWeapon = string.Empty; public int ControlledRank, ControlledHealth, ControlledMaxHealth;
         public bool HasFollow, FollowOn;
         public string QueueOwner = string.Empty; public int QueueHidden;          // QueueHidden = steps beyond the shown limit
         public CommandableUnit QueueUnit;                          // the queue subject, for the CLEAR request
@@ -66,8 +67,8 @@ namespace Blackglass
             Marks.Clear();
             HasMission = false; PhaseText = string.Empty; BannerText = string.Empty;
             Extraction = HudExtractionState.Hidden; ExtractionInside = 0; ExtractionRequired = 0;
-            IsPaused = false; ResumePrompt = string.Empty; HasPause = false;
-            HasControlled = false; ControlledName = string.Empty; ControlledRole = string.Empty; ControlledCover = string.Empty;
+            IsPaused = false; ResumePrompt = string.Empty; HasPause = false; HasBag = false; BagPrompt = string.Empty;
+            HasControlled = false; ControlledName = string.Empty; ControlledRole = string.Empty; ControlledCover = string.Empty; ControlledWeapon = string.Empty;
             ControlledRank = 0; ControlledHealth = 0; ControlledMaxHealth = 0;
             HasFollow = false; FollowOn = false;
             QueueOwner = string.Empty; QueueHidden = 0; QueueUnit = null;

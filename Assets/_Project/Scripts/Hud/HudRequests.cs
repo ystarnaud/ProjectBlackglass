@@ -64,6 +64,14 @@ namespace Blackglass
                 active.ToggleFollow();
         }
 
+        /// <summary>Opens the inventory panel (the Inventory toggle key opens it the same way).</summary>
+        public void OpenInventory()
+        {
+            var modal = sources != null ? sources.inventoryModal : null;
+            if (modal != null)
+                modal.Open();
+        }
+
         public void TogglePause()
         {
             var pause = sources != null ? sources.tacticalPause : null;

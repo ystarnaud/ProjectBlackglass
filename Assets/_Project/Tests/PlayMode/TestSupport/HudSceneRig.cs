@@ -38,6 +38,7 @@ namespace Blackglass.Tests
             yield return SceneManager.LoadSceneAsync(MissionScene, LoadSceneMode.Single);
             Director = Object.FindFirstObjectByType<MissionDirector>();
             Assert.That(Director, Is.Not.Null);
+            yield return TestWorld.DeployFromLoadout(Director);
             yield return WaitForMission();
             Bind();
             yield return null;
@@ -49,6 +50,9 @@ namespace Blackglass.Tests
             yield return LoadMission();
             if (intelligence != null)
                 Director.Settings.intelligence = intelligence;
+            // The known-seed missions are the HUD and fog tests' fixed world (a scripted scan walk across it); the scene's loot
+            // containers (Phase 12) reroute that walk, so these missions are generated without loot.
+            Director.SetLootTable(null);
             Assert.That(Director.Generate(seed), Is.True, $"the first mission is still {Director.State}");
             yield return WaitForMission();
             Bind();

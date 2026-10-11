@@ -41,6 +41,9 @@ namespace Blackglass
         public int Guards;
         public ulong ObjectiveHash;
         public ulong SecurityHash;
+        public int LootRequested;
+        public int LootPlaced;
+        public ulong LootHash;
     }
 
     /// <summary>
@@ -63,9 +66,11 @@ namespace Blackglass
         // At Play, draw a fresh seed (the Inspector then shows it, F6 repeats it) instead of reusing the serialized one.
         [SerializeField] bool newSeedAtStart = true;
         [SerializeField, Min(0f)] float cameraMargin = 2f;
+        [SerializeField] LootTable lootTable;
 
         readonly List<CommandableUnit> friendlies = new List<CommandableUnit>();
         readonly List<CommandableUnit> hostiles = new List<CommandableUnit>();
+        LootTable activeLoot;
         Coroutine running;
         bool visualsVisible = true;
 
@@ -75,6 +80,9 @@ namespace Blackglass
         /// <summary>The running mission's objectives and phase; null while there is no mission (idle, generating, failed).</summary>
         public MissionRuntime Runtime { get; private set; }
         public MissionPhase Phase => Runtime != null ? Runtime.Phase : MissionPhase.Inactive;
+
+        /// <summary>A new id for every generation (also a repeat of the same seed); the inventory settles against it exactly once.</summary>
+        public string InstanceId { get; private set; } = string.Empty;
         public MissionSettings Settings => settings;
         internal bool NewSeedAtStart => newSeedAtStart;
         /// <summary>Where a new seed comes from; the clock by default, replaceable by tests.</summary>
@@ -100,6 +108,8 @@ namespace Blackglass
             newSeedAtStart = randomSeedAtStart;
         }
 
+        internal void SetLootTable(LootTable table) => lootTable = table;
+
         public bool VisualsVisible => visualsVisible;
 
         /// <summary>Debug view: false shows the gameplay cubes instead of the themed visuals. Kept across regenerations.</summary>
@@ -115,6 +125,8 @@ namespace Blackglass
         {
             if (!generateOnStart)
                 return;
+            if (systems.inventory != null && systems.inventory.StartInLoadout)
+                return;   // the loadout panel's Deploy button generates the first mission
             if (newSeedAtStart)
                 GenerateNew();
             else
@@ -172,6 +184,17 @@ namespace Blackglass
             Report = new MissionReport { Seed = request.seed, MaxAttempts = request.maxAttempts };
             Teardown();
             yield return null;   // let Destroy finish so the old NavMesh and colliders are really gone
+            InstanceId = Guid.NewGuid().ToString("N");
+            if (systems.inventory != null)
+                systems.inventory.BeginMission(InstanceId);
+            activeLoot = null;
+            if (lootTable != null)
+            {
+                if (lootTable.IsValid(out var lootProblem))
+                    activeLoot = lootTable;
+                else
+                    Debug.LogError($"{name}: the loot table '{lootTable.name}' is invalid ({lootProblem}); this mission has no loot.", this);
+            }
 
             for (var attempt = 1; attempt <= request.maxAttempts; attempt++)
             {
@@ -188,6 +211,8 @@ namespace Blackglass
             Report.Failure = failureText;
             Debug.LogError(failureText, this);
             running = null;
+            if (systems.inventory != null)
+                systems.inventory.AbortMission();
             SetState(MissionState.Failed);
         }
 
@@ -236,7 +261,11 @@ namespace Blackglass
             MissionInteractable terminal = null;
             MissionInteractable cameraTerminal = null;
             Action<Transform> addContent = null;
-            if (request.hackTerminal || security.HasTerminal)
+            var loot = LootPlan.Empty;
+            if (activeLoot != null && systems.inventory != null && systems.inventory.Catalogue != null)
+                loot = LootPlacer.Place(layout, plan, security, activeLoot);
+            List<LootContainer> containers = null;
+            if (request.hackTerminal || security.HasTerminal || loot.Placed > 0)
             {
                 addContent = geometry =>
                 {
@@ -244,6 +273,8 @@ namespace Blackglass
                         terminal = MissionContent.AddTerminal(geometry, plan, layout, request, obstacleMaterial, environmentTheme);
                     if (security.HasTerminal)
                         cameraTerminal = MissionContent.AddCameraTerminal(geometry, security, layout, request, obstacleMaterial, environmentTheme);
+                    if (loot.Placed > 0)
+                        containers = MissionContent.AddLootContainers(geometry, loot, layout, systems.inventory.Catalogue, obstacleMaterial);
                 };
             }
             mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial, addContent, environmentTheme);
@@ -266,6 +297,13 @@ namespace Blackglass
                 return false;
             }
 
+            if (!MissionNavigation.ValidateLoot(layout, loot, out reason))
+            {
+                Report.Failures.Add($"attempt {attempt}: loot: {reason}");
+                DestroyMission(mission, true);
+                return false;
+            }
+
             var origin = layout.TileCenter(layout.FriendlySpawns[0]);
             systems.coverDiscovery.Discover(mission.Geometry, MissionNavigation.ReachableFrom(origin));
 
@@ -281,6 +319,8 @@ namespace Blackglass
             mission.Terminal = terminal;
             mission.Security = security;
             mission.CameraTerminal = cameraTerminal;
+            mission.Loot = loot;
+            mission.LootContainers = containers ?? new List<LootContainer>();
             mission.Network = security.HasTerminal
                 ? MissionContent.CreateCameras(security, layout, request.intelligence, mission.Root.transform, obstacleMaterial)
                 : null;
@@ -296,6 +336,9 @@ namespace Blackglass
                     interactables.Add(terminal);
                 if (cameraTerminal != null)
                     interactables.Add(cameraTerminal);
+                if (containers != null)
+                    foreach (var container in containers)
+                        interactables.Add(container.Interactable);
                 systems.interactables.Rebuild(interactables);
             }
             var squad = new List<Health>();
@@ -323,6 +366,11 @@ namespace Blackglass
             }
             Fill(Report, layout, navigation, plan);
             Report.SecurityHash = security.Hash;
+            Report.LootRequested = loot.Requested;
+            Report.LootPlaced = loot.Placed;
+            Report.LootHash = loot.Hash;
+            if (loot.Shortfall.Length > 0)
+                Debug.LogWarning($"{name}: seed {request.seed}: {loot.Shortfall}.", this);
             FrameCamera(layout);
             return true;
         }
@@ -352,6 +400,8 @@ namespace Blackglass
         void Teardown()
         {
             DetachRuntime();
+            if (systems.inventory != null)
+                systems.inventory.AbortMission();   // an unsettled mission (restart, clear) keeps nothing
             ResetSystems();
             foreach (var unit in friendlies)
                 DestroyMarker(unit);

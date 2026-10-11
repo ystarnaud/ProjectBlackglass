@@ -42,6 +42,7 @@ namespace Blackglass.Tests
             service = Object.FindFirstObjectByType<IntelligenceService>();
             Assert.That(director, Is.Not.Null);
             Assert.That(service, Is.Not.Null, "run Blackglass/Intelligence/Wire ProceduralMission Scene");
+            yield return TestWorld.DeployFromLoadout(director);
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
             Assert.That(director.State, Is.EqualTo(MissionState.Ready), director.Report.Failure);
             yield return null;

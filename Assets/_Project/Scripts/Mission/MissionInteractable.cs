@@ -21,6 +21,15 @@ namespace Blackglass
         bool completed;
         float progress;
         CommandableUnit user;
+        // After a completion the interactable becomes available again with this duration (a negative value: stay completed).
+        float repeatDuration = -1f;
+        int completionCount;
+        CommandableUnit lastUser;
+
+        /// <summary>How many times the work has finished (a repeatable interactable counts each one).</summary>
+        public int CompletionCount => completionCount;
+        /// <summary>The unit that finished the work most recently.</summary>
+        public CommandableUnit LastUser => lastUser;
 
         public string DisplayName => displayName;
         public float Range => range;
@@ -36,7 +45,10 @@ namespace Blackglass
         public CommandableUnit User => user;
         public Vector3 Position => transform.position;
 
-        /// <summary>Raised once, when the work is finished (not when it is cancelled).</summary>
+        /// <summary>
+        /// Raised when the work is finished (not when it is cancelled): once for an ordinary interactable, again after every
+        /// completion for a repeatable one (SetRepeatable).
+        /// </summary>
         public event Action<MissionInteractable> Completed;
 
         internal void Initialize(float interactionRange, float interactionSeconds, string label = "Terminal")
@@ -47,6 +59,14 @@ namespace Blackglass
         }
 
         public void SetAvailable(bool value) => available = value;
+
+        public void SetLabel(string label) => displayName = label;
+
+        /// <summary>
+        /// After each completion re-arm with this duration instead of staying completed (0 = instant next time). A loot
+        /// container searches once and then opens at once; the terminal never calls this.
+        /// </summary>
+        public void SetRepeatable(float nextDuration) => repeatDuration = Mathf.Max(0f, nextDuration);
 
         /// <summary>True when a living unit other than `unit` holds the claim.</summary>
         public bool IsInUseByOther(CommandableUnit unit) => user != null && user != unit && user.IsAlive;
@@ -76,8 +96,16 @@ namespace Blackglass
             {
                 progress = duration;
                 completed = true;
+                lastUser = user;
                 user = null;
+                completionCount++;
                 Completed?.Invoke(this);
+                if (repeatDuration >= 0f)
+                {
+                    completed = false;
+                    progress = 0f;
+                    duration = repeatDuration;
+                }
             }
             return true;
         }

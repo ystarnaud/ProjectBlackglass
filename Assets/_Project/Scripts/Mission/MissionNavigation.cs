@@ -131,6 +131,36 @@ namespace Blackglass
             return PathExists(start.position, terminal, new NavMeshPath(), out reason, "the camera terminal");
         }
 
+        /// <summary>
+        /// Every loot container must be usable like the terminal: somewhere to stand within the interaction range and a
+        /// complete path from the first friendly spawn. A plan without containers is always valid.
+        /// </summary>
+        public static bool ValidateLoot(MissionLayout layout, LootPlan plan, out string reason)
+        {
+            reason = null;
+            if (plan == null || plan.Placed == 0)
+                return true;
+            if (!NavMesh.SamplePosition(layout.TileCenter(layout.FriendlySpawns[0]), out var start, 1f, NavMesh.AllAreas))
+            {
+                reason = "the first friendly spawn is not on the NavMesh";
+                return false;
+            }
+            var path = new NavMeshPath();
+            foreach (var container in plan.Containers)
+            {
+                var position = layout.TileCenter(container.Tile);
+                if (!NavMesh.SamplePosition(position, out var stand, SnapRadius, NavMesh.AllAreas)
+                    || Vector3.Distance(new Vector3(stand.position.x, 0f, stand.position.z), position) > MissionContent.InteractionRange - 0.2f)
+                {
+                    reason = "a loot container has no standing place within reach";
+                    return false;
+                }
+                if (!PathExists(start.position, position, path, out reason, "a loot container"))
+                    return false;
+            }
+            return true;
+        }
+
         static bool PathExists(Vector3 from, Vector3 to, NavMeshPath path, out string reason, string label)
         {
             reason = null;

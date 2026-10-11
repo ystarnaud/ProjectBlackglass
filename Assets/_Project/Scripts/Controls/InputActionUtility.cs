@@ -21,6 +21,9 @@ namespace Blackglass
         public static T Read<T>(InputActionReference reference) where T : struct =>
             reference != null && reference.action != null ? reference.action.ReadValue<T>() : default;
 
+        public static bool IsEnabled(InputActionReference reference) =>
+            reference != null && reference.action != null && reference.action.enabled;
+
         public static bool IsPressed(InputActionReference reference) =>
             reference != null && reference.action != null && reference.action.IsPressed();
     }

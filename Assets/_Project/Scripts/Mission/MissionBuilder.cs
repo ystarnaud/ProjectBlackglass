@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Unity.AI.Navigation;
 using UnityEngine;
 using UnityEngine.AI;
@@ -25,6 +26,8 @@ namespace Blackglass
         public MissionInteractable CameraTerminal { get; internal set; }
         public CameraNetwork Network { get; internal set; }
         public Transform ExtractionZone { get; internal set; }
+        public LootPlan Loot { get; internal set; } = LootPlan.Empty;
+        public IReadOnlyList<LootContainer> LootContainers { get; internal set; } = Array.Empty<LootContainer>();
 
         /// <summary>The themed visual modules, or null when the mission was built without a theme (the cubes are then the look).</summary>
         public Transform Visuals { get; internal set; }

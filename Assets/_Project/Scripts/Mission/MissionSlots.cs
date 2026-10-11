@@ -38,5 +38,6 @@ namespace Blackglass
         public InteractableRegistry interactables;
         public SquadRoster roster;
         public IntelligenceService intelligence;
+        public SquadInventory inventory;
     }
 }

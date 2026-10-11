@@ -10,7 +10,10 @@ namespace Blackglass.Tests
     {
         const string RiflePrefab = "Assets/Art/Weapons/Rifle/Prefabs/Rifle.prefab";
         const string EnemyPrefab = "Assets/Art/Characters/EnemyUnit/Prefabs/EnemyUnit_Visual.prefab";
-        const string DariusPrefab = "Assets/Art/Characters/Darius/Prefabs/Darius_Visual.prefab";
+        const string EnemyUnitPrefab = "Assets/Art/Characters/EnemyUnit/Prefabs/EnemyUnit_Friendly.prefab";
+        // Phase 12: the rifle is the unit's managed weapon model (UnitWeaponVisual on the gameplay root), so it is the unit
+        // prefab, not the visual, that carries it.
+        const string DariusPrefab = "Assets/Art/Characters/Darius/Prefabs/Darius_Player.prefab";
 
         GameObject instance;
 
@@ -90,13 +93,19 @@ namespace Blackglass.Tests
         public void EnemyUnit_holds_the_rifle_in_its_right_hand_at_world_size()
         {
             RequireEnemyUnit();
-            instance = (GameObject)PrefabUtility.InstantiatePrefab(Load(EnemyPrefab));
+            instance = (GameObject)PrefabUtility.InstantiatePrefab(Load(EnemyUnitPrefab));
             var hand = instance.GetComponentInChildren<Animator>().GetBoneTransform(HumanBodyBones.RightHand);
             Assert.That(hand, Is.Not.Null);
-            var rifle = hand.Find("WeaponSocket/Rifle");
-            Assert.That(rifle, Is.Not.Null, "WeaponSocket/Rifle under the right hand");
+            Assert.That(hand.Find(UnitWeaponVisual.SocketName), Is.Not.Null, "WeaponSocket under the right hand");
+            // Phase 12: the unit's UnitWeaponVisual places its default rifle in the socket (in Awake; EditMode runs none, so show it here).
+            var visual = instance.GetComponent<UnitWeaponVisual>();
+            Assert.That(visual, Is.Not.Null);
+            var standard = new SerializedObject(visual).FindProperty("defaultVisual").objectReferenceValue as WeaponVisualAsset;
+            Assert.That(standard != null && standard.Prefab == Load(RiflePrefab), Is.True, "the default shows Rifle.prefab itself, not a copy");
+            visual.Show(standard);
+            var rifle = hand.Find(UnitWeaponVisual.SocketName + "/" + UnitWeaponVisual.ManagedName);
+            Assert.That(rifle, Is.Not.Null, "the managed rifle under WeaponSocket");
             Assert.That(rifle.Find("Muzzle"), Is.Not.Null);
-            Assert.That(PrefabUtility.GetCorrespondingObjectFromSource(rifle.gameObject), Is.Not.Null, "an instance of Rifle.prefab, not a copy");
             Assert.That(rifle.lossyScale.x, Is.EqualTo(1f).Within(0.01f), "the character's x1.85 is cancelled so the rifle keeps its own size");
             var bounds = RendererBounds(rifle.gameObject);
             Assert.That(Mathf.Max(bounds.size.x, bounds.size.y, bounds.size.z), Is.InRange(0.8f, 1.0f));

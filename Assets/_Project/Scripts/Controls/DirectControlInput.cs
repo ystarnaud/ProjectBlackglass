@@ -11,8 +11,9 @@ namespace Blackglass
     /// becomes a camera-relative move intent on its CommandableUnit; otherwise the intent is zero. F / D-pad up toggles
     /// the follow flag on ActiveCharacter. Contains no movement or follow rules: the unit
     /// decides what the intent means, and CompanionAI what the flag means.
-    /// Release gate: whenever driving starts (resume, or takeover turned on), keys already held are ignored until Move
-    /// reads zero, so a key held from panning the camera cannot wipe orders just queued.
+    /// Release gate: whenever driving starts (resume, or takeover turned on), and while the Move action is switched off
+    /// (a modal panel holds the input), keys already held are ignored until Move reads zero, so a key held from panning
+    /// the camera cannot wipe orders just queued and closing a panel never moves the character with a held input.
     /// Handover: when the active character changes, the old one's intent is zeroed in the same frame. A held key
     /// carries over to the new one only if it has no orders; otherwise the gate re-arms. Switching never touches orders.
     /// </summary>
@@ -105,7 +106,11 @@ namespace Blackglass
             if (driving && !wasDriving)
                 waitingForRelease = true;
             wasDriving = driving;
-            if (waitingForRelease && input == Vector2.zero)
+            // A switched-off Move (a modal panel holds the input) reads zero without being released: re-arm the gate,
+            // so a key or stick still held when Move comes back must be let go before it steers.
+            if (!InputActionUtility.IsEnabled(moveAction))
+                waitingForRelease = true;
+            else if (waitingForRelease && input == Vector2.zero)
                 waitingForRelease = false;
 
             var steer = driving && !waitingForRelease && viewCamera != null;

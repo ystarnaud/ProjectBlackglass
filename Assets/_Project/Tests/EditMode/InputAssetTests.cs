@@ -21,6 +21,7 @@ namespace Blackglass.Tests
             "Character/Move", "Character/ToggleCharacterControl", "Character/NextCharacter", "Character/PreviousCharacter",
             "Character/ToggleFollow", "UI/Navigate", "UI/Submit", "UI/Cancel",
             "Commands/Ability1", "Commands/Ability2", "Commands/Ability3", "Commands/Ability4", "Commands/AbilityMenu",
+            "Inventory/Toggle", "UI/PreviousTab", "UI/NextTab",
         };
 
         static InputActionAsset Load()
@@ -181,9 +182,10 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void SelectButton_IsReserved_AndUnbound()
+        public void SelectButton_IsOnlyTheInventoryToggle()
         {
-            Assert.That(Load().bindings.Any(b => b.path == "<Gamepad>/select"), Is.False);
+            var users = Load().bindings.Where(b => b.path == "<Gamepad>/select").Select(b => b.action).Distinct();
+            Assert.That(users, Is.EqualTo(new[] { "Toggle" }), "owner ruling, Phase 12: the reserved button opens the inventory (decision 043)");
         }
 
         [Test]

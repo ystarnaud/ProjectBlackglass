@@ -130,6 +130,10 @@ namespace Blackglass
         public EffectiveConfiguration Evaluate(RosterMember member) =>
             EffectiveConfiguration.Evaluate(member.Definition, member.State, track);
 
+        /// <summary>The member's configuration with its equipment applied (see EffectiveConfiguration.Evaluate).</summary>
+        public EffectiveConfiguration Evaluate(RosterMember member, EquippedItems equipped) =>
+            EffectiveConfiguration.Evaluate(member.Definition, member.State, track, equipped);
+
         public int Rank(RosterMember member) => member.State.Rank(track);
 
         public int PendingPicks(RosterMember member) => member.State.PendingPicks(track);

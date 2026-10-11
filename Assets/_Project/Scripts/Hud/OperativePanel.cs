@@ -52,6 +52,7 @@ namespace Blackglass
         readonly string[] composed = new string[MaxSteps];
 
         string shownName, shownRole, shownOwner;
+        string shownCover, shownWeapon, shownCoverLine;   // the composed "<cover>  |  <weapon>" line, rebuilt only when either input changes
         int shownRank = -1, shownHealth = -1, shownMax = -1, shownHidden = -1;
 
         public OperativePanel(Transform parent) : base(HudFactory.Box("Operative", parent, HudTheme.Panel, false))
@@ -68,7 +69,7 @@ namespace Blackglass
             var bar = HudFactory.Bar("HealthBar", info, HudTheme.PanelEdge, HudTheme.Good, out healthFill);
             Top(bar.rectTransform, Pad, 46f, 200f, 10f);
             healthLabel = Line("Health", info, HudTheme.FontBody, HudTheme.Text, TextAnchor.MiddleLeft, 220f, 41f, 90f, 20f);
-            coverLabel = Line("Cover", info, HudTheme.FontBody, HudTheme.Text, TextAnchor.MiddleLeft, 320f, 41f, 300f, 20f);
+            coverLabel = Line("Cover", info, HudTheme.FontBody, HudTheme.Text, TextAnchor.MiddleLeft, 320f, 41f, 420f, 20f);
 
             abilities = HudFactory.Rect("Abilities", Root);
             for (var i = 0; i < MaxSlots; i++)
@@ -190,8 +191,20 @@ namespace Blackglass
                 HudFactory.SetColor(healthFill, fraction <= LowHealth ? HudTheme.Bad : HudTheme.Good);
             }
 
-            HudFactory.SetText(coverLabel, s.ControlledCover);
+            var cover = s.ControlledCover ?? string.Empty;
+            var weapon = s.ControlledWeapon ?? string.Empty;
+            if (shownCoverLine == null || !string.Equals(shownCover, cover, StringComparison.Ordinal) || !string.Equals(shownWeapon, weapon, StringComparison.Ordinal))
+            {
+                shownCover = cover;
+                shownWeapon = weapon;
+                shownCoverLine = weapon.Length > 0 ? cover + "  |  " + weapon : cover;
+                CoverComposes++;
+            }
+            HudFactory.SetText(coverLabel, shownCoverLine);
         }
+
+        /// <summary>How many times the cover line was composed (tests: a steady snapshot composes nothing).</summary>
+        internal int CoverComposes { get; private set; }
 
         void ApplyAbilities(HudSnapshot s)
         {

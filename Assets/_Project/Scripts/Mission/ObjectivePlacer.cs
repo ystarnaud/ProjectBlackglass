@@ -230,6 +230,64 @@ namespace Blackglass
             return tiles;
         }
 
+        /// <summary>
+        /// Tiles on the room's outer ring (against a wall, corners included) whose 3x3 surroundings are either clear room floor
+        /// or solid wall outside the room: a tile beside a doorway or a corridor has floor outside the room, so it never
+        /// qualifies, and neither does one next to an obstacle. The tile in front of the wall is always free to stand on.
+        /// </summary>
+        internal static List<Vector2Int> WallTiles(MissionLayout layout, bool[] blocked, RectInt rect, List<Vector2Int> avoid, float minimumDistance)
+        {
+            var tiles = new List<Vector2Int>();
+            for (var y = rect.yMin; y < rect.yMax; y++)
+            {
+                for (var x = rect.xMin; x < rect.xMax; x++)
+                {
+                    var onRing = x == rect.xMin || x == rect.xMax - 1 || y == rect.yMin || y == rect.yMax - 1;
+                    var tile = new Vector2Int(x, y);
+                    if (onRing && WallNeighbourhood(layout, blocked, rect, tile) && !TooClose(tile, avoid, minimumDistance))
+                        tiles.Add(tile);
+                }
+            }
+            return tiles;
+        }
+
+        // The 3x3 around the tile is clear room floor or solid wall outside the room, and so is the lane two tiles in front of
+        // each wall it touches (three tiles wide): a crate flush with the wall must not leave a one-tile strip between itself
+        // and an obstacle, which the bake closes (agent radius 0.5 m) and the post-bake checks would not notice.
+        static bool WallNeighbourhood(MissionLayout layout, bool[] blocked, RectInt rect, Vector2Int tile)
+        {
+            for (var dy = -1; dy <= 1; dy++)
+            {
+                for (var dx = -1; dx <= 1; dx++)
+                {
+                    var x = tile.x + dx;
+                    var y = tile.y + dy;
+                    var inside = x >= rect.xMin && x < rect.xMax && y >= rect.yMin && y < rect.yMax;
+                    if (inside ? !layout.IsFloor(x, y) || IsBlocked(layout, blocked, x, y) : layout.IsFloor(x, y))
+                        return false;
+                }
+            }
+            if (tile.x == rect.xMin && !FreeLane(layout, blocked, rect, tile.x + 2, tile.y, 0, 1)) return false;
+            if (tile.x == rect.xMax - 1 && !FreeLane(layout, blocked, rect, tile.x - 2, tile.y, 0, 1)) return false;
+            if (tile.y == rect.yMin && !FreeLane(layout, blocked, rect, tile.x, tile.y + 2, 1, 0)) return false;
+            if (tile.y == rect.yMax - 1 && !FreeLane(layout, blocked, rect, tile.x, tile.y - 2, 1, 0)) return false;
+            return true;
+        }
+
+        // Three tiles centred on (cx, cy) along (stepX, stepY): the ones inside the room must be floor with no obstacle.
+        static bool FreeLane(MissionLayout layout, bool[] blocked, RectInt rect, int cx, int cy, int stepX, int stepY)
+        {
+            for (var k = -1; k <= 1; k++)
+            {
+                var x = cx + k * stepX;
+                var y = cy + k * stepY;
+                var inside = x >= rect.xMin && x < rect.xMax && y >= rect.yMin && y < rect.yMax;
+                if (inside && (!layout.IsFloor(x, y) || IsBlocked(layout, blocked, x, y)))
+                    return false;
+            }
+            return true;
+        }
+
         static bool TooClose(Vector2Int tile, IReadOnlyList<Vector2Int> others, float distance)
         {
             foreach (var other in others)

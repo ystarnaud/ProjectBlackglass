@@ -17,6 +17,9 @@ namespace Blackglass
         public const float TerminalHeight = 1.2f;
         public const float ZoneRadius = 2f;
         const int NotWalkableArea = 1;
+        public const float LootSize = 0.9f;
+        public const float LootHeight = 0.7f;
+        static readonly Color LootColour = new Color(0.85f, 0.6f, 0.15f);
 
         public const string VisualRootName = "VisualRoot";
         const string DisplayName = "Display";
@@ -41,6 +44,45 @@ namespace Blackglass
                 settings.interactionSeconds, material, theme);
             interactable.SetAvailable(true);
             return interactable;
+        }
+
+        /// <summary>
+        /// Adds the planned loot containers under `geometry` (call from the builder's pre-bake hook). Each is a solid box with
+        /// a Not Walkable modifier (agents route around it, and the bake includes it), an interactable, the LootContainer and
+        /// a collider-free placeholder visual. Not a CoverSurface: it offers no cover.
+        /// </summary>
+        public static List<LootContainer> AddLootContainers(Transform geometry, LootPlan plan, MissionLayout layout,
+            ItemCatalogue catalogue, Material material)
+        {
+            var containers = new List<LootContainer>();
+            for (var i = 0; i < plan.Containers.Count; i++)
+            {
+                var planned = plan.Containers[i];
+                var crate = new GameObject($"LootContainer_{i + 1}");
+                crate.transform.SetParent(geometry, false);
+                crate.transform.position = layout.TileCenter(planned.Tile) + Vector3.up * (LootHeight * 0.5f);
+                var box = crate.AddComponent<BoxCollider>();
+                box.size = new Vector3(LootSize, LootHeight, LootSize);
+                var modifier = crate.AddComponent<NavMeshModifier>();
+                modifier.overrideArea = true;
+                modifier.area = NotWalkableArea;
+                var container = crate.AddComponent<LootContainer>();
+                container.Initialize(planned.Items, catalogue);
+
+                var visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                visual.name = "Visual";
+                Object.DestroyImmediate(visual.GetComponent<Collider>());
+                visual.transform.SetParent(crate.transform, false);
+                visual.transform.localScale = new Vector3(LootSize, LootHeight, LootSize);
+                var renderer = visual.GetComponent<Renderer>();
+                if (material != null)
+                    renderer.sharedMaterial = material;
+                var block = new MaterialPropertyBlock();
+                block.SetColor("_BaseColor", LootColour);
+                renderer.SetPropertyBlock(block);
+                containers.Add(container);
+            }
+            return containers;
         }
 
         static MissionInteractable BuildTerminal(Transform geometry, string objectName, string label, Vector2Int tile,

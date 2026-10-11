@@ -208,6 +208,24 @@ namespace Blackglass.Tests
                 yield return null;
         }
 
+        /// <summary>
+        /// The ProceduralMission scene opens on the loadout panel and waits for Deploy (decision 043). Scene tests that need
+        /// a mission call this after loading: it generates a new-seed mission if the director is still waiting, and closes the
+        /// panel the way the Deploy button does (an open panel holds back every gameplay action).
+        /// </summary>
+        public static IEnumerator DeployFromLoadout(MissionDirector director)
+        {
+            yield return null;
+            yield return null;
+            if (director != null && director.State == MissionState.Idle)
+            {
+                director.GenerateNew();
+                var modal = Object.FindFirstObjectByType<InventoryModal>();
+                if (modal != null)
+                    modal.Close();
+            }
+        }
+
         public static float HorizontalDistance(Vector3 a, Vector3 b)
         {
             a.y = 0f;

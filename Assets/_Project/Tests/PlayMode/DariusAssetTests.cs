@@ -1,10 +1,12 @@
 #if UNITY_EDITOR
+using System.Collections;
 using System.Linq;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.Animations;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.TestTools;
 
 namespace Blackglass.Tests
 {
@@ -61,27 +63,51 @@ namespace Blackglass.Tests
             Assert.That(flashTarget, Is.SameAs(body), "the hit flash tints Darius, not the hidden capsule");
         }
 
-        [Test]
-        public void Rifle_IsASeparateMeshInTheRightHandSocket()
+        // Phase 12: the rifle is no longer baked into Darius_Visual. The WeaponSocket carries the old rifle's alignment and
+        // the root's UnitWeaponVisual places the shared rifle there as its one managed child; the grip is unchanged.
+        [UnityTest]
+        public IEnumerator Rifle_IsASeparateMeshInTheRightHandSocket()
         {
-            var animator = Player().transform.Find("Visual").GetComponent<Animator>();
-            var hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
-            Assert.That(hand, Is.Not.Null);
-            var socket = hand.Find("WeaponSocket");
-            Assert.That(socket, Is.Not.Null, "the socket is a direct child of the right hand bone");
-            Assert.That(socket.localPosition, Is.EqualTo(Vector3.zero));
-            Assert.That(socket.localRotation, Is.EqualTo(Quaternion.identity));
-            var rifle = socket.Find("Darius_Rifle");
-            Assert.That(rifle, Is.Not.Null);
-            Assert.That(rifle.GetComponentInChildren<MeshRenderer>(), Is.Not.Null);
-            Assert.That(rifle.GetComponentInChildren<SkinnedMeshRenderer>(), Is.Null, "a rigid prop, not part of the skinned body");
-            Assert.That(rifle.localPosition.x, Is.EqualTo(-0.047f).Within(1e-4f));
-            Assert.That(rifle.localPosition.y, Is.EqualTo(0.3f).Within(1e-4f));
-            Assert.That(rifle.localPosition.z, Is.EqualTo(0f).Within(1e-4f));
-            var expected = new Quaternion(-0.70572317f, 0.67676085f, 0.16981347f, -0.12293512f);
-            Assert.That(Quaternion.Angle(rifle.localRotation, expected), Is.LessThan(0.01f));
-            var bodyRenderer = animator.GetComponentInChildren<SkinnedMeshRenderer>();
-            Assert.That(rifle.IsChildOf(bodyRenderer.transform), Is.False);
+            var asset = Player();
+            var weapon = asset.GetComponent<UnitWeaponVisual>();
+            Assert.That(weapon, Is.Not.Null, "the unit manages its weapon model");
+            var standard = new SerializedObject(weapon).FindProperty("defaultVisual").objectReferenceValue as WeaponVisualAsset;
+            Assert.That(standard != null && standard.Prefab != null, Is.True, "with the standard rifle as its default");
+            var assetHand = asset.transform.Find("Visual").GetComponent<Animator>().GetBoneTransform(HumanBodyBones.RightHand);
+            var assetSocket = assetHand.Find(UnitWeaponVisual.SocketName);
+            Assert.That(assetSocket, Is.Not.Null);
+            Assert.That(assetSocket.childCount, Is.EqualTo(0), "no rifle is baked into the visual");
+
+            var player = Object.Instantiate(asset);
+            try
+            {
+                yield return null;
+                var animator = player.transform.Find("Visual").GetComponent<Animator>();
+                var hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
+                Assert.That(hand, Is.Not.Null);
+                var socket = hand.Find(UnitWeaponVisual.SocketName);
+                Assert.That(socket, Is.Not.Null, "the socket is a direct child of the right hand bone");
+                Assert.That(socket.childCount, Is.EqualTo(1));
+                var rifle = socket.Find(UnitWeaponVisual.ManagedName);
+                Assert.That(rifle, Is.Not.Null);
+                var mesh = rifle.GetComponentInChildren<MeshRenderer>();
+                Assert.That(mesh, Is.Not.Null);
+                Assert.That(rifle.GetComponentInChildren<SkinnedMeshRenderer>(), Is.Null, "a rigid prop, not part of the skinned body");
+                // The rifle model sits in the hand exactly where the baked Darius_Rifle sat (its local pose under the old socket).
+                var model = mesh.transform;
+                var position = hand.InverseTransformPoint(model.position);
+                Assert.That(position.x, Is.EqualTo(-0.047f).Within(1e-3f));
+                Assert.That(position.y, Is.EqualTo(0.3f).Within(1e-3f));
+                Assert.That(position.z, Is.EqualTo(0f).Within(1e-3f));
+                var expected = new Quaternion(-0.70572317f, 0.67676085f, 0.16981347f, -0.12293512f);
+                Assert.That(Quaternion.Angle(Quaternion.Inverse(hand.rotation) * model.rotation, expected), Is.LessThan(0.05f));
+                var bodyRenderer = animator.GetComponentInChildren<SkinnedMeshRenderer>();
+                Assert.That(rifle.IsChildOf(bodyRenderer.transform), Is.False);
+            }
+            finally
+            {
+                Object.Destroy(player);
+            }
         }
 
         [Test]

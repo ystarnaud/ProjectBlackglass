@@ -58,6 +58,9 @@ namespace Blackglass
                     return interact.Target != null ? "Interact " + interact.Target.DisplayName : "Interact";
                 case AbilityCommand ability:
                     return ability.Definition != null ? ability.Definition.DisplayName : "Ability";
+                case UseItemCommand _: return "Use item";
+                case EquipItemCommand _: return "Swap gear";
+                case CollectCommand _: return "Take loot";
                 case StopCommand _: return "Stop";
                 default: return command == null ? string.Empty : command.GetType().Name;
             }
@@ -128,5 +131,7 @@ namespace Blackglass
 
         /// <summary>The pause chip's text: what a click on it does (constant strings, no allocation).</summary>
         public static string PauseChip(bool paused) => paused ? "RESUME" : "PAUSE";
+
+        public static string BagChip(string prompt) => string.IsNullOrEmpty(prompt) || prompt == "-" ? "BAG" : "BAG (" + prompt + ")";
     }
 }

@@ -17,6 +17,14 @@ namespace Blackglass
         Attack,
     }
 
+    /// <summary>A reason an order was refused that the HUD explains in words.</summary>
+    public enum CommandRefusal
+    {
+        None,
+        /// <summary>The unit has no weapon equipped, so it cannot make the ordinary attack.</summary>
+        NoWeapon,
+    }
+
     /// <summary>
     /// The single entry point for gameplay orders and direct control. Keeps the unit's orders in a CommandQueue (the
     /// current order plus pending ones) and carries out the current order each simulation frame using UnitMover and
@@ -63,15 +71,19 @@ namespace Blackglass
         UnitCover cover;
         UnitAbilities abilities;
         UnitInteractor interactor;
+        UnitItems items;
         float coverBestDistance;
         float coverLastProgressTime;
         // Where the current approach or reposition walk leads, and the ability's progress toward it.
-        Vector3 walkGoal;
         float walkBestDistance;
         float walkProgressTime;
+        float swapElapsed;
 
         /// <summary>The order being carried out, or null when idle.</summary>
         public UnitCommand CurrentCommand => queue.Current;
+
+        /// <summary>How far through a gear swap the unit is (0 to 1), or 0 when it is not swapping.</summary>
+        public float SwapProgress => queue.Current is EquipItemCommand ? Mathf.Clamp01(swapElapsed / UnitItems.SwapSeconds) : 0f;
 
         /// <summary>Orders waiting behind the current one, in the order they will run.</summary>
         public IReadOnlyList<UnitCommand> PendingCommands => queue.Pending;
@@ -81,6 +93,12 @@ namespace Blackglass
         /// behind, so this lets autonomy see that one happened.
         /// </summary>
         public int StopCount { get; private set; }
+
+        /// <summary>Why the last order was refused for a reason the player should be told (None before any).</summary>
+        public CommandRefusal LastRefusal { get; private set; }
+
+        /// <summary>Unscaled time of the last refusal, so the HUD can show it for a few seconds even while paused.</summary>
+        public float LastRefusalTime { get; private set; }
 
         /// <summary>The direction direct control is steering the unit in, or zero. See SetMoveIntent.</summary>
         public Vector3 MoveIntent => moveIntent;
@@ -140,6 +158,7 @@ namespace Blackglass
 
         UnitAbilities Abilities => abilities != null ? abilities : abilities = GetComponent<UnitAbilities>();
         UnitInteractor Interactor => interactor != null ? interactor : interactor = GetComponent<UnitInteractor>();
+        UnitItems Items => items != null ? items : items = GetComponent<UnitItems>();
         UnitMover Mover => mover != null ? mover : mover = GetComponent<UnitMover>();
         UnitAttacker Attacker => attacker != null ? attacker : attacker = GetComponent<UnitAttacker>();
 
@@ -165,6 +184,11 @@ namespace Blackglass
                 throw new ArgumentOutOfRangeException(nameof(mode), mode, "Unknown issue mode.");
             if (!IsAlive)
                 return false;
+            if (command is AttackCommand && !Attacker.HasWeapon)
+            {
+                Refuse(CommandRefusal.NoWeapon);
+                return false;
+            }
 
             switch (command)
             {
@@ -177,6 +201,9 @@ namespace Blackglass
                 case MoveToCoverCommand _:
                 case AbilityCommand _:
                 case InteractCommand _:
+                case UseItemCommand _:
+                case EquipItemCommand _:
+                case CollectCommand _:
                     break;
                 default:
                     throw new ArgumentException($"Unsupported command type {command.GetType().Name}.", nameof(command));
@@ -211,6 +238,15 @@ namespace Blackglass
                 return false;
 
             if (command is InteractCommand startingInteract && !CanOrderInteract(startingInteract))
+                return false;
+
+            if (command is UseItemCommand startingUse && !CanOrderUse(startingUse))
+                return false;
+
+            if (command is CollectCommand startingCollect && !CanOrderCollect(startingCollect))
+                return false;
+
+            if (command is EquipItemCommand startingEquip && !CheckEquip(startingEquip))
                 return false;
 
             if (!TryStart(command))
@@ -282,6 +318,12 @@ namespace Blackglass
                 case InteractCommand interact:
                     UpdateInteract(interact);
                     break;
+                case CollectCommand collect:
+                    UpdateCollect(collect);
+                    break;
+                case EquipItemCommand equip:
+                    UpdateEquip(equip);
+                    break;
             }
         }
 
@@ -296,6 +338,11 @@ namespace Blackglass
                     Debug.LogWarning($"{name} cannot queue a move: no walkable NavMesh point within 2 m of {move.Destination}.", this);
                     return false;
                 case AttackCommand attack:
+                    if (!Attacker.HasWeapon)
+                    {
+                        Refuse(CommandRefusal.NoWeapon);
+                        return false;
+                    }
                     return IsAttackable(attack.Target);
                 case MoveToCoverCommand toCover:
                     return CanTakeCover(toCover.Point);
@@ -304,6 +351,20 @@ namespace Blackglass
                 case InteractCommand interact:
                     // Queued: only what cannot change by the time it runs. Another unit's claim and the walk are checked then.
                     return Interactor != null && Interactor.Check(interact.Target, allowOtherUser: true) == InteractionFailure.None;
+                case UseItemCommand use:
+                    return Items != null && CheckUse(use, full: false);
+                case EquipItemCommand equip:
+                    return Items != null && CheckEquip(equip);
+                case CollectCommand collect:
+                    // Queued: only what cannot change by the time it runs. The walk and the bag are checked then.
+                {
+                    if (Items == null)
+                        return false;
+                    var queuedFailure = Items.CheckCollect(collect.Container, requireRange: false);
+                    if (queuedFailure != CollectFailure.None)
+                        Items.RecordCollect(queuedFailure);
+                    return queuedFailure == CollectFailure.None;
+                }
                 default:
                     return false;
             }
@@ -352,6 +413,19 @@ namespace Blackglass
                     Cover.ReleaseReservation();
                     ResetAttack();
                     return true;
+                case UseItemCommand _:
+                    Mover.Stop();
+                    Cover.ReleaseReservation();
+                    ResetAttack();
+                    return true;
+                case EquipItemCommand equip:
+                    if (Items == null || !CheckEquip(equip))
+                        return false;
+                    Mover.Stop();
+                    Cover.ReleaseReservation();
+                    ResetAttack();
+                    swapElapsed = 0f;
+                    return true;
                 case InteractCommand interact:
                 {
                     var worker = Interactor;
@@ -364,7 +438,31 @@ namespace Blackglass
                     worker.Release();
                     if (inRange)
                         Mover.Stop();
-                    else if (!WalkTo(target.Position))
+                    else if (!WalkToInteractable(target.Position, target.Range))
+                        return false;
+                    walkProgressTime = Time.time;
+                    Cover.ReleaseReservation();
+                    ResetAttack();
+                    return true;
+                }
+                case CollectCommand collect:
+                {
+                    var holder = Items;
+                    var container = collect.Container;
+                    if (holder == null)
+                        return false;
+                    var startFailure = holder.CheckCollect(container, requireRange: false);
+                    if (startFailure != CollectFailure.None)
+                    {
+                        holder.RecordCollect(startFailure);
+                        return false;
+                    }
+                    var inRange = holder.InRange(container, transform.position);
+                    if (!inRange && !Mover.CanMoveTo(container.Position))
+                        return false;
+                    if (inRange)
+                        Mover.Stop();
+                    else if (!WalkToInteractable(container.Position, container.Interactable.Range))
                         return false;
                     walkProgressTime = Time.time;
                     Cover.ReleaseReservation();
@@ -393,8 +491,17 @@ namespace Blackglass
         AbilityFailure RunAbilities()
         {
             var guard = queue.Pending.Count + 1;
-            while (guard-- > 0 && queue.Current is AbilityCommand ability)
+            while (guard-- > 0)
             {
+                if (queue.Current is UseItemCommand use)
+                {
+                    if (Items != null)
+                        Items.TryUse(use.InstanceId);
+                    Finish();
+                    continue;
+                }
+                if (!(queue.Current is AbilityCommand ability))
+                    break;
                 var owned = Abilities;
                 if (owned != null)
                 {
@@ -442,6 +549,90 @@ namespace Blackglass
             return worker.InRange(order.Target, transform.position) || Mover.CanReach(order.Target.Position);
         }
 
+        // An item order that would start now: the unit has the item and it would do something.
+        bool CanOrderUse(UseItemCommand order) => Items != null && CheckUse(order, full: true);
+
+        bool CheckEquip(EquipItemCommand order)
+        {
+            if (Items == null)
+                return false;
+            var failure = Items.CheckEquip(order.InstanceId);
+            if (failure == ItemUseFailure.None)
+                return true;
+            Items.RecordEquip(failure);
+            return false;
+        }
+
+        // A gear swap takes UnitItems.SwapSeconds of simulation time (a pause freezes it, as Update does not run) in which the
+        // unit does nothing else. Any new order replaces this one and cancels the swap with the old gear kept. When the time is
+        // up the item is checked again and equipped; a failure then is recorded and ends the order.
+        void UpdateEquip(EquipItemCommand order)
+        {
+            swapElapsed += Time.deltaTime;
+            if (swapElapsed < UnitItems.SwapSeconds)
+                return;
+            if (Items != null)
+                Items.TryEquip(order.InstanceId);
+            Finish();
+        }
+
+        bool CheckUse(UseItemCommand order, bool full)
+        {
+            var failure = Items.Check(order.InstanceId, full);
+            if (failure == ItemUseFailure.None)
+                return true;
+            Items.Record(failure);
+            return false;
+        }
+
+        // A collect order that would start now: a searched container the unit can take from, in reach or reachable.
+        bool CanOrderCollect(CollectCommand order)
+        {
+            var holder = Items;
+            if (holder == null)
+                return false;
+            var failure = holder.CheckCollect(order.Container, requireRange: false);
+            if (failure != CollectFailure.None)
+            {
+                holder.RecordCollect(failure);
+                return false;
+            }
+            return holder.InRange(order.Container, transform.position) || Mover.CanReach(order.Container.Position);
+        }
+
+        // Re-validates every running frame. In reach the unit stops, faces the container and takes (the transfer re-reads the
+        // source); out of reach it walks; a vanished container, a full stop or a walk that makes no progress ends the order
+        // so the queue moves on. Only simulation time reaches this, so a pause freezes it.
+        void UpdateCollect(CollectCommand order)
+        {
+            var holder = Items;
+            if (holder == null)
+            {
+                Finish();
+                return;
+            }
+            var failure = holder.CheckCollect(order.Container, requireRange: false);
+            if (failure != CollectFailure.None)
+            {
+                holder.RecordCollect(failure);
+                Finish();
+                return;
+            }
+            if (holder.InRange(order.Container, transform.position))
+            {
+                Mover.Stop();
+                FaceTowards(order.Container.Position);
+                holder.TryCollect(order.Container, order.InstanceId);
+                Finish();
+                return;
+            }
+            if (Mover.HasArrived || WalkStalled())
+            {
+                holder.RecordCollect(CollectFailure.OutOfRange);
+                Finish();
+            }
+        }
+
         // Re-validates every running frame: a vanished, completed or taken terminal ends the order (the queue moves on). In
         // range the unit stops, faces the terminal, claims it and adds its scaled frame time (frozen by pause, which stops
         // this Update). Out of range it walks; arriving or stalling out of range, or being pushed out of range while working,
@@ -484,15 +675,22 @@ namespace Blackglass
         {
             if (!Mover.MoveTo(point))
                 return false;
-            walkGoal = point;
-            walkBestDistance = CoverRules.FlatDistance(transform.position, point);
+            walkBestDistance = float.PositiveInfinity;   // the first settled path counts as the starting point, never as progress
             return true;
         }
 
-        // True once the walk has not come closer to where it leads for AbilityStallTimeout (the cover walk's rule).
+        // Walks to the cheapest point from which a solid interactable (a crate, a terminal) is in reach, not to its centre:
+        // the centre is not walkable, and snapping it can pick a point on the far side of a wall. Falls back to the centre.
+        bool WalkToInteractable(Vector3 position, float range) =>
+            WalkTo(Mover.TryApproachPoint(position, range, out var stand) ? stand : position);
+
+        // True once the walk has not come closer to where it leads (by path length) for AbilityStallTimeout.
         bool WalkStalled()
         {
-            var distance = CoverRules.FlatDistance(transform.position, walkGoal);
+            // Progress is the path length still to walk, not the straight-line distance: a detour round a wall or a crate
+            // moves the unit away from the goal on purpose. While the path is still being computed there is nothing to judge.
+            if (!Mover.TryGetRemainingDistance(out var distance))
+                return false;
             if (distance < walkBestDistance - CoverProgressStep)
             {
                 walkBestDistance = distance;
@@ -576,7 +774,7 @@ namespace Blackglass
 
         void UpdateAttack(Health target)
         {
-            if (!IsAttackable(target))
+            if (!Attacker.HasWeapon || !IsAttackable(target))
             {
                 Finish();
                 return;
@@ -729,6 +927,12 @@ namespace Blackglass
             if (aim.Order != null && Abilities != null)
                 Abilities.ReportFailure(aim.Order.Definition, aim.Blocker);
             Finish();
+        }
+
+        void Refuse(CommandRefusal reason)
+        {
+            LastRefusal = reason;
+            LastRefusalTime = Time.unscaledTime;
         }
 
         void FaceTowards(Vector3 point)

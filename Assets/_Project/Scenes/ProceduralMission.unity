@@ -251,6 +251,56 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &234722664
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 234722666}
+  - component: {fileID: 234722665}
+  m_Layer: 0
+  m_Name: Inventory
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &234722665
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 234722664}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 57ee0d4f65d54744c8e1882f72774d4c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.SquadInventory
+  catalogue: {fileID: 11400000, guid: 3a50201df96c94c449b0d2cb7ab20889, type: 2}
+  starter: {fileID: 11400000, guid: 0c6574358b0ba85458e51bdc4ed68184, type: 2}
+  roster: {fileID: 407541413}
+  director: {fileID: 424756580}
+  bagCapacity: 8
+  startInLoadout: 1
+--- !u!4 &234722666
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 234722664}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &343333448
 GameObject:
   m_ObjectHideFlags: 0
@@ -496,12 +546,14 @@ MonoBehaviour:
     interactables: {fileID: 1021927397}
     roster: {fileID: 407541413}
     intelligence: {fileID: 26027902}
+    inventory: {fileID: 234722665}
   groundMaterial: {fileID: 2100000, guid: a4af9315f320cdd47bb677d6b9585c8e, type: 2}
   obstacleMaterial: {fileID: 2100000, guid: 4269a282e4a76984985539bb4c7df2ea, type: 2}
   environmentTheme: {fileID: 11400000, guid: adea5743d781e9044b96d88b7e1653cc, type: 2}
   generateOnStart: 1
   newSeedAtStart: 1
   cameraMargin: 2
+  lootTable: {fileID: 11400000, guid: 63fff2c4a82c61049bc1db3822c31e13, type: 2}
 --- !u!4 &424756581
 Transform:
   m_ObjectHideFlags: 0
@@ -765,6 +817,58 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1635730850}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &923911127
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 923911129}
+  - component: {fileID: 923911128}
+  m_Layer: 0
+  m_Name: InventoryModal
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &923911128
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 923911127}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: eff2b5259bd50444ea6339da3ece5132, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.InventoryModal
+  inventory: {fileID: 234722665}
+  roster: {fileID: 407541413}
+  director: {fileID: 424756580}
+  intelligence: {fileID: 26027902}
+  controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  toggle: {fileID: 4883332796179420219, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+  inputDevice: {fileID: 1021927392}
+  openOnStart: 1
+--- !u!4 &923911129
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 923911127}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &975532998
 GameObject:
@@ -1365,6 +1469,7 @@ MonoBehaviour:
     controls: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
     camera: {fileID: 678505232}
     intelMap: {fileID: 26027900}
+    inventoryModal: {fileID: 923911128}
   pointerBlocker: {fileID: 1547631581}
   queueModifier: {fileID: 3622529144628067995, guid: 052faaac586de48259a63d0c4782560b, type: 3}
 --- !u!4 &1547631583
@@ -1530,3 +1635,5 @@ SceneRoots:
   - {fileID: 26027903}
   - {fileID: 1547631583}
   - {fileID: 1665861948}
+  - {fileID: 234722666}
+  - {fileID: 923911129}

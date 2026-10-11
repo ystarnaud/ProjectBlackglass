@@ -25,6 +25,7 @@ namespace Blackglass
         const int NameCacheLimit = 256;
         const string NoPrompt = "-";
         const string PauseActionPath = "Commands/ToggleTacticalPause";
+        const string BagActionPath = "Inventory/Toggle";
         const string AttackingTag = "ATTACKING";
         static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
         static readonly string[] CoverPercentTexts = new string[101];
@@ -43,6 +44,7 @@ namespace Blackglass
         string promptTerminal;
         InputActionAsset promptControls;
         string cachedResume = NoPrompt;
+        string cachedBag = NoPrompt;
 
         // Ability slot prompts, rebuilt when the family or the controls change.
         string[] abilityPrompts = new string[4];
@@ -105,6 +107,7 @@ namespace Blackglass
 
                 into.IsPaused = sources.tacticalPause != null && sources.tacticalPause.IsPaused;
                 into.HasPause = sources.tacticalPause != null;
+                into.HasBag = sources.inventoryModal != null;
                 into.HasFollow = active != null;
                 into.FollowOn = active != null && active.IsFollowOn;
 
@@ -215,6 +218,7 @@ namespace Blackglass
             into.ControlledRank = rank;
             into.ControlledHealth = current;
             into.ControlledMaxHealth = max;
+            into.ControlledWeapon = WeaponLine(controlled);
 
             var cover = controlled.Cover;
             var point = cover != null ? cover.Point : null;
@@ -223,6 +227,16 @@ namespace Blackglass
             else
                 into.ControlledCover = HudText.Cover(cover != null && cover.Status == CoverStatus.Reserved ? CoverStatus.Reserved : CoverStatus.None,
                     CoverHeight.Low, CoverPlacement.Face);
+        }
+
+        // "No weapon equipped" for a unit whose Weapon slot is empty; the weapon's name for an operative's unit; else nothing.
+        static string WeaponLine(CommandableUnit unit)
+        {
+            if (unit.TryGetComponent<UnitAttacker>(out var attacker) && !attacker.HasWeapon)
+                return "No weapon equipped";
+            if (unit.TryGetComponent<UnitIdentity>(out var identity) && identity.HasConfiguration)
+                return identity.Effective.WeaponName;
+            return string.Empty;
         }
 
         // Name, role and rank: the operative's when the unit is bound to one, else the object name and the combat role.
@@ -453,6 +467,7 @@ namespace Blackglass
                 HudPrompts.Build(new HudPromptContext { Paused = into.IsPaused, AbilityArmed = into.IsArmed, TerminalName = terminal },
                     family, controls, cachedPrompts);
                 cachedResume = controls == null ? NoPrompt : PromptResolver.GetPrompt(controls.FindAction(PauseActionPath), family);
+                cachedBag = controls == null ? NoPrompt : PromptResolver.GetPrompt(controls.FindAction(BagActionPath), family);
                 hasPromptKey = true;
                 promptFamily = family;
                 promptPaused = into.IsPaused;
@@ -464,6 +479,7 @@ namespace Blackglass
             for (var i = 0; i < cachedPrompts.Count; i++)
                 into.Prompts.Add(cachedPrompts[i]);
             into.ResumePrompt = cachedResume;
+            into.BagPrompt = cachedBag;
         }
 
         // ---- target ----

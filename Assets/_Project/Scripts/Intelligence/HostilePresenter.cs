@@ -8,7 +8,8 @@ namespace Blackglass
     /// the hostile (not Renderer.enabled, which other code toggles), so the unit, its attack line and any other drawn child
     /// vanish together while its colliders, AI and Health go on exactly as before. While the hostile is last known it keeps a
     /// small disc-and-post marker at the position it was last seen; the marker is not a target and has no collider. Added to
-    /// every hostile by the spawner. The developer truth view draws everything and no markers.
+    /// every hostile by the spawner. The developer truth view draws everything and no markers. A weapon model the unit's
+    /// UnitWeaponVisual places later (its default appears in Awake, after this Bind) is taken in at once with the current state.
     /// </summary>
     public sealed class HostilePresenter : MonoBehaviour
     {
@@ -19,6 +20,7 @@ namespace Blackglass
         IntelligenceService intelligence;
         Health health;
         Renderer[] renderers = new Renderer[0];
+        UnitWeaponVisual weapon;
         Transform markerParent;
         GameObject marker;
         bool drawn = true;
@@ -35,6 +37,19 @@ namespace Blackglass
             renderers = GetComponentsInChildren<Renderer>(true);
             drawn = true;
             Apply(IsShown());
+            if (weapon == null && TryGetComponent(out weapon))
+                weapon.Changed += OnWeaponChanged;
+        }
+
+        // The hand model changed: collect the renderers again and give every one of them the state already in force.
+        void OnWeaponChanged()
+        {
+            renderers = GetComponentsInChildren<Renderer>(true);
+            foreach (var renderer in renderers)
+            {
+                if (renderer != null)
+                    renderer.forceRenderingOff = !drawn;
+            }
         }
 
         void LateUpdate()
@@ -48,6 +63,8 @@ namespace Blackglass
 
         void OnDestroy()
         {
+            if (weapon != null)
+                weapon.Changed -= OnWeaponChanged;
             if (marker != null)
                 Destroy(marker);
         }

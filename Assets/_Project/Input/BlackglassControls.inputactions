@@ -227,7 +227,9 @@
             "actions": [
                 { "name": "Navigate", "type": "Value", "id": "584f1b97-b8bf-4736-9456-09b73f881ac3", "expectedControlType": "Vector2", "processors": "", "interactions": "", "initialStateCheck": true },
                 { "name": "Submit", "type": "Button", "id": "0dfa6b36-d789-4ba4-b339-989efc2df892", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
-                { "name": "Cancel", "type": "Button", "id": "d5dd9773-0e88-4a1c-9cad-3d9eec76ad28", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+                { "name": "Cancel", "type": "Button", "id": "d5dd9773-0e88-4a1c-9cad-3d9eec76ad28", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "PreviousTab", "type": "Button", "id": "e91121fd-f459-487a-9da4-1332442068d4", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false },
+                { "name": "NextTab", "type": "Button", "id": "4b98a3d9-5c52-4a6a-9942-7592d6423c8e", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
             ],
             "bindings": [
                 { "name": "", "id": "e0ee2ef1-cade-4693-92bb-8d152ba9d3f0", "path": "<Gamepad>/dpad", "interactions": "", "processors": "", "groups": "Xbox", "action": "Navigate", "isComposite": false, "isPartOfComposite": false },
@@ -245,7 +247,38 @@
                 { "name": "", "id": "a19e332a-424c-4179-8357-651583b1de61", "path": "<Gamepad>/buttonEast", "interactions": "", "processors": "", "groups": "Xbox", "action": "Cancel", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "d8353f79-20d8-4e35-9861-69e3482c678c", "path": "<Gamepad>/buttonEast", "interactions": "", "processors": "", "groups": "PlayStation", "action": "Cancel", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "a011c649-a74f-4842-ba08-8ef12f832e5b", "path": "<Gamepad>/buttonSouth", "interactions": "", "processors": "", "groups": "Nintendo", "action": "Cancel", "isComposite": false, "isPartOfComposite": false },
-                { "name": "", "id": "9163f38b-8e0b-43f7-ab67-bf04d32230f3", "path": "<Gamepad>/buttonEast", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Cancel", "isComposite": false, "isPartOfComposite": false }
+                { "name": "", "id": "9163f38b-8e0b-43f7-ab67-bf04d32230f3", "path": "<Gamepad>/buttonEast", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Cancel", "isComposite": false, "isPartOfComposite": false },
+                { "name": "arrows", "id": "b24fe01a-981e-4716-9d17-eb6cda291ea2", "path": "2DVector", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Navigate", "isComposite": true, "isPartOfComposite": false },
+                { "name": "up", "id": "a4949718-4799-4710-a15a-096db3392046", "path": "<Keyboard>/upArrow", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Navigate", "isComposite": false, "isPartOfComposite": true },
+                { "name": "down", "id": "6bee105c-6ad3-4e4b-a548-001905642ffe", "path": "<Keyboard>/downArrow", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Navigate", "isComposite": false, "isPartOfComposite": true },
+                { "name": "left", "id": "128801b6-6d37-4801-9f07-a0a4bfe76aef", "path": "<Keyboard>/leftArrow", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Navigate", "isComposite": false, "isPartOfComposite": true },
+                { "name": "right", "id": "87940024-c0ea-4bf3-accc-86fae063b761", "path": "<Keyboard>/rightArrow", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Navigate", "isComposite": false, "isPartOfComposite": true },
+                { "name": "", "id": "5900db1d-dd34-420f-aa9a-4857865128e3", "path": "<Keyboard>/enter", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Submit", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "0227f032-8c58-4bca-bb82-646a3d76befe", "path": "<Keyboard>/escape", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Cancel", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "3972f1bb-fb0e-4c8a-a3ae-7047816d9d4d", "path": "<Keyboard>/q", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "PreviousTab", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "ed0fd34f-a770-4a0f-8adf-3c38d46899db", "path": "<Keyboard>/e", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "NextTab", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "744767f4-0a84-4424-86a0-6fd2b5926986", "path": "<Gamepad>/leftShoulder", "interactions": "", "processors": "", "groups": "Xbox", "action": "PreviousTab", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "7216c35f-e507-4c77-ae84-eda65daa9df0", "path": "<Gamepad>/rightShoulder", "interactions": "", "processors": "", "groups": "Xbox", "action": "NextTab", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "7608e399-0cc6-487b-a9f2-877dd8633b9d", "path": "<Gamepad>/leftShoulder", "interactions": "", "processors": "", "groups": "PlayStation", "action": "PreviousTab", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "57cac48d-63fc-46ae-bf6d-a3ff84cf77e6", "path": "<Gamepad>/rightShoulder", "interactions": "", "processors": "", "groups": "PlayStation", "action": "NextTab", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "df7fb293-6cca-470f-bee9-dfc418c77f22", "path": "<Gamepad>/leftShoulder", "interactions": "", "processors": "", "groups": "Nintendo", "action": "PreviousTab", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "ac7fbede-768a-4cc4-9561-4be75b354cdc", "path": "<Gamepad>/rightShoulder", "interactions": "", "processors": "", "groups": "Nintendo", "action": "NextTab", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "b027830a-0855-4f80-b36b-8063b479c058", "path": "<Gamepad>/leftShoulder", "interactions": "", "processors": "", "groups": "Gamepad", "action": "PreviousTab", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "249a50cb-130b-4f4d-b8a8-2a55cdcfb6f8", "path": "<Gamepad>/rightShoulder", "interactions": "", "processors": "", "groups": "Gamepad", "action": "NextTab", "isComposite": false, "isPartOfComposite": false }
+            ]
+        },
+        {
+            "name": "Inventory",
+            "id": "e8c09b96-de88-4c44-98b8-149eeadad938",
+            "actions": [
+                { "name": "Toggle", "type": "Button", "id": "35ef08ad-45e9-4620-a7f9-7ae5a0280d3f", "expectedControlType": "Button", "processors": "", "interactions": "", "initialStateCheck": false }
+            ],
+            "bindings": [
+                { "name": "", "id": "92aa5ca3-3f48-4a67-ae83-b0b52b7faec1", "path": "<Keyboard>/i", "interactions": "", "processors": "", "groups": "KeyboardMouse", "action": "Toggle", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "67d00fb6-f966-4e74-b96f-c7c0992fcd1e", "path": "<Gamepad>/select", "interactions": "", "processors": "", "groups": "Xbox", "action": "Toggle", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "423ba490-f261-4f39-ac72-6b2fdcd17c4e", "path": "<Gamepad>/select", "interactions": "", "processors": "", "groups": "PlayStation", "action": "Toggle", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "f0e005c4-aa5b-4b09-81b6-83d39f2c4ff3", "path": "<Gamepad>/select", "interactions": "", "processors": "", "groups": "Nintendo", "action": "Toggle", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "4970c80f-ea22-4686-a57d-0a9573b6f7d4", "path": "<Gamepad>/select", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Toggle", "isComposite": false, "isPartOfComposite": false }
             ]
         },
         {

@@ -125,6 +125,7 @@ namespace Blackglass
             Operative.ClearClicked += unit => Requests.ClearOrders(unit);
             Status.FollowClicked += () => Requests.ToggleFollow();
             Status.PauseClicked += () => Requests.TogglePause();
+            Status.BagClicked += () => Requests.OpenInventory();
         }
 
         void OnCardClicked(CommandableUnit unit, bool doubleClick)

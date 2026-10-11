@@ -31,6 +31,19 @@ namespace Blackglass
         /// </summary>
         public static SeededRandom ForSecurity(int seed, int attempt) => ForStream(seed, attempt, 0x5EC17F4A0C0D3B5DUL);
 
+        /// <summary>
+        /// The loot placer's stream for one attempt of one seed: container tiles only. Independent of the layout,
+        /// objective and security streams (so loot never moves a wall or an objective) and of what the items are.
+        /// </summary>
+        public static SeededRandom ForLoot(int seed, int attempt) => ForStream(seed, attempt, 0x10075EEDC0FFEE5BUL);
+
+        /// <summary>
+        /// What is in one container: its own stream per container index, so changing the loot table never moves a
+        /// container, and a container's contents do not depend on how many containers come before it.
+        /// </summary>
+        public static SeededRandom ForLootContents(int seed, int attempt, int container) =>
+            ForStream(seed, unchecked(attempt * 4099 + container + 1), 0x7C0DEDC0117AB1E5UL);
+
         static SeededRandom ForStream(int seed, int attempt, ulong salt)
         {
             unchecked

@@ -1,0 +1,18 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3d2f582b0f4b7c847ab30e4c44679232, type: 3}
+  m_Name: MarksmanRifleVisual
+  m_EditorClassIdentifier: Blackglass::Blackglass.WeaponVisualAsset
+  prefab: {fileID: 5601968129527180735, guid: 2b356d459d07fb34780183b16018bfc5, type: 3}
+  localPosition: {x: 0, y: 0, z: 0}
+  localEuler: {x: 0, y: 0, z: 0}
+  localScale: {x: 1, y: 1, z: 1.25}

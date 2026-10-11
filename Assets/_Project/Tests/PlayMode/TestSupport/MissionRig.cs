@@ -85,6 +85,24 @@ namespace Blackglass.Tests
         }
 
         /// <summary>
+        /// Adds the squad inventory to the persistent systems. Call after AddRoster and before the first Generate. The
+        /// director's mission-finished event settles the inventory, as in the scene.
+        /// </summary>
+        public SquadInventory AddInventory(ItemCatalogue catalogue, StarterLoadout starter = null, SquadRoster roster = null, int bagCapacity = 8)
+        {
+            var host = World.Track(new GameObject("Inventory"));
+            host.SetActive(false);
+            var inventory = host.AddComponent<SquadInventory>();
+            inventory.Initialize(catalogue, starter, roster, bagCapacity, null, Director);
+            host.SetActive(true);
+            systems.inventory = inventory;
+            return inventory;
+        }
+
+        /// <summary>Gives the director a loot table (null clears it); the next generation places containers from it.</summary>
+        public void AddLoot(LootTable table) => Director.SetLootTable(table);
+
+        /// <summary>
         /// Adds an intelligence service to the persistent systems and gives the director these intelligence settings: the next
         /// generation then builds its knowledge model. Call before the first Generate.
         /// </summary>

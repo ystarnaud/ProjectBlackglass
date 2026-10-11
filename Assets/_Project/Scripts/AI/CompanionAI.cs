@@ -309,7 +309,7 @@ namespace Blackglass
             // Acquisition only: a running assist is never retargeted; it ends with its target, then we look again.
             if (ownCommand is AttackCommand)
                 return;
-            var target = ChooseAssistTarget();
+            var target = Attacker.HasWeapon ? ChooseAssistTarget() : null;
             if (target != null)
             {
                 // Ordered cover is held: a companion that cannot hit the target from where it stands does not charge.

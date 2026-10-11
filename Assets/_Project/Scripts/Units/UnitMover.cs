@@ -9,6 +9,11 @@ namespace Blackglass
     {
         const float SnapRadius = 2f;
         const float ArrivalTolerance = 0.1f;
+        const int ApproachDirections = 12;
+        const int ApproachCornerLimit = 256;   // a path of more corners than this is measured by its first 256 (only used to compare candidates)
+        const float ApproachSnapRadius = 0.4f;
+        const float ApproachMargin = 0.3f;   // a stand point must lie this far inside the reach: the arrival tolerance (stopping distance + tolerance) must still be in range
+        static readonly float[] ApproachRings = { 0.55f, 0.8f };   // fractions of the reach, nearest the object first
 
         [SerializeField, Min(0f)] float speed = 5f;
         [SerializeField, Min(0f)] float angularSpeed = 720f;
@@ -19,6 +24,7 @@ namespace Blackglass
         int moveRequestFrame = -1;
         // Reused by CanReach so reachability checks allocate nothing. A plain C# object, so ??= is fine.
         NavMeshPath reachPath;
+        Vector3[] cornerBuffer;
 
         NavMeshAgent Agent => agent != null ? agent : agent = GetComponent<NavMeshAgent>();
 
@@ -54,6 +60,16 @@ namespace Blackglass
             }
         }
 
+        /// <summary>The path length still to walk, false while the path is being computed or the agent has none. No side effects.</summary>
+        public bool TryGetRemainingDistance(out float distance)
+        {
+            distance = 0f;
+            if (!Agent.isOnNavMesh || Agent.pathPending || !Agent.hasPath)
+                return false;
+            distance = Agent.remainingDistance;
+            return !float.IsInfinity(distance);
+        }
+
         /// <summary>True if MoveTo(point) would be accepted: on a NavMesh, with a walkable point within 2 m. No side effects.</summary>
         public bool CanMoveTo(Vector3 point) =>
             Agent.isOnNavMesh && NavMesh.SamplePosition(point, out _, SnapRadius, NavMesh.AllAreas);
@@ -84,6 +100,49 @@ namespace Blackglass
             reachPath ??= new NavMeshPath();
             // The agent's own CalculatePath starts from its NavMesh location, so no snapping of the source is needed.
             return Agent.CalculatePath(destination, reachPath) && reachPath.status == NavMeshPathStatus.PathComplete;
+        }
+
+        /// <summary>
+        /// The walkable point within `reach` of `target` that this unit can get to soonest by path. A solid target (a crate, a
+        /// terminal) has no walkable point of its own, and snapping its centre picks whatever walkable point is nearest the
+        /// centre, which can be on the far side of a wall. Tries two rings of points around it and keeps the one with the
+        /// shortest complete path. False when none has a path: the caller then walks to the target itself. No side effects.
+        /// </summary>
+        public bool TryApproachPoint(Vector3 target, float reach, out Vector3 point)
+        {
+            point = target;
+            if (!Agent.isOnNavMesh || reach <= 0.2f)
+                return false;
+            reachPath ??= new NavMeshPath();
+            cornerBuffer ??= new Vector3[ApproachCornerLimit];
+            var best = float.PositiveInfinity;
+            foreach (var factor in ApproachRings)
+            {
+                for (var step = 0; step < ApproachDirections; step++)
+                {
+                    var angle = step * Mathf.PI * 2f / ApproachDirections;
+                    var ring = reach * factor;
+                    var candidate = target + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * ring;
+                    if (!NavMesh.SamplePosition(candidate, out var hit, ApproachSnapRadius, NavMesh.AllAreas))
+                        continue;
+                    var flat = hit.position - target;
+                    flat.y = 0f;
+                    if (flat.magnitude > reach - ApproachMargin)
+                        continue;
+                    if (!Agent.CalculatePath(hit.position, reachPath) || reachPath.status != NavMeshPathStatus.PathComplete)
+                        continue;
+                    var length = 0f;
+                    var count = reachPath.GetCornersNonAlloc(cornerBuffer);
+                    for (var i = 1; i < count; i++)
+                        length += Vector3.Distance(cornerBuffer[i - 1], cornerBuffer[i]);
+                    if (length < best)
+                    {
+                        best = length;
+                        point = hit.position;
+                    }
+                }
+            }
+            return best < float.PositiveInfinity;
         }
 
         void Awake()

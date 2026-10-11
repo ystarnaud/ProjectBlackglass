@@ -60,10 +60,13 @@ namespace Blackglass.Tests
             yield return loading;
             director = Object.FindFirstObjectByType<MissionDirector>();
             Assert.That(director, Is.Not.Null);
+            yield return TestWorld.DeployFromLoadout(director);
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
             director.Settings.interactionSeconds = interactionSeconds;
             // The scene ships with fog (decision 037); these tests click enemies and count terminals, so they play the same mission with full knowledge.
             director.Settings.intelligence = IntelligenceSettings.Full();
+            // These tests assert the objectives alone (the interactable registry holds only the terminal): no scene loot (Phase 12).
+            director.SetLootTable(null);
             Assert.That(director.Generate(DeterministicSeed), Is.True);
             yield return TestWorld.WaitUntil(() => director.State == MissionState.Ready || director.State == MissionState.Failed, 20f);
             Assert.That(director.State, Is.EqualTo(MissionState.Ready), director.Report.Failure);

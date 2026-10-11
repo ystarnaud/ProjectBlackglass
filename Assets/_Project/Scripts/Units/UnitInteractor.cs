@@ -75,13 +75,14 @@ namespace Blackglass
             if (current == null)
                 return InteractionStep.Lost;
             var target = current;
+            var before = target.CompletionCount;
             if (!target.Advance(Unit, deltaTime))
             {
                 target.Release(Unit);
                 current = null;
                 return InteractionStep.Lost;
             }
-            if (target.IsCompleted)
+            if (target.IsCompleted || target.CompletionCount != before)
             {
                 current = null;
                 return InteractionStep.Completed;

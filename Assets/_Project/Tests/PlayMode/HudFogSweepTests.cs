@@ -4,10 +4,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
+using UnityEngine.UI;
 
 namespace Blackglass.Tests
 {
@@ -25,6 +28,7 @@ namespace Blackglass.Tests
 
         InputActionAsset actions;
         HudSceneRig rig;
+        readonly List<Object> createdAssets = new List<Object>();
 
         public override void Setup()
         {
@@ -37,6 +41,12 @@ namespace Blackglass.Tests
 
         public override void TearDown()
         {
+            foreach (var created in createdAssets)
+            {
+                if (created != null)
+                    Object.Destroy(created);
+            }
+            createdAssets.Clear();
             HudSceneRig.TearDown();
             TestControls.Reset(actions);
             base.TearDown();
@@ -251,6 +261,145 @@ namespace Blackglass.Tests
             Assert.That(rig.Service.ListsUnknownObjectives, Is.True);
             yield return Sweep("unknown objectives listed");
             Assert.That(rig.Hud.Snapshot.Objectives.Any(o => o.Kind == HudObjectiveKind.Unknown), Is.True, "the vague titles are listed");
+            LogAssert.NoUnexpectedReceived();
+        }
+
+        // ---- loot (Phase 12, decision 043): a container's contents are known only once it is searched ----
+
+        const string StarterPath = "Assets/_Project/Data/Items/StarterLoadout.asset";
+
+        // A consumable the test makes up: no bag, stash, starter grant or HUD line holds it, so its name or id on screen
+        // can only come from the container it is put in (the real items, a Medkit say, are also in the operatives' bags).
+        ItemDefinition Marker(string id, string displayName)
+        {
+            var item = ItemDefinition.Create(id, displayName, ItemCategory.Consumable, ItemSlot.None, maxStack: 3, healAmount: 1);
+            createdAssets.Add(item);
+            return item;
+        }
+
+        /// <summary>
+        /// The shipped scene's mission on the known seed under the Blind preset, WITH the scene's loot table (the seeded
+        /// HudSceneRig load generates that world without loot), and the squad's catalogue extended by the markers so the panel
+        /// names them like any catalogue item. The scene opens on the loadout panel; the session is rebuilt there, before Deploy.
+        /// </summary>
+        IEnumerator LoadWithLoot(ItemDefinition[] markers)
+        {
+            yield return SceneManager.LoadSceneAsync(HudSceneRig.MissionScene, LoadSceneMode.Single);
+            rig.Director = Object.FindFirstObjectByType<MissionDirector>();
+            var inventory = Object.FindFirstObjectByType<SquadInventory>();
+            var modal = Object.FindFirstObjectByType<InventoryModal>();
+            Assert.That(rig.Director, Is.Not.Null);
+            Assert.That(inventory, Is.Not.Null, "the scene has the squad inventory");
+            Assert.That(modal, Is.Not.Null, "the scene has the inventory panel");
+            yield return null;
+            yield return null;
+            Assert.That(rig.Director.State, Is.EqualTo(MissionState.Idle), "precondition: the scene waits on the loadout");
+            var starter = AssetDatabase.LoadAssetAtPath<StarterLoadout>(StarterPath);
+            Assert.That(starter, Is.Not.Null, StarterPath);
+            var catalogue = ItemCatalogue.Create(inventory.Catalogue.Items.Concat(markers).ToArray());
+            createdAssets.Add(catalogue);
+            inventory.Initialize(catalogue, starter, inventory.Roster, 8, null, rig.Director);
+            modal.enabled = false;   // closes the opening panel; enabling it again subscribes it to the rebuilt session
+            modal.enabled = true;
+            rig.Director.Settings.intelligence = IntelligenceSettings.Blind();
+            Assert.That(rig.Director.Generate(HudSceneRig.Seed), Is.True, $"the director is {rig.Director.State}");
+            yield return rig.WaitForMission();
+            rig.Bind();
+            Assert.That(rig.Service.IsFogActive, Is.True, "the scene ships with fog");
+            HoldHostiles();
+            yield return null;
+        }
+
+        static string[] PanelTexts(InventoryModal modal) =>
+            modal.Canvas.GetComponentsInChildren<Text>(true).Select(t => t.text ?? string.Empty).ToArray();
+
+        // Pauses, then checks the HUD canvas and the panel's canvas with the truth view off and on; leaves the pause on.
+        // `secret` may be on neither canvas; `panelOnly` may be on the panel but never on the HUD, and must be on the panel.
+        IEnumerator SweepLoot(string step, InventoryModal modal, string[] secret, string[] panelOnly)
+        {
+            if (!rig.Pause.IsPaused)
+                rig.Pause.Pause();
+            rig.Service.TruthView = false;
+            yield return null;
+            yield return null;
+            AssertLoot(step + " (player view)", modal, secret, panelOnly);
+            rig.Service.TruthView = true;
+            yield return null;
+            AssertLoot(step + " (truth view on)", modal, secret, panelOnly);
+            rig.Service.TruthView = false;
+            yield return null;
+        }
+
+        void AssertLoot(string step, InventoryModal modal, string[] secret, string[] panelOnly)
+        {
+            var hud = rig.AllTexts();
+            var panel = PanelTexts(modal);
+            Assert.That(hud, Is.Not.Empty, $"{step}: precondition: the HUD has text");
+            Assert.That(panel, Is.Not.Empty, $"{step}: precondition: the panel has text");
+            foreach (var word in secret)
+            {
+                foreach (var text in hud)
+                    Assert.That(text.Contains(word), Is.False, $"{step}: the HUD shows \"{word}\" in \"{text}\"");
+                foreach (var text in panel)
+                    Assert.That(text.Contains(word), Is.False, $"{step}: the panel shows \"{word}\" in \"{text}\"");
+            }
+            foreach (var word in panelOnly)
+            {
+                foreach (var text in hud)
+                    Assert.That(text.Contains(word), Is.False, $"{step}: the HUD shows the container's \"{word}\" in \"{text}\"");
+                Assert.That(panel.Any(t => t.Contains(word)), Is.True, $"{step}: the panel does not list the searched container's \"{word}\"");
+            }
+            AssertNothingLeaks(step);
+        }
+
+        [UnityTest]
+        public IEnumerator AnUnsearchedContainer_ShowsNoContents_OnTheHudOrThePanel_AndOnceSearched_OnlyThePanelListsThem()
+        {
+            var markers = new[]
+            {
+                Marker("test.sweep-marker-cache", "Sweep Marker Cache"),
+                Marker("test.sweep-marker-flare", "Quiet Signal Flare"),
+            };
+            yield return LoadWithLoot(markers);
+            var modal = Object.FindFirstObjectByType<InventoryModal>();
+            var loot = rig.Director.Current.LootContainers;
+            Assert.That(loot.Count, Is.GreaterThan(0), "precondition: the shipped loot table places containers on this seed");
+            var container = loot[0];
+            Assert.That(container.IsSearched, Is.False, "precondition: containers start unsearched");
+            var contents = new ItemInventory(0);
+            foreach (var marker in markers)
+                Assert.That(contents.Add(marker, 2), Is.Zero, "everything fits");
+            container.InitializeWith(contents, searched: false);
+            // Its location is made known, so the unsearched rule alone stands between its contents and the screen.
+            rig.Service.Model.RevealArea(container.Position, 3f);
+            Assert.That(LootKnowledge.CanSeeLocation(rig.Service, container), Is.True, "precondition: the container's location is known");
+
+            var names = markers.Select(m => m.DisplayName).ToArray();
+            var ids = markers.Select(m => m.Id).ToArray();
+            var everything = names.Concat(ids).ToArray();
+            yield return SweepLoot("before the panel opens", modal, everything, new string[0]);
+
+            modal.Open(container, rig.Active.Unit);
+            Assert.That(modal.IsOpen, Is.True, "precondition: the panel is open on the container");
+            yield return SweepLoot("panel open on the unsearched container", modal, everything, new string[0]);
+            Assert.That(modal.ContainerRowCount, Is.Zero, "unsearched: no contents are listed, not even a count");
+
+            container.InitializeWith(container.Contents, searched: true);
+            yield return SweepLoot("panel open on the searched container", modal, new string[0], names);
+            Assert.That(modal.ContainerRowCount, Is.EqualTo(markers.Length), "searched: one row per item");
+            foreach (var id in ids)
+            {
+                foreach (var text in rig.AllTexts())
+                    Assert.That(text.Contains(id), Is.False, $"searched: the HUD shows the definition id \"{id}\" in \"{text}\"");
+            }
+
+            modal.Close();
+            yield return SweepLoot("panel closed after the search", modal, ids, new string[0]);
+            foreach (var name in names)
+            {
+                foreach (var text in rig.AllTexts())
+                    Assert.That(text.Contains(name), Is.False, $"closed: the HUD shows the container's \"{name}\" in \"{text}\"");
+            }
             LogAssert.NoUnexpectedReceived();
         }
     }

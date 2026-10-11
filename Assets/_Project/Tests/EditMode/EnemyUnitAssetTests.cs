@@ -77,13 +77,31 @@ namespace Blackglass.Tests
             Assert.That(Prefab("Friendly").GetComponent<UnitTeamTint>().TeamColor, Is.Not.EqualTo(Prefab("Hostile").GetComponent<UnitTeamTint>().TeamColor));
         }
 
+        // Phase 12: the rifle is no longer baked into the visual. The WeaponSocket under the right hand carries its alignment
+        // and the unit's UnitWeaponVisual places the shared rifle there (its default until a loadout says otherwise).
+        // EditMode runs no Awake, so the tests show the default the way Awake does.
+        static Transform ShowDefaultRifle(GameObject unit)
+        {
+            var visual = unit.GetComponent<UnitWeaponVisual>();
+            Assert.That(visual, Is.Not.Null, "the unit manages its weapon model");
+            var standard = new SerializedObject(visual).FindProperty("defaultVisual").objectReferenceValue as WeaponVisualAsset;
+            Assert.That(standard != null, Is.True, "with the standard rifle as its default");
+            Assert.That(AssetDatabase.GetAssetPath(standard.Prefab), Is.EqualTo("Assets/Art/Weapons/Rifle/Prefabs/Rifle.prefab"), "the shared rifle prefab");
+            visual.Show(standard);
+            return visual.Current != null ? visual.Current.transform : null;
+        }
+
         [Test]
         public void The_rifle_in_the_visual_is_the_shared_rifle_prefab_with_a_muzzle()
         {
             instance = (GameObject)PrefabUtility.InstantiatePrefab(Prefab("Hostile"));
             var hand = instance.GetComponentInChildren<Animator>().GetBoneTransform(HumanBodyBones.RightHand);
-            var rifle = hand.Find("WeaponSocket/Rifle");
+            var socket = hand.Find(UnitWeaponVisual.SocketName);
+            Assert.That(socket, Is.Not.Null);
+            Assert.That(socket.childCount, Is.EqualTo(0), "no rifle is baked into the visual");
+            var rifle = ShowDefaultRifle(instance);
             Assert.That(rifle, Is.Not.Null);
+            Assert.That(rifle.parent, Is.SameAs(socket));
             Assert.That(rifle.Find("Muzzle"), Is.Not.Null);
         }
 
@@ -98,7 +116,7 @@ namespace Blackglass.Tests
             idle.SampleAnimation(animator.gameObject, 0f);
 
             var hand = animator.GetBoneTransform(HumanBodyBones.RightHand);
-            var rifle = hand.Find("WeaponSocket/Rifle");
+            var rifle = ShowDefaultRifle(instance);
             var center = rifle.GetComponentInChildren<MeshRenderer>().bounds.center;
             Assert.That(Vector3.Distance(center, hand.position), Is.LessThan(0.45f), "the rifle is in the hand, not floating beside it");
             var muzzle = rifle.Find("Muzzle");

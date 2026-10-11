@@ -316,6 +316,36 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void TheCoverAndWeaponLine_IsComposedAndWrittenOnlyWhenEitherInputChanges()
+        {
+            Build();
+            var s = hud.Snapshot;
+            Controlled(s, cover: "Low cover");
+            s.ControlledWeapon = "Service Rifle";
+            hud.ApplySnapshot();
+            var panel = hud.Operative;
+            var baselineWrites = HudFactory.TextWrites;
+            var baselineComposes = panel.CoverComposes;
+            Assert.That(panel.CoverLabel.text, Is.EqualTo("Low cover  |  Service Rifle"));
+
+            for (var i = 0; i < 6; i++)
+                hud.ApplySnapshot();
+            Assert.That(HudFactory.TextWrites, Is.EqualTo(baselineWrites), "a steady snapshot writes no text");
+            Assert.That(panel.CoverComposes, Is.EqualTo(baselineComposes), "a steady snapshot composes no new string");
+
+            s.ControlledWeapon = "Combat Blade";
+            hud.ApplySnapshot();
+            hud.ApplySnapshot();
+            Assert.That(panel.CoverLabel.text, Is.EqualTo("Low cover  |  Combat Blade"));
+            Assert.That(HudFactory.TextWrites, Is.EqualTo(baselineWrites + 1), "changing only the weapon writes the label once");
+            Assert.That(panel.CoverComposes, Is.EqualTo(baselineComposes + 1), "and composes once");
+
+            s.ControlledWeapon = string.Empty;
+            hud.ApplySnapshot();
+            Assert.That(panel.CoverLabel.text, Is.EqualTo("Low cover"));
+        }
+
+        [Test]
         public void TheCooldownNumber_IsWrittenOnlyWhenItsTextChanges()
         {
             Build();

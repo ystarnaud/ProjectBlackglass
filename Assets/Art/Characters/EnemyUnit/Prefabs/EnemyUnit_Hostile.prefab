@@ -69,6 +69,9 @@ PrefabInstance:
     - targetCorrespondingSourceObject: {fileID: 8744270717196842595, guid: b08e52db2bae1e1428921679d69ff95d, type: 3}
       insertIndex: -1
       addedObject: {fileID: 5356542252352551182}
+    - targetCorrespondingSourceObject: {fileID: 8744270717196842595, guid: b08e52db2bae1e1428921679d69ff95d, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 7546081533309723168}
   m_SourcePrefab: {fileID: 100100000, guid: b08e52db2bae1e1428921679d69ff95d, type: 3}
 --- !u!4 &304857224318199961 stripped
 Transform:
@@ -109,6 +112,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.UnitTeamTint
   teamColor: {r: 1, g: 0.62, b: 0.58, a: 1}
+--- !u!114 &7546081533309723168
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7867316277808384537}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 83819f17f6b5e174e9317d703f6c02bf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.UnitWeaponVisual
+  defaultVisual: {fileID: 11400000, guid: 3d76d5ae85de845458d18554d2f9ad01, type: 2}
 --- !u!1001 &8412413346794236079
 PrefabInstance:
   m_ObjectHideFlags: 0

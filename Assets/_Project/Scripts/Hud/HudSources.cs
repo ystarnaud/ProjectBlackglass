@@ -26,5 +26,7 @@ namespace Blackglass
         public Camera camera;
         // Optional: the prototype intel map; the HUD places it above the squad roster.
         public IntelMapView intelMap;
+        // Optional: the inventory panel; the HUD then shows a "Bag" chip that opens it.
+        public InventoryModal inventoryModal;
     }
 }

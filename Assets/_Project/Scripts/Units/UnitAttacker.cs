@@ -39,6 +39,11 @@ namespace Blackglass
         Health ownHealth;
         // True once ApplyEffective set the numbers; Awake then leaves them alone instead of re-copying the archetype.
         bool hasEffective;
+        // False only when equipment left the Weapon slot empty (ApplyEffective with weaponPresent false): no ordinary attack.
+        bool hasWeapon = true;
+
+        /// <summary>False when this unit has an equipment system and nothing in its Weapon slot.</summary>
+        public bool HasWeapon => hasWeapon;
 
         public float Range => range;
         public int Damage => damage;
@@ -97,6 +102,7 @@ namespace Blackglass
                 throw new ArgumentNullException(nameof(preset));
             archetype = preset;
             hasEffective = false;
+            hasWeapon = true;
             role = preset.Role;
             range = preset.Range;
             damage = preset.Damage;
@@ -107,12 +113,13 @@ namespace Blackglass
         /// Sets the numbers this unit fights with after role/advancement bonuses (the archetype stays assigned for its name).
         /// Once applied, Awake no longer copies the archetype over them; ApplyArchetype takes the unit back to the preset.
         /// </summary>
-        internal void ApplyEffective(CombatRole combatRole, float attackRange, int attackDamage, float attackInterval)
+        internal void ApplyEffective(CombatRole combatRole, float attackRange, int attackDamage, float attackInterval, bool weaponPresent = true)
         {
             role = combatRole;
             range = Mathf.Max(0.1f, attackRange);
             damage = Mathf.Max(0, attackDamage);
             cooldown = Mathf.Max(0f, attackInterval);
+            hasWeapon = weaponPresent;
             hasEffective = true;
         }
 
@@ -151,7 +158,7 @@ namespace Blackglass
 
         /// <summary>The CanAttack test from another pivot, for choosing a firing position.</summary>
         public bool CanAttackFrom(Vector3 pivot, Health target) =>
-            IsInRangeFrom(pivot, target) && (!NeedsLineOfSight || HasLineOfSightFrom(pivot, target));
+            hasWeapon && IsInRangeFrom(pivot, target) && (!NeedsLineOfSight || HasLineOfSightFrom(pivot, target));
 
         /// <summary>
         /// True when the target is in cover against a shot from this unit's position: ranged role, a target with a
