@@ -7,8 +7,9 @@ namespace Blackglass
     /// Chooses where the security devices go, from the generated layout and the objective plan alone: pure integer tile
     /// work on its own seed stream (SeededRandom.ForSecurity), after the objectives, so it never moves a wall or an
     /// objective. With no cameras asked for it places nothing. Rules (decision 037): the camera-control terminal goes in the
-    /// friendly room, else in a room joined to it, on a tile with a free 3x3 block, clear of every spawn, guard and the
-    /// objective terminal and at least ExtractionClearance from the extraction tile; each camera hangs on a wall of its own
+    /// friendly room, else in a room joined to it, against a wall like a loot crate (ObjectivePlacer.WallOrInsetTiles: the
+    /// outer ring, else a free block FallbackInset tiles in), clear of every spawn, guard and the objective terminal and at
+    /// least ExtractionClearance from the extraction tile; each camera hangs on a wall of its own
     /// non-friendly room, facing into it. A layout that cannot take the terminal or any camera fails the attempt.
     /// </summary>
     public static class SecurityPlacer
@@ -42,10 +43,8 @@ namespace Blackglass
             var terminalTile = default(Vector2Int);
             foreach (var room in TerminalRooms(layout))
             {
-                var area = ObjectivePlacer.Shrink(layout.Rooms[room].Rect, ObjectivePlacer.FreeRadius);
-                var tiles = ObjectivePlacer.FreeTiles(layout, blocked, area, avoid, MissionConstants.SpawnSpacing);
-                if (objectives != null)
-                    tiles.RemoveAll(t => Vector2.Distance(t, objectives.ExtractionTile) < ObjectivePlacer.ExtractionClearance);
+                var tiles = ObjectivePlacer.WallOrInsetTiles(layout, blocked, layout.Rooms[room].Rect, avoid, MissionConstants.SpawnSpacing,
+                    t => objectives != null && Vector2.Distance(t, objectives.ExtractionTile) < ObjectivePlacer.ExtractionClearance);
                 if (tiles.Count == 0)
                     continue;
                 terminalRoom = room;

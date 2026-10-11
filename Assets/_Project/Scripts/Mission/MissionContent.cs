@@ -85,6 +85,22 @@ namespace Blackglass
             return containers;
         }
 
+        /// <summary>
+        /// The horizontal direction a wall-side terminal's visual faces: away from the wall, into the room. In a corner it takes
+        /// the first wall found (up, right, down, left), so the footprint stays axis-aligned inside its tile. Zero when no side
+        /// of the tile is wall, so a terminal in the open keeps its default look. Presentation only: the plan, the collider and
+        /// every hash are unaffected.
+        /// </summary>
+        public static Vector3 FacingInto(MissionLayout layout, Vector2Int tile)
+        {
+            foreach (var side in new[] { Vector2Int.up, Vector2Int.right, Vector2Int.down, Vector2Int.left })
+            {
+                if (!layout.IsFloor(tile.x + side.x, tile.y + side.y))
+                    return new Vector3(-side.x, 0f, -side.y);
+            }
+            return Vector3.zero;
+        }
+
         static MissionInteractable BuildTerminal(Transform geometry, string objectName, string label, Vector2Int tile,
             MissionLayout layout, float seconds, Material material, EnvironmentTheme theme)
         {
@@ -103,6 +119,9 @@ namespace Blackglass
             var visualRoot = new GameObject(VisualRootName).transform;
             visualRoot.SetParent(terminal.transform, false);
             visualRoot.localPosition = new Vector3(0f, -TerminalHeight * 0.5f, 0f);
+            var facing = FacingInto(layout, tile);
+            if (facing != Vector3.zero)
+                visualRoot.localRotation = Quaternion.LookRotation(facing);
             var tint = AddTerminalVisual(visualRoot, tile, layout, theme, material);
             terminal.AddComponent<ObjectiveMarker>().Bind(() => ObjectiveMarker.TerminalColour(interactable), tint);
             return interactable;

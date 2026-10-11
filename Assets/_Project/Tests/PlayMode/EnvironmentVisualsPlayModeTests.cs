@@ -261,6 +261,31 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void TheTerminalVisual_FacesIntoTheRoom_WithItsBackToTheWall()
+        {
+            var facings = new HashSet<Vector2Int>();
+            for (var seed = 1; seed <= 16; seed++)
+            {
+                var layout = Layout(seed);
+                if (!ObjectivePlacer.TryPlace(layout, Settings(), out var plan, out _))
+                    continue;
+                var holder = new GameObject("Geometry");
+                holder.transform.SetParent(world.Track(new GameObject("TerminalRoot")).transform, false);
+                var terminal = MissionContent.AddTerminal(holder.transform, plan, layout, Settings(), null, null);
+                var visualRoot = terminal.transform.Find(MissionContent.VisualRootName);
+                var tile = plan.TerminalTile;
+                var forward = new Vector2Int(Mathf.RoundToInt(visualRoot.forward.x), Mathf.RoundToInt(visualRoot.forward.z));
+                facings.Add(forward);
+
+                Assert.That(Mathf.Abs(forward.x) + Mathf.Abs(forward.y), Is.EqualTo(1), $"seed {seed}: the visual faces along an axis, not {visualRoot.forward}");
+                Assert.That(layout.IsFloor(tile.x + forward.x, tile.y + forward.y), Is.True, $"seed {seed}: the front looks onto floor");
+                Assert.That(layout.IsFloor(tile.x - forward.x, tile.y - forward.y), Is.False, $"seed {seed}: the back is against a wall");
+                Assert.That(visualRoot.localPosition, Is.EqualTo(new Vector3(0f, -0.6f, 0f)), $"seed {seed}: turning the visual does not move it");
+            }
+            Assert.That(facings.Count, Is.GreaterThan(1), "the sweep meets terminals on different walls, so a fixed facing cannot pass");
+        }
+
+        [Test]
         public void WithoutATheme_TheTerminalShowsAPlaceholderCube_ThatStillTintsWithItsState()
         {
             var terminal = Terminal(null, out _);

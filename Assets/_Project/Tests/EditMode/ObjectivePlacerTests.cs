@@ -8,9 +8,9 @@ namespace Blackglass.Tests
 {
     public class ObjectivePlacerTests
     {
-        const ulong Golden12345 = 18368419039347052969UL;
-        const ulong Golden1 = 1731673444590866448UL;
-        const ulong Golden2 = 705921155356568738UL;
+        const ulong Golden12345 = 6053539233360738728UL;
+        const ulong Golden1 = 8339972398276188807UL;
+        const ulong Golden2 = 12153890346487285826UL;
 
         // The pipeline's loop in miniature: the first attempt whose layout also takes a placement.
         static (MissionLayout layout, ObjectivePlan plan, MissionSettings settings, int attempt) Build(int seed, Action<MissionSettings> tweak = null)
@@ -76,7 +76,9 @@ namespace Blackglass.Tests
                         floor[y * width + x] = true;
             }
             var a = new RectInt(1, 1, 2, 2);
-            var b = new RectInt(12, 1, 2, 2);
+            // One tile, entered from the corridor: no wall tile away from the doorway and no inset block, so no terminal fits.
+            // (A 2x2 room here would take one on its far wall since terminals stand against walls like crates.)
+            var b = new RectInt(12, 1, 1, 1);
             var strip = new RectInt(3, 1, 9, 1);
             Fill(a);
             Fill(b);
@@ -158,20 +160,9 @@ namespace Blackglass.Tests
                 Assert.That(plan.TerminalRoom, Is.Not.EqualTo(layout.FriendlyRoom), $"seed {seed}");
                 Assert.That(fromFriendly[plan.TerminalRoom], Is.GreaterThanOrEqualTo((fromFriendly.Max() + 1) / 2), $"seed {seed}: deeper half");
                 Assert.That(rooms[plan.TerminalRoom].Rect.Contains(plan.TerminalTile), Is.True, $"seed {seed}");
-                Assert.That(FreeBlock(layout, plan.TerminalTile, ObjectivePlacer.FreeRadius), Is.True, $"seed {seed}: 3x3 free around the terminal");
+                Assert.That(FreeBlock(layout, plan.TerminalTile, 0), Is.True, $"seed {seed}: the terminal stands on free floor (the wall rule is in TerminalWallPlacementTests)");
                 foreach (var spawn in spawns)
                     Assert.That(Vector2.Distance(plan.TerminalTile, spawn), Is.GreaterThanOrEqualTo(MissionConstants.SpawnSpacing), $"seed {seed}");
-
-                // The whole 3x3 block lies inside the room, so a terminal never stands in a doorway mouth (decision 030).
-                var interior = rooms[plan.TerminalRoom].Rect;
-                interior = new RectInt(interior.x + ObjectivePlacer.FreeRadius, interior.y + ObjectivePlacer.FreeRadius,
-                    interior.width - 2 * ObjectivePlacer.FreeRadius, interior.height - 2 * ObjectivePlacer.FreeRadius);
-                Assert.That(interior.Contains(plan.TerminalTile), Is.True, $"seed {seed}: terminal inside the room inset by the free radius");
-                for (var dy = -ObjectivePlacer.FreeRadius; dy <= ObjectivePlacer.FreeRadius; dy++)
-                    for (var dx = -ObjectivePlacer.FreeRadius; dx <= ObjectivePlacer.FreeRadius; dx++)
-                        foreach (var connection in layout.Connections)
-                            Assert.That(connection.Strip.Contains(new Vector2Int(plan.TerminalTile.x + dx, plan.TerminalTile.y + dy)), Is.False,
-                                $"seed {seed}: no corridor tile in the terminal's block");
 
                 Assert.That(plan.GuardTiles.Count, Is.LessThanOrEqualTo(settings.guardCount));
                 if (plan.GuardTiles.Count > 0)

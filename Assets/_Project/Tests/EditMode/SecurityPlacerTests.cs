@@ -85,12 +85,8 @@ namespace Blackglass.Tests
 
             var tile = security.TerminalTile;
             Assert.That(layout.Rooms[security.TerminalRoom].Rect.Contains(tile), Is.True);
-            for (var dy = -1; dy <= 1; dy++)
-                for (var dx = -1; dx <= 1; dx++)
-                {
-                    Assert.That(layout.IsFloor(tile.x + dx, tile.y + dy), Is.True, "a free 3x3 block");
-                    Assert.That(layout.Boxes.Any(b => b.Kind != MissionBoxKind.Wall && b.Footprint.Contains(new Vector2Int(tile.x + dx, tile.y + dy))), Is.False);
-                }
+            Assert.That(layout.IsFloor(tile.x, tile.y), Is.True, "on floor (the wall rule is in TerminalWallPlacementTests)");
+            Assert.That(layout.Boxes.Any(b => b.Kind != MissionBoxKind.Wall && b.Footprint.Contains(tile)), Is.False, "on no obstacle");
             foreach (var spawn in layout.FriendlySpawns.Concat(layout.HostileSpawns).Concat(objectives.GuardTiles))
                 Assert.That(Vector2.Distance(tile, spawn), Is.GreaterThanOrEqualTo(MissionConstants.SpawnSpacing));
             Assert.That(tile, Is.Not.EqualTo(objectives.TerminalTile));
@@ -139,11 +135,11 @@ namespace Blackglass.Tests
         [Test]
         public void ThePinnedHash_ForSeed12345_DoesNotDrift()
         {
-            // Pinned the first time this test ran (see the plan, Task 4 Step 4). A change here means the placement changed.
+            // Pinned the first time this test ran (see the plan, Task 4 Step 4); re-pinned when the camera terminal moved against a wall (Phase 12.5 follow-up). A change here means the placement changed.
             Assert.That(Build(12345).security.Hash, Is.EqualTo(PinnedHash12345));
         }
 
-        const ulong PinnedHash12345 = 1091115860883586314UL;
+        const ulong PinnedHash12345 = 7386770221024409542UL;
 
         [Test]
         public void NotEnoughRooms_StillPlacesTheCamerasThereAre()

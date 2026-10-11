@@ -7,8 +7,8 @@ namespace Blackglass
     /// Chooses where the mission's objective content goes, from the generated layout alone: pure integer tile work with its
     /// own seed stream (SeededRandom.ForObjectives), so it is deterministic per seed and attempt and independent of combat
     /// randomness. Rules (decision 033): the terminal goes in a room other than the friendly one and at least half the
-    /// farthest room-graph distance from it, preferring rooms with obstacles (usable combat geometry), on a tile with one
-    /// free tile on every side (a 3x3 block; the post-bake NavMesh checks are the authority on connectivity); guards are
+    /// farthest room-graph distance from it, preferring rooms with obstacles (usable combat geometry), against a wall like a loot
+    /// crate (WallOrInsetTiles; the post-bake NavMesh checks are the authority on connectivity); guards are
     /// extra hostile tiles in that room; the extraction zone goes in a different room (the friendly room only as a last
     /// resort), preferably one or two rooms from the terminal's, clear of every spawn and guard. A failure (no tile) fails the
     /// attempt and the pipeline retries.
@@ -18,6 +18,11 @@ namespace Blackglass
         /// <summary>Free tiles required on every side (1 = a 3x3 block, measured: 2 fits on only 9% of layouts) of a terminal or extraction centre.</summary>
         public const int FreeRadius = 1;
         public const float ExtractionClearance = 4f;
+        /// <summary>
+        /// How far inside its room a crate or terminal must be when the room has no wall tile (the fallback). At least 2, so no
+        /// one-tile lane is left between it and the wall (the NavMesh bake closes it).
+        /// </summary>
+        public const int FallbackInset = 2;
         public const int GuardMinReach = 2;
         public const int GuardMaxReach = 6;
 
@@ -32,7 +37,7 @@ namespace Blackglass
             spawns.AddRange(layout.HostileSpawns);
 
             // Terminal room: not the friendly room, in the deeper half of the room graph, rooms with obstacles first.
-            // Terminal tiles come from the room inset by FreeRadius, so its whole block lies inside the room and it never stands in a doorway.
+            // Terminal tiles stand against a wall like a loot crate (WallOrInsetTiles), so it never blocks a walkway or a doorway.
             var fromFriendly = RoomDistances(layout, layout.FriendlyRoom);
             var farthest = 0;
             foreach (var distance in fromFriendly)
@@ -54,7 +59,7 @@ namespace Blackglass
             var terminalTile = default(Vector2Int);
             foreach (var r in withObstacles)
             {
-                var tiles = FreeTiles(layout, blocked, Shrink(rooms[r].Rect, FreeRadius), spawns, MissionConstants.SpawnSpacing);
+                var tiles = WallOrInsetTiles(layout, blocked, rooms[r].Rect, spawns, MissionConstants.SpawnSpacing);
                 if (tiles.Count == 0)
                     continue;
                 terminalRoom = r;
@@ -227,6 +232,25 @@ namespace Blackglass
                         tiles.Add(tile);
                 }
             }
+            return tiles;
+        }
+
+        /// <summary>
+        /// Where a crate or a terminal may stand in a room: the outer ring first (WallTiles), else a free 3x3 block at least
+        /// FallbackInset tiles inside. `exclude` drops tiles a caller refuses before the fallback is considered, so a room whose
+        /// wall tiles are all refused still offers its inset block.
+        /// </summary>
+        internal static List<Vector2Int> WallOrInsetTiles(MissionLayout layout, bool[] blocked, RectInt rect, List<Vector2Int> avoid,
+            float minimumDistance, System.Predicate<Vector2Int> exclude = null)
+        {
+            var tiles = WallTiles(layout, blocked, rect, avoid, minimumDistance);
+            if (exclude != null)
+                tiles.RemoveAll(exclude);
+            if (tiles.Count > 0)
+                return tiles;
+            tiles = FreeTiles(layout, blocked, Shrink(rect, FallbackInset), avoid, minimumDistance);
+            if (exclude != null)
+                tiles.RemoveAll(exclude);
             return tiles;
         }
 

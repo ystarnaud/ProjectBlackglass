@@ -55,8 +55,10 @@ namespace Blackglass.Tests
         public IEnumerator TheLayoutKnownPreset_KnowsEveryRoom_ButNoPlacedObjective_UntilItsRegionIsSeen()
         {
             rig = new MissionRig();
+            // Needs a seed whose placed objectives are out of sight at the start: seeds 12345, 1 and 7 start with one in view
+            // (an objective whose point is observed is known at once), so the premise is a property of the seed, not of the preset.
             var service = rig.AddIntelligence(IntelligenceSettings.LayoutKnown());
-            yield return rig.Generate(12345);
+            yield return rig.Generate(2);
             var runtime = rig.Director.Runtime;
 
             for (var region = 0; region < service.Map.Count; region++)

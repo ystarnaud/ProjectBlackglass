@@ -17,11 +17,11 @@ namespace Blackglass
     {
         public const float AvoidDistance = 3f;
         /// <summary>
-        /// How far inside its room a container's tile must be when the room has no wall tile (the fallback). At least 2, so no
+        /// How far inside its room a container's tile must be when the room has no wall tile (the fallback; shared with the terminals). At least 2, so no
         /// one-tile lane is left between the crate and the wall (the NavMesh bake closes it). As the only rule, an inset of 2
         /// placed all three containers on just 81.7% of 60 test layouts; as a fallback behind the wall rule it is rarely needed.
         /// </summary>
-        public const int FallbackInset = 2;
+        public const int FallbackInset = ObjectivePlacer.FallbackInset;
 
         public static LootPlan Place(MissionLayout layout, ObjectivePlan objectives, SecurityPlan security, LootTable table,
             float avoidDistance = AvoidDistance)
@@ -59,10 +59,7 @@ namespace Blackglass
                     var room = order[(i + step) % order.Count];
                     // Against a wall or in a corner first (a crate mid-room leaves narrow lanes the NavMesh closes); a room with
                     // no such tile falls back to the inset block.
-                    var rect = layout.Rooms[room].Rect;
-                    var tiles = ObjectivePlacer.WallTiles(layout, blocked, rect, avoid, avoidDistance);
-                    if (tiles.Count == 0)
-                        tiles = ObjectivePlacer.FreeTiles(layout, blocked, ObjectivePlacer.Shrink(rect, FallbackInset), avoid, avoidDistance);
+                    var tiles = ObjectivePlacer.WallOrInsetTiles(layout, blocked, layout.Rooms[room].Rect, avoid, avoidDistance);
                     if (tiles.Count == 0)
                         continue;
                     var tile = tiles[rng.NextInt(tiles.Count)];
