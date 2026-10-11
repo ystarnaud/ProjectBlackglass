@@ -517,7 +517,15 @@ Design: decision 045. Run guide: `Docs/DedicatedServer.md`.
   - 0 exception or error lines;
   - stopped by SIGTERM, exit status 0;
   - the VM had 729 MB in use before the runs.
-- **Open:** RSS rose steadily from 98.6 MB at 1 minute to 102.5 MB at 10 minutes, about 0.43 MB/min, while the managed heap stayed at 1.1–1.3 MB. This is native memory growth, and 10 minutes cannot tell allocator warm-up from a slow leak. A longer run is needed before any stability claim.
+- **Open after the 10-minute run, resolved below:** RSS rose steadily from 98.6 MB at 1 minute to 102.5 MB at 10 minutes, about 0.43 MB/min, while the managed heap stayed at 1.1–1.3 MB. This is native memory growth, and 10 minutes cannot tell allocator warm-up from a slow leak.
+- **Two-hour smoke run** (7200 s, revision `5c7fa8d`, normal mode, idle fixture mission, 2026-10-11):
+  - launch to Ready 5.0 s; same layout hash; `navMeshBakeMs=16.6`;
+  - CPU after Ready: mean 1.4 %, max 1.8 % of one core over 1435 samples;
+  - heartbeat FPS 60.0 on all 119 lines;
+  - RSS 98.8 MB at 1 minute, reaching 106.4 MB at 24.8 minutes, then flat at 106.4 MB until the end: peak (`VmHWM`) 106.4 MB, drift over the last 5 minutes +0.0 MB;
+  - managed heap 1.1–1.3 MB throughout;
+  - 0 exception or error lines; stopped by SIGTERM, exit status 0.
+  - **Result:** the 10-minute growth was warm-up that levels off at about 106 MB, not a leak, for an idle mission. Memory under load remains unmeasured.
 - **One warning line per run:** "Trying to access a shader but no shaders were included in the build because Dedicated Server Optimizations is enabled". The inferred source is the default material `GameObject.CreatePrimitive` assigns to the mission's cubes; this is not verified. It does not affect the simulation.
 
 **What this resolves:**
@@ -528,8 +536,8 @@ Design: decision 045. Run guide: `Docs/DedicatedServer.md`.
 - all networking;
 - multiple processes;
 - disconnect and reconnect;
-- runs longer than 10 minutes, including the RSS trend above;
-- a mission under load; the smoke run was idle;
+- runs longer than 2 hours;
+- a mission under load, including its memory; both smoke runs were idle;
 - abilities, intelligence, inventory and loot in the server build (not in the fixture);
 - IL2CPP;
 - running as a non-root service user;

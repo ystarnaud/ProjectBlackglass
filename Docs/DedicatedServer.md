@@ -53,6 +53,8 @@ ssh bg-dev-mission01 'nohup /opt/blackglass/server/smoke-run.sh 600 > /opt/black
 ssh bg-dev-mission01 'cat $(ls -t /opt/blackglass/logs/*-smoke-summary.txt | head -1)'
 ```
 
+For a long run, pass the seconds (for example `smoke-run.sh 7200`) and start it with `setsid` as well as `nohup`, so a dropped SSH session cannot stop it. An idle mission's RSS climbs for about the first 25 minutes and then levels off near 106 MB, so judge memory stability on runs longer than that.
+
 The run writes three files:
 - `-smoke.log`: the server's log;
 - `-smoke.csv`: samples every 5 s, with CPU as a percentage of one core, from `/proc` utime and stime, plus `VmRSS` and `VmHWM`;

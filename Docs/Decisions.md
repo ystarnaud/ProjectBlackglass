@@ -702,9 +702,9 @@ Short record of decisions that are likely to matter later. Newest last.
   - The fixture deliberately leaves out abilities, intelligence and inventory. Adding them to the server is a later, explicit step.
 - **Known limitations:**
   - Runs as root on the VM.
-  - The VM smoke run is 10 minutes of an idle mission: initial evidence only.
+  - The VM smoke runs (10 minutes and 2 hours) used an idle mission: initial evidence only.
   - The heartbeat CPU figure is a percentage of one core.
   - The archive is marked `dirty` while the owner's two settings edits are uncommitted.
   - The Linux build has been run only on `bg-dev-mission01`.
   - The server logs one warning: "Trying to access a shader but no shaders were included in the build because Dedicated Server Optimizations is enabled". It is probably the default material `GameObject.CreatePrimitive` gives the mission's cubes, but this is not verified. It does not affect the simulation.
-  - In the first 10-minute VM smoke run, resident memory rose steadily, about 0.43 MB/min (98.6 to 102.5 MB), while the managed heap stayed flat. A longer run must show whether this levels off before any stability claim (audit §9.2).
+  - In the first 10-minute VM smoke run, resident memory rose steadily, about 0.43 MB/min (98.6 to 102.5 MB), while the managed heap stayed flat. A 2-hour run showed this is warm-up: RSS reached 106.4 MB at about 25 minutes and stayed flat for the rest of the run (audit §9.2). Memory under load is unmeasured.
