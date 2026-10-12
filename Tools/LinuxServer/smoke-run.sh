@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Runs the server in normal mode for a while and measures it (Checkpoint A initial smoke run; not a stability proof).
+# Optional: SMOKE_ARGS="-net ..." smoke-run.sh 600 adds server arguments.
 # Usage: smoke-run.sh [seconds]   (default 600). Samples CPU and memory every 5 s from /proc, then sends SIGTERM
 # (SIGKILL after 30 s if still running). Writes to $BLACKGLASS_LOGS (default /opt/blackglass/logs):
 #   <UTC>-<rev>-smoke.log, -smoke.csv and -smoke-summary.txt.
@@ -17,7 +18,8 @@ hz=$(getconf CLK_TCK)
 cores=$(nproc)
 
 start_ms=$(date +%s%3N)
-"$dir/BlackglassServer.x86_64" -batchmode -nographics -logFile "$log" &
+# SMOKE_ARGS adds server arguments (for example -net -netTokens <file>) to repeat the run with another mode.
+"$dir/BlackglassServer.x86_64" -batchmode -nographics -logFile "$log" ${SMOKE_ARGS:-} &
 pid=$!
 echo "elapsed_s,cpu_pct_one_core,rss_kb,hwm_kb" > "$csv"
 prev_ticks=""; prev_ms=""; ready_s=""; early=""
