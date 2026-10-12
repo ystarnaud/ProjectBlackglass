@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Blackglass
@@ -12,8 +13,13 @@ namespace Blackglass
     /// </summary>
     public sealed class ServerCommandGate
     {
+        /// <summary>A held move intent not refreshed for this long is cleared, so a client that drops cannot leave a unit walking.</summary>
+        public const double IntentExpirySeconds = 0.5;
+
         readonly NetUnits units;
         readonly string attemptId;
+        readonly Dictionary<int, double> intentAt = new Dictionary<int, double>();
+        readonly List<int> expired = new List<int>();
 
         public ServerCommandGate(NetUnits units, string attemptId)
         {
@@ -38,6 +44,23 @@ namespace Blackglass
             }
         }
 
+        /// <summary>Clears the move intent of every unit whose client has not refreshed it within IntentExpirySeconds. Call once per frame.</summary>
+        public void Tick(double now)
+        {
+            expired.Clear();
+            foreach (var pair in intentAt)
+            {
+                if (now - pair.Value > IntentExpirySeconds)
+                    expired.Add(pair.Key);
+            }
+            foreach (var id in expired)
+            {
+                intentAt.Remove(id);
+                if (units.TryGet(id, out var unit))
+                    unit.SetMoveIntent(Vector3.zero);
+            }
+        }
+
         NetResult Process(NetConnection connection, NetEnvelope envelope, double now)
         {
             if (connection == null || envelope == null || envelope.Request == null || string.IsNullOrEmpty(envelope.AttemptId)
@@ -55,44 +78,50 @@ namespace Blackglass
             {
                 case NetMoveIntent intent:
                     return Own(connection, intent.UnitId, out var steered, out var steerFailure)
-                        ? Steer(steered, intent)
+                        ? Steer(steered, intent, now)
                         : Reject(steerFailure);
                 case NetMoveTo move:
-                    return Own(connection, move.UnitId, out _, out var moveFailure)
-                        ? NotYetCarriedOut()
+                    return Own(connection, move.UnitId, out var mover, out var moveFailure)
+                        ? Order(mover, new MoveCommand(move.Destination), move.Append ? IssueMode.Append : IssueMode.Replace)
                         : Reject(moveFailure);
                 case NetAttack attack:
                     return Attack(connection, attack);
                 case NetStop stop:
-                    return Own(connection, stop.UnitId, out _, out var stopFailure)
-                        ? NotYetCarriedOut()
+                    return Own(connection, stop.UnitId, out var stopped, out var stopFailure)
+                        ? Order(stopped, new StopCommand(), IssueMode.Replace)
                         : Reject(stopFailure);
                 default:
                     return Reject(NetRejectReason.Malformed);
             }
         }
 
-        // The checks above have passed; the orders that go through CommandableUnit.Issue are added in Task 6.
-        static NetResult NotYetCarriedOut() => Reject(NetRejectReason.OrderRefused);
+        // The existing command path decides whether the order can be carried out; false means OrderRefused.
+        static NetResult Order(CommandableUnit unit, UnitCommand command, IssueMode mode) =>
+            unit.Issue(command, mode) ? NetResult.Accepted : Reject(NetRejectReason.OrderRefused);
 
         // Unknown attacker or target first, then ownership, then side: an attack must name a living hostile of the attacker.
         NetResult Attack(NetConnection connection, NetAttack attack)
         {
-            if (!units.TryGet(attack.UnitId, out _) || !units.TryGet(attack.TargetId, out _)
-                || !IsAlive(attack.UnitId) || !IsAlive(attack.TargetId))
+            if (!units.TryGet(attack.UnitId, out var attacker) || !attacker.IsAlive
+                || !units.TryGet(attack.TargetId, out var target) || !target.IsAlive)
                 return Reject(NetRejectReason.UnknownUnit);
             if (!connection.Owns(attack.UnitId))
                 return Reject(NetRejectReason.NotOwner);
             if (units.IsHostile(attack.UnitId) == units.IsHostile(attack.TargetId))
                 return Reject(NetRejectReason.WrongSide);
-            return NotYetCarriedOut();
+            if (!target.TryGetComponent<Health>(out var health))
+                return Reject(NetRejectReason.UnknownUnit);
+            return Order(attacker, new AttackCommand(health), IssueMode.Replace);
         }
 
-        bool IsAlive(int id) => units.TryGet(id, out var unit) && unit.IsAlive;
-
-        NetResult Steer(CommandableUnit unit, NetMoveIntent intent)
+        NetResult Steer(CommandableUnit unit, NetMoveIntent intent, double now)
         {
             unit.SetMoveIntent(intent.Direction);
+            var id = intent.UnitId;
+            if (unit.MoveIntent == Vector3.zero)
+                intentAt.Remove(id);
+            else
+                intentAt[id] = now;
             return NetResult.Accepted;
         }
 
