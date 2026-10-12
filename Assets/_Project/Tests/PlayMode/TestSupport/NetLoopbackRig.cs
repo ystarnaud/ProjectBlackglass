@@ -3,7 +3,10 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using FishNet.Managing;
+using FishNet.Managing.Object;
 using NUnit.Framework;
+using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -78,8 +81,35 @@ namespace Blackglass.Tests
             Time.timeScale = 1f;
         }
 
-        // Task 8 replaces this body to disconnect and destroy the client.
-        void StopClient() { }
+        public NetClient Client { get; private set; }
+
+        public NetClient AddClient()
+        {
+            var host = new GameObject("NetClient");
+            Client = host.AddComponent<NetClient>();
+            Client.Initialize(AssetDatabase.LoadAssetAtPath<PrefabObjects>("Assets/DefaultPrefabObjects.asset"));
+            return Client;
+        }
+
+        public IEnumerator Connect(string token)
+        {
+            if (Client == null)
+                AddClient();
+            // A previous connection may still be shutting down; FishNet cannot start the client again until it has stopped.
+            yield return TestWorld.WaitUntil(() => NetworkManager.Instances.Count == 0 || !NetworkManager.Instances[0].ClientManager.Started, 5f);
+            Assert.That(Client.Connect("127.0.0.1", (ushort)Port, token), Is.True);
+            yield return TestWorld.WaitUntil(() => Client.State == NetClientState.Ready || Client.State == NetClientState.Refused
+                || Client.State == NetClientState.Disconnected, 15f);
+        }
+
+        void StopClient()
+        {
+            if (Client == null)
+                return;
+            Client.Disconnect();
+            Object.DestroyImmediate(Client.gameObject);
+            Client = null;
+        }
 
         void OnLog(string condition, string stackTrace, LogType type) => logs.Add(condition);
     }
