@@ -472,7 +472,7 @@ Paths below are relative to `Assets/_Project/Scripts/` unless stated otherwise.
 | Step | Scope | Status |
 |---|---|---|
 | **Checkpoint A: headless Linux server startup** | Server-only scene and bootstrap, fixture mission, frame cap, identity and readiness logs, bounded move and attack diagnostic, Linux Dedicated Server (Mono) build, VM smoke run. **No networking, no backend.** | Done 2026-10-11 (§9.2) |
-| Networking experiment | The §7 proof: library choice (FishNet is a candidate only), server gate, per-connection visibility, two clients. | Not started; needs the owner's authorization and a library decision |
+| Networking experiment | The §7 proof: library choice (FishNet is a candidate only), server gate, per-connection visibility, two clients. | First slice done 2026-10-12 (§9.3): library chosen by a spike, server gate, two clients, no hidden information yet |
 | Phase 13 | Authenticated between-mission flow and trusted settlement (§8). | Not started |
 
 ### 9.2 Checkpoint A results (2026-10-11)
@@ -542,3 +542,24 @@ Design: decision 045. Run guide: `Docs/DedicatedServer.md`.
 - IL2CPP;
 - running as a non-root service user;
 - Docker.
+
+### 9.3 Networking experiment, first slice (2026-10-12)
+
+This is the audit's §7 proof reduced to its first slice: an authoritative Linux server taking orders from remote clients through a server-side gate. It is **neither Checkpoint A** (which had no networking) **nor Phase 13** (no accounts, backend, database or settlement exist). Design: decision 046 and `Docs/superpowers/specs/2026-10-11-networking-gate-design.md`. Run guide: `Docs/DedicatedServer.md`.
+
+| Check | Covered | Evidence |
+|---|---|---|
+| A1 server starts, 10-minute run, frame rate capped, memory stable | server half | 10 min with `-net`, no client: 59.8 to 60.0 fps, CPU 1.9 % mean, RSS peak 116.3 MB; no container |
+| A2 direct control and queued moves | yes, latency above target | steering moved the unit in 10 of 10 cycles; the replicated queue showed one pending move and both ran; median 261.8 ms through the tunnel (client round trip 93 ms), above the 150 ms LAN target |
+| A3 nine bad requests | six of nine | `NotOwner`, `WrongSide`, `DuplicateCommand`, `StaleSequence`, `WrongAttempt`, `Malformed`, each answered with its typed reason and no replicated state changed; the unobserved hostile, ability on cooldown and unsearched container need intelligence, abilities and loot the fixture lacks |
+| A4 server-resolved attack | yes | the hostile's replicated health fell 60 to 45; no request type can set health (a test pins the four request types) |
+| A5, A6 hidden information | no | the client receives every unit; per-connection visibility is the next slice |
+| A7 reconnect, A8 settlement | no | out of scope |
+| A9 non-owner client | yes | account B was refused `NotOwner` for every request type on every unit of the squad; a token bound to another attempt was refused `WrongAttempt`; an unknown token `UnknownToken` |
+| A10 suites green | yes | EditMode 1366/1366, PlayMode 1403/1403 |
+
+**What matters for the next slice:**
+- The gate and the messages are library-free and tested in EditMode; only the adapter knows FishNet. Hidden information will change what the server spawns per connection (FishNet's observer conditions), not the gate.
+- FishNet starts a headless server on its own and overrides the frame cap unless told otherwise (decision 046); a scene component in the wrong file kills a Linux server at start.
+- The 150 ms figure is a LAN target; through an SSH tunnel with a 93 ms round trip it is not reachable, so any real latency decision needs a measurement on the intended network.
+- The harness runs from this PC through `ssh -L`; the server never listens on a public address.

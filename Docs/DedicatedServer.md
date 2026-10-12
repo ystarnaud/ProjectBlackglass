@@ -1,6 +1,6 @@
 # Dedicated server (Checkpoint A)
 
-How to build, deploy and check the Linux dedicated server. Design: decision 045 and `Docs/superpowers/specs/2026-10-11-linux-dedicated-server-design.md`. The server starts one fixture mission from `Assets/_Project/Scenes/ServerMission.unity`. There is no networking yet.
+How to build, deploy and check the Linux dedicated server. Design: decision 045 and `Docs/superpowers/specs/2026-10-11-linux-dedicated-server-design.md`. The server starts one fixture mission from `Assets/_Project/Scenes/ServerMission.unity`. Networking is optional: it starts only with `-net` (see "Networked mode").
 
 ## Prerequisites
 
@@ -60,6 +60,33 @@ The run writes three files:
 - `-smoke.csv`: samples every 5 s, with CPU as a percentage of one core, from `/proc` utime and stime, plus `VmRSS` and `VmHWM`;
 - `-smoke-summary.txt`.
 
+## Networked mode
+
+The networking experiment's first slice (decision 046). The server takes orders from remote clients through the server gate; everything below is off unless `-net` is given.
+
+```bash
+# on the VM, once: random development tokens (mode 600, never printed)
+ssh bg-dev-mission01 '/opt/blackglass/server/make-dev-tokens.sh'
+# start, check and stop the server (loopback only); ssh -f -n because a plain session stays open while the server runs
+ssh -f -n bg-dev-mission01 '/opt/blackglass/server/run-net.sh start > /opt/blackglass/logs/run-net.out 2>&1'
+ssh bg-dev-mission01 'cat /opt/blackglass/logs/run-net.out'      # listening on 127.0.0.1:7770
+ssh bg-dev-mission01 '/opt/blackglass/server/run-net.sh status'
+ssh bg-dev-mission01 '/opt/blackglass/server/run-net.sh stop'
+```
+
+The token file (`/opt/blackglass/dev-tokens.txt`) has one line per account: `account token squad|none [attempt]`. A `squad` account owns the mission's friendlies; a `none` account owns nothing; an entry with an attempt id is only valid for that mission instance (the `account-ticket` entry names a made-up one, to show that a ticket for another attempt is refused). These are development fixtures, not an identity scheme.
+
+On this PC, build the client and run the harness through the tunnel:
+
+```bash
+Tools/build-netclient.sh            # Builds/NetTestClient/NetTestClient.exe (the Editor's target must be Windows)
+Tools/run-net-harness.sh            # opens ssh -L, runs the four roles, closes the tunnel; logs in Builds/NetHarnessLogs/
+```
+
+The roles are `a` (the owner: steering, queued moves, an attack, six bad requests), `b` (no ownership: every order refused), `ticket` (refused for another attempt) and `badtoken`. Each prints `BLACKGLASS NET HARNESS PASS|FAIL role=...` and exits 0 (pass), 1 (a check failed) or 2 (no connection). To play by hand, start the server as above, open `ssh -L 7770:127.0.0.1:7770 bg-dev-mission01`, and run `NetTestClient.exe -server 127.0.0.1 -port 7770 -token <account-a token>`: WASD steers, a click moves (Shift queues), a click on a red unit attacks, X stops, 1 and 2 pick the unit.
+
+To check that nothing is exposed: `ssh bg-dev-mission01 'ss -lntu | grep -E ":7770|:7777"'` must show only `tcp LISTEN ... 127.0.0.1:7770`.
+
 ## Options
 
 | Argument | Default | Range | Meaning |
@@ -70,6 +97,10 @@ The run writes three files:
 | `-diagnosticTimeout <s>` | 120 | 5..3600 | Overall diagnostic deadline (real time) |
 | `-startupTimeout <s>` | 60 | 5..3600 | Deadline for the mission to become ready |
 | `-heartbeat <s>` | 60 | 0 or 5..3600 | Heartbeat interval; 0 turns it off |
+| `-net` | off | | Start the networking adapter after the mission is ready (ignored with `-diagnostic`) |
+| `-netPort <int>` | 7770 | 1024..65535 | TCP port, bound to 127.0.0.1 only |
+| `-netTokens <file>` | none | | Development token file; required with `-net` |
+| `-netQuiet` | off | | Freeze hostile AI and the friendlies' own autonomy and force their hits, so a networked run is repeatable |
 
 Bad values keep the default and log `[Server] option ignored: ...`. Unity's own arguments are passed through.
 
@@ -80,6 +111,7 @@ Bad values keep the default and log `[Server] option ignored: ...`. Unity's own 
 - `[Server] MISSION READY ...`: instance id, seed, attempt, layout figures, `generationMs`, `navMeshBakeMs`, `sinceStartupS`.
 - `[Server] self-check cameras=0 audioListeners=0 canvases=0 eventSystems=0 unitViewsDisabled=<n> unitViewsActive=0`.
 - `[Server] heartbeat uptimeS= fps= cpuPct= rssMB= managedMB= state= phase=`, in normal mode.
+- With `-net`: `[Net] server Starting|Started`, `[Net] listening 127.0.0.1:<port> websockets attempt=<id> accounts=<n> quiet=<yes|no>`, `[Net] client <id> connected|welcomed account=<a> owns=<n>|left`, `[Net] hello refused client=<id> reason=<UnknownToken|WrongAttempt|AlreadyConnected>`, `[Net] rejected client=<id> account=<a> reason=<...> command=<n>` (at most one per client per second), and `net=<clients> accepted=<n> rejected=<n> dropped=<n>` at the end of the heartbeat. Tokens never appear.
 - `[Diagnostic] prepare|move|attack ...`, then `BLACKGLASS DIAGNOSTIC PASS|FAIL ...`.
 - `[Server] exit code=<n> reason=<text>`.
 
@@ -89,7 +121,7 @@ Bad values keep the default and log `[Server] option ignored: ...`. Unity's own 
 |---|---|
 | 0 | Diagnostic passed, or a normal stop |
 | 1 | Diagnostic failed (the reason is in the `BLACKGLASS DIAGNOSTIC FAIL` line) |
-| 2 | Startup failed: generation failed, not ready within `-startupTimeout`, or the scene is unwired |
+| 2 | Startup failed: generation failed, not ready within `-startupTimeout`, the scene is unwired, or `-net` could not start (no or unreadable token file, no valid entry, the port in use) |
 | 124 | `run-diagnostic.sh`'s `timeout` killed a hung server |
 
 ## Troubleshooting
@@ -98,3 +130,5 @@ Bad values keep the default and log `[Server] option ignored: ...`. Unity's own 
 - **`revision=unknown`**: `build-info.txt` is missing beside the executable. Redeploy the package rather than copying single files.
 - **A diagnostic step timed out**: the FAIL line shows the distance travelled, the attack phase, whether the target can be attacked, and whether the simulation was running.
 - **Permission denied**: the deploy script sets the executable bits. If you extract by hand, run `chmod +x`.
+- **`-net` exits with code 2 and "net: ..."**: the reason follows (`-net needs -netTokens <file>`, `the token file does not exist`, `the token file has no valid entry`, `the transport would not start`). A bad token-file line is skipped with a `[Net] token file: line <n>: ...` warning.
+- **The harness cannot open the tunnel**: another `ssh -L` already holds local port 7770 (a leftover from an earlier run). Find it with `ps | grep ssh` and close it; `Tools/run-net-harness.sh` closes the tunnel it opens.
