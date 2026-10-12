@@ -205,6 +205,11 @@ namespace Blackglass.Tests
             var replay = Send(owner, Steer(idA), 1, 1);
             Assert.That(replay.Reason, Is.EqualTo(NetRejectReason.StaleSequence));
             Assert.That(friendA.MoveIntent, Is.EqualTo(Vector3.zero), "the replay did not steer the unit again");
+
+            // The other replay shape: a fresh sequence number carrying a command id that was already used.
+            var reused = Send(owner, Steer(idA), 2, 1);
+            Assert.That(reused.Reason, Is.EqualTo(NetRejectReason.DuplicateCommand));
+            Assert.That(friendA.MoveIntent, Is.EqualTo(Vector3.zero), "the reused command id did not steer the unit again");
         }
     }
 }

@@ -113,6 +113,21 @@ namespace Blackglass.Tests
             var result = Send(new NetMoveTo(friendId, point));
             Assert.That(result.Reason, Is.EqualTo(NetRejectReason.UnknownUnit));
         }
+
+        [UnityTest]
+        public IEnumerator AnAppendedMoveTo_BeyondThePendingCap_IsOrderRefused_AndQueuesNothingMore()
+        {
+            yield return Ready();
+            Assert.That(Send(new NetMoveTo(friendId, Walkable())).IsAccepted, Is.True);
+            for (var i = 0; i < ServerCommandGate.MaxPendingOrders; i++)
+                Assert.That(Send(new NetMoveTo(friendId, Walkable(), append: true)).IsAccepted, Is.True, "append " + i);
+            Assert.That(friend.PendingCommands, Has.Count.EqualTo(ServerCommandGate.MaxPendingOrders));
+
+            var result = Send(new NetMoveTo(friendId, Walkable(), append: true));
+
+            Assert.That(result.Reason, Is.EqualTo(NetRejectReason.OrderRefused), "one client cannot grow a unit's queue without bound");
+            Assert.That(friend.PendingCommands, Has.Count.EqualTo(ServerCommandGate.MaxPendingOrders));
+        }
     }
 }
 #endif

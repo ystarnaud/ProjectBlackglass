@@ -16,6 +16,9 @@ namespace Blackglass
         /// <summary>A held move intent not refreshed for this long is cleared, so a client that drops cannot leave a unit walking.</summary>
         public const double IntentExpirySeconds = 0.5;
 
+        /// <summary>The most orders a client may queue behind a unit's current one (appended moves), so one client cannot grow server memory.</summary>
+        public const int MaxPendingOrders = 16;
+
         readonly NetUnits units;
         readonly string attemptId;
         readonly Dictionary<int, double> intentAt = new Dictionary<int, double>();
@@ -82,7 +85,7 @@ namespace Blackglass
                         : Reject(steerFailure);
                 case NetMoveTo move:
                     return Own(connection, move.UnitId, out var mover, out var moveFailure)
-                        ? Order(mover, new MoveCommand(move.Destination), move.Append ? IssueMode.Append : IssueMode.Replace)
+                        ? Move(mover, move)
                         : Reject(moveFailure);
                 case NetAttack attack:
                     return Attack(connection, attack);
@@ -93,6 +96,15 @@ namespace Blackglass
                 default:
                     return Reject(NetRejectReason.Malformed);
             }
+        }
+
+        // An appended move queues behind the unit's orders; a full queue is refused here, so the cap lives in the gate and
+        // CommandableUnit stays unchanged for the single-player game.
+        static NetResult Move(CommandableUnit unit, NetMoveTo move)
+        {
+            if (move.Append && unit.PendingCommands.Count >= MaxPendingOrders)
+                return Reject(NetRejectReason.OrderRefused);
+            return Order(unit, new MoveCommand(move.Destination), move.Append ? IssueMode.Append : IssueMode.Replace);
         }
 
         // The existing command path decides whether the order can be carried out; false means OrderRefused.
