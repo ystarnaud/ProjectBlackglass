@@ -21,13 +21,14 @@ Gameplay is complete through Phase 12.5 (combat presentation and VFX). The contr
 
 The owner is preparing an online foundation with an authoritative dedicated server; see `Docs/OnlineReadinessAudit.md`. The candidate stack (Unity Dedicated Server for Linux, FishNet, ASP.NET Core on .NET 10, PostgreSQL, Docker on isolated Linux VMs, HAProxy) is **provisional, not decided**.
 
-The step currently authorized is **Checkpoint A: Linux dedicated-server startup**. It is a headless server build that starts one fixture mission and proves navigation, movement and combat in the built server. It contains **no networking**.
+The step currently authorized is **the networking experiment's first slice: a server command gate and two clients** (`Docs/superpowers/specs/2026-10-11-networking-gate-design.md`). A FishNet spike decides the library. The server listens on loopback only and clients reach it through an SSH tunnel.
 
 Each of these stays out of scope until the owner authorizes it:
-- networking libraries and client/server messaging;
+- hidden information and per-connection visibility;
 - accounts, backend APIs and databases;
 - settlement redesign and reconnect;
 - Docker packaging and orchestration;
+- changes to the client scenes' input, HUD or gameplay for remote play;
 - final production content (graphics, animation, audio, story).
 
 Placeholder art remains the default.
@@ -213,11 +214,11 @@ Do not generate extensive documentation for trivial implementation details.
 
 ## Current Priority
 
-Checkpoint A: a reproducible Linux Dedicated Server build (Mono) that starts one small fixture mission without a local player. It has a frame cap and identity and readiness logs, and a bounded diagnostic proves movement and combat through the existing command path.
+The networking experiment's first slice: a FishNet spike with go/no-go criteria, then a plain-C# server gate in front of `CommandableUnit.Issue` and `SetMoveIntent`, a thin server adapter, and a minimal net-test client, proven by a headless harness against the Linux server on `bg-dev-mission01`.
 
-- Keep the server path free of input readers, cameras, HUD, debug views and cosmetic presentation.
+- Keep the gate and the messages free of networking-library types.
 - Keep client scenes and gameplay behaviour unchanged.
 
-Later steps, each authorized separately: the networking experiment (audit §7), then Phase 13 (authenticated between-mission flow and trusted settlement).
+Later steps, each authorized separately: hidden information and per-connection visibility, then Phase 13 (authenticated between-mission flow and trusted settlement).
 
 Do not begin later-stage systems until specifically directed.
