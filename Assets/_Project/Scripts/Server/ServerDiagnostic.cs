@@ -97,8 +97,8 @@ namespace Blackglass
                 Fail("prepare", $"unreachable: no living hostile has a complete NavMesh path from {Mover.name}");
                 return;
             }
-            Freeze();
-            attacker.HitRoll = () => 0f;
+            ServerDeterminism.Freeze(director, Mover);
+            ServerDeterminism.ForceHits(Mover);
             log(Prefix + FormattableString.Invariant(
                 $"prepare mover={Mover.name} target={Target.name} pathM={length:0.0} targetInCover={attacker.IsTargetInCover(Target)} simulationRunning={SimulationTime.IsRunning}"));
 
@@ -253,29 +253,6 @@ namespace Blackglass
             mover.TrySnap(Target.transform.position, out var chosen);
             NavMesh.CalculatePath(from, chosen, NavMesh.AllAreas, path);
             return true;
-        }
-
-        // Diagnostic-only: instance components, never assets; the mover keeps all of its own.
-        void Freeze()
-        {
-            foreach (var hostile in director.Hostiles)
-            {
-                Disable<EnemyAI>(hostile);
-                Disable<AutoRetaliate>(hostile);
-            }
-            foreach (var friendly in director.Friendlies)
-            {
-                if (friendly == Mover)
-                    continue;
-                Disable<CompanionAI>(friendly);
-                Disable<AutoRetaliate>(friendly);
-            }
-        }
-
-        static void Disable<T>(Component unit) where T : Behaviour
-        {
-            if (unit != null && unit.TryGetComponent<T>(out var component))
-                component.enabled = false;
         }
 
         static float Length(NavMeshPath navPath)
