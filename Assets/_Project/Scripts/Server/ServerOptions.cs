@@ -16,6 +16,7 @@ namespace Blackglass
         public const int DefaultDiagnosticTimeoutSeconds = 120;
         public const int DefaultStartupTimeoutSeconds = 60;
         public const int DefaultHeartbeatSeconds = 60;
+        public const int DefaultNetPort = 7770;
 
         /// <summary>The seed to generate; null uses the scene's fixture seed.</summary>
         public int? Seed { get; private set; }
@@ -25,6 +26,13 @@ namespace Blackglass
         public int StartupTimeoutSeconds { get; private set; } = DefaultStartupTimeoutSeconds;
         /// <summary>Seconds between heartbeat lines; 0 turns the heartbeat off.</summary>
         public int HeartbeatSeconds { get; private set; } = DefaultHeartbeatSeconds;
+        /// <summary>Start the networking adapter (the networking experiment, decision 046). Off by default.</summary>
+        public bool Net { get; private set; }
+        public int NetPort { get; private set; } = DefaultNetPort;
+        /// <summary>Path of the development token file on the server; null when none was given.</summary>
+        public string NetTokensPath { get; private set; }
+        /// <summary>Apply the diagnostic's controls (hostile AI off, friendlies' autonomy off, forced hits) so a networked run is repeatable.</summary>
+        public bool NetQuiet { get; private set; }
 
         public static ServerOptions Default => new ServerOptions();
 
@@ -56,6 +64,20 @@ namespace Blackglass
                     case "-startupTimeout":
                         if (TryValue(args, ref i, 5, 3600, warnings, out var startup))
                             options.StartupTimeoutSeconds = startup;
+                        break;
+                    case "-net":
+                        options.Net = true;
+                        break;
+                    case "-netQuiet":
+                        options.NetQuiet = true;
+                        break;
+                    case "-netPort":
+                        if (TryValue(args, ref i, 1024, 65535, warnings, out var netPort))
+                            options.NetPort = netPort;
+                        break;
+                    case "-netTokens":
+                        if (TryText(args, ref i, warnings, out var tokens))
+                            options.NetTokensPath = tokens;
                         break;
                     case "-heartbeat":
                         if (TryValue(args, ref i, 0, 3600, warnings, out var heartbeat))
@@ -103,6 +125,27 @@ namespace Blackglass
             return true;
         }
 
+        // Reads the text after args[i]. A missing value, or another flag, warns and leaves the flag for the loop.
+        static bool TryText(IReadOnlyList<string> args, ref int i, List<string> warnings, out string value)
+        {
+            var name = args[i];
+            value = null;
+            if (i + 1 >= args.Count)
+            {
+                warnings.Add($"{name} has no value; keeping the default");
+                return false;
+            }
+            var text = args[i + 1];
+            if (text.StartsWith("-", StringComparison.Ordinal))
+            {
+                warnings.Add($"{name} has no value (next is {text}); keeping the default");
+                return false;
+            }
+            i++;
+            value = text;
+            return true;
+        }
+
         /// <summary>A copy with the given values replaced (tests, and the bootstrap's diagnostic hand-off).</summary>
         internal ServerOptions With(int? seed = null, bool? diagnostic = null, int? diagnosticTimeoutSeconds = null)
         {
@@ -119,6 +162,7 @@ namespace Blackglass
         /// <summary>One log line; `fixtureSeed` is the scene's seed, shown when there is no override.</summary>
         public string Describe(int fixtureSeed) =>
             FormattableString.Invariant($"seed={Seed ?? fixtureSeed}({(Seed.HasValue ? "override" : "fixture")}) fps={FrameRate} diagnostic={(Diagnostic ? "yes" : "no")} ") +
-            FormattableString.Invariant($"diagnosticTimeout={DiagnosticTimeoutSeconds}s startupTimeout={StartupTimeoutSeconds}s heartbeat={(HeartbeatSeconds > 0 ? HeartbeatSeconds + "s" : "off")}");
+            FormattableString.Invariant($"diagnosticTimeout={DiagnosticTimeoutSeconds}s startupTimeout={StartupTimeoutSeconds}s heartbeat={(HeartbeatSeconds > 0 ? HeartbeatSeconds + "s" : "off")} ") +
+            (Net ? FormattableString.Invariant($"net=yes port={NetPort} quiet={(NetQuiet ? "yes" : "no")}") : "net=no");
     }
 }

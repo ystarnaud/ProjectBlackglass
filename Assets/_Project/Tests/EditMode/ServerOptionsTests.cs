@@ -129,5 +129,60 @@ namespace Blackglass.Tests
             Assert.That(options.Diagnostic, Is.True);
             Assert.That(options.DiagnosticTimeoutSeconds, Is.EqualTo(5));
         }
+
+        [Test]
+        public void NetArguments_HaveTheirDefaults()
+        {
+            var options = Parse(out var warnings);
+            Assert.That(options.Net, Is.False);
+            Assert.That(options.NetPort, Is.EqualTo(7770));
+            Assert.That(options.NetTokensPath, Is.Null);
+            Assert.That(options.NetQuiet, Is.False);
+            Assert.That(warnings, Is.Empty);
+        }
+
+        [Test]
+        public void NetArguments_AreRead()
+        {
+            var options = Parse(out var warnings, "-net", "-netPort", "7801", "-netTokens", "/opt/blackglass/dev-tokens.txt", "-netQuiet");
+            Assert.That(options.Net, Is.True);
+            Assert.That(options.NetPort, Is.EqualTo(7801));
+            Assert.That(options.NetTokensPath, Is.EqualTo("/opt/blackglass/dev-tokens.txt"));
+            Assert.That(options.NetQuiet, Is.True);
+            Assert.That(warnings, Is.Empty);
+        }
+
+        [TestCase("1023")]
+        [TestCase("65536")]
+        [TestCase("abc")]
+        public void ABadNetPort_KeepsTheDefault_AndWarns(string value)
+        {
+            var options = Parse(out var warnings, "-net", "-netPort", value);
+            Assert.That(options.NetPort, Is.EqualTo(7770));
+            Assert.That(options.Net, Is.True);
+            Assert.That(warnings, Has.Count.EqualTo(1));
+            StringAssert.Contains("-netPort", warnings[0]);
+        }
+
+        [Test]
+        public void NetTokens_WithoutAValue_KeepsNull_AndDoesNotSwallowTheNextFlag()
+        {
+            var missing = Parse(out var warnings, "-netTokens");
+            Assert.That(missing.NetTokensPath, Is.Null);
+            Assert.That(warnings, Has.Count.EqualTo(1));
+
+            var flagNext = Parse(out warnings, "-netTokens", "-net");
+            Assert.That(flagNext.NetTokensPath, Is.Null);
+            Assert.That(flagNext.Net, Is.True, "the next flag is left for the loop to read");
+            Assert.That(warnings, Has.Count.EqualTo(1));
+        }
+
+        [Test]
+        public void Describe_ShowsTheNetOptions()
+        {
+            Assert.That(Parse().Describe(7), Does.EndWith("net=no"));
+            Assert.That(Parse("-net", "-netQuiet").Describe(7), Does.EndWith("net=yes port=7770 quiet=yes"));
+            Assert.That(Parse("-net", "-netPort", "7801").Describe(7), Does.EndWith("net=yes port=7801 quiet=no"));
+        }
     }
 }
