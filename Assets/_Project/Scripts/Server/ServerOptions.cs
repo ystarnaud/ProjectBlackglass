@@ -147,7 +147,8 @@ namespace Blackglass
         }
 
         /// <summary>A copy with the given values replaced (tests, and the bootstrap's diagnostic hand-off).</summary>
-        internal ServerOptions With(int? seed = null, bool? diagnostic = null, int? diagnosticTimeoutSeconds = null)
+        internal ServerOptions With(int? seed = null, bool? diagnostic = null, int? diagnosticTimeoutSeconds = null,
+            bool? net = null, int? netPort = null, string netTokensPath = null, bool? netQuiet = null)
         {
             var copy = (ServerOptions)MemberwiseClone();
             if (seed.HasValue)
@@ -156,6 +157,14 @@ namespace Blackglass
                 copy.Diagnostic = diagnostic.Value;
             if (diagnosticTimeoutSeconds.HasValue)
                 copy.DiagnosticTimeoutSeconds = diagnosticTimeoutSeconds.Value;
+            if (net.HasValue)
+                copy.Net = net.Value;
+            if (netPort.HasValue)
+                copy.NetPort = netPort.Value;
+            if (netTokensPath != null)
+                copy.NetTokensPath = netTokensPath;
+            if (netQuiet.HasValue)
+                copy.NetQuiet = netQuiet.Value;
             return copy;
         }
 

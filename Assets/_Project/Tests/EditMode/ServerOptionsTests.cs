@@ -184,5 +184,16 @@ namespace Blackglass.Tests
             Assert.That(Parse("-net", "-netQuiet").Describe(7), Does.EndWith("net=yes port=7770 quiet=yes"));
             Assert.That(Parse("-net", "-netPort", "7801").Describe(7), Does.EndWith("net=yes port=7801 quiet=no"));
         }
+
+        [Test]
+        public void With_ReplacesTheNetOptions()
+        {
+            var options = Parse().With(net: true, netPort: 7801, netTokensPath: "/tokens.txt", netQuiet: true);
+            Assert.That(options.Net, Is.True);
+            Assert.That(options.NetPort, Is.EqualTo(7801));
+            Assert.That(options.NetTokensPath, Is.EqualTo("/tokens.txt"));
+            Assert.That(options.NetQuiet, Is.True);
+            Assert.That(Parse().With(diagnostic: true).Net, Is.False, "untouched values stay as they were");
+        }
     }
 }

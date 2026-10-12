@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &590158159
+--- !u!1 &500607247
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,8 +127,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 590158161}
-  - component: {fileID: 590158160}
+  - component: {fileID: 500607249}
+  - component: {fileID: 500607248}
   m_Layer: 0
   m_Name: Mission
   m_TagString: Untagged
@@ -136,13 +136,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &590158160
+--- !u!114 &500607248
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 590158159}
+  m_GameObject: {fileID: 500607247}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6169981eb357d994782e8681a0030375, type: 3}
@@ -190,15 +190,15 @@ MonoBehaviour:
   - prefab: {fileID: 8744270717196842595, guid: b08e52db2bae1e1428921679d69ff95d, type: 3}
     archetype: {fileID: 0}
   systems:
-    encounter: {fileID: 1333172805}
-    selection: {fileID: 1333172804}
-    activeCharacter: {fileID: 1333172803}
-    coverRegistry: {fileID: 1333172802}
-    coverDiscovery: {fileID: 1333172801}
-    pause: {fileID: 1333172800}
+    encounter: {fileID: 1292257733}
+    selection: {fileID: 1292257732}
+    activeCharacter: {fileID: 1292257731}
+    coverRegistry: {fileID: 1292257730}
+    coverDiscovery: {fileID: 1292257729}
+    pause: {fileID: 1292257728}
     camera: {fileID: 0}
     abilityTargeting: {fileID: 0}
-    interactables: {fileID: 1333172799}
+    interactables: {fileID: 1292257727}
     roster: {fileID: 0}
     intelligence: {fileID: 0}
     inventory: {fileID: 0}
@@ -210,13 +210,13 @@ MonoBehaviour:
   newSeedAtStart: 0
   cameraMargin: 2
   lootTable: {fileID: 0}
---- !u!4 &590158161
+--- !u!4 &500607249
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 590158159}
+  m_GameObject: {fileID: 500607247}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -225,7 +225,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1286336102
+--- !u!1 &1292257726
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -233,60 +233,14 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1286336104}
-  - component: {fileID: 1286336103}
-  m_Layer: 0
-  m_Name: Server
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &1286336103
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1286336102}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 51237cb17b75d2947912afa4c9091caf, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.ServerBootstrap
-  director: {fileID: 590158160}
-  pause: {fileID: 1333172800}
---- !u!4 &1286336104
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1286336102}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1333172798
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1333172806}
-  - component: {fileID: 1333172800}
-  - component: {fileID: 1333172805}
-  - component: {fileID: 1333172804}
-  - component: {fileID: 1333172803}
-  - component: {fileID: 1333172802}
-  - component: {fileID: 1333172801}
-  - component: {fileID: 1333172799}
+  - component: {fileID: 1292257734}
+  - component: {fileID: 1292257728}
+  - component: {fileID: 1292257733}
+  - component: {fileID: 1292257732}
+  - component: {fileID: 1292257731}
+  - component: {fileID: 1292257730}
+  - component: {fileID: 1292257729}
+  - component: {fileID: 1292257727}
   m_Layer: 0
   m_Name: Systems
   m_TagString: Untagged
@@ -294,43 +248,43 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1333172799
+--- !u!114 &1292257727
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1333172798}
+  m_GameObject: {fileID: 1292257726}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fa0879808b197b74da58ca14c6fa949e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.InteractableRegistry
---- !u!114 &1333172800
+--- !u!114 &1292257728
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1333172798}
+  m_GameObject: {fileID: 1292257726}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 50b9aa0734f3c3c40b1aebf963dfdfdf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.TacticalPause
---- !u!114 &1333172801
+--- !u!114 &1292257729
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1333172798}
+  m_GameObject: {fileID: 1292257726}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 930889caf623c5d49a0ae8da5a3a66a0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.CoverDiscovery
-  registry: {fileID: 1333172802}
+  registry: {fileID: 1292257730}
   settings:
     standOffset: 0.75
     spacing: 1
@@ -344,53 +298,53 @@ MonoBehaviour:
     hitChance: 0.5
     walkableTolerance: 0.25
   discoverOnStart: 0
---- !u!114 &1333172802
+--- !u!114 &1292257730
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1333172798}
+  m_GameObject: {fileID: 1292257726}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4223b18790f34b2438b11a03579b77a9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.CoverRegistry
---- !u!114 &1333172803
+--- !u!114 &1292257731
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1333172798}
+  m_GameObject: {fileID: 1292257726}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d6a8c373101e1ab49a8ee58548ca5079, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.ActiveCharacter
   unit: {fileID: 0}
-  tacticalPause: {fileID: 1333172800}
-  selection: {fileID: 1333172804}
---- !u!114 &1333172804
+  tacticalPause: {fileID: 1292257728}
+  selection: {fileID: 1292257732}
+--- !u!114 &1292257732
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1333172798}
+  m_GameObject: {fileID: 1292257726}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 85119a1265222e648bfe393a732026ea, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.UnitSelection
   roster: []
---- !u!114 &1333172805
+--- !u!114 &1292257733
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1333172798}
+  m_GameObject: {fileID: 1292257726}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 562c72dcdffc20841b4a50f12763c1f6, type: 3}
@@ -398,13 +352,74 @@ MonoBehaviour:
   m_EditorClassIdentifier: Blackglass::Blackglass.Encounter
   friendlies: []
   hostiles: []
---- !u!4 &1333172806
+--- !u!4 &1292257734
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1333172798}
+  m_GameObject: {fileID: 1292257726}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1580470583
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1580470586}
+  - component: {fileID: 1580470585}
+  - component: {fileID: 1580470584}
+  m_Layer: 0
+  m_Name: Server
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1580470584
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1580470583}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5fc393e15ea6252478f0fbd7e0e19850, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.NetServer
+  avatarPrefab: {fileID: 2289379598466218246, guid: a9a3fee26fe2bef41b977e4dfaf55bf1, type: 3}
+  spawnablePrefabs: {fileID: 11400000, guid: 4f17b9e6468558348aca27140f4f108a, type: 2}
+--- !u!114 &1580470585
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1580470583}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 51237cb17b75d2947912afa4c9091caf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.ServerBootstrap
+  director: {fileID: 500607248}
+  pause: {fileID: 1292257728}
+--- !u!4 &1580470586
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1580470583}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -417,6 +432,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 1286336104}
-  - {fileID: 1333172806}
-  - {fileID: 590158161}
+  - {fileID: 1580470586}
+  - {fileID: 1292257734}
+  - {fileID: 500607249}

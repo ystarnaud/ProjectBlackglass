@@ -19,7 +19,7 @@ namespace Blackglass.Tests
         static readonly Type[] Allowed =
         {
             typeof(ServerBootstrap), typeof(TacticalPause), typeof(Encounter), typeof(UnitSelection), typeof(ActiveCharacter),
-            typeof(CoverRegistry), typeof(CoverDiscovery), typeof(InteractableRegistry), typeof(MissionDirector),
+            typeof(CoverRegistry), typeof(CoverDiscovery), typeof(InteractableRegistry), typeof(MissionDirector), typeof(NetServer),
         };
 
         Scene scene;

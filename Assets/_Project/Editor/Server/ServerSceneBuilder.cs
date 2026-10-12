@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using FishNet.Managing.Object;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -81,6 +82,10 @@ namespace Blackglass.EditorTools
                 generateAtStart: false, randomSeedAtStart: false, theme: null);
 
             server.AddComponent<ServerBootstrap>().Initialize(director, pause);
+            // The networking adapter is in the scene but inert: it builds FishNet's manager only when -net is given.
+            server.AddComponent<NetServer>().Initialize(
+                Load<GameObject>("Prefabs/Net/NetUnitAvatar.prefab"),
+                AssetDatabase.LoadAssetAtPath<PrefabObjects>("Assets/DefaultPrefabObjects.asset"));
 
             if (!EditorSceneManager.SaveScene(scene, ScenePath))
                 throw new InvalidOperationException("Could not save " + ScenePath + ".");

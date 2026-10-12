@@ -118,8 +118,7 @@ namespace Blackglass
             LogReady();
             LogSelfCheck();
             StartHeartbeat(Now);
-            if (options.Diagnostic)
-                BeginDiagnostic(options);
+            StartConfiguredMode(options);
         }
 
         /// <summary>Starts the diagnostic on the ready mission (from the Ready handler with -diagnostic; tests call it directly).</summary>
@@ -127,6 +126,38 @@ namespace Blackglass
         {
             diagnostic = new ServerDiagnostic(director, diagnosticOptions.DiagnosticTimeoutSeconds, line => Debug.Log(line));
             diagnostic.Begin(Now);
+        }
+
+        /// <summary>
+        /// What the ready server does next (from the Ready handler; tests call it directly): a diagnostic run wins over -net, so
+        /// the diagnostic stays bounded; otherwise -net starts the networking adapter; otherwise the server just runs.
+        /// </summary>
+        internal void StartConfiguredMode(ServerOptions modeOptions)
+        {
+            if (modeOptions.Diagnostic)
+            {
+                if (modeOptions.Net)
+                    Debug.LogWarning(Prefix + "-net is ignored with -diagnostic");
+                BeginDiagnostic(modeOptions);
+            }
+            else if (modeOptions.Net)
+            {
+                BeginNet(modeOptions);
+            }
+        }
+
+        /// <summary>Starts the networking adapter on the ready mission; a failure ends the process with the startup exit code.</summary>
+        internal void BeginNet(ServerOptions netOptions)
+        {
+            var net = GetComponent<NetServer>();
+            if (net == null)
+            {
+                Finish(ServerExitCodes.StartupFailed, "net: -net was given but the scene has no NetServer");
+                return;
+            }
+            var failure = net.Begin(netOptions, director);
+            if (failure != null)
+                Finish(ServerExitCodes.StartupFailed, "net: " + failure);
         }
 
         void Update()
@@ -269,10 +300,19 @@ namespace Blackglass
                 heartbeatCpu = processor;
             }
             Debug.Log(Prefix + FormattableString.Invariant(
-                $"heartbeat uptimeS={now:0} fps={fps:0.0} cpuPct={cpu} rssMB={rss} managedMB={GC.GetTotalMemory(false) / 1048576d:0.0} state={director.State} phase={director.Phase}"));
+                $"heartbeat uptimeS={now:0} fps={fps:0.0} cpuPct={cpu} rssMB={rss} managedMB={GC.GetTotalMemory(false) / 1048576d:0.0} state={director.State} phase={director.Phase}") + NetSummary());
             heartbeatStart = now;
             nextHeartbeat = now + options.HeartbeatSeconds;
             heartbeatFrames = 0;
+        }
+
+        string NetSummary()
+        {
+            var net = GetComponent<NetServer>();
+            if (net == null || !net.Running || net.Host == null)
+                return string.Empty;
+            return FormattableString.Invariant(
+                $" net={net.ConnectionCount} accepted={net.Host.Accepted} rejected={net.Host.Rejected} dropped={net.Host.Dropped}");
         }
 
         static bool TrySample(out TimeSpan processor, out long workingSet)
