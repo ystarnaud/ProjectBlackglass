@@ -708,3 +708,39 @@ Short record of decisions that are likely to matter later. Newest last.
   - The Linux build has been run only on `bg-dev-mission01`.
   - The server logs one warning: "Trying to access a shader but no shaders were included in the build because Dedicated Server Optimizations is enabled". It is probably the default material `GameObject.CreatePrimitive` gives the mission's cubes, but this is not verified. It does not affect the simulation.
   - In the first 10-minute VM smoke run, resident memory rose steadily, about 0.43 MB/min (98.6 to 102.5 MB), while the managed heap stayed flat. A 2-hour run showed this is warm-up: RSS reached 106.4 MB at about 25 minutes and stayed flat for the rest of the run (audit §9.2). Memory under load is unmeasured.
+
+## 046 — Networking library for the first networking slice: FishNet over WebSockets, chosen by a spike
+
+- **Decided (networking experiment, first slice, 2026-10-12):**
+  - **FishNet 4.7.3** is the library for the slice, installed by package reference (`com.firstgeargames.fishnet`, Git URL pinned to the tag `4.7.3`). This is the result of a spike for this slice; the wider stack stays provisional (`CLAUDE.md`).
+  - **Transport: FishyUnityTransport 2.0.0-pre.2 in WebSocket mode on Unity Transport 2.7.4** (`com.alven.fishnet.unitytransport`, `com.unity.transport`, both package references). WebSocket runs over TCP, so a client can reach the loopback-bound server through an SSH tunnel. FishNet's default transport, Tugboat, uses LiteNetLib over UDP only.
+  - `Blackglass.asmdef` references `FishNet.Runtime`. The networking core under `Scripts/Net/Core/` references no networking library (a source-audit test enforces it).
+  - **Side effects of the install, committed:** the Standalone scripting defines `FISHNET;FISHNET_V4` in `ProjectSettings.asset`; `Assets/DefaultPrefabObjects.asset` (FishNet's prefab collection, empty until a networked prefab exists); `com.unity.nuget.newtonsoft-json` 3.2.2 in the lock file as a new transitive package.
+- **Why (spike, 2026-10-12, Unity 6000.3.25f1):**
+  - **Install:** compiles with no errors; EditMode 1271/1271 and PlayMode 1367/1367, unchanged.
+  - **Linux server and tunnel:** a Linux Dedicated Server (Mono) build with FishNet started on `bg-dev-mission01`, bound to TCP `127.0.0.1:7770` only. A Windows player connected through `ssh -L` over WebSockets: 393 messages sent, 392 replies, no errors.
+  - **Time scale:** FishNet's `TimeManager` ticks from `Time.unscaledDeltaTime`. With `Time.timeScale` set to 0 on the server, replies kept coming (the ping count rose from 52 to over 320 in 30 s) and a `NetworkTransform` kept syncing to the client (about 10 000 position changes in 40 s).
+  - **Visibility API:** `NetworkObserver`, `ObserverManager` and `ObserverCondition` exist; they compile and were not exercised.
+  - **Idle cost, 10 minutes, FishNet and the WebSocket transport listening, no client, 60 fps cap:**
+
+    | | Checkpoint A | FishNet idle | FishNet with a synced object moving |
+    |---|---|---|---|
+    | heartbeat fps | 60.0 | 60.0 | 60.0 |
+    | CPU after Ready, mean / max (% of one core) | 1.4 / 1.6 | 1.9 / 2.2 | 3.1 / 3.6 |
+    | RSS peak | 102.5 MB | 115.2 MB | 122.9 MB |
+    | exceptions | 0 | 0 | 0 |
+
+- **Rejected or not tried:**
+  - **Tugboat:** UDP only, so it cannot use the SSH tunnel.
+  - **Bayou:** a separate download described as a WebGL transport; FishyUnityTransport installs as a package.
+  - **Netcode for GameObjects and a thin layer on Unity Transport:** not tested. They remain the fallbacks if FishNet fails a later check.
+- **Implications:**
+  - **Headless auto-start.** FishNet starts a headless server by itself (`ServerManager` `StartOnHeadless`, on by default) at `NetworkManager.Start`, with the transport's defaults, before any project code runs. The server adapter must call `SetStartOnHeadless(false)` in `Awake`, so `-net` is the only way the server listens. With the transport defaults that auto-start listens on loopback only (UDP 7777).
+  - **Frame cap.** FishNet re-applies `Application.targetFrameRate` once the server starts (tick rate 30 plus 15 = 45 by default). The adapter must call `ServerManager.SetFrameRate` with the bootstrap's cap. Without it the idle spike ran at exactly 45 fps.
+  - **File names.** A scene that references a `MonoBehaviour` declared in a file named after neither class loaded on Windows but killed the Linux server at start (`The file .../level0 is corrupted!`, SIGTRAP). The project convention of one component per file named after its class is required.
+  - **Quiet logs.** FishNet logging is quiet in headless builds by default, and a failed `StartConnection()` returned false without a message in the spike. The adapter should log its own start result.
+  - **Replication.** Library transform sync works headless, so the first slice can use it for positions or send its own snapshots.
+- **Known limitations:**
+  - The spike used one client for 40 s through a tunnel; it measured no packet loss, latency or load.
+  - The CPU cost with a moving synced object (3.1 % mean) is above the 3.0 % limit the plan set for the spike by 0.1 point; the idle configuration (1.9 %) meets every limit. The owner is asked to confirm that is acceptable.
+  - FishyUnityTransport 2.0.0-pre.2 carries a pre-release version tag, and Unity Transport 2.7.4 declares Unity 2022.3 as its minimum; both ran on 6000.3.25f1 in the spike. FishNet's documentation lists Unity 6 LTS as fully supported.

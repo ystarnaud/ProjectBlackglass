@@ -5,7 +5,8 @@
         "Unity.InputSystem",
         "UnityEngine.UI",
         "Unity.AI.Navigation",
-        "Unity.RenderPipelines.Universal.Runtime"
+        "Unity.RenderPipelines.Universal.Runtime",
+        "FishNet.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
