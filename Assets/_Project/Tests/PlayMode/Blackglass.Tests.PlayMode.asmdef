@@ -3,6 +3,8 @@
     "rootNamespace": "Blackglass.Tests",
     "references": [
         "Blackglass",
+        "FishNet.Runtime",
+        "FishyUnityTransport",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "Unity.AI.Navigation",

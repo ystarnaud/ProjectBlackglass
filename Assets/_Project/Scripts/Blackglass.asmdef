@@ -6,7 +6,9 @@
         "UnityEngine.UI",
         "Unity.AI.Navigation",
         "Unity.RenderPipelines.Universal.Runtime",
-        "FishNet.Runtime"
+        "FishNet.Runtime",
+        "FishyUnityTransport",
+        "Unity.Networking.Transport"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
