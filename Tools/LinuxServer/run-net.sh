@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts, stops or reports the networked mission server on this machine (networking experiment, decision 046).
 # Usage: run-net.sh start|stop|status
-# Environment: NET_PORT (7770), NET_SECONDS (3600: `timeout` ends the process), BLACKGLASS_LOGS, BLACKGLASS_TOKENS.
+# Environment: NET_PORT (7770), NET_SECONDS (3600: `timeout` ends the process), BLACKGLASS_LOGS, BLACKGLASS_TOKENS,
+#              NET_FIXTURE (1: start the development fixture; needs the fixture build).
 # The server listens on 127.0.0.1 only; reach it with `ssh -L`. -netQuiet makes the harness repeatable (decision 046).
 set -u
 dir="$(cd "$(dirname "$0")" && pwd)"
@@ -20,8 +21,12 @@ case "${1:-}" in
     mkdir -p "$logs"
     rev=$(awk -F= '$1=="revision"{print substr($2,1,7)}' "$dir/build-info.txt" 2>/dev/null)
     log="$logs/$(date -u +%Y%m%dT%H%M%SZ)-${rev:-unknown}-net.log"
+    fixture_args=""
+    if [ "${NET_FIXTURE:-0}" = "1" ]; then fixture_args="-netFixture"; fi
+    variant=$(awk -F= '$1=="variant"{print $2}' "$dir/build-info.txt" 2>/dev/null)
+    echo "build variant=${variant:-unknown} fixture=${NET_FIXTURE:-0}"
     setsid nohup timeout --kill-after=10 "$limit" "$dir/BlackglassServer.x86_64" -batchmode -nographics -logFile "$log" \
-      -net -netQuiet -netPort "$port" -netTokens "$tokens" > /dev/null 2>&1 < /dev/null &
+      -net -netQuiet $fixture_args -netPort "$port" -netTokens "$tokens" > /dev/null 2>&1 < /dev/null &
     echo $! > "$pidfile"
     for _ in $(seq 1 30); do
       if grep -q "\[Net\] listening" "$log" 2>/dev/null; then

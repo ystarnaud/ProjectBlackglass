@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Builds the Linux Dedicated Server (Mono) from ServerMission.unity and packages it for a VM (Checkpoint A).
-# The Unity Editor must be closed. Usage: Tools/build-server.sh
+# The Unity Editor must be closed.
+# Usage: Tools/build-server.sh [--fixture]   (--fixture: a development build with the -netFixture test fixture)
 # Output: Builds/LinuxServer/ (the build) and Builds/blackglass-server-linux-<sha>[-dirty].tar.gz (the package).
 set -u
+method=Blackglass.EditorTools.ServerBuild.BuildFromCommandLine
+variant=release
+if [ "${1:-}" = "--fixture" ]; then
+  method=Blackglass.EditorTools.ServerBuild.BuildFixtureFromCommandLine
+  variant=fixture
+fi
 root_unix="$(cd "$(dirname "$0")/.." && pwd)"
 root="$(cd "$root_unix" && (pwd -W 2>/dev/null || pwd))"
 unity="${UNITY_EXE:-/c/Program Files/Unity/Hub/Editor/6000.3.25f1/Editor/Unity.exe}"
@@ -13,7 +20,7 @@ mkdir -p "$root_unix/Logs" "$root_unix/Builds"
 rm -rf "$out"
 
 "$unity" -batchmode -quit -projectPath "$root" \
-  -executeMethod Blackglass.EditorTools.ServerBuild.BuildFromCommandLine -logFile "$log"
+  -executeMethod "$method" -logFile "$log"
 code=$?
 
 if grep -q "another Unity instance is running" "$log" 2>/dev/null; then
@@ -36,6 +43,7 @@ rev=$(awk -F= '$1=="revision"{print substr($2,1,7)}' "$out/build-info.txt")
 dirty=$(awk -F= '$1=="dirty"{print $2}' "$out/build-info.txt")
 suffix=""
 if [ "$dirty" = "true" ]; then suffix="-dirty"; fi
+if [ "$variant" = "fixture" ]; then suffix="${suffix}-fixture"; fi
 archive="$root_unix/Builds/blackglass-server-linux-${rev}${suffix}.tar.gz"
 rm -f "$archive"
 # Unity's Burst debug information is for local debugging only (its folder is named *_DoNotShip).
