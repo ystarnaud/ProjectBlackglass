@@ -6,7 +6,7 @@ namespace Blackglass
 {
     /// <summary>
     /// What the net-test client shows: a capsule on every replicated avatar (blue for the player's own units, green for other
-    /// friendlies, red for hostiles), a top-down camera that frames them, and a text overlay with the connection, the round-trip
+    /// friendlies, red for hostiles; a grey disc where a hostile was last seen), a top-down camera that frames them, and a text overlay with the connection, the round-trip
     /// time, the last refused request and each own unit's health and orders. The avatars carry no visuals; the capsules are
     /// built here, with a material the scene references so a player build always has its shader.
     /// </summary>
@@ -19,6 +19,8 @@ namespace Blackglass
         [SerializeField] Material unitMaterial;
 
         readonly Dictionary<NetUnitState, GameObject> visuals = new Dictionary<NetUnitState, GameObject>();
+        readonly Dictionary<int, GameObject> markers = new Dictionary<int, GameObject>();
+        readonly List<int> staleMarkers = new List<int>();
         MaterialPropertyBlock block;
 
         internal void Initialize(NetClient netClient, Camera camera, Material material)
@@ -30,7 +32,9 @@ namespace Blackglass
 
         void LateUpdate()
         {
-            var states = FindObjectsByType<NetUnitState>(FindObjectsSortMode.None);
+            if (client != null)
+                DrawLastKnown();
+            var states = NetClient.VisibleStates();
             var centre = Vector3.zero;
             var counted = 0;
             var extent = 0f;
@@ -43,6 +47,11 @@ namespace Blackglass
                 Style(visual, state);
                 centre += state.transform.position;
                 counted++;
+            }
+            foreach (var pair in visuals)
+            {
+                if (pair.Value != null && pair.Key != null && !pair.Key.IsClientInitialized)
+                    pair.Value.SetActive(false);
             }
             if (counted == 0 || viewCamera == null)
                 return;
@@ -78,6 +87,44 @@ namespace Blackglass
             visual.GetComponent<Renderer>().SetPropertyBlock(block);
         }
 
+        // A last-known record is a flat grey disc where the hostile was last seen; it never moves until the record changes.
+        void DrawLastKnown()
+        {
+            foreach (var pair in client.Record.LastKnown)
+            {
+                if (!markers.TryGetValue(pair.Key, out var marker) || marker == null)
+                    markers[pair.Key] = marker = CreateMarker(pair.Key);
+                marker.transform.position = pair.Value + new Vector3(0f, 0.05f, 0f);
+            }
+            staleMarkers.Clear();
+            foreach (var pair in markers)
+            {
+                if (!client.Record.LastKnown.ContainsKey(pair.Key))
+                    staleMarkers.Add(pair.Key);
+            }
+            foreach (var id in staleMarkers)
+            {
+                if (markers[id] != null)
+                    Destroy(markers[id]);
+                markers.Remove(id);
+            }
+        }
+
+        GameObject CreateMarker(int unitId)
+        {
+            var disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            disc.name = "LastKnown_" + unitId;
+            Destroy(disc.GetComponent<Collider>());
+            disc.transform.localScale = new Vector3(1.2f, 0.02f, 1.2f);
+            var renderer = disc.GetComponent<Renderer>();
+            renderer.sharedMaterial = unitMaterial;
+            if (block == null)
+                block = new MaterialPropertyBlock();
+            block.SetColor(BaseColor, new Color(0.55f, 0.55f, 0.55f));
+            renderer.SetPropertyBlock(block);
+            return disc;
+        }
+
         void OnGUI()
         {
             if (client == null)
@@ -89,7 +136,8 @@ namespace Blackglass
             text.Append("   round trip ").Append(client.RoundTripMs).Append(" ms");
             if (client.LastReject != NetRejectReason.None)
                 text.Append("\nlast refused: ").Append(client.LastReject).Append(" (command ").Append(client.LastRejectCommand).Append(')');
-            foreach (var state in FindObjectsByType<NetUnitState>(FindObjectsSortMode.None))
+            text.Append("\nlast known: ").Append(client.Record.LastKnown.Count);
+            foreach (var state in NetClient.VisibleStates())
             {
                 if (state.UnitId < client.FirstOwnedId || state.UnitId >= client.FirstOwnedId + client.OwnedCount)
                     continue;

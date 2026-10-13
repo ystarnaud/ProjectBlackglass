@@ -21,7 +21,7 @@ namespace Blackglass
 
     /// <summary>
     /// The client side of the networking experiment: connects with the WebSocket transport, says hello with the development
-    /// token, and then sends numbered requests and collects the server's answers. Holds no game rule; the avatars the server
+    /// token, and then sends numbered requests and collects the server's answers. Holds no game rule; everything it decodes is kept in Record, which the harness reads; the avatars the server
     /// replicates are read by NetClientView and the harness (NetUnitState).
     /// </summary>
     public sealed class NetClient : MonoBehaviour
@@ -32,6 +32,7 @@ namespace Blackglass
 
         readonly Dictionary<uint, byte> results = new Dictionary<uint, byte>();
         readonly Queue<uint> resultOrder = new Queue<uint>();
+        readonly NetClientRecord record = new NetClientRecord();
         NetworkManager manager;
         UnityTransport transport;
         string token;
@@ -40,6 +41,9 @@ namespace Blackglass
         uint commandId;
 
         internal void Initialize(PrefabObjects prefabs) => spawnablePrefabs = prefabs;
+
+        public NetClientRecord Record => record;
+        static double Now => Time.realtimeSinceStartupAsDouble;
 
         public NetClientState State { get; private set; }
         public NetRefusal Refusal { get; private set; }
@@ -61,6 +65,7 @@ namespace Blackglass
             FirstOwnedId = 0;
             OwnedCount = 0;
             results.Clear();
+            record.Clear();
             resultOrder.Clear();
 
             createdManager = NetworkManager.Instances.Count == 0;
@@ -79,6 +84,9 @@ namespace Blackglass
             client.RegisterBroadcast<NetWelcomeMessage>(OnWelcome);
             client.RegisterBroadcast<NetRefusedMessage>(OnRefused);
             client.RegisterBroadcast<NetResultMessage>(OnResult);
+            client.RegisterBroadcast<NetKnowledgeMessage>(OnKnowledge);
+            client.RegisterBroadcast<NetContainerMessage>(OnContainer);
+            client.RegisterBroadcast<NetFixtureStepMessage>(OnStep);
             State = NetClientState.Connecting;
             if (!client.StartConnection())
             {
@@ -99,6 +107,9 @@ namespace Blackglass
                     client.UnregisterBroadcast<NetWelcomeMessage>(OnWelcome);
                     client.UnregisterBroadcast<NetRefusedMessage>(OnRefused);
                     client.UnregisterBroadcast<NetResultMessage>(OnResult);
+                    client.UnregisterBroadcast<NetKnowledgeMessage>(OnKnowledge);
+                    client.UnregisterBroadcast<NetContainerMessage>(OnContainer);
+                    client.UnregisterBroadcast<NetFixtureStepMessage>(OnStep);
                     client.StopConnection();
                 }
                 if (createdManager)
@@ -160,6 +171,7 @@ namespace Blackglass
 
         void OnWelcome(NetWelcomeMessage message, Channel channel)
         {
+            record.Note(Now, nameof(NetWelcomeMessage));
             AttemptId = message.AttemptId;
             FirstOwnedId = message.FirstOwnedId;
             OwnedCount = message.OwnedCount;
@@ -168,12 +180,14 @@ namespace Blackglass
 
         void OnRefused(NetRefusedMessage message, Channel channel)
         {
+            record.Note(Now, nameof(NetRefusedMessage));
             Refusal = (NetRefusal)message.Reason;
             State = NetClientState.Refused;
         }
 
         void OnResult(NetResultMessage message, Channel channel)
         {
+            record.Note(Now, nameof(NetResultMessage));
             if (!results.ContainsKey(message.CommandId))
                 resultOrder.Enqueue(message.CommandId);
             results[message.CommandId] = message.Reason;
@@ -185,5 +199,48 @@ namespace Blackglass
             while (resultOrder.Count > ResultsKept)
                 results.Remove(resultOrder.Dequeue());
         }
+
+        /// <summary>Development fixture only: asks the server to carry out one verb. A server without the fixture refuses it.</summary>
+        public void SendFixture(NetFixtureVerb verb) => manager.ClientManager.Broadcast(new NetFixtureMessage { Verb = (byte)verb });
+
+        /// <summary>
+        /// The avatars this client has been sent. In a separate process that is every NetUnitState; in host mode (tests) the
+        /// server's avatars exist in the scene whether or not this client observes them, so only client-initialized ones count.
+        /// </summary>
+        public static List<NetUnitState> VisibleStates()
+        {
+            var result = new List<NetUnitState>();
+            foreach (var state in FindObjectsByType<NetUnitState>(FindObjectsSortMode.None))
+            {
+                if (state.IsClientInitialized && state.UnitId > 0)
+                    result.Add(state);
+            }
+            return result;
+        }
+
+        // Every avatar instance this client is sent, the first frame it is seen (the harness checks nothing arrived early).
+        void Update()
+        {
+            if (State != NetClientState.Ready && State != NetClientState.Authenticating)
+                return;
+            foreach (var state in VisibleStates())
+                record.Sight(Now, state.GetInstanceID(), state.UnitId, state.Hostile, state.transform.position);
+        }
+
+        void OnKnowledge(NetKnowledgeMessage message, Channel channel) =>
+            record.Knowledge(Now, message.UnitId, (NetKnowledge)message.Knowledge, message.Position);
+
+        void OnContainer(NetContainerMessage message, Channel channel)
+        {
+            var items = new List<NetItem>();
+            if (message.Entries != null)
+            {
+                foreach (var entry in message.Entries)
+                    items.Add(new NetItem(entry.DefinitionId, entry.Quantity, entry.InstanceId));
+            }
+            record.Container(Now, items);
+        }
+
+        void OnStep(NetFixtureStepMessage message, Channel channel) => record.Step(Now, message.Step);
     }
 }
