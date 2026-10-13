@@ -473,6 +473,7 @@ Paths below are relative to `Assets/_Project/Scripts/` unless stated otherwise.
 |---|---|---|
 | **Checkpoint A: headless Linux server startup** | Server-only scene and bootstrap, fixture mission, frame cap, identity and readiness logs, bounded move and attack diagnostic, Linux Dedicated Server (Mono) build, VM smoke run. **No networking, no backend.** | Done 2026-10-11 (§9.2) |
 | Networking experiment | The §7 proof: library choice (FishNet is a candidate only), server gate, per-connection visibility, two clients. | First slice done 2026-10-12 (§9.3): library chosen by a spike, server gate, two clients, no hidden information yet |
+| Networking experiment, hidden information | Per-connection visibility: the real intelligence on the server, a frozen last-known record, `UnknownUnit` for hidden hostiles, a development fixture, two-client harness. | Done 2026-10-12 (§9.4): all 18 acceptance criteria PASS on `bg-dev-mission01`; geometry secrecy, per-owner models and real loot replication deferred |
 | Phase 13 | Authenticated between-mission flow and trusted settlement (§8). | Not started |
 
 ### 9.2 Checkpoint A results (2026-10-11)
@@ -563,3 +564,49 @@ This is the audit's §7 proof reduced to its first slice: an authoritative Linux
 - FishNet starts a headless server on its own and overrides the frame cap unless told otherwise (decision 046); a scene component in the wrong file kills a Linux server at start.
 - The 150 ms figure is a LAN target; through an SSH tunnel with a 93 ms round trip it is not reachable, so any real latency decision needs a measurement on the intended network.
 - The harness runs from this PC through `ssh -L`; the server never listens on a public address.
+
+### 9.4 Networking experiment, hidden-information slice (2026-10-12)
+
+This is the second slice of the §7 proof: the server sends each connection only the hostile state its visibility allows. It is **not Phase 13**: no accounts, backend, database or settlement exist. Design: decision 047 and `Docs/superpowers/specs/2026-10-12-hidden-information-design.md`. Run guide: `Docs/DedicatedServer.md`. Branch `networking-hidden-info`, head `3ddc7e5` before the documents commit. The acceptance run used builds at `bac821a` and `282d784` (`dirty` from the owner's two settings files only), FishNet 4.7.3, FishyUnityTransport 2.0.0-pre.2, Unity Transport 2.7.4, Unity 6000.3.25f1, on `bg-dev-mission01`.
+
+| Check | Covered | Evidence |
+|---|---|---|
+| A3 nine bad requests | seven of nine | the six from §9.3, plus an attack on a hidden hostile answered `UnknownUnit` with no state change; an ability on cooldown and taking items from a container are not exercised |
+| A5 hidden information | yes, through the fixture's observation grant instead of Recon Scan | harness `visibility-a` PASS 26 steps; `visibility-b` PASS 4 steps; real intelligence (fog on) separately in-editor |
+| A6 container | searching only | `no contents before search OK no container message`, then `contents after search OK 2 stacks`; B received 0 container messages; taking items is deferred |
+| A9 non-owner client | yes, and stronger | B receives no unit at all (0 avatars, 0 sightings, 0 last-known records, 0 knowledge and 0 container messages, 0 unexpected message types, 0 positioned messages); role `b` PASS 13 |
+| A10 suites green | yes | EditMode 1432/1432 at `3ddc7e5`; PlayMode 1431/1431 at `77a9226`; at `bac821a` 1430/1431, the known flaky `TheGeneratedExplosion_ScalesItsExtentWithTheRadius` (2.407 against 1.6 to 2.4), which passes alone; Net PlayMode 61/61 at `282d784` |
+
+The owner's 18 acceptance criteria, all PASS:
+
+| # | Criterion | Evidence |
+|---|---|---|
+| 1 | `-net` exposes only the loopback listener | `282d784`, release and fixture builds: the server process owns one socket, TCP `127.0.0.1:7770`; fixture: `55000 anywhere: 0`, no UDP, no "Player connection" line. At `bac821a` the fixture build was a Development build and also listened on `0.0.0.0:55000` and `0.0.0.0:46686` (fixed in `282d784`, decision 047) |
+| 2 | Checkpoint A diagnostic without `-net` | `BLACKGLASS DIAGNOSTIC PASS moveS=1.4 attackS=3.6`, exit 0 |
+| 3 | Part 2 roles still pass | roles `a`, `b`, `ticket`, `badtoken` PASS |
+| 4 | No live hostile state at A before observation | `hidden at start OK no hostile avatar, no knowledge and no container message`; `nothing before the reveal OK 0 hostile sightings and 0 positions at the hostile` |
+| 5 | B holds no unauthorized hostile state | `step 1 blind` to `step 6 blind`; zero counts above; the server logged `fixture refused ... account=account-b` |
+| 6 | Live movement reflected to A while observed | `live movement OK the hostile moved 2.0 m` |
+| 7 | Last-known marker stays fixed | `one record at the last position OK 1 record(s), 0.00 m`; `record frozen OK no avatar, no message, the record unchanged` |
+| 8 | Re-observation replaces stale data | `re-observed OK the avatar is back and the record cleared`; `current position OK 3.2 m from the stale record` |
+| 9 | Guessed attack rejected, no state change | `guessed attack refused OK ... UnknownUnit`; `guessed attack changed nothing`; `reused id refused OK answered UnknownUnit` |
+| 10 | No hostile combat, order or target leak | `attack ended OK the server ended the attack on a target this client no longer observes`; `message types OK 15 messages, all of expected types`; B 0 positioned messages |
+| 11 | Contents only after search, only to the searcher | see A6 above |
+| 12 | No normal message carries the seed | the message-shape and avatar-field reflection tests and the harness message-type check pass. Limitation: by type and field name, not by value |
+| 13 | Avatar explicitly server-authoritative | `_clientAuthoritative: 0` test, no avatar owned, no `GiveOwnership` |
+| 14 | Core source audit free of FishNet, Unity.Transport, Unity.Collections | `TheCoreFiles_ReferenceNoNetworkingLibrary` green |
+| 15 | Suites green | see A10 above |
+| 16 | Real Windows client against the VM prints PASS, exit 0 | seven roles `exit=0 ... BLACKGLASS NET HARNESS PASS` through `ssh -L`, at `bac821a` and again at `282d784`. The first run at `77a9226` found the built client's parser rejected the three new roles (`fixture-denied` exit 124); fixed in `bac821a` |
+| 17 | No tunnel or client remains, including on failure | `leftover clients=0 tunnel=none` after every runner call, confirmed independently; forced failure with the server down took 68 s, every role that ran exited 2 |
+| 18 | Idle run: no new exceptions, no material regression | 600 s release `-net` at `bac821a`: 0 exception, 0 error, CPU mean 1.9 % and max 2.4 % (part 2: 1.9 and 2.2), RSS peak 117.0 MB (part 2: 116.3), fps min 59.8, SIGTERM exit status 0 |
+
+**What is server-filtered now:** a hidden hostile's live state (avatar despawned per connection); orders, queue and steering of every hostile; friendly units for connections that do not own them; container contents until searched, then only for the searcher; a hidden hostile's existence (the gate answers `UnknownUnit` as for a made-up id). **What a client still sees:** its own units including health under fire; a hostile's position, rotation, health and alive state while observed; a frozen last-known position it was authorized to see; on fixture builds, the step counter. **Intelligence is shared by the squad, not per connection:** a connection gets it only if it owns every living friendly and at least one; split ownership fails closed.
+
+**What matters next:**
+- **Per-owner models for co-op.** Two squad tokens on one mission would both receive the squad's knowledge. A sharing rule or per-owner models is needed first.
+- **Geometry secrecy is deferred.** The net-test client receives no geometry, but the client build contains the generator and the fixture's seed is fixed.
+- **The real loot and inventory** are not on the server. The fixture container proves the rule (contents only to the searcher, after the search), not the real replication.
+- **Host-mode test limits.** In-editor tests are single-client host mode and prove observer sets and messages, not client-side absence. Cross-connection isolation rests on unit tests and the two-client VM harness.
+- **Lag after losing sight:** up to one server frame plus the 0.2 s intelligence pass before a hostile that leaves sight stops streaming (model sampling, not a widening).
+- **Latency.** Role `a` measured a median of 257.8 ms (round trip 93 ms) at `bac821a` and 267.5 ms (87 ms) at `282d784`, over 10 samples, through the SSH tunnel. That is transport evidence only, not LAN latency. The 150 ms LAN target stands and prediction stays deferred.
+- **The fixture build** had to leave Development builds: Unity's player connection opened TCP `0.0.0.0:55000` and UDP `0.0.0.0:46686` and embedded build-machine addresses in `boot.config`. It now compiles under `BLACKGLASS_NET_FIXTURE` in a non-Development build, and audit tests pin that. The VM is left on the release build, and `ufw` there is still inactive.

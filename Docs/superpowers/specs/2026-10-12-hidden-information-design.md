@@ -133,6 +133,7 @@ No message names a target, carries a shot record or a hit event, or exposes a ho
 **Isolation.**
 - **The fixture is compiled only into the Editor and development builds** (`UNITY_EDITOR || DEVELOPMENT_BUILD`). The release server build contains no fixture code.
 - `Tools/build-server.sh --fixture` makes a development build. The default build stays release.
+- **Superseded 2026-10-13 (owner decision, decision 047):** the fixture build is not a Development build. The fixture is compiled under `UNITY_EDITOR || BLACKGLASS_NET_FIXTURE`, set through `BuildPlayerOptions.extraScriptingDefines` in a non-Development build, because the Development build opened Unity's player connection on `0.0.0.0:55000` and `0.0.0.0:46686` on the VM. The two bullets above, and the other mentions of a development build in this document, read accordingly.
 - `-netFixture` also requires `-net` and `-netQuiet` (hostile AI frozen, so the hostile neither moves nor fires on its own) and a loopback bind, which is checked again before the fixture is enabled. In a release build it is refused with exit code 2.
 - **Test identity.** The token file's ownership field takes a `+fixture` suffix (`squad+fixture`). Only connections admitted with that token may drive the fixture. `make-dev-tokens.sh` marks account A.
 

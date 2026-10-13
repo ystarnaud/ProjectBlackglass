@@ -754,3 +754,79 @@ Short record of decisions that are likely to matter later. Newest last.
   - **A2 latency.** The median time from the first steering message to the first replicated movement of 0.05 m was **261.8 ms** over 10 samples, with a client round trip of 93 ms. That includes the tunnel, FishNet's 30 Hz tick on both sides and the unit's start-up, and it is **above the 150 ms LAN target**; the target is a LAN figure and was not adjusted.
   - **Idle cost with the final code** (10 minutes, no client): fps 59.8 to 60.0, CPU mean 1.9 % and max 2.2 % of one core, RSS peak 116.3 MB, no exceptions or errors. This matches the spike's idle figures (1.9 % and 115.2 MB). With one client connected the heartbeat read 59.8 fps and 2.5 % CPU.
   - **Not covered:** hidden information (A5, A6), reconnect (A7), settlement (A8), the container (A1), and three of the nine bad requests (an attack on an unobserved hostile, an ability on cooldown, a collect from an unsearched container: the fixture has no intelligence, abilities or loot). The client receives every unit's position and health.
+
+## 047. Hidden information: server-authoritative per-connection visibility (2026-10-12)
+
+Design: `Docs/superpowers/specs/2026-10-12-hidden-information-design.md`. Plan: `Docs/superpowers/plans/2026-10-12-hidden-information.md`. Results: audit §9.4. Run guide: `Docs/DedicatedServer.md`.
+
+- **Decided (networking experiment, hidden-information slice):** the server holds the full truth and each connection receives only what its visibility allows. Acceptance is judged on decoded client state and replication traffic, not on hidden renderers.
+  - **Projection.** `NetVisibility` (library-free, `Scripts/Net/Core`) keeps, per connection and hostile, `Unknown`, `Observed` or `LastKnown` with a frozen position. It reports changes only, once per transition.
+  - **Replication.** One `NetVisibilityCondition` on the avatar prefab's `NetworkObserver` asks the server's projection. FishNet spawns or despawns the hostile avatar for that one connection, so a re-observed hostile arrives with its current state.
+  - **Sources.** Exactly one is active per run: the real squad model (`MissionIntelligence`, fed by `IntelligenceService`, fog on) or, on a fixture build, the fixture's grants.
+- **What is filtered on the server:**
+  - a hidden hostile sends nothing live: its avatar is despawned for that connection;
+  - a last-known record is frozen and sent only to its connection (`NetKnowledgeMessage`). Hidden movement never updates it, and re-observation clears it;
+  - hostile orders, queue and steering are never sent, even while the hostile is observed;
+  - friendly avatars go only to their owners (the spec's first ruling), so a connection that owns nothing receives no unit at all;
+  - the gate answers `UnknownUnit` for a hidden hostile in the unit or the target slot, the same answer as an id that does not exist;
+  - container contents go only to the connection that searched, after the search;
+  - no seed, plan, spawn or layout field exists in any message or avatar SyncVar: a reflection test over every `IBroadcast` type and the `NetUnitState` SyncVars checks types and names.
+- **What remains visible to a client:**
+  - its own units, including their health falling under fire;
+  - a hostile while it is observed: position, rotation, health and alive state;
+  - a last-known hostile position it was authorized to see;
+  - the fixture step counter, sent to every welcomed connection on fixture builds only.
+  - The net-test client receives no geometry, but layout secrecy is not claimed: the client build contains the generator and the fixture's seed is fixed (spec §3.12).
+- **Per-connection versus shared intelligence:**
+  - the intelligence model is the squad's, shared by its members, not one model per connection;
+  - a connection gets it only if it owns every living friendly and at least one. Today a `squad` token owns all friendlies and a `none` token owns nothing, so account A gets the view and account B nothing;
+  - split ownership fails closed: no connection gets squad knowledge. Admission cannot produce it today;
+  - how co-op squads share knowledge, and per-owner models, are a later decision.
+- **Fail closed:**
+  - at startup, `-net` exits with code 2 and one error line if the scene has no `IntelligenceService`, its model is missing after `Begin`, or fog is off;
+  - at runtime, if the service is disabled or destroyed or its model becomes null, nothing is observed for any connection and one error line is logged;
+  - the server fixture turns fog on (map Full, objectives All, no enemy markers, no cameras).
+- **The fixture (`-netFixture`):**
+  - compiled only into the Editor and fixture builds, under `#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE`. A release build contains no fixture code and refuses `-netFixture` with exit code 2;
+  - needs `-net`, `-netQuiet`, a loopback bind and a connection admitted with a `+fixture` token (`squad+fixture`); `make-dev-tokens.sh` marks account A;
+  - grants are bound to the server's connection object, never to an account string, and a message from any other connection changes nothing and counts toward the abuse limit;
+  - it uses grants only: real sight and exposure are not consulted, so visibility is independent of geometry;
+  - one fixture container, with two fixed entries labelled as fixtures; the real `LootContainer` and inventory are not on the server;
+  - messages: `NetFixtureMessage { Verb }` (Observe, Unobserve, MoveHostile, Search) and `NetFixtureStepMessage { Step }`.
+- **The fixture build is not a Development build (owner decision 2026-10-13, commits 282d784 and 3ddc7e5).** The spec (§3.9) and the plan first said `DEVELOPMENT_BUILD`; this supersedes that.
+  - **Why:** the first acceptance run (bac821a) found that the Development fixture build opened Unity's player connection: TCP `0.0.0.0:55000` and UDP `0.0.0.0:46686` (multicast announce to `225.0.0.222:54997`) on the VM, where `ufw` is inactive. Its `boot.config` also embedded the build machine's network addresses. The release build had none of this.
+  - **Decided:** the fixture is compiled under its own define, `BLACKGLASS_NET_FIXTURE`, set through `BuildPlayerOptions.extraScriptingDefines` in a non-Development build. Both builds use `BuildOptions.StrictMode`. The `-fixture` archive suffix and `variant=fixture` in `build-info.txt` are unchanged.
+  - **Measured after the change (282d784, fixture build on the VM):** the server process owns one socket, TCP `127.0.0.1:7770`; `55000 anywhere: 0`; no UDP; no "Player connection" log line; `boot.config` has seven keys, none starting `player-connection-`, and no address. The fixture archive fell from 62 MB to 32 MB.
+  - **Guard:** `NetSourceAuditTests` (3ddc7e5) fail if `DEVELOPMENT_BUILD` appears in the source, if a fixture type is used outside the `BLACKGLASS_NET_FIXTURE` guard, or if the server build script uses `BuildOptions.Development`.
+  - **Alternatives rejected:** keep the Development build and close the ports with a host firewall (none is active on the VM, and a firewall rule would be a second control to remember for a risk the build need not carry); rely on a runtime switch for the player connection (none was verified).
+  - Plan ruling 9 ("the fixture build is the release build plus `BuildOptions.Development`") is superseded by this decision.
+- **Attack-chase mitigation.** When the gate accepts an attack, the server records unit, `AttackCommand` and connection. After each projection pass, if the target is no longer `Observed` for that connection, it calls the new `CommandableUnit.DropCurrent(command)`. That ends the command the way an unreachable attack ends, only if it is still the current one; queued orders then start. It touches only gate-accepted attacks: enemy AI, companion assist, AutoRetaliate, abilities and single-player play are unchanged, and no existing caller of `CommandableUnit` changed.
+- **Avatar authority.** `NetAssetBuilder` sets the prefab's `NetworkTransform._clientAuthoritative` to 0, so ownership never grants transform authority. An EditMode test reads the serialized field, a PlayMode check confirms no spawned avatar has an owner, and a source audit confirms the adapter never calls `GiveOwnership` nor passes an owner to `Spawn`.
+- **Measured results (details in audit §9.4):**
+  - **Tests.** EditMode 1432/1432 at 3ddc7e5 (1366 at the start, plus 60 for the slice, 3 cases for fix bac821a and 3 source-audit tests). PlayMode 1431/1431 at 77a9226 (1403 + 28); at bac821a 1430/1431, the one failure being the known flaky `AreaPresentationPlayModeTests.TheGeneratedExplosion_ScalesItsExtentWithTheRadius` (2.407 against a range of 1.6 to 2.4), which passes alone. At 282d784 the Net PlayMode tests were 61/61; full PlayMode was not re-run for that change (guards, comments and build options).
+  - **Builds** (all `dirty` from the owner's two settings files only). At bac821a: release `blackglass-server-linux-bac821a-dirty.tar.gz`, 32 MB, SHA-256 `7a20efcea3812c8f7ad83b85778c34a0f7d3db4b50bd46723c8be3818cedd8e5`. At 282d784: release 32558377 bytes, SHA-256 `40b90897972736e1295eda30daf424dab6ebcfa1d3cbe0d75be0572c899fa831`; fixture 32566268 bytes, SHA-256 `3e5d6d391471319ca26b7baf18b738e3f484951987d3361f115937bc74f55218`. Superseded: the bac821a Development fixture archive (62 MB, SHA-256 `6caef6eb7034ddb6976ebaed393b461495b34d6b67eac62400d748b8e5bcbfe0`).
+  - **Harness through the SSH tunnel** (Windows client, `ssh -L`), on the 282d784 fixture build: `visibility-a` PASS 26 steps; `visibility-b` PASS 4 steps (`step 1 blind` to `step 6 blind`, and 0 avatars, 0 sightings, 0 last-known records, 0 knowledge and 0 container messages, 0 unexpected message types, 0 positioned messages); `a` PASS 14; `b` PASS 13; `ticket` PASS; `badtoken` PASS. `fixture-denied` PASS (2 steps) on the 282d784 release build. Every runner call ended `leftover clients=0 tunnel=none`, confirmed independently, also after a forced failure with the server down (every role that ran exited 2, 68 s). The same roles also passed at bac821a.
+  - **Idle run** (release, `-net`, 600 s, bac821a), beside part 2: fps min 59.8, max 60.0; CPU after ready mean 1.9 %, max 2.4 % (part 2: 1.9 and 2.2); RSS peak 117.0 MB (part 2: 116.3); 0 exception and 0 error lines; SIGTERM, exit status 0. No material regression. Not repeated at 282d784, whose release code is unchanged (the release side of every guard was the `#else` branch before and after).
+  - **Latency, transport evidence only.** Role `a`: median 257.8 ms over 10 samples with a client round trip of 93 ms at bac821a; 267.5 ms and 87 ms at 282d784. These pass through the SSH tunnel and are not LAN gameplay latency. The 150 ms LAN target stands, and client prediction stays deferred.
+  - **Packages** (`Packages/packages-lock.json`): FishNet 4.7.3, FishyUnityTransport 2.0.0-pre.2 (declares `com.unity.transport` 1.3.1), Unity Transport 2.7.4. Unity 6000.3.25f1.
+- **Revisions.** Branch `networking-hidden-info`, head `3ddc7e5` before the documents commit, based on `main` @ `3dce9ac`. The acceptance run used `bac821a` (release: idle run and first harness run) and `282d784` (release and fixture: listener checks and the second harness run); `3ddc7e5` adds only source-audit tests. Fix `bac821a`: the built client's `-netharness` parser still accepted only the four part 2 roles, so `fixture-denied` ran as the interactive client until the runner's 240 s timeout (exit 124). The three new roles were added test-first.
+- **Limitations:**
+  - **Lag after losing sight.** A hostile that leaves sight can keep streaming for up to one server frame plus the 0.2 s intelligence pass. That is the model's sampling, not a widening of knowledge.
+  - **Host-mode tests.** The in-editor loopback tests are single-client host mode: they prove the server's observer sets and messages, not client-side absence. Cross-connection isolation is proven at unit level and by the two-client harness on the VM.
+  - **Not exercised:** the real loot and inventory (not on the server, so taking items is deferred), Recon Scan, abilities on cooldown. Of the nine bad requests (A3), seven are covered.
+  - **The seed check** is by message type and field name, not by value.
+  - **Geometry and layout secrecy are deferred.** The client build contains the generator and the fixture's seed is fixed.
+  - **Latency** is tunnel evidence only (above).
+  - **Fixture realism.** The fixture uses grants, not real sight, so the VM harness proves the replication path, not line-of-sight behaviour; real intelligence is covered by separate in-editor tests with fog on.
+  - **The pre-hello and never-hello items** of the part 2 ledger stay deferred.
+  - The run happened on `bg-dev-mission01` only, with the server running as root, as before.
+- **Rulings.**
+  - The spec's two: friendly avatars go only to their owners (§3.3); the fixture uses grants only, not real sight (§3.9).
+  - The plan's ten: (1) the projection runs every server frame; (2) the last-known record is the position last sent while observed; (3) a knowledge message goes out on every transition, including `Unknown` to `Observed`; (4) the fixture hostile is the first hostile, walking between NavMesh points 4 m and 7 m from its spawn, at least 3 m apart; (5) the container holds `fixture-medkit` x2 and `fixture-rifle-ammo` x30; (6) a fixture verb that changes nothing consumes budget and is not counted as abuse; (7) the client keeps the first 4096 decoded messages and sightings; (8) role B ends on fixture step 6; (9) the fixture build is the release build plus `BuildOptions.Development` (**superseded**, see above); (10) the VM token file is regenerated with `make-dev-tokens.sh --force` so account A carries `squad+fixture`.
+  - During implementation: the fixture container's contents are a `ReadOnlyCollection<NetItem>` because NUnit's `Has.Count` fails on arrays, with the public type kept as `IReadOnlyList<NetItem>`; `GameKit.Dependencies` added to `Blackglass.asmdef` because `RebuildObservers`' signature needs it; `AHostileAvatar_NeverCarriesOrders` split into an order phase and a steering phase, because `SetMoveIntent` drops the current order; the reviewer's three vacuous-pass risks in the harness checks were promoted to a fix round; the fixture build gate change above.
+- **Implications:**
+  - Co-op needs per-owner models, or a stated sharing rule, before two squad tokens can share a mission.
+  - Streaming or hiding geometry is a separate decision.
+  - Replicating the real loot and inventory has to follow the same rule: contents only to an authorized connection, after the action.
+  - Prediction and a real network measurement are needed before any latency decision.
+  - Anything new the server replicates must pass the visibility condition and the message-shape audit.

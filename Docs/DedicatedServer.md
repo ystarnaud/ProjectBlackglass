@@ -74,18 +74,37 @@ ssh bg-dev-mission01 '/opt/blackglass/server/run-net.sh status'
 ssh bg-dev-mission01 '/opt/blackglass/server/run-net.sh stop'
 ```
 
-The token file (`/opt/blackglass/dev-tokens.txt`) has one line per account: `account token squad|none [attempt]`. A `squad` account owns the mission's friendlies; a `none` account owns nothing; an entry with an attempt id is only valid for that mission instance (the `account-ticket` entry names a made-up one, to show that a ticket for another attempt is refused). These are development fixtures, not an identity scheme.
+The token file (`/opt/blackglass/dev-tokens.txt`) has one line per account: `account token squad|none[+fixture] [attempt]`. A `squad` account owns the mission's friendlies; a `none` account owns nothing; an entry with an attempt id is only valid for that mission instance (the `account-ticket` entry names a made-up one, to show that a ticket for another attempt is refused). These are development fixtures, not an identity scheme. The `+fixture` suffix (`squad+fixture`, account A only) lets a connection drive the test fixture below; a release server ignores it. To regenerate the file with the suffix: `ssh bg-dev-mission01 '/opt/blackglass/server/make-dev-tokens.sh --force'`.
 
 On this PC, build the client and run the harness through the tunnel:
 
 ```bash
 Tools/build-netclient.sh            # Builds/NetTestClient/NetTestClient.exe (the Editor's target must be Windows)
-Tools/run-net-harness.sh            # opens ssh -L, runs the four roles, closes the tunnel; logs in Builds/NetHarnessLogs/
+Tools/run-net-harness.sh            # opens ssh -L, runs the six roles (see the next section), closes the tunnel; logs in Builds/NetHarnessLogs/
 ```
 
 The roles are `a` (the owner: steering, queued moves, an attack, six bad requests), `b` (no ownership: every order refused), `ticket` (refused for another attempt) and `badtoken`. Each prints `BLACKGLASS NET HARNESS PASS|FAIL role=...` and exits 0 (pass), 1 (a check failed) or 2 (no connection). To play by hand, start the server as above, open `ssh -L 7770:127.0.0.1:7770 bg-dev-mission01`, and run `NetTestClient.exe -server 127.0.0.1 -port 7770 -token <account-a token>`: WASD steers, a click moves (Shift queues), a click on a red unit attacks, X stops, 1 and 2 pick the unit.
 
-To check that nothing is exposed: `ssh bg-dev-mission01 'ss -lntu | grep -E ":7770|:7777"'` must show only `tcp LISTEN ... 127.0.0.1:7770`.
+### Hidden information and the fixture (decision 047)
+
+With `-net` the server runs the real intelligence with fog on and sends each connection only what it may see (`visibility=squad` in the listening line); it exits with code 2 if the intelligence service, its model or fog is missing. The fixture is a test aid that replaces real sight with scripted observation grants, a scripted hostile and one container.
+
+```bash
+Tools/build-server.sh --fixture                  # Builds/blackglass-server-linux-<sha>[-dirty]-fixture.tar.gz, variant=fixture
+Tools/deploy-server.sh                           # deploys the newest archive; check variant= in its output
+ssh bg-dev-mission01 '/opt/blackglass/server/make-dev-tokens.sh --force'
+ssh -f -n bg-dev-mission01 'NET_FIXTURE=1 /opt/blackglass/server/run-net.sh start > /opt/blackglass/logs/run-net.out 2>&1'
+Tools/run-net-harness.sh                         # six roles, two clients at once (see below)
+```
+
+- The fixture build is the release build plus the `BLACKGLASS_NET_FIXTURE` define, not a Development build. In the run recorded in audit §9.4 its process owned only TCP `127.0.0.1:7770`.
+- A release build refuses `-netFixture` (exit code 2, `-netFixture is not available in a release build`), so `NET_FIXTURE=1 run-net.sh start` against it prints `the server exited` and the server is not running.
+- `Tools/run-net-harness.sh` runs `visibility-b` and `visibility-a` at the same time (B must see nothing of what A is shown), then `a`, `b`, `ticket` and `badtoken`: six roles.
+- `Tools/run-net-harness.sh --denied` runs the `fixture-denied` role against the release build started with plain `run-net.sh start`. Account A asks for the fixture and must receive nothing.
+- Both end with `leftover clients=<n> tunnel=<pid|none>`. The runner stops the clients it started and the tunnel on every exit path, including a failure.
+- The VM is left on the release build: redeploy the release archive (`Tools/build-server.sh` then `Tools/deploy-server.sh`) after a fixture run.
+
+To check that nothing is exposed: `ssh bg-dev-mission01 'ss -lntu | grep -E ":7770|:7777"'` must show only `tcp LISTEN ... 127.0.0.1:7770`. To see every socket the server process owns, filter `ss -lntup` by its pid; it must show only that row.
 
 ## Options
 
@@ -101,6 +120,7 @@ To check that nothing is exposed: `ssh bg-dev-mission01 'ss -lntu | grep -E ":77
 | `-netPort <int>` | 7770 | 1024..65535 | TCP port, bound to 127.0.0.1 only |
 | `-netTokens <file>` | none | | Development token file; required with `-net` |
 | `-netQuiet` | off | | Freeze hostile AI and the friendlies' own autonomy and force their hits, so a networked run is repeatable |
+| `-netFixture` | off | | The hidden-information test fixture. Fixture builds only (a release build exits with code 2); needs `-net`, `-netQuiet` and the loopback bind; only a connection admitted with a `+fixture` token may drive it |
 
 Bad values keep the default and log `[Server] option ignored: ...`. Unity's own arguments are passed through.
 
@@ -111,7 +131,7 @@ Bad values keep the default and log `[Server] option ignored: ...`. Unity's own 
 - `[Server] MISSION READY ...`: instance id, seed, attempt, layout figures, `generationMs`, `navMeshBakeMs`, `sinceStartupS`.
 - `[Server] self-check cameras=0 audioListeners=0 canvases=0 eventSystems=0 unitViewsDisabled=<n> unitViewsActive=0`.
 - `[Server] heartbeat uptimeS= fps= cpuPct= rssMB= managedMB= state= phase=`, in normal mode.
-- With `-net`: `[Net] server Starting|Started`, `[Net] listening 127.0.0.1:<port> websockets attempt=<id> accounts=<n> quiet=<yes|no>`, `[Net] client <id> connected|welcomed account=<a> owns=<n>|left`, `[Net] hello refused client=<id> reason=<UnknownToken|WrongAttempt|AlreadyConnected>`, `[Net] rejected client=<id> account=<a> reason=<...> command=<n>` (at most one per client per second), and `net=<clients> accepted=<n> rejected=<n> dropped=<n>` at the end of the heartbeat. Tokens never appear.
+- With `-net`: `[Net] server Starting|Started`, `[Net] listening 127.0.0.1:<port> websockets attempt=<id> accounts=<n> quiet=<yes|no> visibility=<squad|fixture>`, `[Net] client <id> connected|welcomed account=<a> owns=<n>|left`, `[Net] hello refused client=<id> reason=<UnknownToken|WrongAttempt|AlreadyConnected>`, `[Net] rejected client=<id> account=<a> reason=<...> command=<n>` (at most one per client per second), and `net=<clients> accepted=<n> rejected=<n> dropped=<n>` at the end of the heartbeat. Tokens never appear. With the fixture: `[Net] fixture step=<n> verb=<Observe|Unobserve|MoveHostile|Search> account=<a>`, `[Net] visibility client=<id> unit=<n> <Observed|LastKnown>` (fixture runs only) and `[Net] fixture refused client=<id> account=<a>` (a connection without the `+fixture` identity, or a release build).
 - `[Diagnostic] prepare|move|attack ...`, then `BLACKGLASS DIAGNOSTIC PASS|FAIL ...`.
 - `[Server] exit code=<n> reason=<text>`.
 
