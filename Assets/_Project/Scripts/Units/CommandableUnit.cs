@@ -256,6 +256,19 @@ namespace Blackglass
         }
 
         /// <summary>
+        /// Ends `command` the way an unreachable attack ends, but only while it is still the current order; the next queued order
+        /// then starts. Returns false (and changes nothing) for null or for a command that is not current. The networked server
+        /// uses it to end a client's attack on a target that client no longer observes (decision 047); no game system calls it.
+        /// </summary>
+        public bool DropCurrent(UnitCommand command)
+        {
+            if (command == null || !ReferenceEquals(queue.Current, command))
+                return false;
+            Finish();
+            return true;
+        }
+
+        /// <summary>
         /// Sets the direction direct control steers the unit in: flattened, length clamped to 1, zero for none. Held
         /// until set again. While it is non-zero and simulation time runs, the unit drops all of its orders (as Stop
         /// does) and steers instead, so manual control always wins over queued orders. A usable ability issued meanwhile
