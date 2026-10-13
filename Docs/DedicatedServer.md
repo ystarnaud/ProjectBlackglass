@@ -101,7 +101,7 @@ Tools/run-net-harness.sh                         # six roles, two clients at onc
 - A release build refuses `-netFixture` (exit code 2, `-netFixture is not available in a release build`), so `NET_FIXTURE=1 run-net.sh start` against it prints `the server exited` and the server is not running.
 - `Tools/run-net-harness.sh` runs `visibility-b` and `visibility-a` at the same time (B must see nothing of what A is shown), then `a`, `b`, `ticket` and `badtoken`: six roles.
 - `Tools/run-net-harness.sh --denied` runs the `fixture-denied` role against the release build started with plain `run-net.sh start`. Account A asks for the fixture and must receive nothing.
-- Both end with `leftover clients=<n> tunnel=<pid|none>`. The runner stops the clients it started and the tunnel on every exit path, including a failure.
+- Both end with `leftover clients=<n> tunnel=<pid|none>`. The runner stops the clients it started and the tunnel on every exit path, including a failure. Exit status: 0 all roles passed, 1 a role failed, 2 setup failed, 3 a client or the tunnel was left running (an earlier non-zero status is kept).
 - The VM is left on the release build: redeploy the release archive (`Tools/build-server.sh` then `Tools/deploy-server.sh`) after a fixture run.
 
 To check that nothing is exposed: `ssh bg-dev-mission01 'ss -lntu | grep -E ":7770|:7777"'` must show only `tcp LISTEN ... 127.0.0.1:7770`. To see every socket the server process owns, filter `ss -lntup` by its pid; it must show only that row.

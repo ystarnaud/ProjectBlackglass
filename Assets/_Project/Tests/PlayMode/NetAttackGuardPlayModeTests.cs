@@ -135,11 +135,26 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator Forget_EndsThatConnectionsGuardedAttacks()
+        {
+            yield return Ready();
+            var attack = Attack(attacker);
+            var move = new MoveCommand(new Vector3(-6f, 0f, -3f));
+            Assert.That(attacker.Issue(move, IssueMode.Append), Is.True);
+            guard.Accepted(owner, 1, 3, attack);
+
+            guard.Forget(owner);
+            Assert.That(guard.Count, Is.EqualTo(0));
+            Assert.That(attacker.CurrentCommand, Is.SameAs(move), "the departed connection's chase ends; the queued order carries on");
+        }
+
+        [UnityTest]
         public IEnumerator Forget_DropsOnlyThatConnectionsRecords()
         {
             yield return Ready();
             var other = new NetConnection("account-c", new[] { 2 });
             visibility.Add(other);
+            Tick();
             var first = Attack(attacker);
             guard.Accepted(owner, 1, 3, first);
             var second = Attack(bystander);
@@ -147,11 +162,10 @@ namespace Blackglass.Tests
 
             guard.Forget(owner);
             Assert.That(guard.Count, Is.EqualTo(1));
-            intel.On = false;
             Tick();
             guard.Tick();
-            Assert.That(attacker.CurrentCommand, Is.SameAs(first), "a departed connection's order runs as before");
-            Assert.That(bystander.CurrentCommand, Is.Null);
+            Assert.That(attacker.CurrentCommand, Is.Null);
+            Assert.That(bystander.CurrentCommand, Is.SameAs(second), "the other connection still observes: its attack continues");
         }
 
         [UnityTest]

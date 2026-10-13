@@ -137,7 +137,7 @@ namespace Blackglass
 #endif
             if (source == null)
                 source = new NetSquadIntel(intelligence, Units, director.Friendlies.Count, line => Debug.LogError(Prefix + line));
-            Visibility = new NetVisibility(Units, source);
+            Visibility = new NetVisibility(Units, source, line => Debug.LogError(Prefix + line));
             Guard = new NetAttackGuard(Units, Visibility);
             Gate = new ServerCommandGate(Units, director.InstanceId, Visibility)
             {
@@ -251,9 +251,16 @@ namespace Blackglass
             Gate.Tick(now);
             avatars.Sync();
             changes.Clear();
-            Visibility.Update(changes);
-            foreach (var change in changes)
-                Publish(change);
+            try
+            {
+                Visibility.Update(changes);
+            }
+            finally
+            {
+                // A change already written into the view must reach the observers even if the pass threw (fail closed).
+                foreach (var change in changes)
+                    Publish(change);
+            }
             Guard.Tick();
             Host.CollectExpired(now, expired);
             foreach (var clientId in expired)

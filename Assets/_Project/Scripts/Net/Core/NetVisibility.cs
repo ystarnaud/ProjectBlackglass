@@ -59,10 +59,13 @@ namespace Blackglass
 
         readonly NetUnits units;
         readonly INetIntelSource source;
+        readonly Action<string> log;
+        bool reported;
         readonly Dictionary<NetConnection, Dictionary<int, Entry>> views = new Dictionary<NetConnection, Dictionary<int, Entry>>();
 
-        public NetVisibility(NetUnits units, INetIntelSource source)
+        public NetVisibility(NetUnits units, INetIntelSource source, Action<string> log = null)
         {
+            this.log = log;
             this.units = units ?? throw new ArgumentNullException(nameof(units));
             this.source = source ?? throw new ArgumentNullException(nameof(source));
         }
@@ -111,6 +114,24 @@ namespace Blackglass
                 : connection.Owns(unitId);
         }
 
+        // Fails closed: a source that throws counts as "not observed" (logged once), so a hostile is never revealed by an error.
+        bool Observes(NetConnection connection, int hostileId)
+        {
+            try
+            {
+                return source.Observes(connection, hostileId);
+            }
+            catch (Exception exception)
+            {
+                if (!reported)
+                {
+                    reported = true;
+                    log?.Invoke("visibility fails closed: the intel source threw " + exception.GetType().Name + ": " + exception.Message + "; hostiles it cannot answer for are hidden");
+                }
+                return false;
+            }
+        }
+
         /// <summary>Re-evaluates every connection and living hostile and appends one change per transition.</summary>
         public void Update(List<NetKnowledgeChange> changes)
         {
@@ -124,7 +145,7 @@ namespace Blackglass
                         continue;
                     view.TryGetValue(id, out var entry);
                     var position = unit.transform.position;
-                    if (source.Observes(connection, id))
+                    if (Observes(connection, id))
                     {
                         if (entry.Knowledge != NetKnowledge.Observed)
                             changes.Add(new NetKnowledgeChange(connection, id, NetKnowledge.Observed, position));

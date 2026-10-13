@@ -15,10 +15,13 @@ namespace Blackglass.Tests
         {
             public readonly HashSet<(NetConnection, int)> Seen = new HashSet<(NetConnection, int)>();
             public readonly List<int> Asked = new List<int>();
+            public bool Throw;
 
             public bool Observes(NetConnection connection, int hostileId)
             {
                 Asked.Add(hostileId);
+                if (Throw)
+                    throw new System.InvalidOperationException("scripted failure");
                 return Seen.Contains((connection, hostileId));
             }
         }
@@ -26,6 +29,7 @@ namespace Blackglass.Tests
         readonly List<GameObject> hosts = new List<GameObject>();
         readonly List<NetKnowledgeChange> changes = new List<NetKnowledgeChange>();
         CommandableUnit hostile;
+        readonly List<string> logs = new List<string>();
         FakeIntel intel;
         NetVisibility visibility;
         NetConnection a;
@@ -41,7 +45,8 @@ namespace Blackglass.Tests
             units.Register(hostile, true);
             hostile.transform.position = new Vector3(10f, 0f, 0f);
             intel = new FakeIntel();
-            visibility = new NetVisibility(units, intel);
+            logs.Clear();
+            visibility = new NetVisibility(units, intel, logs.Add);
             a = new NetConnection("account-a", new[] { FriendA, FriendB });
             b = new NetConnection("account-b", new int[0]);
             visibility.Add(a);
@@ -85,6 +90,21 @@ namespace Blackglass.Tests
             Assert.That(changes[0].Knowledge, Is.EqualTo(NetKnowledge.Observed));
             Assert.That(visibility.KnowledgeOf(a, Hostile), Is.EqualTo(NetKnowledge.Observed));
             Assert.That(visibility.KnowledgeOf(b, Hostile), Is.EqualTo(NetKnowledge.Unknown), "A's observation never widens B's view");
+        }
+
+        [Test]
+        public void AThrowingSource_HidesTheHostile_AndTheChangeIsStillReported()
+        {
+            See(a);
+            Tick();
+            intel.Throw = true;
+            Assert.DoesNotThrow(Tick);
+            Assert.That(changes, Has.Count.EqualTo(1), "the written view change is always reported");
+            Assert.That(changes[0].Knowledge, Is.EqualTo(NetKnowledge.LastKnown));
+            Assert.That(visibility.KnowledgeOf(a, Hostile), Is.EqualTo(NetKnowledge.LastKnown));
+            Assert.That(visibility.Replicates(a, Hostile), Is.False);
+            Tick();
+            Assert.That(logs, Has.Count.EqualTo(1), "a failing source is logged once, not every frame");
         }
 
         [Test]

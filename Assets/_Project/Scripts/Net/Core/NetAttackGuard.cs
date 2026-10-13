@@ -40,7 +40,22 @@ namespace Blackglass
             records.Add(new Record { Connection = connection, UnitId = unitId, TargetId = targetId, Command = command });
         }
 
-        public void Forget(NetConnection connection) => records.RemoveAll(r => r.Connection == connection);
+        /// <summary>
+        /// A connection left. Its tokens are released, so the same account can reconnect at once; an attack still chasing a hostile
+        /// it can no longer see would then be watchable. End those attacks (no-op for one that is no longer current), then forget them.
+        /// </summary>
+        public void Forget(NetConnection connection)
+        {
+            for (var i = records.Count - 1; i >= 0; i--)
+            {
+                var record = records[i];
+                if (record.Connection != connection)
+                    continue;
+                if (units.TryGet(record.UnitId, out var unit))
+                    unit.DropCurrent(record.Command);
+                records.RemoveAt(i);
+            }
+        }
 
         /// <summary>Call after NetVisibility.Update each frame. Returns how many attacks it ended.</summary>
         public int Tick()

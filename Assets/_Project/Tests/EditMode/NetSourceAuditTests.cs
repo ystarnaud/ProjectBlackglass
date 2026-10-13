@@ -15,7 +15,7 @@ namespace Blackglass.Tests
         {
             var files = Directory.GetFiles(Folder, "*.cs");
             Assert.That(files, Is.Not.Empty, "the audit must not pass vacuously");
-            string[] forbidden = { "FishNet", "Unity.Netcode", "Unity.Networking", "Mirror", "LiteNetLib", "System.Net.Sockets", "Unity.Transport", "Unity.Collections" };
+            string[] forbidden = { "FishNet", "Unity.Netcode", "Unity.Networking", "Mirror", "LiteNetLib", "System.Net.Sockets", "Unity.Transport", "Unity.Collections", "GameKit" };
             foreach (var file in files)
             {
                 var text = File.ReadAllText(file);

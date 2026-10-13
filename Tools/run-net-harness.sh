@@ -7,6 +7,8 @@
 # Needs Builds/NetTestClient/NetTestClient.exe (Tools/build-netclient.sh). Logs: Builds/NetHarnessLogs/<UTC>/ (git-ignored).
 # The tokens are read from the VM into shell variables and never printed. Every client this script started and the tunnel are
 # stopped on any exit, and the last line reports what is left: "leftover clients=<n> tunnel=<pid|none>".
+# Exit status: 0 all roles passed and nothing left over; 1 a role failed; 2 setup failed; 3 a client or the tunnel was left
+# running (only when nothing else failed; an earlier non-zero status is kept).
 set -u
 mode=full
 if [ "${1:-}" = "--denied" ]; then
@@ -47,6 +49,7 @@ count_clients() { tasklist //NH //FI "IMAGENAME eq NetTestClient.exe" 2>/dev/nul
 tunnel_pid=""
 b_pid=""
 cleanup() {
+  local rc=$?
   if [ -n "$b_pid" ]; then
     kill "$b_pid" 2>/dev/null
     wait "$b_pid" 2>/dev/null
@@ -55,7 +58,10 @@ cleanup() {
   sleep 1
   local left
   left=$(find_tunnel)
-  echo "leftover clients=$(count_clients) tunnel=${left:-none}"
+  local clients
+  clients=$(count_clients)
+  echo "leftover clients=$clients tunnel=${left:-none}"
+  if [ "$rc" -eq 0 ] && { [ "${clients:-0}" -ne 0 ] || [ -n "$left" ]; }; then exit 3; fi
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
