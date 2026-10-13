@@ -74,13 +74,13 @@ ssh bg-dev-mission01 '/opt/blackglass/server/run-net.sh status'
 ssh bg-dev-mission01 '/opt/blackglass/server/run-net.sh stop'
 ```
 
-The token file (`/opt/blackglass/dev-tokens.txt`) has one line per account: `account token squad|none[+fixture] [attempt]`. A `squad` account owns the mission's friendlies; a `none` account owns nothing; an entry with an attempt id is only valid for that mission instance (the `account-ticket` entry names a made-up one, to show that a ticket for another attempt is refused). These are development fixtures, not an identity scheme. The `+fixture` suffix (`squad+fixture`, account A only) lets a connection drive the test fixture below; a release server ignores it. To regenerate the file with the suffix: `ssh bg-dev-mission01 '/opt/blackglass/server/make-dev-tokens.sh --force'`.
+The release token file (`/opt/blackglass/dev-tokens.txt`) has one line per account: `account token squad|none [attempt]`. A `squad` account owns the mission's friendlies; a `none` account owns nothing; an entry with an attempt id is only valid for that mission instance (the `account-ticket` entry names a made-up one, to show that a ticket for another attempt is refused). These are development fixtures, not an identity scheme. The fixture has its own file (`/opt/blackglass/dev-tokens-fixture.txt`, made by `make-dev-tokens.sh --fixture` with fresh tokens, never the release ones): the same three accounts, but account A is `squad+fixture`, which lets a connection drive the test fixture below. `run-net.sh` hands that file only to a server started with `NET_FIXTURE=1`, so the release token file never contains `+fixture`. Either file is replaced with `--force` (`--fixture --force` for the fixture file); the flags may come in either order.
 
 On this PC, build the client and run the harness through the tunnel:
 
 ```bash
 Tools/build-netclient.sh            # Builds/NetTestClient/NetTestClient.exe (the Editor's target must be Windows)
-Tools/run-net-harness.sh            # opens ssh -L, runs the six roles (see the next section), closes the tunnel; logs in Builds/NetHarnessLogs/
+Tools/run-net-harness.sh            # opens ssh -L, runs the seven roles (see the next section), closes the tunnel; logs in Builds/NetHarnessLogs/
 ```
 
 The roles are `a` (the owner: steering, queued moves, an attack, six bad requests), `b` (no ownership: every order refused), `ticket` (refused for another attempt) and `badtoken`. Each prints `BLACKGLASS NET HARNESS PASS|FAIL role=...` and exits 0 (pass), 1 (a check failed) or 2 (no connection). To play by hand, start the server as above, open `ssh -L 7770:127.0.0.1:7770 bg-dev-mission01`, and run `NetTestClient.exe -server 127.0.0.1 -port 7770 -token <account-a token>`: WASD steers, a click moves (Shift queues), a click on a red unit attacks, X stops, 1 and 2 pick the unit.
@@ -92,15 +92,15 @@ With `-net` the server runs the real intelligence with fog on and sends each con
 ```bash
 Tools/build-server.sh --fixture                  # Builds/blackglass-server-linux-<sha>[-dirty]-fixture.tar.gz, variant=fixture
 Tools/deploy-server.sh                           # deploys the newest archive; check variant= in its output
-ssh bg-dev-mission01 '/opt/blackglass/server/make-dev-tokens.sh --force'
+ssh bg-dev-mission01 '/opt/blackglass/server/make-dev-tokens.sh --fixture --force'
 ssh -f -n bg-dev-mission01 'NET_FIXTURE=1 /opt/blackglass/server/run-net.sh start > /opt/blackglass/logs/run-net.out 2>&1'
-Tools/run-net-harness.sh                         # six roles, two clients at once (see below)
+Tools/run-net-harness.sh                         # seven roles, two clients at once for the first two (see below); reads the fixture token file
 ```
 
 - The fixture build is the release build plus the `BLACKGLASS_NET_FIXTURE` define, not a Development build. In the run recorded in audit §9.4 its process owned only TCP `127.0.0.1:7770`.
 - A release build refuses `-netFixture` (exit code 2, `-netFixture is not available in a release build`), so `NET_FIXTURE=1 run-net.sh start` against it prints `the server exited` and the server is not running.
-- `Tools/run-net-harness.sh` runs `visibility-b` and `visibility-a` at the same time (B must see nothing of what A is shown), then `a`, `b`, `ticket` and `badtoken`: six roles.
-- `Tools/run-net-harness.sh --denied` runs the `fixture-denied` role against the release build started with plain `run-net.sh start`. Account A asks for the fixture and must receive nothing.
+- `Tools/run-net-harness.sh` runs `visibility-b` and `visibility-a` at the same time (B must see nothing of what A is shown), then `a`, `b`, `ticket` and `badtoken`, then `visibility-fault` alone: seven roles. `visibility-fault` sends the fixture's `Fault` verb, which makes the visibility answer for that connection throw; the hostile must disappear (leaving one last-known record) and stay gone, and the server logs `visibility fails closed: the intel source threw InvalidOperationException: fixture fault; hostiles it cannot answer for are hidden` once.
+- `Tools/run-net-harness.sh --denied` runs the `fixture-denied` role against the release build started with plain `run-net.sh start`. Account A asks for the fixture and must receive nothing. This run reads the release token file, which has no `+fixture` identity, so the refusal comes from the build as well as the token.
 - Both end with `leftover clients=<n> tunnel=<pid|none>`. The runner stops the clients it started and the tunnel on every exit path, including a failure. Exit status: 0 all roles passed, 1 a role failed, 2 setup failed, 3 a client or the tunnel was left running (an earlier non-zero status is kept).
 - The VM is left on the release build: redeploy the release archive (`Tools/build-server.sh` then `Tools/deploy-server.sh`) after a fixture run.
 
