@@ -34,7 +34,7 @@ namespace Blackglass.Tests
             idA = units.Register(friendA, false);
             idB = units.Register(friendB, false);
             idHostile = units.Register(hostile, true);
-            gate = new ServerCommandGate(units, Attempt);
+            gate = new ServerCommandGate(units, Attempt, NetSight.Everything);
             owner = new NetConnection("account-a", new[] { idA, idB });
             observer = new NetConnection("account-b", new int[0]);
             counter = 0;

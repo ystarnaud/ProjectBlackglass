@@ -6,7 +6,7 @@ namespace Blackglass
 {
     /// <summary>
     /// The server's gate in front of the existing command path (audit F1, spec section 3.3). Checks a request in a fixed
-    /// order: well-formed, the right attempt, a fresh sequence, an unseen command id, a living unit, ownership, side; only
+    /// order: well-formed, the right attempt, a fresh sequence, an unseen command id, a living unit, visible to this connection, ownership, side; only
     /// then does it call CommandableUnit. It never throws and a rejected request changes nothing. A request that passes the
     /// freshness checks records its sequence and command id even if it later fails ownership, side or the order itself, so
     /// replaying it is a DuplicateCommand. Holds no game rule: the orders are carried out by CommandableUnit.
@@ -21,14 +21,22 @@ namespace Blackglass
 
         readonly NetUnits units;
         readonly string attemptId;
+        readonly INetSight sight;
         readonly Dictionary<int, double> intentAt = new Dictionary<int, double>();
         readonly List<int> expired = new List<int>();
 
-        public ServerCommandGate(NetUnits units, string attemptId)
+        public ServerCommandGate(NetUnits units, string attemptId, INetSight sight)
         {
             this.units = units ?? throw new ArgumentNullException(nameof(units));
             this.attemptId = attemptId ?? throw new ArgumentNullException(nameof(attemptId));
+            this.sight = sight ?? throw new ArgumentNullException(nameof(sight));
         }
+
+        /// <summary>
+        /// Receives (connection, unit id, target id, the AttackCommand given to Issue) after an attack was accepted, so the server
+        /// can end it if the connection stops observing the target (NetAttackGuard, spec section 3.5).
+        /// </summary>
+        public Action<NetConnection, int, int, UnitCommand> AttackAccepted { get; set; }
 
         /// <summary>Receives the text of an unexpected exception (the request is then refused as OrderRefused).</summary>
         public Action<string> Log { get; set; }
@@ -111,11 +119,14 @@ namespace Blackglass
         static NetResult Order(CommandableUnit unit, UnitCommand command, IssueMode mode) =>
             unit.Issue(command, mode) ? NetResult.Accepted : Reject(NetRejectReason.OrderRefused);
 
-        // Unknown attacker or target first, then ownership, then side: an attack must name a living hostile of the attacker.
+        // Unknown attacker or target (a hostile this connection cannot see counts as unknown) first, then ownership, then side: an attack must name a living hostile of the attacker.
         NetResult Attack(NetConnection connection, NetAttack attack)
         {
             if (!units.TryGet(attack.UnitId, out var attacker) || !attacker.IsAlive
                 || !units.TryGet(attack.TargetId, out var target) || !target.IsAlive)
+                return Reject(NetRejectReason.UnknownUnit);
+            // A hostile this connection cannot see answers exactly like an id that does not exist (spec section 3.4).
+            if (!sight.CanSee(connection, attack.UnitId) || !sight.CanSee(connection, attack.TargetId))
                 return Reject(NetRejectReason.UnknownUnit);
             if (!connection.Owns(attack.UnitId))
                 return Reject(NetRejectReason.NotOwner);
@@ -123,7 +134,11 @@ namespace Blackglass
                 return Reject(NetRejectReason.WrongSide);
             if (!target.TryGetComponent<Health>(out var health))
                 return Reject(NetRejectReason.UnknownUnit);
-            return Order(attacker, new AttackCommand(health), IssueMode.Replace);
+            var command = new AttackCommand(health);
+            var result = Order(attacker, command, IssueMode.Replace);
+            if (result.IsAccepted)
+                AttackAccepted?.Invoke(connection, attack.UnitId, attack.TargetId, command);
+            return result;
         }
 
         NetResult Steer(CommandableUnit unit, NetMoveIntent intent, double now)
@@ -137,11 +152,16 @@ namespace Blackglass
             return NetResult.Accepted;
         }
 
-        // The unit must exist and live (UnknownUnit), then belong to the connection (NotOwner).
+        // The unit must exist, live and be visible to the connection (else UnknownUnit; a hidden hostile looks like a made-up id), then belong to the connection (NotOwner).
         bool Own(NetConnection connection, int unitId, out CommandableUnit unit, out NetRejectReason failure)
         {
             failure = NetRejectReason.None;
             if (!units.TryGet(unitId, out unit) || !unit.IsAlive)
+            {
+                failure = NetRejectReason.UnknownUnit;
+                return false;
+            }
+            if (!sight.CanSee(connection, unitId))
             {
                 failure = NetRejectReason.UnknownUnit;
                 return false;

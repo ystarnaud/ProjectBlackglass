@@ -21,7 +21,7 @@ namespace Blackglass.Tests
             var friendB = NetTestKit.MakeUnit(hosts, "FriendlyUnit_2");
             var hostile = NetTestKit.MakeUnit(hosts, "HostileUnit_1");
             var units = NetUnits.FromMission(new List<CommandableUnit> { friendA, friendB }, new List<CommandableUnit> { hostile });
-            var gate = new ServerCommandGate(units, Attempt);
+            var gate = new ServerCommandGate(units, Attempt, NetSight.Everything);
             var admission = new NetAdmission(new List<NetTokenEntry>
             {
                 new NetTokenEntry("account-a", "tok-a", true, null),

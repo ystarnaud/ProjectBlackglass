@@ -79,7 +79,8 @@ namespace Blackglass
                 return "the token file has no valid entry";
 
             Units = NetUnits.FromMission(director);
-            Gate = new ServerCommandGate(Units, director.InstanceId) { Log = line => Debug.LogWarning(Prefix + line) };
+            // Task 8 replaces this with the connection's NetVisibility.
+            Gate = new ServerCommandGate(Units, director.InstanceId, NetSight.Everything) { Log = line => Debug.LogWarning(Prefix + line) };
             Host = new NetSessionHost(Gate, new NetAdmission(entries, director.InstanceId, director.Friendlies.Count));
             if (options.NetQuiet)
             {

@@ -22,7 +22,7 @@ namespace Blackglass.Tests
             unit = NetTestKit.MakeUnit(hosts, "FriendlyUnit_1");
             var units = new NetUnits();
             id = units.Register(unit, false);
-            gate = new ServerCommandGate(units, Attempt);
+            gate = new ServerCommandGate(units, Attempt, NetSight.Everything);
             owner = new NetConnection("account-a", new[] { id });
             counter = 0;
         }

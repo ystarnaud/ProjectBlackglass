@@ -33,7 +33,7 @@ namespace Blackglass.Tests
             yield return rig.Generate(12345);
             Assert.That(rig.Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", rig.Director.Report.Failures));
             var units = NetUnits.FromMission(rig.Director);
-            gate = new ServerCommandGate(units, rig.Director.InstanceId);
+            gate = new ServerCommandGate(units, rig.Director.InstanceId, NetSight.Everything);
             friend = rig.Director.Friendlies[0];
             enemy = rig.Director.Hostiles[0];
             friendId = units.IdOf(friend);
@@ -80,6 +80,29 @@ namespace Blackglass.Tests
             var result = Send(new NetAttack(friendId, enemyId));
             Assert.That(result.Reason, Is.EqualTo(NetRejectReason.None));
             Assert.That(friend.CurrentCommand, Is.InstanceOf<AttackCommand>());
+        }
+
+        [UnityTest]
+        public IEnumerator AnAcceptedAttack_IsReported_WithTheCommandIssueReceived()
+        {
+            yield return Ready();
+            NetConnection reportedConnection = null;
+            var reportedUnit = 0;
+            var reportedTarget = 0;
+            UnitCommand reportedCommand = null;
+            gate.AttackAccepted = (connection, unit, target, command) =>
+            {
+                reportedConnection = connection;
+                reportedUnit = unit;
+                reportedTarget = target;
+                reportedCommand = command;
+            };
+            Assert.That(Send(new NetAttack(friendId, enemyId)).IsAccepted, Is.True);
+            Assert.That(reportedConnection, Is.SameAs(owner));
+            Assert.That(reportedUnit, Is.EqualTo(friendId));
+            Assert.That(reportedTarget, Is.EqualTo(enemyId));
+            Assert.That(reportedCommand, Is.InstanceOf<AttackCommand>());
+            Assert.That(friend.CurrentCommand, Is.SameAs(reportedCommand), "the guard can recognise the order later");
         }
 
         [UnityTest]
