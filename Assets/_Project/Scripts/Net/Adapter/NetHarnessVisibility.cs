@@ -61,6 +61,8 @@ namespace Blackglass
             if (!Check("revealed", waitOk && FindHostile().Alive && FindHostile().Health > 0, "the hostile arrived with its health"))
                 yield break;
             var hostileId = FindHostile().UnitId;
+            if (!Check("guess was the hostile", hostileId == guessed, "revealed id " + hostileId + ", guessed id " + guessed))
+                yield break;
             yield return Wait(0.5d);
             var revealed = Position(hostileId);
             if (!CheckNothingBefore(hostileId, revealed, observeSentAt))
@@ -199,8 +201,9 @@ namespace Blackglass
             client.SendFixture(NetFixtureVerb.Search);
             yield return Wait(3d);
             var record = client.Record;
-            Check("fixture refused", FindHostile() == null && record.FixtureStep == 0 && record.KnowledgeMessages == 0 && record.Contents == null,
-                "no hostile, no step, no knowledge, no contents");
+            Check("fixture refused", FindHostile() == null && !record.Sightings.Any(s => s.Hostile) && record.LastKnown.Count == 0
+                && record.FixtureStep == 0 && record.KnowledgeMessages == 0 && record.ContainerMessages == 0 && record.Contents == null
+                && !record.Truncated, "no hostile ever seen, no record, no step, no knowledge, no container, no contents");
         }
 
         IEnumerator Verb(NetFixtureVerb verb)
@@ -230,7 +233,10 @@ namespace Blackglass
             var avatars = States().Length;
             detail = avatars + " avatars, " + record.Sightings.Count + " sightings, " + record.LastKnown.Count + " last-known records, " +
                 record.KnowledgeMessages + " knowledge and " + record.ContainerMessages + " container messages";
-            return avatars == 0 && record.Sightings.Count == 0 && record.LastKnown.Count == 0 && record.KnowledgeMessages == 0
+            var decoded = record.DecodedMessages.Select(d => d.Type).Where(t => !AllowedMessages.Contains(t)).Distinct().ToList();
+            var positioned = record.DecodedMessages.Count(d => d.HasPosition);
+            detail += ", " + decoded.Count + " unexpected message types, " + positioned + " positioned messages";
+            return decoded.Count == 0 && positioned == 0 && avatars == 0 && record.Sightings.Count == 0 && record.LastKnown.Count == 0 && record.KnowledgeMessages == 0
                 && record.ContainerMessages == 0 && record.Contents == null && !record.Truncated;
         }
 
