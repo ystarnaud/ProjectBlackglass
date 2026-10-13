@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Linux Dedicated Server (Mono) from ServerMission.unity and packages it for a VM (Checkpoint A).
 # The Unity Editor must be closed.
-# Usage: Tools/build-server.sh [--fixture]   (--fixture: a development build with the -netFixture test fixture)
+# Usage: Tools/build-server.sh [--fixture]   (--fixture: the release build plus the BLACKGLASS_NET_FIXTURE define, with the -netFixture test fixture)
 # Output: Builds/LinuxServer/ (the build) and Builds/blackglass-server-linux-<sha>[-dirty].tar.gz (the package).
 set -u
 method=Blackglass.EditorTools.ServerBuild.BuildFromCommandLine

@@ -1,4 +1,4 @@
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
 using System;
 using System.Collections.Generic;
 using UnityEngine;
@@ -8,10 +8,10 @@ namespace Blackglass
 {
     /// <summary>
     /// The deterministic development fixture (hidden information slice, spec section 3.9), compiled only into the Editor and
-    /// development builds. In -netFixture mode it is the visibility source: a connection observes the fixture's hostile only after
-    /// Observe, and grants are keyed by the server's own connection object, never by an account string. Real sight and exposure
-    /// are not consulted, so what the harness sees does not depend on the map. MoveHostile walks the hostile through points the
-    /// server sampled and never sends. The adapter checks the caller's fixture identity before Apply.
+    /// fixture server build (BLACKGLASS_NET_FIXTURE). In -netFixture mode it is the visibility source: a connection observes
+    /// the fixture's hostile only after Observe, and grants are keyed by the server's own connection object, never by an
+    /// account string. Real sight and exposure are not consulted, so what the harness sees does not depend on the map.
+    /// MoveHostile walks the hostile through points the server sampled and never sends. The adapter checks the caller's fixture identity before Apply.
     /// </summary>
     public sealed class NetFixture : INetIntelSource
     {

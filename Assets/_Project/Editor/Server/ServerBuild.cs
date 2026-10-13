@@ -32,21 +32,25 @@ namespace Blackglass.EditorTools
         }
 
         /// <summary>Unity -batchmode -executeMethod entry; exits 0 on success, 1 otherwise.</summary>
-        public static void BuildFromCommandLine() => BuildForCommandLine(development: false);
+        public static void BuildFromCommandLine() => BuildForCommandLine(fixture: false);
 
         /// <summary>
-        /// Unity -batchmode -executeMethod entry for the development build the harness runs against: the release build plus
-        /// BuildOptions.Development, so the development fixture (-netFixture) is compiled in (decision 047). Exits 0 or 1.
+        /// Unity -batchmode -executeMethod entry for the fixture build the harness runs against: the release build plus the
+        /// BLACKGLASS_NET_FIXTURE scripting define, so the development fixture (-netFixture) is compiled in (decision 047).
+        /// Not a Development build: that would open Unity's player connection on every interface. Exits 0 or 1.
         /// </summary>
-        public static void BuildFixtureFromCommandLine() => BuildForCommandLine(development: true);
+        public static void BuildFixtureFromCommandLine() => BuildForCommandLine(fixture: true);
 
-        static void BuildForCommandLine(bool development)
+        /// <summary>The scripting define that compiles the development fixture into a player build.</summary>
+        public const string FixtureDefine = "BLACKGLASS_NET_FIXTURE";
+
+        static void BuildForCommandLine(bool fixture)
         {
             var ok = false;
             string message;
             try
             {
-                ok = Build(out message, development);
+                ok = Build(out message, fixture);
             }
             catch (Exception exception)
             {
@@ -63,9 +67,9 @@ namespace Blackglass.EditorTools
             EditorApplication.Exit(0);
         }
 
-        public static bool Build(out string message) => Build(out message, development: false);
+        public static bool Build(out string message) => Build(out message, fixture: false);
 
-        public static bool Build(out string message, bool development)
+        public static bool Build(out string message, bool fixture)
         {
             if (!Preflight(out message))
                 return false;
@@ -86,7 +90,8 @@ namespace Blackglass.EditorTools
                     target = BuildTarget.StandaloneLinux64,
                     subtarget = (int)StandaloneBuildSubtarget.Server,
                     locationPathName = executable,
-                    options = BuildOptions.StrictMode | (development ? BuildOptions.Development : BuildOptions.None),
+                    options = BuildOptions.StrictMode,
+                    extraScriptingDefines = fixture ? new[] { FixtureDefine } : null,
                 });
                 var summary = report.summary;
                 if (summary.result != BuildResult.Succeeded)
@@ -100,8 +105,8 @@ namespace Blackglass.EditorTools
                     message = $"the build reported success but {executable} or {data} is missing";
                     return false;
                 }
-                WriteBuildInfo(root, output, summary, development);
-                message = $"variant={(development ? "fixture" : "release")} platform={summary.platform} subtarget=Server backend={PlayerSettings.GetScriptingBackend(NamedBuildTarget.Server)} " +
+                WriteBuildInfo(root, output, summary, fixture);
+                message = $"variant={(fixture ? "fixture" : "release")} platform={summary.platform} subtarget=Server backend={PlayerSettings.GetScriptingBackend(NamedBuildTarget.Server)} " +
                     FormattableString.Invariant($"sizeMB={summary.totalSize / 1048576d:0.0} seconds={summary.totalTime.TotalSeconds:0} output={output}");
                 return true;
             }
@@ -158,7 +163,7 @@ namespace Blackglass.EditorTools
         }
 
         // LF line endings: the file is read on Linux.
-        static void WriteBuildInfo(string root, string output, BuildSummary summary, bool development)
+        static void WriteBuildInfo(string root, string output, BuildSummary summary, bool fixture)
         {
             var revision = Git(root, "rev-parse HEAD") ?? "unknown";
             var status = Git(root, "status --porcelain --untracked-files=no");
@@ -173,7 +178,7 @@ namespace Blackglass.EditorTools
                 "unity=" + Application.unityVersion,
                 "target=StandaloneLinux64",
                 "subtarget=Server",
-                "variant=" + (development ? "fixture" : "release"),
+                "variant=" + (fixture ? "fixture" : "release"),
                 "backend=Mono",
                 "buildGuid=" + summary.guid,
             };

@@ -21,7 +21,7 @@ namespace Blackglass
         public bool OwnsSquad { get; }
         /// <summary>When set, the entry is only valid for a mission whose instance id equals this value (null: any).</summary>
         public string Attempt { get; }
-        /// <summary>True for a `+fixture` entry: the account may drive the development fixture (Editor and development builds only).</summary>
+        /// <summary>True for a `+fixture` entry: the account may drive the development fixture (Editor and fixture builds only).</summary>
         public bool Fixture { get; }
     }
 

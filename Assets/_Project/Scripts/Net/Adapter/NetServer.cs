@@ -7,7 +7,7 @@ using FishNet.Managing.Object;
 using FishNet.Transporting;
 using FishNet.Transporting.UTP;
 using UnityEngine;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
 using UnityEngine.AI;
 #endif
 
@@ -24,7 +24,7 @@ namespace Blackglass
     /// what each welcomed connection may see. This class turns those transitions into observer rebuilds and NetKnowledgeMessages,
     /// and ends guarded attacks on targets the issuing connection no longer observes.
     ///
-    /// With -netFixture (Editor and development builds only), the development fixture replaces the squad model as the source.
+    /// With -netFixture (Editor and fixture builds only), the development fixture replaces the squad model as the source.
     /// Tokens are never logged.
     /// </summary>
     public sealed class NetServer : MonoBehaviour
@@ -47,7 +47,7 @@ namespace Blackglass
         UnityTransport transport;
         bool createdManager;
         bool registered;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
         NetFixture fixture;
 
         internal NetFixture Fixture => fixture;
@@ -98,7 +98,7 @@ namespace Blackglass
                 return "visibility: " + intelligenceProblem;
             if (options.NetFixture)
             {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
                 if (!options.NetQuiet)
                     return "-netFixture needs -netQuiet, so the hostile neither moves nor fires on its own";
 #else
@@ -126,7 +126,7 @@ namespace Blackglass
 
             Units = NetUnits.FromMission(director);
             INetIntelSource source = null;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
             if (options.NetFixture)
             {
                 var fixtureProblem = CreateFixture(director);
@@ -178,7 +178,7 @@ namespace Blackglass
             return null;
         }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
         // The fixture's hostile is the first one; its walk points are found once, here, and never sent (plan ruling 4).
         string CreateFixture(MissionDirector director)
         {
@@ -236,7 +236,7 @@ namespace Blackglass
             avatars.Forget();
             Visibility = null;
             Guard = null;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
             fixture = null;
 #endif
         }
@@ -312,7 +312,7 @@ namespace Blackglass
                 Visibility.Remove(leaving);
                 Guard.Forget(leaving);
                 welcomed.Remove(leaving);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
                 if (fixture != null)
                     fixture.Forget(leaving);
 #endif
@@ -382,12 +382,12 @@ namespace Blackglass
                     LogLimited(clientId, FormattableString.Invariant($"fixture refused client={clientId} account={Host.AccountOf(clientId)}"));
                     return;
             }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
             ApplyFixture(connection, caller, (NetFixtureVerb)message.Verb);
 #endif
         }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
         void ApplyFixture(NetworkConnection connection, NetConnection caller, NetFixtureVerb verb)
         {
             if (!fixture.Apply(caller, verb))

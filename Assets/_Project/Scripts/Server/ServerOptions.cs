@@ -33,7 +33,7 @@ namespace Blackglass
         public string NetTokensPath { get; private set; }
         /// <summary>Apply the diagnostic's controls (hostile AI off, friendlies' autonomy off, forced hits) so a networked run is repeatable.</summary>
         public bool NetQuiet { get; private set; }
-        /// <summary>-netFixture: the development fixture drives visibility (Editor and development builds only; needs -netQuiet).</summary>
+        /// <summary>-netFixture: the development fixture drives visibility (Editor and fixture builds only; needs -netQuiet).</summary>
         public bool NetFixture { get; private set; }
 
         public static ServerOptions Default => new ServerOptions();

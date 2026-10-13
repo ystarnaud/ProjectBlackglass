@@ -1,4 +1,4 @@
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
