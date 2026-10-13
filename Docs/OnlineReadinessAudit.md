@@ -567,7 +567,7 @@ This is the audit's §7 proof reduced to its first slice: an authoritative Linux
 
 ### 9.4 Networking experiment, hidden-information slice (2026-10-12)
 
-This is the second slice of the §7 proof: the server sends each connection only the hostile state its visibility allows. It is **not Phase 13**: no accounts, backend, database or settlement exist. Design: decision 047 and `Docs/superpowers/specs/2026-10-12-hidden-information-design.md`. Run guide: `Docs/DedicatedServer.md`. Branch `networking-hidden-info`, head `3ddc7e5` before the documents commit. The acceptance run used builds at `bac821a` and `282d784` (`dirty` from the owner's two settings files only), FishNet 4.7.3, FishyUnityTransport 2.0.0-pre.2, Unity Transport 2.7.4, Unity 6000.3.25f1, on `bg-dev-mission01`.
+This is the second slice of the §7 proof: the server sends each connection only the hostile state its visibility allows. It is **not Phase 13**: no accounts, backend, database or settlement exist. Design: decision 047 and `Docs/superpowers/specs/2026-10-12-hidden-information-design.md`. Run guide: `Docs/DedicatedServer.md`. Branch `networking-hidden-info`, head `3ddc7e5` before the documents commit; the final-revision validation ran at `cc25114` (see "Final revision" below). The acceptance run used builds at `bac821a` and `282d784` (`dirty` from the owner's two settings files only), FishNet 4.7.3, FishyUnityTransport 2.0.0-pre.2, Unity Transport 2.7.4, Unity 6000.3.25f1, on `bg-dev-mission01`.
 
 | Check | Covered | Evidence |
 |---|---|---|
@@ -600,6 +600,20 @@ The owner's 18 acceptance criteria, all PASS:
 | 17 | No tunnel or client remains, including on failure | `leftover clients=0 tunnel=none` after every runner call, confirmed independently; forced failure with the server down took 68 s, every role that ran exited 2 |
 | 18 | Idle run: no new exceptions, no material regression | 600 s release `-net` at `bac821a`: 0 exception, 0 error, CPU mean 1.9 % and max 2.4 % (part 2: 1.9 and 2.2), RSS peak 117.0 MB (part 2: 116.3), fps min 59.8, SIGTERM exit status 0 |
 
+**Final revision (`cc25114`, 2026-10-13).** The validation was re-run on the final head with no code change (release and fixture builds both `revision=cc25114109012858dd1e0f1db9cf95a18586d295 dirty=true`, dirty from the owner's two settings files only; the earlier evidence above stands). All 18 criteria and the owner's six checks PASS:
+
+| Criterion | Evidence at `cc25114` |
+|---|---|
+| 1 listeners | release and fixture: the server process owns one row, TCP `127.0.0.1:7770`; `rows other than 127.0.0.1:7770: 0`, no UDP, `55000 anywhere: 0`, no "Player connection" line, `boot.config` without `player-connection-*` keys or addresses |
+| 10 / 15 suites | EditMode 1436/1436; PlayMode 1434/1434 |
+| 16 real client | seven roles `exit=0 ... PASS` on the fixture build (`visibility-a` 26 steps, `visibility-b` 4, `a` 14, `b` 13, `ticket` 1, `badtoken` 1, `visibility-fault` 9; runner exit 0), plus `fixture-denied` PASS on the release build (`--denied`) |
+| 18 idle run | 600 s release `-net`: 0 exception, 0 error, CPU mean 1.9 % and max 2.4 % (`bac821a` the same), RSS peak 117.1 MB (`bac821a` 117.0, part 2 116.3), RSS steady 116.7 MB, fps min 59.8, max 60.0, SIGTERM exit status 0 |
+| Fail closed | role `visibility-fault`: `denied after the fault OK no avatar, a record 0.00 m from the last live position`, `still denied OK no avatar, record moved 0.00 m`; the server log has `fixture step=9 verb=Fault`, then `visibility fails closed: the intel source threw InvalidOperationException: fixture fault; hostiles it cannot answer for are hidden` exactly once (no stack trace), then `visibility client=7 unit=3 LastKnown` |
+| 17 no leftovers | `leftover clients=0 tunnel=none` after `--denied`, the full pass and a forced failure with the server down (every role that ran exited 2, runner exit 1), each confirmed independently; the VM has no server and 0 Blackglass sockets |
+| Other owner checks | diagnostic `BLACKGLASS DIAGNOSTIC PASS moveS=1.4 attackS=3.6`, exit 0; the release build refuses `-netFixture` (`exit code=2 reason=net: -netFixture is not available in a release build`) |
+
+Token files: the release file is rewritten by `make-dev-tokens.sh` when it carries a fixture identity (`+fixture` lines 2 before, 0 after), the separate fixture file holds `squad+fixture`, both are mode 600, and the account-a tokens differ. The VM is left on the `cc25114` release build, nothing running.
+
 **What is server-filtered now:** a hidden hostile's live state (avatar despawned per connection); orders, queue and steering of every hostile; friendly units for connections that do not own them; container contents until searched, then only for the searcher; a hidden hostile's existence (the gate answers `UnknownUnit` as for a made-up id). **What a client still sees:** its own units including health under fire; a hostile's position, rotation, health and alive state while observed; a frozen last-known position it was authorized to see; on fixture builds, the step counter. **Intelligence is shared by the squad, not per connection:** a connection gets it only if it owns every living friendly and at least one; split ownership fails closed.
 
 **What matters next:**
@@ -608,5 +622,5 @@ The owner's 18 acceptance criteria, all PASS:
 - **The real loot and inventory** are not on the server. The fixture container proves the rule (contents only to the searcher, after the search), not the real replication.
 - **Host-mode test limits.** In-editor tests are single-client host mode and prove observer sets and messages, not client-side absence. Cross-connection isolation rests on unit tests and the two-client VM harness.
 - **Lag after losing sight:** up to one server frame plus the 0.2 s intelligence pass before a hostile that leaves sight stops streaming (model sampling, not a widening).
-- **Latency.** Role `a` measured a median of 257.8 ms (round trip 93 ms) at `bac821a` and 267.5 ms (87 ms) at `282d784`, over 10 samples, through the SSH tunnel. That is transport evidence only, not LAN latency. The 150 ms LAN target stands and prediction stays deferred.
+- **Latency.** Role `a` measured a median of 257.8 ms (round trip 93 ms) at `bac821a` and 267.5 ms (87 ms) at `282d784`, over 10 samples, through the SSH tunnel. That is transport evidence only, not LAN latency. At `cc25114` role `a` measured a median of 22.3 ms over 10 samples (round trip 113 ms), again through the SSH tunnel and again transport evidence only; it is not comparable with the earlier figures. The 150 ms LAN target stands and prediction stays deferred.
 - **The fixture build** had to leave Development builds: Unity's player connection opened TCP `0.0.0.0:55000` and UDP `0.0.0.0:46686` and embedded build-machine addresses in `boot.config`. It now compiles under `BLACKGLASS_NET_FIXTURE` in a non-Development build, and audit tests pin that. The VM is left on the release build, and `ufw` there is still inactive.
