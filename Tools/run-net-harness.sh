@@ -33,6 +33,10 @@ mkdir -p "$logs"
 
 text=$(ssh -o BatchMode=yes "$host" "cat $tokenfile") || { echo "cannot read the token file on $host"; exit 2; }
 token_of() { printf '%s\n' "$text" | awk -v a="$1" '$1==a {print $2; exit}'; }
+if [ "$mode" = "denied" ] && grep -q '+fixture' <<< "$text"; then
+  echo "the release token file on $host carries a +fixture identity; run make-dev-tokens.sh there (it replaces such a file)"
+  exit 2
+fi
 tok_a=$(token_of account-a)
 tok_b=$(token_of account-b)
 tok_t=$(token_of account-ticket)

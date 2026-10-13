@@ -26,6 +26,10 @@ running() { [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; }
 case "${1:-}" in
   start)
     [ -f "$tokens" ] || { echo "no $tokenkind token file at $tokens; run $tokenhint first"; exit 2; }
+    if [ "$tokenkind" = release ] && grep -q '+fixture' "$tokens"; then
+      echo "the release token file $tokens carries a +fixture identity; run make-dev-tokens.sh (it replaces such a file)"
+      exit 2
+    fi
     if running; then echo "already running (pid $(cat "$pidfile"))"; exit 0; fi
     mkdir -p "$logs"
     rev=$(awk -F= '$1=="revision"{print substr($2,1,7)}' "$dir/build-info.txt" 2>/dev/null)

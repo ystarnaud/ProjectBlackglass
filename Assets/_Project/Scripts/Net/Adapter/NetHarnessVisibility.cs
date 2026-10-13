@@ -190,9 +190,12 @@ namespace Blackglass
             if (Failed)
                 yield break;
             yield return Wait(1.5d);
-            if (!Check("still denied", FindHostile() == null && Flat(record.LastKnown[hostileId] - stale) < 0.05f
+            var recordKept = record.LastKnown.TryGetValue(hostileId, out var after);
+            var moved = recordKept ? Flat(after - stale) : float.MaxValue;
+            if (!Check("still denied", FindHostile() == null && recordKept && moved < 0.05f
                     && record.KnowledgeMessages == knowledgeAtReveal + 1 && !record.Truncated,
-                    FormattableString.Invariant($"no avatar, record moved {Flat(record.LastKnown[hostileId] - stale):0.00} m, {record.KnowledgeMessages - knowledgeAtReveal} knowledge message(s) since the reveal")))
+                    recordKept ? FormattableString.Invariant($"no avatar, record moved {moved:0.00} m, {record.KnowledgeMessages - knowledgeAtReveal} knowledge message(s) since the reveal")
+                        : "the record is gone"))
                 yield break;
 
             var unexpected = record.DecodedMessages.Select(d => d.Type).Where(t => !AllowedMessages.Contains(t)).Distinct().ToList();
