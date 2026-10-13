@@ -18,13 +18,17 @@ namespace Blackglass
         bool hasSequence;
         uint lastSequence;
 
-        public NetConnection(string account, IEnumerable<int> ownedUnitIds)
+        public NetConnection(string account, IEnumerable<int> ownedUnitIds, bool drivesFixture = false)
         {
             Account = account;
+            DrivesFixture = drivesFixture;
             owned = new HashSet<int>(ownedUnitIds ?? new int[0]);
         }
 
         public string Account { get; }
+
+        /// <summary>Admitted with a `+fixture` token: may send fixture verbs when the server runs -netFixture.</summary>
+        public bool DrivesFixture { get; }
 
         public bool Owns(int unitId) => owned.Contains(unitId);
 

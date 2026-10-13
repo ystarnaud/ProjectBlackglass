@@ -15,6 +15,19 @@ namespace Blackglass
         Disconnect,
     }
 
+    /// <summary>What the host did with one fixture message (spec section 3.9).</summary>
+    public enum NetFixtureAdmission
+    {
+        /// <summary>Before hello, or over budget: dropped and not answered.</summary>
+        Ignored,
+        /// <summary>The fixture is off, or the client has no fixture identity: changes nothing and counts toward abuse.</summary>
+        Refused,
+        /// <summary>The adapter may carry out the verb for the returned connection.</summary>
+        Allowed,
+        /// <summary>The client has become abusive: the adapter must disconnect it.</summary>
+        Disconnect,
+    }
+
     public readonly struct NetOutcome
     {
         public NetOutcome(NetDisposition disposition, NetResult result)
@@ -107,6 +120,33 @@ namespace Blackglass
             }
             Rejected++;
             return new NetOutcome(session.Budget.NoteRefusal(now) ? NetDisposition.Disconnect : NetDisposition.Handled, result);
+        }
+
+        /// <summary>The welcomed client's connection; null before hello and for unknown clients.</summary>
+        public NetConnection ConnectionOf(int clientId) =>
+            sessions.TryGetValue(clientId, out var session) ? session.Connection : null;
+
+        /// <summary>
+        /// Decides one fixture message. It shares the request budget and the abuse count; a refusal counts like a rejected request.
+        /// The returned connection is the server's own object for this client, so a grant can never name another account.
+        /// </summary>
+        public NetFixtureAdmission FixtureRequest(int clientId, bool fixtureEnabled, double now, out NetConnection connection)
+        {
+            connection = null;
+            if (!sessions.TryGetValue(clientId, out var session) || session.Connection == null)
+                return NetFixtureAdmission.Ignored;
+            if (!session.Budget.TryTake(now))
+            {
+                Dropped++;
+                return session.Budget.NoteRefusal(now) ? NetFixtureAdmission.Disconnect : NetFixtureAdmission.Ignored;
+            }
+            if (!fixtureEnabled || !session.Connection.DrivesFixture)
+            {
+                Rejected++;
+                return session.Budget.NoteRefusal(now) ? NetFixtureAdmission.Disconnect : NetFixtureAdmission.Refused;
+            }
+            connection = session.Connection;
+            return NetFixtureAdmission.Allowed;
         }
 
         public string AccountOf(int clientId) =>

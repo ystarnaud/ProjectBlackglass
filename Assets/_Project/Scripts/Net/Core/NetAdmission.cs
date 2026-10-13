@@ -55,7 +55,7 @@ namespace Blackglass
             inUse.Add(token);
             ownedCount = entry.OwnsSquad ? friendlyCount : 0;
             firstOwnedId = ownedCount > 0 ? 1 : 0;
-            connection = new NetConnection(entry.Account, Enumerable.Range(firstOwnedId, ownedCount));
+            connection = new NetConnection(entry.Account, Enumerable.Range(firstOwnedId, ownedCount), entry.Fixture);
             return NetRefusal.None;
         }
 
