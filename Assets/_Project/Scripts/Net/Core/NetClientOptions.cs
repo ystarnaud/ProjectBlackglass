@@ -6,14 +6,14 @@ namespace Blackglass
 {
     /// <summary>
     /// The net-test client's command line (networking experiment, spec section 3.5): -server, -port, -token and -netharness
-    /// with one of the four harness roles. Pure: parsed from the argument list. Unknown arguments (Unity's own) are ignored; a
+    /// with one of the seven harness roles. Pure: parsed from the argument list. Unknown arguments (Unity's own) are ignored; a
     /// missing, out-of-range or unknown value keeps the default and adds a warning that never contains the token.
     /// </summary>
     public sealed class NetClientOptions
     {
         public const string DefaultServer = "127.0.0.1";
         public const int DefaultPort = 7770;
-        static readonly string[] Roles = { "a", "b", "ticket", "badtoken" };
+        static readonly string[] Roles = { "a", "b", "ticket", "badtoken", "visibility-a", "visibility-b", "fixture-denied" };
 
         public string Server { get; private set; } = DefaultServer;
         public int Port { get; private set; } = DefaultPort;
@@ -54,7 +54,7 @@ namespace Blackglass
                             if (Array.IndexOf(Roles, role) >= 0)
                                 options.Harness = role;
                             else
-                                warnings.Add("-netharness must be one of a, b, ticket, badtoken");
+                                warnings.Add("-netharness must be one of " + string.Join(", ", Roles));
                         }
                         break;
                 }
