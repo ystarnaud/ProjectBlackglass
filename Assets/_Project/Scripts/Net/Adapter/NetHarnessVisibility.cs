@@ -151,6 +151,56 @@ namespace Blackglass
                 : record.Truncated ? "the record was truncated" : record.DecodedMessages.Count + " messages, all of expected types");
         }
 
+        // A built-server check that a failing visibility source denies information (fail closed): the fixture makes the answer
+        // for this connection throw, and the hostile must leave, leaving one frozen record, and stay gone.
+        IEnumerator VisibilityFault()
+        {
+            yield return Connected();
+            if (Failed)
+                yield break;
+            var record = client.Record;
+
+            yield return Wait(2d);
+            if (!Check("hidden at start", FindHostile() == null && record.KnowledgeMessages == 0 && record.ContainerMessages == 0,
+                    "no hostile avatar, no knowledge and no container message"))
+                yield break;
+
+            yield return Verb(NetFixtureVerb.Observe);
+            if (Failed)
+                yield break;
+            yield return Until(() => FindHostile() != null, 5d);
+            if (!Check("revealed", waitOk && FindHostile().Alive, "the hostile arrived, alive"))
+                yield break;
+            var hostileId = FindHostile().UnitId;
+            yield return Wait(0.5d);
+            var lastLive = Position(hostileId);
+            var knowledgeAtReveal = record.KnowledgeMessages;
+
+            yield return Verb(NetFixtureVerb.Fault);
+            if (Failed)
+                yield break;
+            yield return Until(() => FindHostile() == null && record.LastKnown.ContainsKey(hostileId), 3d);
+            if (!Check("denied after the fault", waitOk && Flat(record.LastKnown[hostileId] - lastLive) <= 0.25f,
+                    waitOk ? FormattableString.Invariant($"no avatar, a record {Flat(record.LastKnown[hostileId] - lastLive):0.00} m from the last live position")
+                        : "the avatar stayed or no record arrived"))
+                yield break;
+            var stale = record.LastKnown[hostileId];
+
+            yield return Verb(NetFixtureVerb.MoveHostile);
+            if (Failed)
+                yield break;
+            yield return Wait(1.5d);
+            if (!Check("still denied", FindHostile() == null && Flat(record.LastKnown[hostileId] - stale) < 0.05f
+                    && record.KnowledgeMessages == knowledgeAtReveal + 1 && !record.Truncated,
+                    FormattableString.Invariant($"no avatar, record moved {Flat(record.LastKnown[hostileId] - stale):0.00} m, {record.KnowledgeMessages - knowledgeAtReveal} knowledge message(s) since the reveal")))
+                yield break;
+
+            var unexpected = record.DecodedMessages.Select(d => d.Type).Where(t => !AllowedMessages.Contains(t)).Distinct().ToList();
+            Check("message types", unexpected.Count == 0, unexpected.Count > 0
+                ? "unexpected: " + string.Join(", ", unexpected)
+                : record.DecodedMessages.Count + " messages, all of expected types");
+        }
+
         IEnumerator VisibilityB()
         {
             yield return Connected();

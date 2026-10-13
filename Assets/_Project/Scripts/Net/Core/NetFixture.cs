@@ -23,6 +23,7 @@ namespace Blackglass
         readonly IReadOnlyList<Vector3> points;
         readonly Action<Vector3> moveHostile;
         readonly HashSet<NetConnection> observers = new HashSet<NetConnection>();
+        readonly HashSet<NetConnection> faulted = new HashSet<NetConnection>();
         int nextPoint;
 
         public NetFixture(NetUnits units, int hostileId, IReadOnlyList<Vector3> points, Action<Vector3> moveHostile)
@@ -39,8 +40,12 @@ namespace Blackglass
         public int Step { get; private set; }
         public NetFixtureContainer Container { get; } = new NetFixtureContainer();
 
-        public bool Observes(NetConnection connection, int id) =>
-            id == hostileId && connection != null && observers.Contains(connection);
+        public bool Observes(NetConnection connection, int id)
+        {
+            if (connection != null && faulted.Contains(connection))
+                throw new InvalidOperationException("fixture fault");
+            return id == hostileId && connection != null && observers.Contains(connection);
+        }
 
         /// <summary>Carries out one verb for an authorized connection; false, with no step, when it changes nothing.</summary>
         public bool Apply(NetConnection connection, NetFixtureVerb verb)
@@ -66,6 +71,9 @@ namespace Blackglass
                         return false;
                     Container.Search(connection);
                     break;
+                case NetFixtureVerb.Fault:
+                    faulted.Add(connection);
+                    break;
                 default:
                     return false;
             }
@@ -76,6 +84,7 @@ namespace Blackglass
         public void Forget(NetConnection connection)
         {
             observers.Remove(connection);
+            faulted.Remove(connection);
             Container.Forget(connection);
         }
 

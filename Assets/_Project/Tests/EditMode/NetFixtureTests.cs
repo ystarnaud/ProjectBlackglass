@@ -55,6 +55,31 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Fault_MakesObservesThrow_ForThatConnectionOnly()
+        {
+            fixture.Apply(a, NetFixtureVerb.Observe);
+            fixture.Apply(b, NetFixtureVerb.Observe);
+            Assert.That(fixture.Apply(a, NetFixtureVerb.Fault), Is.True);
+            Assert.That(fixture.Step, Is.EqualTo(3));
+            var thrown = Assert.Throws<System.InvalidOperationException>(() => fixture.Observes(a, Hostile));
+            Assert.That(thrown.Message, Is.EqualTo("fixture fault"));
+            Assert.That(fixture.Observes(b, Hostile), Is.True, "B is unaffected");
+        }
+
+        [Test]
+        public void Forget_ClearsTheFault_AndNoOtherVerbDoes()
+        {
+            fixture.Apply(a, NetFixtureVerb.Fault);
+            fixture.Apply(a, NetFixtureVerb.Observe);
+            fixture.Apply(a, NetFixtureVerb.Unobserve);
+            fixture.Apply(a, NetFixtureVerb.MoveHostile);
+            fixture.Apply(a, NetFixtureVerb.Search);
+            Assert.Throws<System.InvalidOperationException>(() => fixture.Observes(a, Hostile));
+            fixture.Forget(a);
+            Assert.DoesNotThrow(() => fixture.Observes(a, Hostile));
+        }
+
+        [Test]
         public void TheFixture_SeesOnlyItsHostile()
         {
             fixture.Apply(a, NetFixtureVerb.Observe);

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Runs the net-test client's harness roles against the networked server on the VM through an SSH tunnel (networking experiment).
 # Usage: Tools/run-net-harness.sh [--denied] [host]    (default host: bg-dev-mission01; port: $NET_PORT or 7770)
-#   default:  against the fixture build started with `NET_FIXTURE=1 run-net.sh start`: visibility-b and visibility-a at the
-#             same time (B must see nothing of what A is shown), then the part 2 roles a, b, ticket and badtoken.
-#   --denied: against the release build started with `run-net.sh start`: the fixture-denied role only.
+#   default:  against the fixture build started with `NET_FIXTURE=1 run-net.sh start` (reads the FIXTURE token file,
+#             $BLACKGLASS_FIXTURE_TOKENS, default /opt/blackglass/dev-tokens-fixture.txt): visibility-b and visibility-a at the
+#             same time (B must see nothing of what A is shown), then the part 2 roles a, b, ticket and badtoken, then
+#             visibility-fault alone (a failing visibility source must deny information): seven roles.
+#   --denied: against the release build started with `run-net.sh start` (reads the RELEASE token file, $BLACKGLASS_TOKENS,
+#             default /opt/blackglass/dev-tokens.txt, which has no +fixture identity): the fixture-denied role only.
 # Needs Builds/NetTestClient/NetTestClient.exe (Tools/build-netclient.sh). Logs: Builds/NetHarnessLogs/<UTC>/ (git-ignored).
 # The tokens are read from the VM into shell variables and never printed. Every client this script started and the tunnel are
 # stopped on any exit, and the last line reports what is left: "leftover clients=<n> tunnel=<pid|none>".
@@ -19,7 +22,11 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 host="${1:-bg-dev-mission01}"
 port="${NET_PORT:-7770}"
 exe="$root/Builds/NetTestClient/NetTestClient.exe"
-tokenfile="${BLACKGLASS_TOKENS:-/opt/blackglass/dev-tokens.txt}"
+if [ "$mode" = "denied" ]; then
+  tokenfile="${BLACKGLASS_TOKENS:-/opt/blackglass/dev-tokens.txt}"
+else
+  tokenfile="${BLACKGLASS_FIXTURE_TOKENS:-/opt/blackglass/dev-tokens-fixture.txt}"
+fi
 logs="$root/Builds/NetHarnessLogs/$(date -u +%Y%m%dT%H%M%SZ)"
 [ -x "$exe" ] || { echo "build the client first: Tools/build-netclient.sh"; exit 2; }
 mkdir -p "$logs"
@@ -110,6 +117,7 @@ else
   run_role b "$tok_b"
   run_role ticket "$tok_t"
   run_role badtoken "not-a-real-token"
+  run_role visibility-fault "$tok_a"
 fi
 echo "logs=$logs"
 exit $status

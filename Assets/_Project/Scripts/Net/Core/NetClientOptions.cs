@@ -13,7 +13,7 @@ namespace Blackglass
     {
         public const string DefaultServer = "127.0.0.1";
         public const int DefaultPort = 7770;
-        static readonly string[] Roles = { "a", "b", "ticket", "badtoken", "visibility-a", "visibility-b", "fixture-denied" };
+        static readonly string[] Roles = { "a", "b", "ticket", "badtoken", "visibility-a", "visibility-b", "fixture-denied", "visibility-fault" };
 
         public string Server { get; private set; } = DefaultServer;
         public int Port { get; private set; } = DefaultPort;

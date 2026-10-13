@@ -117,6 +117,34 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator AVisibilityFault_FailsClosed_AndLaterHostileMovesDoNotReachTheClient()
+        {
+            // One loopback client: that the other connection is unaffected is shown by NetFixtureTests (per connection) and the VM harness.
+            yield return rig.Connect(NetLoopbackRig.TokenA);
+            var record = rig.Client.Record;
+            yield return Verb(NetFixtureVerb.Observe);
+            yield return TestWorld.WaitUntil(() => rig.Server.IsObserver(Client, Hostile), 2f);
+            Assert.That(rig.Server.IsObserver(Client, Hostile), Is.True);
+            yield return new WaitForSecondsRealtime(0.5f);   // the reveal's own knowledge message arrives
+            var messages = record.KnowledgeMessages;
+
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(
+                @"^\[Net\] visibility fails closed: the intel source threw InvalidOperationException: fixture fault; hostiles it cannot answer for are hidden$"));
+            yield return Verb(NetFixtureVerb.Fault);
+            yield return TestWorld.WaitUntil(() => !rig.Server.IsObserver(Client, Hostile) && record.LastKnown.ContainsKey(Hostile), 2f);
+            Assert.That(rig.Server.IsObserver(Client, Hostile), Is.False);
+            Assert.That(record.LastKnown, Has.Count.EqualTo(1));
+            Assert.That(record.KnowledgeMessages, Is.EqualTo(messages + 1), "only the Observed to LastKnown transition");
+            var frozen = record.LastKnown[Hostile];
+
+            yield return Verb(NetFixtureVerb.MoveHostile);
+            yield return new WaitForSecondsRealtime(0.5f);
+            Assert.That(rig.Server.IsObserver(Client, Hostile), Is.False);
+            Assert.That(record.LastKnown[Hostile], Is.EqualTo(frozen));
+            Assert.That(record.KnowledgeMessages, Is.EqualTo(messages + 1));
+        }
+
+        [UnityTest]
         public IEnumerator AnOrdinaryClient_CannotDriveTheFixture_AndReceivesNothing()
         {
             yield return rig.Connect(NetLoopbackRig.TokenB);

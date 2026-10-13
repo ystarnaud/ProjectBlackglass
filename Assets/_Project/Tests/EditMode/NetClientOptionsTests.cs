@@ -46,7 +46,8 @@ namespace Blackglass.Tests
         [TestCase("visibility-a")]
         [TestCase("visibility-b")]
         [TestCase("fixture-denied")]
-        public void TheSevenRoles_AreAccepted(string role)
+        [TestCase("visibility-fault")]
+        public void TheEightRoles_AreAccepted(string role)
         {
             var options = Parse(out var warnings, "-netharness", role);
             Assert.That(options.Harness, Is.EqualTo(role));

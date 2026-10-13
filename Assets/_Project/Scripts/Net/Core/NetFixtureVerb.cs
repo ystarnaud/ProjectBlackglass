@@ -12,5 +12,7 @@ namespace Blackglass
         Unobserve = 2,
         MoveHostile = 3,
         Search = 4,
+        /// <summary>Makes the fixture's visibility answer throw for the sending connection, to show the server fails closed.</summary>
+        Fault = 5,
     }
 }

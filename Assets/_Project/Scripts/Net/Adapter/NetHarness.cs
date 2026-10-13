@@ -71,6 +71,9 @@ namespace Blackglass
                 case "visibility-b":
                     yield return VisibilityB();
                     break;
+                case "visibility-fault":
+                    yield return VisibilityFault();
+                    break;
                 case "fixture-denied":
                     yield return FixtureDenied();
                     break;

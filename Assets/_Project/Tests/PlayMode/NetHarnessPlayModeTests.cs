@@ -96,6 +96,15 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        [Timeout(300000)]
+        public IEnumerator TheVisibilityFaultRole_PassesTheWholeScript()
+        {
+            LogAssert.Expect(LogType.Error, new System.Text.RegularExpressions.Regex(@"visibility fails closed: the intel source threw InvalidOperationException: fixture fault"));
+            yield return Run("visibility-fault", NetLoopbackRig.TokenA, seconds: 60f, fixture: true);
+            Assert.That(harness.ExitCode, Is.EqualTo(NetHarness.ExitPass), harness.Summary);
+        }
+
+        [UnityTest]
         public IEnumerator TheFixtureDeniedRole_PassesAgainstANormalServer()
         {
             yield return Run("fixture-denied", NetLoopbackRig.TokenA);
