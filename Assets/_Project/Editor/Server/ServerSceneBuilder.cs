@@ -46,7 +46,16 @@ namespace Blackglass.EditorTools
             extractionUnits = 1,
             eliminateHostiles = true,
             hackTerminal = false,
-            intelligence = new IntelligenceSettings(),
+            // Fog on: the networked server runs the real knowledge model and visibility fails closed without it (decision 047).
+            // Map and objectives stay known; no briefing markers and no cameras, so only sight and exposure reveal a hostile.
+            intelligence = new IntelligenceSettings
+            {
+                fogEnabled = true,
+                map = MapKnowledge.Full,
+                objectives = ObjectiveKnowledge.All,
+                enemyMarkersAtStart = 0,
+                cameraCount = 0,
+            },
         };
 
         public static void Build()
@@ -64,6 +73,7 @@ namespace Blackglass.EditorTools
             var registry = systems.AddComponent<CoverRegistry>();
             var discovery = systems.AddComponent<CoverDiscovery>();
             var interactables = systems.AddComponent<InteractableRegistry>();
+            var intelligence = systems.AddComponent<IntelligenceService>();
             active.Initialize(null, pause, selection);
             discovery.Initialize(registry, discoverAtStart: false);
 
@@ -77,6 +87,7 @@ namespace Blackglass.EditorTools
                     coverDiscovery = discovery,
                     pause = pause,
                     interactables = interactables,
+                    intelligence = intelligence,
                 },
                 Load<Material>("Materials/Ground.mat"), Load<Material>("Materials/Obstacle.mat"),
                 generateAtStart: false, randomSeedAtStart: false, theme: null);
@@ -85,7 +96,8 @@ namespace Blackglass.EditorTools
             // The networking adapter is in the scene but inert: it builds FishNet's manager only when -net is given.
             server.AddComponent<NetServer>().Initialize(
                 Load<GameObject>("Prefabs/Net/NetUnitAvatar.prefab"),
-                AssetDatabase.LoadAssetAtPath<PrefabObjects>("Assets/DefaultPrefabObjects.asset"));
+                AssetDatabase.LoadAssetAtPath<PrefabObjects>("Assets/DefaultPrefabObjects.asset"),
+                intelligence);
 
             if (!EditorSceneManager.SaveScene(scene, ScenePath))
                 throw new InvalidOperationException("Could not save " + ScenePath + ".");

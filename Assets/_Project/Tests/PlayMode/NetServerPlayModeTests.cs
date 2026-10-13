@@ -56,8 +56,9 @@ namespace Blackglass.Tests
                 Assert.That(state.Health, Is.EqualTo(health.Current), "unit " + (i + 1));
                 Assert.That(state.MaxHealth, Is.EqualTo(health.Max));
                 Assert.That(state.Alive, Is.True);
-                Assert.That(state.Order, Is.EqualTo(NetOrder.KindOf(units[i].CurrentCommand)));
-                Assert.That(state.Queue, Is.EqualTo(units[i].PendingCommands.Count));
+                var hostile = rig.Director.Hostiles.Contains(units[i]);
+                Assert.That(state.Order, Is.EqualTo(hostile ? NetOrderKind.None : NetOrder.KindOf(units[i].CurrentCommand)));
+                Assert.That(state.Queue, Is.EqualTo(hostile ? 0 : units[i].PendingCommands.Count));
                 Assert.That((state.transform.position - units[i].transform.position).magnitude, Is.LessThan(0.01f), "unit " + (i + 1));
             }
         }

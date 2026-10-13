@@ -47,7 +47,7 @@ namespace Blackglass.Tests
             Port = nextPort++;
             Application.logMessageReceived += OnLog;
             TokenPath = Path.Combine(Application.temporaryCachePath, "net-rig-tokens-" + Port + ".txt");
-            File.WriteAllText(TokenPath, "account-a " + TokenA + " squad\naccount-b " + TokenB + " none\naccount-t " + TokenTicket + " none other-attempt\n");
+            File.WriteAllText(TokenPath, "account-a " + TokenA + " squad+fixture\naccount-b " + TokenB + " none\naccount-t " + TokenTicket + " none other-attempt\n");
 
             yield return EditorSceneManager.LoadSceneAsyncInPlayMode(ScenePath, new LoadSceneParameters(LoadSceneMode.Additive));
             scene = SceneManager.GetSceneByPath(ScenePath);
@@ -61,8 +61,8 @@ namespace Blackglass.Tests
             Assert.That(Director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", Director.Report.Failures));
         }
 
-        public void BeginNet(bool quiet = true) =>
-            Bootstrap.BeginNet(Bootstrap.Options.With(net: true, netPort: Port, netTokensPath: TokenPath, netQuiet: quiet));
+        public void BeginNet(bool quiet = true, bool fixture = false) =>
+            Bootstrap.BeginNet(Bootstrap.Options.With(net: true, netPort: Port, netTokensPath: TokenPath, netQuiet: quiet, netFixture: fixture));
 
         public IEnumerator Stop()
         {

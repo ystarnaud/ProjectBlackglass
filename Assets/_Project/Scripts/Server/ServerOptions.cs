@@ -33,6 +33,8 @@ namespace Blackglass
         public string NetTokensPath { get; private set; }
         /// <summary>Apply the diagnostic's controls (hostile AI off, friendlies' autonomy off, forced hits) so a networked run is repeatable.</summary>
         public bool NetQuiet { get; private set; }
+        /// <summary>-netFixture: the development fixture drives visibility (Editor and development builds only; needs -netQuiet).</summary>
+        public bool NetFixture { get; private set; }
 
         public static ServerOptions Default => new ServerOptions();
 
@@ -70,6 +72,9 @@ namespace Blackglass
                         break;
                     case "-netQuiet":
                         options.NetQuiet = true;
+                        break;
+                    case "-netFixture":
+                        options.NetFixture = true;
                         break;
                     case "-netPort":
                         if (TryValue(args, ref i, 1024, 65535, warnings, out var netPort))
@@ -148,7 +153,7 @@ namespace Blackglass
 
         /// <summary>A copy with the given values replaced (tests, and the bootstrap's diagnostic hand-off).</summary>
         internal ServerOptions With(int? seed = null, bool? diagnostic = null, int? diagnosticTimeoutSeconds = null,
-            bool? net = null, int? netPort = null, string netTokensPath = null, bool? netQuiet = null)
+            bool? net = null, int? netPort = null, string netTokensPath = null, bool? netQuiet = null, bool? netFixture = null)
         {
             var copy = (ServerOptions)MemberwiseClone();
             if (seed.HasValue)
@@ -165,6 +170,8 @@ namespace Blackglass
                 copy.NetTokensPath = netTokensPath;
             if (netQuiet.HasValue)
                 copy.NetQuiet = netQuiet.Value;
+            if (netFixture.HasValue)
+                copy.NetFixture = netFixture.Value;
             return copy;
         }
 
@@ -172,6 +179,6 @@ namespace Blackglass
         public string Describe(int fixtureSeed) =>
             FormattableString.Invariant($"seed={Seed ?? fixtureSeed}({(Seed.HasValue ? "override" : "fixture")}) fps={FrameRate} diagnostic={(Diagnostic ? "yes" : "no")} ") +
             FormattableString.Invariant($"diagnosticTimeout={DiagnosticTimeoutSeconds}s startupTimeout={StartupTimeoutSeconds}s heartbeat={(HeartbeatSeconds > 0 ? HeartbeatSeconds + "s" : "off")} ") +
-            (Net ? FormattableString.Invariant($"net=yes port={NetPort} quiet={(NetQuiet ? "yes" : "no")}") : "net=no");
+            (Net ? FormattableString.Invariant($"net=yes port={NetPort} quiet={(NetQuiet ? "yes" : "no")}") + (NetFixture ? " fixture=yes" : string.Empty) : "net=no");
     }
 }

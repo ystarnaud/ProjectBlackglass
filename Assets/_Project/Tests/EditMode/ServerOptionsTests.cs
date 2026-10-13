@@ -195,5 +195,16 @@ namespace Blackglass.Tests
             Assert.That(options.NetQuiet, Is.True);
             Assert.That(Parse().With(diagnostic: true).Net, Is.False, "untouched values stay as they were");
         }
+
+        [Test]
+        public void NetFixture_IsParsed_Described_AndCopied()
+        {
+            var options = Parse("-net", "-netQuiet", "-netFixture");
+            Assert.That(options.NetFixture, Is.True);
+            Assert.That(options.Describe(7), Does.EndWith("net=yes port=7770 quiet=yes fixture=yes"));
+            Assert.That(Parse("-net").NetFixture, Is.False);
+            Assert.That(Parse().With(netFixture: true).NetFixture, Is.True);
+            Assert.That(Parse("-netFixture").With(diagnostic: true).NetFixture, Is.True, "untouched values stay as they were");
+        }
     }
 }

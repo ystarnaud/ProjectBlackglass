@@ -72,11 +72,11 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        public IEnumerator ARequestForAHostile_IsAnsweredNotOwner()
+        public IEnumerator ARequestForTheHiddenHostile_IsAnsweredUnknownUnit()
         {
             yield return rig.Connect(NetLoopbackRig.TokenA);
             var command = rig.Client.Send(new NetMoveTo(3, Vector3.zero));
-            yield return Await(command, NetRejectReason.NotOwner);
+            yield return Await(command, NetRejectReason.UnknownUnit);
             Assert.That(rig.Director.Hostiles[0].CurrentCommand, Is.Null);
         }
 
@@ -96,7 +96,7 @@ namespace Blackglass.Tests
         {
             yield return rig.Connect(NetLoopbackRig.TokenA);
             var command = rig.Client.Send(new NetMoveTo(3, Vector3.zero));
-            yield return Await(command, NetRejectReason.NotOwner);
+            yield return Await(command, NetRejectReason.UnknownUnit);
             rig.Client.Disconnect();
             yield return null;
             yield return rig.Connect("tok-secret-probe");
