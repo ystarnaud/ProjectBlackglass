@@ -1,6 +1,7 @@
 using FishNet.Component.Transforming;
 using FishNet.Managing.Object;
 using FishNet.Object;
+using FishNet.Observing;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEngine;
@@ -11,6 +12,27 @@ namespace Blackglass.Tests
     {
         const string AvatarPath = "Assets/_Project/Prefabs/Net/NetUnitAvatar.prefab";
         const string CollectionPath = "Assets/DefaultPrefabObjects.asset";
+
+        [Test]
+        public void TheAvatarTransform_IsServerAuthoritative()
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(AvatarPath);
+            var settings = new SerializedObject(prefab.GetComponent<NetworkTransform>());
+            var property = settings.FindProperty("_clientAuthoritative");
+            Assert.That(property, Is.Not.Null, "FishNet renamed the field; re-check the authority setting");
+            Assert.That(property.boolValue, Is.False, "no client may write an avatar's transform, owner or not");
+        }
+
+        [Test]
+        public void TheAvatar_IsObservedOnlyThroughTheVisibilityCondition()
+        {
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(AvatarPath);
+            var observer = prefab.GetComponent<NetworkObserver>();
+            Assert.That(observer, Is.Not.Null, "without a NetworkObserver every client observes every avatar");
+            Assert.That(observer.OverrideType, Is.EqualTo(NetworkObserver.ConditionOverrideType.IgnoreManager));
+            Assert.That(observer.ObserverConditions, Has.Count.EqualTo(1));
+            Assert.That(observer.ObserverConditions[0], Is.InstanceOf<NetVisibilityCondition>());
+        }
 
         [Test]
         public void TheAvatarPrefab_HasTheNetworkComponents_AndNothingVisual()

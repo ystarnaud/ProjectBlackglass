@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Blackglass
 {
-    // The five messages of the networking experiment (decision 046). Plain public fields so FishNet can serialise them;
+    // The messages of the networking experiment (decision 046). Plain public fields so FishNet can serialise them;
     // the meaning of each lives in NetWire and NetSessionHost.
 
     /// <summary>Client to server, once after connecting: the development token.</summary>
@@ -44,5 +44,46 @@ namespace Blackglass
     {
         public uint CommandId;
         public byte Reason;
+    }
+
+    /// <summary>
+    /// Server to one client: its knowledge of one hostile changed (a NetKnowledge value). Position is the frozen last-known record
+    /// for LastKnown and zero otherwise; the live position travels only on the avatar while the hostile is observed.
+    /// </summary>
+    public struct NetKnowledgeMessage : IBroadcast
+    {
+        public int UnitId;
+        public byte Knowledge;
+        public Vector3 Position;
+    }
+
+    /// <summary>
+    /// Client to server, development fixture only: one NetFixtureVerb. It names no unit and no account; the server binds it to
+    /// the sending connection and refuses it from anyone without the fixture identity.
+    /// </summary>
+    public struct NetFixtureMessage : IBroadcast
+    {
+        public byte Verb;
+    }
+
+    /// <summary>Server to every welcomed client, development fixture only: how many fixture verbs have taken effect.</summary>
+    public struct NetFixtureStepMessage : IBroadcast
+    {
+        public int Step;
+    }
+
+    /// <summary>One stack of a searched container, on the wire.</summary>
+    public struct NetItemWire
+    {
+        public string DefinitionId;
+        public int Quantity;
+        public string InstanceId;
+    }
+
+    /// <summary>Server to the one client that searched: the container's contents. Never sent before the search.</summary>
+    public struct NetContainerMessage : IBroadcast
+    {
+        public int ContainerId;
+        public NetItemWire[] Entries;
     }
 }

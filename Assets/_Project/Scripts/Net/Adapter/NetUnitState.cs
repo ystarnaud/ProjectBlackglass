@@ -1,3 +1,5 @@
+using System;
+using FishNet.Connection;
 using FishNet.Object;
 using FishNet.Object.Synchronizing;
 
@@ -6,7 +8,7 @@ namespace Blackglass
     /// <summary>
     /// The replicated state of one unit (networking experiment, spec section 3.4): who it is, its side, its health and what it
     /// is doing. Lives on the avatar object the server spawns for each unit; only the server writes it. Position and rotation
-    /// travel on the avatar's NetworkTransform. A client reads these properties; no message can change them.
+    /// travel on the avatar's NetworkTransform. A client reads these properties; no message can change them, and the server decides per connection whether the avatar is sent at all (NetVisibilityCondition).
     /// </summary>
     public sealed class NetUnitState : NetworkBehaviour
     {
@@ -28,6 +30,14 @@ namespace Blackglass
         /// <summary>Orders waiting behind the current one.</summary>
         public int Queue => queue.Value;
         public bool Steering => steering.Value;
+
+        /// <summary>
+        /// Server only: whether a connection may receive this avatar. NetAvatars sets it before spawning; it is never replicated.
+        /// Unset means nobody, so a misconfigured avatar fails closed.
+        /// </summary>
+        internal Func<NetworkConnection, bool> VisibleTo;
+
+        internal bool IsVisibleTo(NetworkConnection connection) => connection != null && VisibleTo != null && VisibleTo(connection);
 
         // Server only, after the avatar has been spawned.
         internal void Assign(int id, bool isHostile)

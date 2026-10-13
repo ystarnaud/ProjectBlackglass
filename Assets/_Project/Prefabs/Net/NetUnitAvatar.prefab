@@ -11,6 +11,7 @@ GameObject:
   - component: {fileID: 3416411923691133185}
   - component: {fileID: 2154522956323749701}
   - component: {fileID: 6005290746592301991}
+  - component: {fileID: 8194070613700938492}
   - component: {fileID: 8458323275825424906}
   m_Layer: 0
   m_Name: NetUnitAvatar
@@ -117,7 +118,7 @@ MonoBehaviour:
   _extrapolation: 2
   _enableTeleport: 0
   _teleportThreshold: 1
-  _clientAuthoritative: 1
+  _clientAuthoritative: 0
   _sendToOwner: 1
   _interval: 1
   _synchronizePosition: 1
@@ -137,6 +138,22 @@ MonoBehaviour:
     X: 0
     Y: 0
     Z: 0
+--- !u!114 &8194070613700938492
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2289379598466218246}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c71fd7f855ec523429999fc4e14a1928, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: FishNet.Runtime::FishNet.Observing.NetworkObserver
+  _overrideType: 3
+  _updateHostVisibility: 1
+  _observerConditions:
+  - {fileID: 11400000, guid: 2ad105d63d8a7fc419cabc7eb9d8f709, type: 2}
 --- !u!114 &8458323275825424906
 MonoBehaviour:
   m_ObjectHideFlags: 0

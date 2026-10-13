@@ -171,7 +171,7 @@ namespace Blackglass
         {
             Debug.Log(Prefix + "server " + args.ConnectionState);
             if (args.ConnectionState == LocalConnectionState.Started)
-                avatars.Spawn(manager.ServerManager, avatarPrefab, Units);
+                avatars.SpawnAll(manager.ServerManager, avatarPrefab, Units);
             else if (args.ConnectionState == LocalConnectionState.Stopped)
                 avatars.Forget();
         }

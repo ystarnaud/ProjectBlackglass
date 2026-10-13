@@ -25,7 +25,7 @@ namespace Blackglass
         internal int Count => entries.Count;
         internal IReadOnlyList<NetUnitState> States => states;
 
-        internal void Spawn(ServerManager server, GameObject prefab, NetUnits units)
+        internal void SpawnAll(ServerManager server, GameObject prefab, NetUnits units)
         {
             Forget();
             for (var id = 1; id <= units.Count; id++)
