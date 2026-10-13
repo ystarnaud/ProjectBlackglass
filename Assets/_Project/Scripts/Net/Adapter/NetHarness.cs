@@ -9,9 +9,9 @@ namespace Blackglass
     /// <summary>
     /// The windowless acceptance script of the networking experiment (spec section 3.6): one role per run, a fixed list of
     /// checks with real-time deadlines, and a final PASS or FAIL line with an exit code like the Checkpoint A diagnostic.
-    /// It reads only what a client may see: the NetClient's answers and the replicated NetUnitState avatars.
+    /// It reads only what the client decoded: the NetClient's answers and record, and the avatars this client was actually sent (NetClient.VisibleStates).
     /// </summary>
-    public sealed class NetHarness : MonoBehaviour
+    public sealed partial class NetHarness : MonoBehaviour
     {
         public const int ExitPass = 0;
         public const int ExitFailed = 1;
@@ -65,6 +65,15 @@ namespace Blackglass
                 case "badtoken":
                     yield return Refused(NetRefusal.UnknownToken);
                     break;
+                case "visibility-a":
+                    yield return VisibilityA();
+                    break;
+                case "visibility-b":
+                    yield return VisibilityB();
+                    break;
+                case "fixture-denied":
+                    yield return FixtureDenied();
+                    break;
                 default:
                     Fail("role", "unknown role '" + role + "'");
                     break;
@@ -90,35 +99,34 @@ namespace Blackglass
                 yield break;
             if (!Check("no ownership", client.OwnedCount == 0, "owns " + client.OwnedCount))
                 yield break;
-            yield return Until(() => States().Count(s => s.UnitId > 0) >= 2, 10d);
-            if (!Check("avatars", waitOk, "the client received the units"))
+            yield return Wait(2d);
+            if (!Check("no units", States().Length == 0, States().Length + " avatars arrived; a client that owns nothing receives none"))
                 yield break;
 
-            var hostileId = FindHostile().UnitId;
-            var friendlies = States().Where(s => !s.Hostile && s.UnitId > 0).Select(s => s.UnitId).OrderBy(i => i).ToList();
-            var before = Snapshot();
-            foreach (var id in friendlies)
+            // The fixture mission's friendlies are ids 1 and 2 (NetUnits numbers friendlies first) and its hostile is 3.
+            var cases = new List<KeyValuePair<string, KeyValuePair<NetRequest, NetRejectReason>>>();
+            foreach (var id in new[] { 1, 2 })
             {
-                var requests = new NetRequest[]
-                {
-                    new NetMoveIntent(id, Vector3.right),
-                    new NetMoveTo(id, Position(id)),
-                    new NetAttack(id, hostileId),
-                    new NetStop(id),
-                };
-                foreach (var request in requests)
-                {
-                    var command = client.Send(request);
-                    yield return AwaitResult(command, 3d);
-                    client.TryGetResult(command, out var reason);
-                    if (!Check("not owner: " + request.GetType().Name + " for unit " + id, waitOk && reason == NetRejectReason.NotOwner, "answered " + reason))
-                        yield break;
-                }
+                var other = id == 1 ? 2 : 1;
+                cases.Add(Order("not owner: move intent for unit " + id, new NetMoveIntent(id, Vector3.right), NetRejectReason.NotOwner));
+                cases.Add(Order("not owner: move for unit " + id, new NetMoveTo(id, Vector3.zero), NetRejectReason.NotOwner));
+                cases.Add(Order("not owner: attack by unit " + id, new NetAttack(id, other), NetRejectReason.NotOwner));
+                cases.Add(Order("not owner: stop for unit " + id, new NetStop(id), NetRejectReason.NotOwner));
             }
-            yield return Wait(0.5d);
-            var difference = Differences(before, Snapshot());
-            Check("no state change", difference == null, difference ?? "every replicated unit is as it was");
+            cases.Add(Order("unknown: an attack on the hidden hostile", new NetAttack(1, 3), NetRejectReason.UnknownUnit));
+            cases.Add(Order("unknown: an attack on a made-up id", new NetAttack(1, 999), NetRejectReason.UnknownUnit));
+            foreach (var pair in cases)
+            {
+                var command = client.Send(pair.Value.Key);
+                yield return AwaitResult(command, 3d);
+                client.TryGetResult(command, out var reason);
+                if (!Check(pair.Key, waitOk && reason == pair.Value.Value, "answered " + reason + ", expected " + pair.Value.Value))
+                    yield break;
+            }
         }
+
+        static KeyValuePair<string, KeyValuePair<NetRequest, NetRejectReason>> Order(string name, NetRequest request, NetRejectReason expected) =>
+            new KeyValuePair<string, KeyValuePair<NetRequest, NetRejectReason>>(name, new KeyValuePair<NetRequest, NetRejectReason>(request, expected));
 
         IEnumerator Owner()
         {
@@ -127,6 +135,9 @@ namespace Blackglass
                 yield break;
             var own = client.FirstOwnedId;
             var second = own + 1;
+            // Hidden information: the hostile is sent only while observed, so the owner role needs the fixture's grant
+            // (the VM runs the part 2 roles against the fixture build; see Docs/DedicatedServer.md).
+            client.SendFixture(NetFixtureVerb.Observe);
             yield return Until(() => State(own) != null && FindHostile() != null, 10d);
             if (!Check("avatars", waitOk, "the client received its units and the hostile"))
                 yield break;
@@ -318,7 +329,7 @@ namespace Blackglass
 
         void Fail(string step, string detail) => Check(step, false, detail);
 
-        static NetUnitState[] States() => FindObjectsByType<NetUnitState>(FindObjectsSortMode.None);
+        static NetUnitState[] States() => NetClient.VisibleStates().ToArray();
 
         static NetUnitState State(int id) => States().FirstOrDefault(s => s.UnitId == id);
 

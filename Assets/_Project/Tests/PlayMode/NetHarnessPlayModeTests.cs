@@ -27,10 +27,10 @@ namespace Blackglass.Tests
         }
 
         // Starts the net server (unless the test wants none), connects a client with the token and runs a role to its end.
-        IEnumerator Run(string role, string token, bool serverListening = true, float seconds = 40f)
+        IEnumerator Run(string role, string token, bool serverListening = true, float seconds = 40f, bool fixture = false)
         {
             if (serverListening)
-                rig.BeginNet();
+                rig.BeginNet(fixture: fixture);
             var client = rig.AddClient();
             client.Connect("127.0.0.1", (ushort)rig.Port, token);
             harness = new GameObject("NetHarness").AddComponent<NetHarness>();
@@ -56,7 +56,6 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
-        [Ignore("Task 11 adapts the harness roles to hidden information")]
         public IEnumerator TheObserverRole_PassesWhenEveryOrderForTheSquadIsRefused()
         {
             yield return Run("b", NetLoopbackRig.TokenB);
@@ -80,13 +79,35 @@ namespace Blackglass.Tests
 
         [UnityTest]
         [Timeout(300000)]
-        [Ignore("Task 11 adapts the harness roles to hidden information")]
         public IEnumerator TheOwnerRole_PassesTheWholeScript()
         {
-            yield return Run("a", NetLoopbackRig.TokenA, seconds: 240f);
+            yield return Run("a", NetLoopbackRig.TokenA, seconds: 240f, fixture: true);
             Assert.That(harness.ExitCode, Is.EqualTo(NetHarness.ExitPass), harness.Summary);
             StringAssert.Contains("latencyMedianMs=", harness.Summary);
             Assert.That(harness.LatencyMedianMs, Is.GreaterThan(0d));
+        }
+
+        [UnityTest]
+        [Timeout(300000)]
+        public IEnumerator TheVisibilityRoleA_PassesTheWholeScript()
+        {
+            yield return Run("visibility-a", NetLoopbackRig.TokenA, seconds: 120f, fixture: true);
+            Assert.That(harness.ExitCode, Is.EqualTo(NetHarness.ExitPass), harness.Summary);
+        }
+
+        [UnityTest]
+        public IEnumerator TheFixtureDeniedRole_PassesAgainstANormalServer()
+        {
+            yield return Run("fixture-denied", NetLoopbackRig.TokenA);
+            Assert.That(harness.ExitCode, Is.EqualTo(NetHarness.ExitPass), harness.Summary);
+        }
+
+        [UnityTest]
+        public IEnumerator TheFixtureDeniedRole_Fails_WhenTheFixtureAnswers()
+        {
+            yield return Run("fixture-denied", NetLoopbackRig.TokenA, fixture: true);
+            Assert.That(harness.ExitCode, Is.EqualTo(NetHarness.ExitFailed), harness.Summary);
+            StringAssert.Contains("step=fixture refused", harness.Summary);
         }
     }
 }
