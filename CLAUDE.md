@@ -19,16 +19,21 @@ This is an original game. Do not copy copyrighted characters, dialogue, artwork,
 
 Gameplay is complete through Phase 12.5 (combat presentation and VFX). The control loop, procedural missions, objectives, battlefield intelligence, persistent operatives, inventory and loot, the tactical HUD and combat presentation exist. `Docs/Decisions.md` records each decision.
 
-The owner is preparing an online foundation with an authoritative dedicated server; see `Docs/OnlineReadinessAudit.md`. The candidate stack (Unity Dedicated Server for Linux, FishNet, ASP.NET Core on .NET 10, PostgreSQL, Docker on isolated Linux VMs, HAProxy) is **provisional, not decided**.
+The owner is building the online foundation with an authoritative dedicated server; see `Docs/OnlineReadinessAudit.md`. For Phase 13 the backend stack is decided (decision 048): ASP.NET Core on .NET 10, PostgreSQL, Npgsql and Dapper, Docker Compose on `bg-dev-services01`. FishNet and the Unity Linux dedicated server are in use. HAProxy, a private VLAN, Docker for mission servers and orchestration remain **provisional, not decided**.
 
-The step currently authorized is **the networking experiment's hidden-information slice: server-authoritative per-connection visibility** (`Docs/superpowers/specs/2026-10-12-hidden-information-design.md`). The server runs the real intelligence model and fails closed without it. A development-only fixture (`-netFixture`) drives the harness. The server still listens on loopback only.
+The step currently authorized is **Phase 13: authenticated between-mission flow and trusted settlement**, following `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` and the staged plan `Docs/superpowers/plans/2026-10-14-phase-13-backend.md`, one stage at a time, each stage started only when the owner says so. Decisions 048-050 record the design. Phase 13 authorizes:
+- the account and mission backend in `Backend/`, loopback-only, reached through SSH tunnels;
+- the mission host agent and on-demand systemd mission units on `bg-dev-mission01`, under unprivileged users;
+- server-side reconnect (solo pause, resume tokens, re-admission by ticket) and backend settlement;
+- authoritative abilities, items and loot on the Linux mission server;
+- one separate minimal online client entry scene (login, loadout through the API, deploy, ticket join, play with the existing network client view and controls, pending result, then the receipt).
 
 Each of these stays out of scope until the owner authorizes it:
-- accounts, backend APIs and databases;
-- settlement redesign and reconnect;
+- changes to the offline client scenes (`ProceduralMission`, `Prototype`) or their input, HUD and gameplay;
+- production authentication providers, purchases, stores and payment processors;
+- public exposure, HAProxy, a private VLAN, Docker for mission servers, prewarming and orchestration frameworks;
+- co-op attempts with more than one participant;
 - layout streaming and geometry secrecy;
-- Docker packaging and orchestration;
-- changes to the client scenes' input, HUD or gameplay for remote play;
 - final production content (graphics, animation, audio, story).
 
 Placeholder art remains the default.
@@ -214,11 +219,13 @@ Do not generate extensive documentation for trivial implementation details.
 
 ## Current Priority
 
-The networking experiment's hidden-information slice: a library-free visibility projection, FishNet observer conditions, `UnknownUnit` for hidden hostiles, a frozen last-known record, and a deterministic development fixture, proven by decoded client state on `bg-dev-mission01`.
+Phase 13, stage by stage (plan revision 2.1). Stage 0 (decision records and this authorization) is done; Stage 1 (backend foundation) starts only when the owner says so.
 
-- Keep visibility policy free of networking-library types.
-- Keep client scenes and gameplay behaviour unchanged, apart from `CommandableUnit.DropCurrent`.
+- Each stage records concrete evidence (test counts, transcripts, diff stat) and changes only the paths it lists.
+- Keep visibility policy and the backend core free of networking-library types.
+- Keep the offline client scenes and their gameplay unchanged.
+- Every energy, insurance, XP, retention and timer value is provisional configuration.
 
-Next step, authorized separately: Phase 13 (authenticated between-mission flow and trusted settlement).
+Next step, authorized separately: Phase 14 (server persistence hardening and recovery).
 
 Do not begin later-stage systems until specifically directed.

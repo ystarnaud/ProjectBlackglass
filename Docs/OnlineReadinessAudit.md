@@ -474,7 +474,7 @@ Paths below are relative to `Assets/_Project/Scripts/` unless stated otherwise.
 | **Checkpoint A: headless Linux server startup** | Server-only scene and bootstrap, fixture mission, frame cap, identity and readiness logs, bounded move and attack diagnostic, Linux Dedicated Server (Mono) build, VM smoke run. **No networking, no backend.** | Done 2026-10-11 (§9.2) |
 | Networking experiment | The §7 proof: library choice (FishNet is a candidate only), server gate, per-connection visibility, two clients. | First slice done 2026-10-12 (§9.3): library chosen by a spike, server gate, two clients, no hidden information yet |
 | Networking experiment, hidden information | Per-connection visibility: the real intelligence on the server, a frozen last-known record, `UnknownUnit` for hidden hostiles, a development fixture, two-client harness. | Done 2026-10-12 (§9.4): all 18 acceptance criteria PASS on `bg-dev-mission01`; geometry secrecy, per-owner models and real loot replication deferred |
-| Phase 13 | Authenticated between-mission flow and trusted settlement (§8). | Not started |
+| Phase 13 | Authenticated between-mission flow and trusted settlement (§8). | Design approved and decisions 048–050 recorded 2026-10-14 (§9.5); implementation (Stage 1 onward) not started |
 
 ### 9.2 Checkpoint A results (2026-10-11)
 
@@ -624,3 +624,35 @@ Token files: the release file is rewritten by `make-dev-tokens.sh` when it carri
 - **Lag after losing sight:** up to one server frame plus the 0.2 s intelligence pass before a hostile that leaves sight stops streaming (model sampling, not a widening).
 - **Latency.** Role `a` measured a median of 257.8 ms (round trip 93 ms) at `bac821a` and 267.5 ms (87 ms) at `282d784`, over 10 samples, through the SSH tunnel. That is transport evidence only, not LAN latency. At `cc25114` role `a` measured a median of 22.3 ms over 10 samples (round trip 113 ms), again through the SSH tunnel and again transport evidence only; it is not comparable with the earlier figures. The 150 ms LAN target stands and prediction stays deferred.
 - **The fixture build** had to leave Development builds: Unity's player connection opened TCP `0.0.0.0:55000` and UDP `0.0.0.0:46686` and embedded build-machine addresses in `boot.config`. It now compiles under `BLACKGLASS_NET_FIXTURE` in a non-Development build, and audit tests pin that. The VM is left on the release build, and `ufw` there is still inactive.
+
+### 9.5 Phase 13 design: the preliminary schema replaced (2026-10-14)
+
+The Phase 13A design (`Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md`, revision 2.1; decisions 048–050) replaces the schema sketched in §7 and §8. Sections 1–8 stay as the original record.
+
+| Audit sketch | Phase 13 schema | Why |
+|---|---|---|
+| `attempts(attempt_id, account_id, server_id, state)` | `mission_attempts` + `attempt_participants` (one row per account) | Co-op; energy, insurance and settlement per participant |
+| `server_id` | `host_id` + `process_session_id` + an attempt-scoped process credential, and `allowed_builds` | Tells host, process and restart apart; bounds a compromised process |
+| `settlements(attempt_id PK, result_hash, payload)` | `participant_settlements((attempt_id, account_id) PK)` | Exactly once per participant |
+| HMAC-signed manifest | Credential and session binding, then validation V1–V14 with conservation | Signing doesn't bound content |
+| `operatives`, `item_instances`, `loadout_versions` | `operatives` + `operative_choices`, `item_instances` (per-unit `origin_ref`) + `item_stacks`, `inventories.version` + snapshots | Fungible consumables, persisted picks, account-level versioning, collision-free minting |
+| §7 "disposable settlement endpoint" | A per-attempt, isolated outbox relayed by a host agent; quarantine with operator escalation; a void only on positive evidence or operator authorization | A completed result is never lost or voided because its first delivery failed |
+
+Added beyond the audit:
+- energy wallets, holds and a ledger including regeneration;
+- insurance policies, one coverage per account with an activation history (extension, never multiplication), and attempt snapshots;
+- join tickets with an idempotent deploy keyed by request hash;
+- the loot pool and collections;
+- `rejected_results`;
+- `anomaly_events`;
+- `operator_actions`;
+- the `one_active_participation` index.
+
+The §6 product decisions are settled for Phase 13 in decisions 049 and 050:
+- the reconnect window and pause for solo;
+- an infrastructure void instead of an "Abandoned" default on interruption;
+- explicit consumption and retention rules;
+- a new server-chosen seed for every attempt;
+- XP for dead operatives kept.
+
+Phase 13 acceptance criteria B1–B23 (spec §18.2) extend A1–A10. Their results will be recorded here as the stages run.
