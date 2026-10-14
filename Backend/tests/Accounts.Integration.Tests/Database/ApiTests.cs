@@ -27,7 +27,7 @@ public class ApiTests
     public async Task Health_is_ok_with_the_schema_version()
     {
         await using var db = await MigratedAsync();
-        var start = await ServeCommand.StartAsync([], ServeEnv(db), TextWriter.Null, default);
+        var start = await ServeCommand.StartAsync(ServeEnv(db), TextWriter.Null, default);
         await using var app = start.App!;
         using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
         var response = await http.GetAsync("/health");
@@ -41,7 +41,7 @@ public class ApiTests
     public async Task Health_is_503_while_the_database_refuses_connections_then_recovers()
     {
         await using var db = await MigratedAsync();
-        var start = await ServeCommand.StartAsync([], ServeEnv(db), TextWriter.Null, default);
+        var start = await ServeCommand.StartAsync(ServeEnv(db), TextWriter.Null, default);
         await using var app = start.App!;
         using var http = new HttpClient { BaseAddress = new Uri(app.Urls.Single()) };
         var cluster = await TestCluster.Instance;
@@ -70,7 +70,7 @@ public class ApiTests
     {
         await using var db = await (await TestCluster.Instance).CreateDatabaseAsync();
         var err = new StringWriter();
-        var start = await ServeCommand.StartAsync([], ServeEnv(db), err, default);
+        var start = await ServeCommand.StartAsync(ServeEnv(db), err, default);
         Assert.Equal(ExitCodes.SchemaNotCurrent, start.ExitCode);
         Assert.Null(start.App);
         Assert.Contains("Refusing to start: schema Behind", err.ToString());
@@ -83,7 +83,7 @@ public class ApiTests
         await using (var su = await db.AsSuperuser().OpenConnectionAsync())
             await su.ExecuteAsync("update schema_migrations set checksum = decode(repeat('00', 32), 'hex') where version = 0");
         var err = new StringWriter();
-        var start = await ServeCommand.StartAsync([], ServeEnv(db), err, default);
+        var start = await ServeCommand.StartAsync(ServeEnv(db), err, default);
         Assert.Equal(ExitCodes.SchemaNotCurrent, start.ExitCode);
         Assert.Contains("Drift", err.ToString());
     }
@@ -94,7 +94,7 @@ public class ApiTests
         await using var db = await (await TestCluster.Instance).CreateDatabaseAsync();
         await new Migrator(db.AsMigrator(), Catalogs.RealPlus(($"{MigrationCatalog.Embedded.LatestVersion + 1:D4}_future.sql", "create table future (id int);"))).MigrateAsync();
         var err = new StringWriter();
-        var start = await ServeCommand.StartAsync([], ServeEnv(db), err, default);
+        var start = await ServeCommand.StartAsync(ServeEnv(db), err, default);
         Assert.Equal(ExitCodes.SchemaNotCurrent, start.ExitCode);
         Assert.Null(start.App);
         Assert.Contains("Refusing to start: schema Ahead", err.ToString());
@@ -107,7 +107,7 @@ public class ApiTests
         var env = ServeEnv(db);
         env["BLACKGLASS_DB_PORT"] = "1";
         var err = new StringWriter();
-        Assert.Equal(ExitCodes.Failure, (await ServeCommand.StartAsync([], env, err, default)).ExitCode);
+        Assert.Equal(ExitCodes.Failure, (await ServeCommand.StartAsync(env, err, default)).ExitCode);
         Assert.DoesNotContain(db.Password("app"), err.ToString());
     }
 
@@ -118,7 +118,7 @@ public class ApiTests
         var env = ServeEnv(db);
         File.WriteAllText(env["BLACKGLASS_DB_PASSWORD_FILE"]!, "wrong-password-XYZ");
         var err = new StringWriter();
-        Assert.Equal(ExitCodes.Failure, (await ServeCommand.StartAsync([], env, err, default)).ExitCode);
+        Assert.Equal(ExitCodes.Failure, (await ServeCommand.StartAsync(env, err, default)).ExitCode);
         Assert.DoesNotContain("wrong-password-XYZ", err.ToString());
         Assert.DoesNotContain(db.Password("app"), err.ToString());
     }

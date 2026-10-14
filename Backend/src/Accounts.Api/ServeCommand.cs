@@ -8,7 +8,7 @@ public sealed record ServeStart(int ExitCode, WebApplication? App);
 
 public static class ServeCommand
 {
-    public static async Task<ServeStart> StartAsync(string[] args, IReadOnlyDictionary<string, string?> env, TextWriter error, CancellationToken ct)
+    public static async Task<ServeStart> StartAsync(IReadOnlyDictionary<string, string?> env, TextWriter error, CancellationToken ct)
     {
         DbSettings settings;
         try { settings = DbSettings.FromEnvironment(env); }
@@ -35,7 +35,7 @@ public static class ServeCommand
             return new(ExitCodes.SchemaNotCurrent, null);
         }
 
-        var builder = WebApplication.CreateBuilder(args);
+        var builder = WebApplication.CreateBuilder(); // no command-line arguments: see Cli
         if (ApiHost.ResolveUrls(env) is { } urls) builder.WebHost.UseUrls(urls);
         builder.Services.AddSingleton(dataSource);
         var app = builder.Build();
