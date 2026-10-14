@@ -41,6 +41,19 @@ public class CatalogueRejectionTests
     public void A_root_that_is_not_an_object_is_rejected()
         => AssertRejected("[]\n"u8.ToArray(), "malformed: $ must be an object");
 
+    // JsonDocument.Parse doesn't validate string contents; GetString() would throw InvalidOperationException past the gate.
+    [Fact]
+    public void Invalid_utf8_inside_a_string_is_rejected()
+    {
+        var bytes = Golden.Bytes();
+        bytes[bytes.AsSpan().IndexOf("item.beta-vest"u8) + 5] = 0xFF;
+        AssertRejected(bytes, "malformed: the file is not valid UTF-8");
+    }
+
+    [Fact]
+    public void An_escaped_lone_surrogate_is_rejected()
+        => AssertRejected(Edited("\"id\": \"item.beta-vest\"", "\"id\": \"item.beta-vest\\ud800\""), "malformed: $.items[1].id is not a valid string");
+
     [Theory]
     [InlineData("\"healAmount\": 10\n", "\"healAmount\": 10,\n      \"price\": 5\n", "malformed: $.items[3].price is not a known member")]
     [InlineData("\"maxStack\": 3,", "\"maxStack\": 3,\n      \"maxStack\": 3,", "duplicate: $.items[3].maxStack appears more than once")]
@@ -54,6 +67,11 @@ public class CatalogueRejectionTests
     [InlineData("\"stackable\": true,\n      \"maxStack\": 3,", "\"maxStack\": 3,\n      \"stackable\": true,", "malformed: the file is not in canonical form")]
     [InlineData("\"id\": \"item.beta-vest\"", "\"id\": \"item.Beta-vest\"", "malformed: items[1].id 'item.Beta-vest' is not a well-formed id")]
     [InlineData("\"formatVersion\": 1,", "\"formatVersion\": 2,", "incompatible: format version 2 is not supported (this backend reads 1)")]
+    [InlineData("\"roleId\": \"role.beta\"", "\"roleId\": \"Role.Beta\"", "malformed: operatives[1].roleId 'Role.Beta' is not a well-formed id")]
+    [InlineData("\"ability.two\",", "\"Ability Two\",", "malformed: operatives[0].abilityIds[0] 'Ability Two' is not a well-formed id")]
+    [InlineData("\"choice.two\"", "\"choice..two\"", "malformed: progression.choiceIds[1] 'choice..two' is not a well-formed id")]
+    [InlineData("\"id\": \"item.beta-vest\"", "\"id\": \"item\\u002ebeta-vest\"", "malformed: the file is not in canonical form")]
+    [InlineData("\"missionCompletionXp\": 20", "\"missionCompletionXp\": -0", "malformed: the file is not in canonical form")]
     public void An_edited_golden_vector_is_rejected(string find, string replace, string expected)
         => AssertRejected(Edited(find, replace), expected);
 
@@ -84,6 +102,10 @@ public class CatalogueRejectionTests
         ["stackable flag disagrees"] = (d => Item(d, 3, i => i with { Stackable = false }), "incompatible: items[3] 'item.gamma-kit': stackable must be true exactly when the maximum stack is above 1"),
         ["consumable without healing"] = (d => Item(d, 3, i => i with { HealAmount = 0 }), "incompatible: items[3] 'item.gamma-kit': a consumable needs a heal amount of at least 1"),
         ["stacking equipment"] = (d => Item(d, 1, i => i with { Stackable = true, MaxStack = 2 }), "incompatible: items[1] 'item.beta-vest': equipment cannot stack"),
+        ["negative heal amount"] = (d => Item(d, 1, i => i with { HealAmount = -1 }), "malformed: items[1] 'item.beta-vest': the heal amount is negative"),
+        ["armor in the utility slot"] = (d => Item(d, 1, i => i with { Slot = ItemSlot.Utility }), "incompatible: items[1] 'item.beta-vest': armor must use the armor slot"),
+        ["utility item in the armor slot"] = (d => Item(d, 2, i => i with { Slot = ItemSlot.Armor }), "incompatible: items[2] 'item.delta-boots': a utility item must use the utility slot"),
+        ["consumable in the weapon slot"] = (d => Item(d, 3, i => i with { Slot = ItemSlot.Weapon }), "incompatible: items[3] 'item.gamma-kit': a consumable has no equipment slot"),
         ["maximum stack below 1"] = (d => Item(d, 1, i => i with { MaxStack = 0 }), "malformed: items[1] 'item.beta-vest': the maximum stack is below 1"),
         ["loot from an unknown item"] = (d => Loot(d, t => t with { Entries = [t.Entries[0] with { ItemId = "item.unknown" }, t.Entries[1]] }), "incompatible: lootTable.entries[0]: unknown item 'item.unknown'"),
         ["loot weight 0"] = (d => Loot(d, t => t with { Entries = [t.Entries[0] with { Weight = 0 }, t.Entries[1]] }), "malformed: lootTable.entries[0]: the weight is below 1"),

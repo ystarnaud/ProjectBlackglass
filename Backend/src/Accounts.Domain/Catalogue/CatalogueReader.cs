@@ -212,9 +212,10 @@ public static class CatalogueReader
         bool TryString(JsonElement e, string path, out string value)
         {
             value = "";
-            if (e.ValueKind == JsonValueKind.String) { value = e.GetString()!; return true; }
-            errors.Add($"malformed: {path} must be a string");
-            return false;
+            if (e.ValueKind != JsonValueKind.String) { errors.Add($"malformed: {path} must be a string"); return false; }
+            // An escaped lone surrogate (\ud800) parses but can't be decoded; it must surface as a catalogue error.
+            try { value = e.GetString()!; return true; }
+            catch (InvalidOperationException) { errors.Add($"malformed: {path} is not a valid string"); return false; }
         }
 
         bool TryBool(JsonElement e, string path, out bool value)

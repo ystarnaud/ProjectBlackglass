@@ -46,6 +46,8 @@ public sealed class GameCatalogue
         var span = bytes.Span;
         if (span.StartsWith(Utf8Bom)) errors.Add("malformed: the file starts with a byte-order mark");
         if (span.IndexOf((byte)'\r') >= 0) errors.Add("malformed: the file contains a carriage return; it must use LF line ends");
+        // JsonDocument doesn't validate string contents, and GetString() would throw past the startup gate.
+        if (!System.Text.Unicode.Utf8.IsValid(span)) errors.Add("malformed: the file is not valid UTF-8");
         if (errors.Count > 0) throw new CatalogueException(errors);
 
         var document = CatalogueReader.Read(bytes, errors) ?? throw new CatalogueException(errors);
