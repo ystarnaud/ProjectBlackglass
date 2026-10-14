@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -41,6 +42,26 @@ public sealed class MigrationCatalog
                 : $"Expected version {i:D4} but found {scripts[i].FileName}; versions start at 0000 and have no gaps.");
         }
         return new MigrationCatalog(scripts);
+    }
+
+    const string ResourcePrefix = "migrations.";
+    static readonly Lazy<MigrationCatalog> EmbeddedCatalog = new(() => Parse(EmbeddedFiles()));
+
+    /// <summary>The migrations compiled into this assembly from Backend/db/migrations.</summary>
+    public static MigrationCatalog Embedded => EmbeddedCatalog.Value;
+
+    public static IReadOnlyList<(string FileName, byte[] Content)> EmbeddedFiles(Assembly? assembly = null)
+    {
+        assembly ??= typeof(MigrationCatalog).Assembly;
+        var files = new List<(string, byte[])>();
+        foreach (var resource in assembly.GetManifestResourceNames().Where(n => n.StartsWith(ResourcePrefix, StringComparison.Ordinal)))
+        {
+            using var stream = assembly.GetManifestResourceStream(resource)!;
+            using var buffer = new MemoryStream();
+            stream.CopyTo(buffer);
+            files.Add((resource[ResourcePrefix.Length..], buffer.ToArray()));
+        }
+        return files;
     }
 
     static string Normalize(string fileName, byte[] content)
