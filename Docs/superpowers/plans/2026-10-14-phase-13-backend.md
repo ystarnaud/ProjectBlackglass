@@ -80,6 +80,8 @@ and it re-verifies the Docker version, `daemon.json`, and the sshd and resolved 
 
 Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-foundation.md`. Tasks 1 to 4 need no database; Task 5 onward needs E1.
 
+**Status: done on branch `phase13-stage1`, not merged.** Task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-foundation.md`. Evidence (test counts, drill and smoke transcripts, exposure output, diff stat): `.claude/scratchpad/phase13/stage-01/summary.md` (not committed).
+
 **Touches:** `Backend/` (new), `.gitignore` (the `Backend` csproj/sln exceptions and `bin`, `obj`, `secrets`), `.gitattributes` (LF for `Backend` scripts and SQL), and in Task 13 the spec's §2.3, §4.4 and §4.5 rows.
 
 **Work:**

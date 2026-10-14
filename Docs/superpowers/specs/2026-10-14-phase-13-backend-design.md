@@ -149,14 +149,16 @@ There are no other network paths. PostgreSQL can't be reached from any interface
 ```
 Backend/                              (outside Assets/, so Unity never imports it)
   Backend.sln
+  Dockerfile                          the API image (also runs `migrate`)
   src/
     Accounts.Domain/                  pure C#: inventory rules, energy math, insurance payout and retention,
                                       manifest validation (incl. conservation), settlement planning
     Accounts.Persistence/             Npgsql + Dapper; one repository per aggregate; the transactions
-    Accounts.Api/                     minimal APIs, auth, worker, `migrate`, `backup-check` commands
+    Accounts.Api/                     minimal APIs, auth, worker, `serve` and `migrate` commands (backup verification is `restore-drill.sh`)
     MissionHost.Agent/                .NET 10 worker for the mission VM (self-contained publish)
     Contracts/                        DTOs shared by the API and the agent; canonical JSON
   db/migrations/NNNN_name.sql         explicitly versioned, checksummed, forward-only
+  db/invariants/                      invariant queries, each returning violating rows
   catalogue/catalogue.json            exported from Unity, committed, hash-versioned
   contracts/                          JSON examples and golden vectors shared with Unity tests
   tests/
@@ -165,7 +167,9 @@ Backend/                              (outside Assets/, so Unity never imports i
     MissionHost.Agent.Tests/          xUnit with a temp outbox and a fake launcher
   deploy/
     services/compose.yaml, daemon.json.example, ufw.md, backup.sh, restore-drill.sh
+    services/{compose.test.yaml, initdb/, sql/, tests/, make-secrets.sh, deploy.sh, check-exposure.sh, env-check.sh}
     mission/blackglass-mission@.service, blackglass-agent.service, polkit rule, ufw.md
+  tools/{vm-sync.sh, testdb.sh, offhost-probe.sh}
 Assets/_Project/Scripts/Backend/
   Core/                               library-free: DTOs, canonical JSON, provenance ledger, manifest builder,
                                       outbox writer, ticket-admission interface
@@ -227,7 +231,7 @@ The agent is a .NET 10 worker published self-contained, so the mission VM needs 
 | Account keys, access tokens, join tickets, host and process credentials | SHA-256 only | PostgreSQL |
 | Host secret (plain) | File, mode 600, `blackglass-agent` | `bg-dev-mission01:/etc/blackglass/agent/` |
 | Process credential (plain, transient) | systemd credential | `/run/blackglass/launch/<attempt>/` (agent-owned, removed after start) |
-| PostgreSQL passwords (migrator, app) | Compose secret files, mode 600 | `bg-dev-services01:/opt/accounts/secrets/` |
+| PostgreSQL passwords (migrator, app) | Compose secret files, one per consumer, mode 0400 and owned by that container's user (`postgres/`, `migrate/`, `api/` in root-owned 0700 directories) | `bg-dev-services01:/opt/blackglass/accounts/secrets/` |
 | Admin key | File, mode 600 | same |
 | Tunnel keys | Dedicated keys, `restrict,permitopen="127.0.0.1:5080"` | `authorized_keys` on services01 |
 
@@ -238,7 +242,7 @@ No secret appears in Git, logs, receipts or error bodies. Logs show at most an 8
 **Docker bypasses `ufw` for published ports.** Docker DNATs published ports in the `nat` table and accepts them through its own `DOCKER`/`FORWARD` chains, so `ufw`'s `INPUT` rules never see that traffic: a port published on `0.0.0.0` is reachable even with `ufw default deny`. The rules below therefore don't rely on `ufw` to protect anything Docker publishes.
 
 **Rules on `bg-dev-services01`:**
-1. **Docker Engine 28 or newer.** Record `docker version --format '{{.Server.Version}}'` as evidence. Stage 17 stops if it is older.
+1. **Docker Engine 28 or newer.** Record `docker version --format '{{.Server.Version}}'` as evidence. Installed in E1 (before Stage 1's database work) and re-verified in Stage 17; either stops if it is older.
 2. The API is published **explicitly** on loopback: `ports: ["127.0.0.1:5080:8080"]`. Never a bare `"5080:8080"`, which binds every IPv4 address and, when IPv6 publishing is available, `[::]` as well.
 3. PostgreSQL has **no `ports:` entry**. It sits on an `internal: true` Compose network shared only with the API, with no route out.
 4. **Daemon safeguard for the networks Compose actually uses.** The daemon's `"ip"` setting only changes the default for the **default bridge**, and Compose attaches containers to **user-defined bridge networks**, which it doesn't cover. `/etc/docker/daemon.json` therefore sets both:
@@ -261,8 +265,11 @@ No secret appears in Git, logs, receipts or error bodies. Logs show at most an 8
 | `systemd-resolved` stub | `127.0.0.53:53` and `127.0.0.54:53`, TCP and UDP | Loopback only; left as is |
 | `systemd-resolved` LLMNR | TCP and UDP 5355 on `0.0.0.0` and `[::]` (Ubuntu default) | **Disabled** with a drop-in, `/etc/systemd/resolved.conf.d/90-no-llmnr.conf`: `[Resolve]` `LLMNR=no`, `MulticastDNS=no`. Then `systemctl restart systemd-resolved`. Name resolution through the stub is unaffected. If the owner prefers to keep it, `ufw`'s default deny filters it, and the scans must show 5355 filtered on IPv4 and IPv6 |
 | DHCP client | UDP 68, if the VM uses DHCP | Expected |
-| API (services01) | `127.0.0.1:5080` (docker-proxy) | Only Docker listener |
+| API (services01) | `127.0.0.1:5080` (docker-proxy) | Only Docker listener of the accounts stack |
+| Test PostgreSQL (services01, development only) | 127.0.0.1:55432 (docker-proxy) | Integration tests through an SSH tunnel; Compose project blackglass-testdb |
 | Mission processes (mission01) | `127.0.0.1:7770+` | One per running attempt |
+
+`bg-dev-services01` runs Debian 13; whether `systemd-resolved` (and so LLMNR) is present is recorded by E1.1 and handled in Stage 17.
 
 Anything else is a finding to explain before the stage closes.
 
@@ -1365,6 +1372,7 @@ Admission has no attempt row yet, so it starts at step 3. All transactions run a
 - **Expand and contract:** add new columns and tables first, backfill, switch the code, and drop the old ones only in a later release. There is no destructive change in the same release as the code that stops using it.
 - **Upgrade test:** every migration is tested by applying it to a database populated through the previous migrations and seeded fixtures, then running the invariant queries (§18.3).
 - **Roles:** `accounts_migrator` (DDL) and `accounts_app` (DML only; no UPDATE or DELETE on the append-only tables).
+- **Bootstrap order:** first-start `initdb/00-roles.sh` (superuser, once) creates the roles and the migrator-owned database; `migrate` (as the owner) creates `schema_migrations` and applies `0000_foundation` (privileges); the application role never holds DDL. An older API refuses a newer schema unless an explicit, tested compatibility declaration exists (none yet).
 
 ---
 
