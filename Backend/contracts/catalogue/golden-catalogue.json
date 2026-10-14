@@ -1,0 +1,113 @@
+{
+  "formatVersion": 1,
+  "items": [
+    {
+      "id": "item.alpha-rifle",
+      "category": "weapon",
+      "slot": "weapon",
+      "stackable": false,
+      "maxStack": 1,
+      "healAmount": 0
+    },
+    {
+      "id": "item.beta-vest",
+      "category": "armor",
+      "slot": "armor",
+      "stackable": false,
+      "maxStack": 1,
+      "healAmount": 0
+    },
+    {
+      "id": "item.delta-boots",
+      "category": "utility",
+      "slot": "utility",
+      "stackable": false,
+      "maxStack": 1,
+      "healAmount": 0
+    },
+    {
+      "id": "item.gamma-kit",
+      "category": "consumable",
+      "slot": "none",
+      "stackable": true,
+      "maxStack": 3,
+      "healAmount": 10
+    }
+  ],
+  "lootTable": {
+    "version": 7,
+    "containerCount": 2,
+    "minItems": 1,
+    "maxItems": 3,
+    "entries": [
+      {
+        "itemId": "item.gamma-kit",
+        "minQuantity": 1,
+        "maxQuantity": 2,
+        "weight": 5
+      },
+      {
+        "itemId": "item.alpha-rifle",
+        "minQuantity": 1,
+        "maxQuantity": 1,
+        "weight": 1
+      }
+    ]
+  },
+  "progression": {
+    "xpThresholds": [
+      0,
+      10,
+      30
+    ],
+    "missionCompletionXp": 20,
+    "choiceIds": [
+      "choice.one",
+      "choice.two"
+    ]
+  },
+  "operatives": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "roleId": "role.alpha",
+      "abilityIds": [
+        "ability.two",
+        "ability.one"
+      ]
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "roleId": "role.beta",
+      "abilityIds": []
+    }
+  ],
+  "starter": {
+    "operatives": [
+      {
+        "operativeId": "00000000-0000-4000-8000-000000000001",
+        "grants": [
+          {
+            "itemId": "item.alpha-rifle",
+            "quantity": 1,
+            "equip": true
+          },
+          {
+            "itemId": "item.gamma-kit",
+            "quantity": 2,
+            "equip": false
+          }
+        ]
+      }
+    ],
+    "stash": [
+      {
+        "itemId": "item.beta-vest",
+        "quantity": 1
+      },
+      {
+        "itemId": "item.gamma-kit",
+        "quantity": 4
+      }
+    ]
+  }
+}
