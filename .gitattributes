@@ -44,3 +44,10 @@ ProjectSettings/ProjectVersion.txt eol=lf
 
 # Shell scripts that run on the Linux server must keep LF in the working tree too.
 Tools/LinuxServer/*.sh  eol=lf
+
+# Phase 13 backend files that run or are read on Linux keep LF in the working tree (migration checksums
+# also normalize CRLF, but scripts and SQL must be byte-identical on the VM).
+Backend/**/*.sh      eol=lf
+Backend/**/*.sql     eol=lf
+Backend/**/*.yaml    eol=lf
+Backend/Dockerfile   eol=lf

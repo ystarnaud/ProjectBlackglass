@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <AssemblyName>Accounts.Api</AssemblyName>
+    <RootNamespace>Blackglass.Accounts.Api</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Accounts.Persistence\Accounts.Persistence.csproj" />
+  </ItemGroup>
+</Project>
