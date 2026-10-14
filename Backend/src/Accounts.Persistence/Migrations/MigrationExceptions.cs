@@ -6,3 +6,12 @@ public sealed class SchemaMismatchException(SchemaStatus status) : Exception($"s
 {
     public SchemaStatus Status { get; } = status;
 }
+
+public sealed class MigrationFailedException(string fileName, Npgsql.PostgresException inner)
+    : Exception($"{fileName} failed: {inner.SqlState} {inner.MessageText}", inner)
+{
+    public string FileName { get; } = fileName;
+}
+
+public sealed class MigratorBusyException(TimeSpan waited)
+    : Exception($"Another migrator holds the migration lock on this database; gave up after {waited.TotalSeconds:0} s.");
