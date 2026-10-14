@@ -6,4 +6,7 @@
     <!-- One copy of the migrations: the files in db/migrations, embedded so the image needs no file layout. -->
     <EmbeddedResource Include="..\..\db\migrations\*.sql" LogicalName="migrations.%(Filename)%(Extension)" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
 </Project>
