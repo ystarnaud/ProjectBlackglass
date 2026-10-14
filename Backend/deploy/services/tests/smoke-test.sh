@@ -28,13 +28,15 @@ check "deploy backed up before migrating" awk '/^== backup/ { b = NR } /^== migr
 check "a dump exists" compgen -G "$BLACKGLASS_BACKUP_DIR/accounts-*.dump"
 check "health answers on loopback at schema 0000" test "$(curl -sf http://127.0.0.1:5080/health)" = '{"status":"ok","schemaVersion":0}'
 check "the exposure check passes" bash "$here/check-exposure.sh"
+n=0
 for ip in $(hostname -I); do
-  check "5432 refused on $ip" not timeout 2 bash -c "</dev/tcp/$ip/5432"
-  [[ "$ip" == 127.* ]] || check "5080 refused on $ip" not timeout 2 bash -c "</dev/tcp/$ip/5080"
+  n=$((n + 1))
+  check "5432 refused on host address #$n" not timeout 2 bash -c "exec 2>/dev/null; </dev/tcp/$ip/5432"
+  [[ "$ip" == 127.* ]] || check "5080 refused on host address #$n" not timeout 2 bash -c "exec 2>/dev/null; </dev/tcp/$ip/5080"
 done
 
-check "a second deploy applies nothing" bash -c "bash '$here/deploy.sh' 2>&1 | grep -q 'nothing applied'"
-check "a failed backup stops the deploy before migrate" bash -c "! BLACKGLASS_BACKUP_DIR=/proc/forbidden bash '$here/deploy.sh' > '$work/deploy3.log' 2>&1 && ! grep -q '^== migrate' '$work/deploy3.log'"
+check "a second deploy applies nothing and passes health and exposure" bash -c "bash '$here/deploy.sh' > '$work/deploy2.log' 2>&1 && grep -q 'nothing applied' '$work/deploy2.log' && grep -q 'EXPOSURE PASS' '$work/deploy2.log'"
+check "a failed backup stops the deploy at the backup step" bash -c "! BLACKGLASS_BACKUP_DIR=/proc/forbidden bash '$here/deploy.sh' > '$work/deploy3.log' 2>&1 && grep -q '^== backup' '$work/deploy3.log' && ! grep -q '^== migrate' '$work/deploy3.log' && ! grep -q '^== api' '$work/deploy3.log'"
 
 # Keeps the stack up so the PC can run tools/offhost-probe.sh against it (default 0: no hold).
 hold="${BLACKGLASS_SMOKE_HOLD:-0}"
