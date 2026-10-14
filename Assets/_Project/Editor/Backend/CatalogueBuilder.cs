@@ -45,6 +45,8 @@ namespace Blackglass.BackendTools
                 var item = items[i];
                 if (item == null) { errors.Add($"missing: item catalogue {catalogue.name} entry {i} is empty"); continue; }
                 if (!item.IsValid(out var problem)) { errors.Add($"malformed: item asset {item.name}: {problem}"); continue; }
+                // IsValid checks only a consumable's healing; the backend refuses a negative amount on any item.
+                if (item.HealAmount < 0) { errors.Add($"malformed: item asset {item.name}: the heal amount is negative"); continue; }
                 if (!CanonicalCatalogueWriter.IsWellFormedId(item.Id)) { errors.Add($"malformed: item asset {item.name}: id '{item.Id}' {IdRule}"); continue; }
                 if (byId.TryGetValue(item.Id, out var other))
                 {

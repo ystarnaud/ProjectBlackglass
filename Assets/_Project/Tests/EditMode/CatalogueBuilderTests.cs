@@ -201,6 +201,30 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Build_RefusesANegativeHealAmount()
+        {
+            // ItemDefinition.IsValid only checks consumables' healing; the backend refuses a negative amount on any item.
+            a.Items = a.Keep(ItemCatalogue.Create(a.Kit, a.Boots, a.Rifle, a.Vest, a.Item("item.odd-vest", ItemCategory.Armor, ItemSlot.Armor, 1, -1)));
+            AssertRefused(a.Sources(), "malformed:", "the heal amount is negative");
+        }
+
+        [Test]
+        public void Build_SortsStarterOperatives_AndKeepsGrantAndStashOrder()
+        {
+            a.Starter = a.Keep(StarterLoadout.Create(new[]
+            {
+                new StarterOperative { operative = a.OperativeTwo, items = new[] { GoldenAssets.Grant(a.Kit, 2), GoldenAssets.Grant(a.Rifle, 1, true) } },
+                new StarterOperative { operative = a.OperativeOne, items = new[] { GoldenAssets.Grant(a.Vest, 1) } },
+            }, new[] { GoldenAssets.Grant(a.Kit, 4), GoldenAssets.Grant(a.Vest, 1) }));
+            var errors = new List<string>();
+            var document = CatalogueBuilder.Build(a.Sources(), errors);
+            Assert.That(document, Is.Not.Null, string.Join("\n", errors));
+            Assert.That(document.Starter.Operatives.Select(o => o.OperativeId), Is.EqualTo(new[] { GoldenAssets.One, GoldenAssets.Two }));
+            Assert.That(document.Starter.Operatives[1].Grants.Select(g => g.ItemId), Is.EqualTo(new[] { "item.gamma-kit", "item.alpha-rifle" }));
+            Assert.That(document.Starter.Stash.Select(g => g.ItemId), Is.EqualTo(new[] { "item.gamma-kit", "item.beta-vest" }));
+        }
+
+        [Test]
         public void Build_RefusesAMalformedItemId()
         {
             a.Items = a.Keep(ItemCatalogue.Create(a.Kit, a.Boots, a.Rifle, a.Vest, a.Item("Item.Upper", ItemCategory.Armor, ItemSlot.Armor)));
