@@ -1,4 +1,5 @@
 using Dapper;
+using Npgsql;
 using Blackglass.Accounts.IntegrationTests.Support;
 using Blackglass.Accounts.Persistence.Migrations;
 
@@ -31,7 +32,7 @@ public class UpgradeTests
             await conn.ExecuteAsync(await File.ReadAllTextAsync(seed));
         }
         Assert.Equal([version], (await migrator.MigrateAsync(version)).Applied);
-        Assert.Empty(await InvariantRunner.RunAsync(db.AsSuperuser(), InvariantRunner.RealDirectory));
+        Assert.Empty(await InvariantRunner.RunAsync(db.AsSuperuser(), version, InvariantRunner.RealDirectory));
     }
 
     [Fact]
@@ -67,5 +68,24 @@ public class UpgradeTests
         Assert.Equal(2, failures.Count);
         Assert.Contains(failures, f => f.StartsWith("0000_schema_migrations_contiguous.sql", StringComparison.Ordinal));
         Assert.Contains(failures, f => f.StartsWith("probe_label_not_empty.sql", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Invariants_are_gated_by_their_version_prefix()
+    {
+        await using var db = await (await TestCluster.Instance).CreateDatabaseAsync();
+        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync(0);
+        var dir = Directory.CreateTempSubdirectory("bg_invariants_").FullName;
+        try
+        {
+            foreach (var f in Directory.GetFiles(InvariantRunner.RealDirectory, "*.sql"))
+                File.Copy(f, Path.Combine(dir, Path.GetFileName(f)));
+            await File.WriteAllTextAsync(Path.Combine(dir, "0001_needs_future_table.sql"), "select 1 from no_such_table;");
+
+            Assert.Empty(await InvariantRunner.RunAsync(db.AsSuperuser(), 0, dir));
+            var e = await Assert.ThrowsAsync<PostgresException>(() => InvariantRunner.RunAsync(db.AsSuperuser(), dir));
+            Assert.Equal("42P01", e.SqlState);
+        }
+        finally { Directory.Delete(dir, recursive: true); }
     }
 }
