@@ -10,6 +10,7 @@ public static class Cli
         switch (command)
         {
             case "migrate":
+                if (args.Length > 1) { error.WriteLine(Usage); return ExitCodes.Usage; }
                 return await MigrateCommand.RunAsync(env, output, error, ct);
             case "serve":
                 var start = await ServeCommand.StartAsync(args.Skip(1).ToArray(), env, error, ct);

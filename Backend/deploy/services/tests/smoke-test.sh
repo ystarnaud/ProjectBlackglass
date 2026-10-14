@@ -4,11 +4,11 @@
 # stops the deploy, and the exposure check passes. Throwaway project bg-smoke; removed at the end.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
-export BLACKGLASS_COMPOSE_PROJECT=bg-smoke
+export BLACKGLASS_COMPOSE_PROJECT=bg-smoke BLACKGLASS_API_TAG=smoke
 work="$(mktemp -d)"
 export BLACKGLASS_SECRETS_DIR="$work/secrets" BLACKGLASS_BACKUP_DIR="$work/backups"
 dc() { docker compose -p bg-smoke -f "$here/compose.yaml" "$@"; }
-cleanup() { dc --profile tools down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$work"; }
+cleanup() { dc --profile tools down -v --remove-orphans >/dev/null 2>&1 || true; docker image rm -f "blackglass-accounts-api:$BLACKGLASS_API_TAG" >/dev/null 2>&1 || true; rm -rf "$work"; }
 trap cleanup EXIT
 failures=0
 check() { local desc="$1"; shift; if "$@"; then echo "ok   - $desc"; else echo "FAIL - $desc"; failures=$((failures + 1)); fi; }

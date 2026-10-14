@@ -19,12 +19,12 @@ ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loo
 - No `BEGIN`/`COMMIT` inside a file: each file runs in its own transaction with `lock_timeout` set.
 - Expand and contract: add first, backfill, switch the code, drop in a later release. Keep migrations backward compatible, since the old API serves during backup and migrate.
 - A migration that transforms data adds `tests/Accounts.Integration.Tests/Seeds/NNNN.sql`, applied to the previous version before the upgrade test.
-- An invariant file returns the violating rows (zero rows = holds). A real invariant named `NNNN_<lower_snake>.sql` holds from schema version NNNN: the upgrade harness skips later-numbered files when it tests an older version; the restore drill runs all of them.
+- An invariant file returns the violating rows (zero rows = holds). A real invariant named `NNNN_<lower_snake>.sql` holds from schema version NNNN: the upgrade harness skips later-numbered files when it tests an older version; the restore drill reads the restored schema version and applies the same rule.
 
 ## VM scripts (`deploy/services/`, run on `bg-dev-services01` with `sudo`; `tools/vm-sync.sh` copies HEAD there)
 Order: `make-secrets.sh <dir>` (once), then `deploy.sh` = build, database up, `backup.sh`, `migrate`, API up, health, `check-exposure.sh`.
 - `backup.sh`: `pg_dump -Fc` inside one REPEATABLE READ snapshot plus exact row counts from the same snapshot. It fails if `pg_dump` fails and validates the whole archive with `pg_restore -f /dev/null`.
-- `restore-drill.sh <file.dump>`: restores into a scratch database, compares the counts, runs the invariants; `DRILL PASS` or `DRILL FAIL` (exit 1).
+- `restore-drill.sh <file.dump>`: restores into a scratch database, compares the counts, runs the invariants that apply at the restored version (a violation is a nonzero row count, NULL rows included; no invariant files is a failure); `DRILL PASS` or `DRILL FAIL` (exit 1).
 - `tests/drill-test.sh` and `tests/smoke-test.sh` use the throwaway projects `bg-drill` and `bg-smoke`. `tools/offhost-probe.sh` checks from the PC that 5080, 5432 and 55432 are closed and 22 is open.
 - `env-check.sh` is the read-only inventory: `ssh bg-dev-services01-admin 'sudo -n bash -s' < deploy/services/env-check.sh`.
 

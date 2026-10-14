@@ -5,7 +5,7 @@
 #   BLACKGLASS_COMPOSE_PROJECT  Compose project (default blackglass-accounts)
 #   BLACKGLASS_DB               database (default accounts)
 #   BLACKGLASS_BACKUP_DIR       host directory (default /opt/blackglass/accounts/backups)
-#   BLACKGLASS_BACKUP_PAUSE     seconds to keep the snapshot open after the dump (tests only; default 0)
+#   BLACKGLASS_BACKUP_PAUSE     seconds to keep the snapshot open before and after the dump (tests only; default 0)
 # Writes <db>-<UTC>.dump, .counts and .dump.sha256 (mode 600) and prints the .dump path last.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"

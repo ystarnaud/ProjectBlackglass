@@ -6,7 +6,7 @@ from information_schema.tables
 where table_schema = 'public' and table_type = 'BASE TABLE'
 order by table_name;
 
-select 'schema_migrations ' || case
+select 'schema_migrations_digest ' || case
   when to_regclass('public.schema_migrations') is null then 'absent'
   else (xpath('/row/d/text()', query_to_xml(
           'select coalesce(string_agg(version || '':'' || encode(checksum, ''hex''), '','' order by version), ''empty'') as d from schema_migrations',

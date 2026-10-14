@@ -3,12 +3,12 @@
 # restore drill passes, and three broken inputs make it FAIL. Uses the throwaway Compose project bg-drill and removes it.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
-export BLACKGLASS_COMPOSE_PROJECT=bg-drill
+export BLACKGLASS_COMPOSE_PROJECT=bg-drill BLACKGLASS_API_TAG=drill
 work="$(mktemp -d)"
 export BLACKGLASS_SECRETS_DIR="$work/secrets" BLACKGLASS_BACKUP_DIR="$work/backups"
 dc() { docker compose -p bg-drill -f "$here/compose.yaml" "$@"; }
 psql_su() { dc exec -T postgres psql -X -q -v ON_ERROR_STOP=1 -A -t -U postgres -d accounts "$@"; }
-cleanup() { dc --profile tools down -v --remove-orphans >/dev/null 2>&1 || true; rm -rf "$work"; }
+cleanup() { dc --profile tools down -v --remove-orphans >/dev/null 2>&1 || true; docker image rm -f "blackglass-accounts-api:$BLACKGLASS_API_TAG" >/dev/null 2>&1 || true; rm -rf "$work"; }
 trap cleanup EXIT
 failures=0
 check() { local desc="$1"; shift; if "$@"; then echo "ok   - $desc"; else echo "FAIL - $desc"; failures=$((failures + 1)); fi; }
@@ -46,8 +46,19 @@ cp "$dump" "$work/backups/tampered.dump"; sed 's/^drill_probe .*/drill_probe 1/'
 check "a count mismatch fails the drill" not bash "$here/restore-drill.sh" "$work/backups/tampered.dump"
 
 mkdir -p "$work/invariants"; cp "$here/../../db/invariants/"*.sql "$work/invariants/"
-echo "select 'always fails';" > "$work/invariants/9999_always_fails.sql"
+echo "select 'always fails';" > "$work/invariants/always_fails.sql"
 check "a violated invariant fails the drill" not env BLACKGLASS_INVARIANTS_DIR="$work/invariants" bash "$here/restore-drill.sh" "$dump"
+
+mkdir -p "$work/null-inv"; cp "$here/../../db/invariants/"*.sql "$work/null-inv/"
+echo "select null::int;" > "$work/null-inv/null_row.sql"
+check "an invariant returning a NULL row fails the drill" not env BLACKGLASS_INVARIANTS_DIR="$work/null-inv" bash "$here/restore-drill.sh" "$dump"
+
+mkdir -p "$work/empty-inv"
+check "an empty invariant directory fails the drill" not env BLACKGLASS_INVARIANTS_DIR="$work/empty-inv" bash "$here/restore-drill.sh" "$dump"
+
+mkdir -p "$work/future-inv"; cp "$here/../../db/invariants/"*.sql "$work/future-inv/"
+echo "select 1 from no_such_table;" > "$work/future-inv/0001_needs_future_table.sql"
+check "a newer-version invariant is skipped for an older backup" env BLACKGLASS_INVARIANTS_DIR="$work/future-inv" bash "$here/restore-drill.sh" "$dump"
 
 check "no scratch database is left behind" test -z "$(psql_su -d postgres -c "select datname from pg_database where datname like 'drill\_%'")"
 echo "drill-test: $failures failure(s)"

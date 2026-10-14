@@ -90,7 +90,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - write the migrator: explicit `NNNN_name.sql`, SHA-256 checksums, one transaction per file, `lock_timeout`, refuses a changed file, separate `migrate` command;
 - make the API refuse to start on a database that is behind;
 - create the `accounts_migrator` and `accounts_app` roles;
-- write migration `0001`;
+- write migration `0000_foundation` (privileges);
 - write `deploy/services/compose.yaml`:
   - the API on `127.0.0.1:5080:8080`;
   - PostgreSQL on an `internal: true` network with no `ports:`;
