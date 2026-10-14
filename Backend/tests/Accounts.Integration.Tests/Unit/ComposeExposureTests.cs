@@ -16,7 +16,9 @@ public class ComposeExposureTests
     public void Every_published_port_is_loopback_in_the_short_quoted_form(string file)
     {
         var lines = ComposeText.Lines(file);
-        foreach (var service in ComposeText.ChildKeys(lines, "services"))
+        var services = ComposeText.ChildKeys(lines, "services").ToList();
+        Assert.NotEmpty(services);
+        foreach (var service in services)
         {
             Assert.DoesNotContain(ComposeText.Block(lines, "services", service), l => l.Trim().StartsWith("ports:", StringComparison.Ordinal) && l.Trim() != "ports:");
             Assert.All(Ports(lines, service), p => Assert.Matches(LoopbackPort, p));
@@ -37,7 +39,9 @@ public class ComposeExposureTests
     public void Every_network_is_internal_or_pins_loopback_publishing(string file)
     {
         var lines = ComposeText.Lines(file);
-        foreach (var network in ComposeText.ChildKeys(lines, "networks"))
+        var networks = ComposeText.ChildKeys(lines, "networks").ToList();
+        Assert.NotEmpty(networks);
+        foreach (var network in networks)
         {
             var block = ComposeText.Block(lines, "networks", network).Select(l => l.Trim()).ToList();
             Assert.True(block.Contains("internal: true") || block.Contains("com.docker.network.bridge.host_binding_ipv4: \"127.0.0.1\""),

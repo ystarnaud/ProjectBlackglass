@@ -1,7 +1,7 @@
 namespace Blackglass.Accounts.IntegrationTests.Support;
 
 /// <summary>Reads our own Compose files by indentation (two spaces per level, as the files' headers require). This is a
-/// static guard; the runtime check on the VM is deploy/services/check-exposure.sh.</summary>
+/// static guard; the runtime check on the VM is deploy/services/check-exposure.sh. List items may sit at the key's indent.</summary>
 public static class ComposeText
 {
     public static IReadOnlyList<string> Lines(string file) =>
@@ -22,7 +22,8 @@ public static class ComposeText
                 if (!IsBlankOrComment(lines[i]) && Indent(lines[i]) == indent && lines[i].TrimStart().StartsWith(path[depth] + ":", StringComparison.Ordinal)) { at = i; break; }
             if (at < 0) return null;
             var stop = at + 1;
-            while (stop < end && (IsBlankOrComment(lines[stop]) || Indent(lines[stop]) > indent)) stop++;
+            while (stop < end && (IsBlankOrComment(lines[stop]) || Indent(lines[stop]) > indent
+                                  || (Indent(lines[stop]) == indent && lines[stop].TrimStart().StartsWith("- ", StringComparison.Ordinal)))) stop++;
             (start, end) = (at + 1, stop);
         }
         return (start, end);
