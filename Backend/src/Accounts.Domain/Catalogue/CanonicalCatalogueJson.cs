@@ -14,7 +14,8 @@ public static partial class CanonicalCatalogueJson
 {
     public const int MaxIdLength = 64;
 
-    [GeneratedRegex("^[a-z0-9]+(?:[.-][a-z0-9]+)*$", RegexOptions.CultureInvariant)]
+    // \z, not $: .NET's $ also matches before a final newline.
+    [GeneratedRegex(@"^[a-z0-9]+(?:[.-][a-z0-9]+)*\z", RegexOptions.CultureInvariant)]
     private static partial Regex IdPattern();
 
     public static bool IsWellFormedId(string? value) => value is { Length: > 0 and <= MaxIdLength } && IdPattern().IsMatch(value);

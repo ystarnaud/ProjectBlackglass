@@ -121,7 +121,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - the EditMode test assembly's references; `CatalogueExportTests.cs` and `CatalogueBuilderTests.cs`;
 - `Backend/catalogue/`, `Backend/contracts/catalogue/` (shared golden vector);
 - `Backend/src/Accounts.Domain/`, `Backend/tests/Accounts.Domain.Tests/`, `Backend/Backend.sln`;
-- the `serve` startup gate in `Backend/src/Accounts.Api/` (exit 4), `Backend/Dockerfile`, `Backend/README.md`;
+- the `serve` startup gate in `Backend/src/Accounts.Api/` (exit 4) and its test `Backend/tests/Accounts.Integration.Tests/Unit/ServeCatalogueTests.cs`, `Backend/Dockerfile`, `Backend/README.md`;
 - `CLAUDE.md` (Stage 1 done, Stage 2 authorized).
 
 **Work:**

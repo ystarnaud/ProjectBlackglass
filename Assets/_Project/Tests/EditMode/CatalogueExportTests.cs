@@ -128,6 +128,26 @@ namespace Blackglass.Tests
             }
         }
 
+        [TestCase("item.medkit", true)]
+        [TestCase("2c84b7e9-51a6-4d03-9f7e-c3a0165d8b03", true)]
+        [TestCase("item.medkit\n", false)] // .NET's $ also matches before a final newline
+        [TestCase("a..b", false)]
+        [TestCase("-a", false)]
+        [TestCase("a.", false)]
+        [TestCase("Item.Medkit", false)]
+        [TestCase("", false)]
+        public void IdRule_IsTheBackendsExactly(string id, bool wellFormed)
+        {
+            Assert.That(CanonicalCatalogueWriter.IsWellFormedId(id), Is.EqualTo(wellFormed));
+        }
+
+        [Test]
+        public void IdRule_AllowsAtMost64Characters()
+        {
+            Assert.That(CanonicalCatalogueWriter.IsWellFormedId(new string('a', 64)), Is.True);
+            Assert.That(CanonicalCatalogueWriter.IsWellFormedId(new string('a', 65)), Is.False);
+        }
+
         [Test]
         public void Writer_RefusesAStringThatIsNotAnId()
         {

@@ -17,7 +17,8 @@ namespace Blackglass.BackendTools
     public static class CanonicalCatalogueWriter
     {
         public const int MaxIdLength = 64;
-        static readonly Regex IdPattern = new Regex("^[a-z0-9]+(?:[.-][a-z0-9]+)*$", RegexOptions.CultureInvariant);
+        // \z, not $: .NET's $ also matches before a final newline.
+        static readonly Regex IdPattern = new Regex(@"^[a-z0-9]+(?:[.-][a-z0-9]+)*\z", RegexOptions.CultureInvariant);
         static readonly UTF8Encoding Utf8NoBom = new UTF8Encoding(false);
 
         public static bool IsWellFormedId(string value) =>
