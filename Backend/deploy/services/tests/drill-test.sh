@@ -28,16 +28,19 @@ SQL
 ( for _ in $(seq 1 60); do psql_su -c "insert into drill_probe (payload, note) values ('\x00', 'during backup')"; sleep 0.1; done ) &
 writer=$!
 dump="$(BLACKGLASS_BACKUP_PAUSE=3 bash "$here/backup.sh" | tail -n 1)"
+live="$(psql_su -c 'select count(*) from drill_probe')"   # read right after the backup returns, while rows may still arrive
 wait "$writer"
 counts="${dump%.dump}.counts"
 recorded="$(awk '$1 == "drill_probe" { print $2 }' "$counts")"
-live="$(psql_su -c 'select count(*) from drill_probe')"
 check "rows were written after the snapshot (recorded $recorded < live $live)" test "$recorded" -lt "$live"
 check "backup files are private (600)" test "$(stat -c %a "$dump")" = 600 -a "$(stat -c %a "$counts")" = 600
 check "restore drill passes" bash "$here/restore-drill.sh" "$dump"
 
 head -c 2000 "$dump" > "$work/backups/truncated.dump"; cp "$counts" "$work/backups/truncated.counts"
 check "a truncated dump fails the drill" not bash "$here/restore-drill.sh" "$work/backups/truncated.dump"
+
+head -c $(( $(stat -c %s "$dump") * 9 / 10 )) "$dump" > "$work/backups/cut.dump"; cp "$counts" "$work/backups/cut.counts"
+check "a dump truncated in its data section fails the drill" not bash "$here/restore-drill.sh" "$work/backups/cut.dump"
 
 cp "$dump" "$work/backups/tampered.dump"; sed 's/^drill_probe .*/drill_probe 1/' "$counts" > "$work/backups/tampered.counts"
 check "a count mismatch fails the drill" not bash "$here/restore-drill.sh" "$work/backups/tampered.dump"
