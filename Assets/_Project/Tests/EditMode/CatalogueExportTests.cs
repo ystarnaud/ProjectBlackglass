@@ -145,6 +145,49 @@ namespace Blackglass.Tests
             Assert.That(bytes[bytes.Length - 2], Is.EqualTo((byte)'}'));
             Assert.That(bytes[bytes.Length - 1], Is.EqualTo((byte)'\n'));
         }
+
+        [Test]
+        public void CommittedCatalogue_EqualsAFreshExportOfTheProject()
+        {
+            var errors = new List<string>();
+            var fresh = CatalogueExporter.Export(CatalogueSources.LoadProject(), errors);
+            Assert.That(fresh, Is.Not.Null, "the project's catalogue export is refused:\n" + string.Join("\n", errors));
+            TestContext.WriteLine("catalogueVersion (fresh export): " + CanonicalCatalogueWriter.VersionOf(fresh));
+            Assert.That(File.Exists(CatalogueExporter.CommittedPath), Is.True,
+                "Backend/catalogue/catalogue.json is missing: run Blackglass > Backend > Export Catalogue and commit it.");
+            Assert.That(File.ReadAllBytes(CatalogueExporter.CommittedPath).SequenceEqual(fresh), Is.True,
+                "Backend/catalogue/catalogue.json is stale or was edited by hand: run Blackglass > Backend > Export Catalogue " +
+                "(or Tools/run-method.sh Blackglass.BackendTools.CatalogueExporter.ExportFromCommandLine) and commit the result.");
+        }
+
+        [Test]
+        public void ProjectExport_IsTheSameEveryTime()
+        {
+            var errors = new List<string>();
+            var first = CatalogueExporter.Export(CatalogueSources.LoadProject(), errors);
+            var second = CatalogueExporter.Export(CatalogueSources.LoadProject(), errors);
+            Assert.That(errors, Is.Empty, string.Join("\n", errors));
+            Assert.That(second.SequenceEqual(first), Is.True);
+        }
+
+        [Test]
+        public void CommittedCatalogue_NamesNoGameTitle()
+        {
+            var text = File.ReadAllText(CatalogueExporter.CommittedPath);
+            Assert.That(text.IndexOf("blackglass", StringComparison.OrdinalIgnoreCase), Is.EqualTo(-1));
+        }
+
+        [Test]
+        public void Export_ReturnsNoBytesWhenRefused()
+        {
+            using (var assets = new GoldenAssets())
+            {
+                assets.Alpha.SetId("");
+                var errors = new List<string>();
+                Assert.That(CatalogueExporter.Export(assets.Sources(), errors), Is.Null);
+                Assert.That(errors, Is.Not.Empty);
+            }
+        }
     }
 
     /// <summary>The golden vector both sides check byte for byte (Backend/contracts/catalogue).</summary>

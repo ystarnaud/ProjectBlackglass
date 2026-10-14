@@ -1,0 +1,210 @@
+{
+  "formatVersion": 1,
+  "items": [
+    {
+      "id": "item.combat-blade",
+      "category": "weapon",
+      "slot": "weapon",
+      "stackable": false,
+      "maxStack": 1,
+      "healAmount": 0
+    },
+    {
+      "id": "item.light-vest",
+      "category": "armor",
+      "slot": "armor",
+      "stackable": false,
+      "maxStack": 1,
+      "healAmount": 0
+    },
+    {
+      "id": "item.marksman-rifle",
+      "category": "weapon",
+      "slot": "weapon",
+      "stackable": false,
+      "maxStack": 1,
+      "healAmount": 0
+    },
+    {
+      "id": "item.medkit",
+      "category": "consumable",
+      "slot": "none",
+      "stackable": true,
+      "maxStack": 3,
+      "healAmount": 40
+    },
+    {
+      "id": "item.service-rifle",
+      "category": "weapon",
+      "slot": "weapon",
+      "stackable": false,
+      "maxStack": 1,
+      "healAmount": 0
+    },
+    {
+      "id": "item.servo-boots",
+      "category": "utility",
+      "slot": "utility",
+      "stackable": false,
+      "maxStack": 1,
+      "healAmount": 0
+    }
+  ],
+  "lootTable": {
+    "version": 1,
+    "containerCount": 3,
+    "minItems": 1,
+    "maxItems": 2,
+    "entries": [
+      {
+        "itemId": "item.medkit",
+        "minQuantity": 1,
+        "maxQuantity": 2,
+        "weight": 4
+      },
+      {
+        "itemId": "item.service-rifle",
+        "minQuantity": 1,
+        "maxQuantity": 1,
+        "weight": 1
+      },
+      {
+        "itemId": "item.marksman-rifle",
+        "minQuantity": 1,
+        "maxQuantity": 1,
+        "weight": 1
+      },
+      {
+        "itemId": "item.combat-blade",
+        "minQuantity": 1,
+        "maxQuantity": 1,
+        "weight": 1
+      },
+      {
+        "itemId": "item.light-vest",
+        "minQuantity": 1,
+        "maxQuantity": 1,
+        "weight": 2
+      },
+      {
+        "itemId": "item.servo-boots",
+        "minQuantity": 1,
+        "maxQuantity": 1,
+        "weight": 2
+      }
+    ]
+  },
+  "progression": {
+    "xpThresholds": [
+      0,
+      100,
+      250,
+      450,
+      700
+    ],
+    "missionCompletionXp": 150,
+    "choiceIds": [
+      "ability",
+      "combat",
+      "mobility",
+      "survivability"
+    ]
+  },
+  "operatives": [
+    {
+      "id": "2c84b7e9-51a6-4d03-9f7e-c3a0165d8b03",
+      "roleId": "role.support",
+      "abilityIds": [
+        "ability.mend",
+        "ability.aimed-shot"
+      ]
+    },
+    {
+      "id": "6f1d2a40-3b7c-4e95-8a1f-52c0d9e7b301",
+      "roleId": "role.assault",
+      "abilityIds": [
+        "ability.aimed-shot",
+        "ability.blast"
+      ]
+    },
+    {
+      "id": "a93e5c17-0d48-4f2b-b6a3-7e1c8d4f9a02",
+      "roleId": "role.recon",
+      "abilityIds": [
+        "ability.aimed-shot",
+        "ability.recon-scan"
+      ]
+    }
+  ],
+  "starter": {
+    "operatives": [
+      {
+        "operativeId": "2c84b7e9-51a6-4d03-9f7e-c3a0165d8b03",
+        "grants": [
+          {
+            "itemId": "item.service-rifle",
+            "quantity": 1,
+            "equip": true
+          },
+          {
+            "itemId": "item.medkit",
+            "quantity": 2,
+            "equip": false
+          }
+        ]
+      },
+      {
+        "operativeId": "6f1d2a40-3b7c-4e95-8a1f-52c0d9e7b301",
+        "grants": [
+          {
+            "itemId": "item.service-rifle",
+            "quantity": 1,
+            "equip": true
+          },
+          {
+            "itemId": "item.medkit",
+            "quantity": 2,
+            "equip": false
+          }
+        ]
+      },
+      {
+        "operativeId": "a93e5c17-0d48-4f2b-b6a3-7e1c8d4f9a02",
+        "grants": [
+          {
+            "itemId": "item.marksman-rifle",
+            "quantity": 1,
+            "equip": true
+          },
+          {
+            "itemId": "item.medkit",
+            "quantity": 2,
+            "equip": false
+          }
+        ]
+      }
+    ],
+    "stash": [
+      {
+        "itemId": "item.combat-blade",
+        "quantity": 1
+      },
+      {
+        "itemId": "item.service-rifle",
+        "quantity": 1
+      },
+      {
+        "itemId": "item.light-vest",
+        "quantity": 1
+      },
+      {
+        "itemId": "item.servo-boots",
+        "quantity": 1
+      },
+      {
+        "itemId": "item.medkit",
+        "quantity": 4
+      }
+    ]
+  }
+}
