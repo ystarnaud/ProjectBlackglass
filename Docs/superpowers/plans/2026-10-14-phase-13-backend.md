@@ -1,6 +1,6 @@
 # Phase 13 backend and settlement: staged implementation plan
 
-Date: 2026-10-14. **Revision 2.1.** Status: approved by the owner; Stage 0 applied on branch `phase13-stage0`; Stage 1 and later need the owner's go-ahead. Design: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` revision 2.1 ("the spec"); decisions 048–050. Stage 0 drafts (as applied): `Docs/superpowers/specs/2026-10-14-phase-13-stage0-drafts.md`.
+Date: 2026-10-14. **Revision 2.1.** Status: approved by the owner; Stage 0 merged into `main` and pushed (`c76d3d5`); Stage 1 and later need the owner's go-ahead. Stage 1's detailed plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-foundation.md`. Design: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` revision 2.1 ("the spec"); decisions 048–050. Stage 0 drafts (as applied): `Docs/superpowers/specs/2026-10-14-phase-13-stage0-drafts.md`.
 
 This is a stage-level plan. Each stage gets its own detailed, test-first task plan just before it starts, once its dependencies are approved. **Nothing here is implemented, and no number below is a measurement.**
 
@@ -43,11 +43,44 @@ This is a stage-level plan. Each stage gets its own detailed, test-first task pl
 - the diff contains only `Docs/Decisions.md`, `CLAUDE.md`, `Docs/OnlineReadinessAudit.md` and the three Phase 13 design documents;
 - the owner's two settings files are unchanged and unstaged.
 
-**Exit:** the decisions are recorded and Phase 13 is authorized in `CLAUDE.md`. **Status: done on branch `phase13-stage0`, not merged.**
+**Exit:** the decisions are recorded and Phase 13 is authorized in `CLAUDE.md`. **Status: done; merged into `main` and pushed (`c76d3d5`, 2026-10-14).**
+
+## Environment preparation E1: Docker on `bg-dev-services01` (before Stage 1's database work)
+
+`bg-dev-services01`, as reported by the owner:
+- Debian 13, 4 vCPUs, about 8 GiB of memory, an 80 GB disk;
+- SSH verified and public networking configured;
+- Docker not yet established.
+
+Stage 1's integration tests need PostgreSQL 17 in Docker, so the Docker installation moved out of Stage 17 into E1.
+
+**Status: done 2026-10-14 (owner-approved).** The full record is in the Stage 1 plan, Part A.
+- **Access:** VM administration uses the alias `bg-dev-services01-admin` (`admin` with `sudo`). Nobody is in the `docker` group. The owner verified console recovery as `admin` and the host-key fingerprint.
+- **Docker:** Engine 29.9.0, Compose 5.6.0 and containerd.io 2.4.2-2, from Docker's Debian 13 repository. `daemon.json` (`ip` plus `default-network-opts` `host_binding_ipv4` = `127.0.0.1`) was written before the first start.
+- **Verified:** published ports on the default bridge and on a Compose network bind only to `127.0.0.1`, over TCP and UDP. They are unreachable off-host over IPv4 (from the PC) and over IPv4 and IPv6 (from `bg-dev-mission01`).
+- **Host changes:** IPv4 forwarding is on, the `FORWARD` policy is DROP, and Docker's NAT chains are added, with no `INPUT` rules. The listeners after the probes were identical to before.
+- **Brought forward from Stage 17 with the owner's approval, as separate verified changes:**
+  - sshd drop-in `10-blackglass-hardening.conf`: key-only, `PermitRootLogin no`;
+  - resolved drop-in `10-blackglass-no-llmnr.conf`: 5355 closed.
+- **Public listeners now:** only SSH on 22. `ufw` is untouched.
+
+- **Reboot-validated 2026-10-14.** All nine checks passed: SSH, Docker, Compose, `daemon.json`, the firewall and NAT rules, the network, LLMNR, listeners and cleanup.
+- **Follow-ups:**
+  - 61 Debian upgrades are pending;
+  - the Docker update policy is open, because unattended-upgrades covers Debian origins only.
+
+Stage 17 keeps:
+- `ufw`, and the firewall review (the `nftables` package came in as a Docker recommendation; its service is disabled and must stay so until then);
+- the live stack, its secrets and the backup timer;
+- the off-host IPv4 and IPv6 TCP and UDP scans of the live stack;
+
+and it re-verifies the Docker version, `daemon.json`, and the sshd and resolved drop-ins.
 
 ## Stage 1: backend foundation (skeleton, migrations, backup and restore)
 
-**Touches:** `Backend/` (new) and `.gitignore` (`Backend/**/bin`, `obj`, `secrets`).
+Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-foundation.md`. Tasks 1 to 4 need no database; Task 5 onward needs E1.
+
+**Touches:** `Backend/` (new), `.gitignore` (the `Backend` csproj/sln exceptions and `bin`, `obj`, `secrets`), `.gitattributes` (LF for `Backend` scripts and SQL), and in Task 13 the spec's §2.3, §4.4 and §4.5 rows.
 
 **Work:**
 - create the solution and its projects (spec §2.3);
@@ -71,7 +104,8 @@ This is a stage-level plan. Each stage gets its own detailed, test-first task pl
 **Evidence:**
 - `dotnet test` counts;
 - the restore-drill output;
-- `docker compose config` for a local run, if Docker is available. Where Docker on the Windows host is unavailable, the integration tests run on `bg-dev-services01` and their transcript is recorded.
+- integration tests run from the PC against a loopback-only test cluster on `bg-dev-services01` (`127.0.0.1:55432`, `cluster_name=blackglass-test`) through an SSH tunnel;
+- the drill and smoke transcripts come from `bg-dev-services01`.
 
 **Exit:** the foundation can migrate, back up and restore a database, with evidence.
 
@@ -428,8 +462,8 @@ This is a stage-level plan. Each stage gets its own detailed, test-first task pl
 **Work:**
 
 `bg-dev-services01`:
-- Docker Engine **≥ 28** (version recorded) and Compose;
-- `daemon.json` with `"ip": "127.0.0.1"` **and** `default-network-opts` → `bridge` → `com.docker.network.bridge.host_binding_ipv4: 127.0.0.1`; the stack's networks recreated and inspected;
+- **re-verify** Docker Engine **≥ 28** and Compose (installed in E1), with the version recorded;
+- **re-verify** `daemon.json` (`"ip": "127.0.0.1"` **and** `default-network-opts` → `bridge` → `com.docker.network.bridge.host_binding_ipv4: 127.0.0.1`); the stack's networks recreated and inspected;
 - the secrets files;
 - the nightly backup timer;
 - `ufw`, following the spec's §4.5 sequence (console checked, second SSH session);
@@ -468,9 +502,11 @@ On both: deploy and run the full acceptance set.
 ## Dependencies
 
 ```
-0 ─ 1 ─┬─ 2 ─ 3 ─ 4 ─ 5 ─ 6 ─ 7 ─ 8 ─ 9 ─ 10 ─┐
+0 ─ 1*─┬─ 2 ─ 3 ─ 4 ─ 5 ─ 6 ─ 7 ─ 8 ─ 9 ─ 10 ─┐
        └─ 2 ─ 11 ─ 12 ───────────────────────┴─ 13 ─ 14 ─ 15 ─ 16 ─ 17
 ```
+
+\* E1 (Docker on `bg-dev-services01`) must finish before Stage 1's Task 5, the first database task.
 
 Unity stages 11 and 12 can run alongside backend stages 3 to 10 once stage 2 exists. Stage 13 needs stages 9 and 10. Unity's one-instance limit serializes the Unity stages among themselves.
 
