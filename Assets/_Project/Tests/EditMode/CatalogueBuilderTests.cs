@@ -253,6 +253,23 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Build_RefusesSevenContainers()
+        {
+            a.Loot = a.Keep(LootTable.Create(7, 7, 1, 3, new[] { GoldenAssets.Entry(a.Kit, 1, 2, 5) }));
+            AssertRefused(a.Sources(), "malformed:", "the container count must be 0 to 6");
+        }
+
+        [Test]
+        public void Build_AcceptsSixContainers()
+        {
+            a.Loot = a.Keep(LootTable.Create(7, 6, 1, 3, new[] { GoldenAssets.Entry(a.Kit, 1, 2, 5) }));
+            var errors = new List<string>();
+            var document = CatalogueBuilder.Build(a.Sources(), errors);
+            Assert.That(document, Is.Not.Null, string.Join("\n", errors));
+            Assert.That(document.LootTable.ContainerCount, Is.EqualTo(6));
+        }
+
+        [Test]
         public void Build_RefusesLootOutsideTheCatalogue()
         {
             var stray = a.Item("item.stray", ItemCategory.Armor, ItemSlot.Armor);

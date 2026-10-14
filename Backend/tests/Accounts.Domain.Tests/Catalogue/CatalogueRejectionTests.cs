@@ -113,6 +113,7 @@ public class CatalogueRejectionTests
         ["loot items range empty"] = (d => Loot(d, t => t with { MinItems = 4 }), "malformed: lootTable: the items per container range is empty"),
         ["loot without entries"] = (d => Loot(d, t => t with { Entries = [] }), "missing: lootTable.entries is empty"),
         ["negative container count"] = (d => Loot(d, t => t with { ContainerCount = -1 }), "malformed: lootTable: the container count is negative"),
+        ["seven containers"] = (d => Loot(d, t => t with { ContainerCount = 7 }), "malformed: lootTable: the container count is above 6"),
         ["loot version 0"] = (d => Loot(d, t => t with { Version = 0 }), "malformed: lootTable: the version must be at least 1"),
         ["thresholds not from 0"] = (d => Track(d, p => p with { XpThresholds = [5, 10, 30] }), "malformed: progression.xpThresholds: rank 1 must need 0 XP"),
         ["thresholds not increasing"] = (d => Track(d, p => p with { XpThresholds = [0, 30, 30] }), "malformed: progression.xpThresholds: thresholds must strictly increase (rank 3)"),
@@ -150,6 +151,10 @@ public class CatalogueRejectionTests
         var (mutate, expected) = Mutations[name];
         AssertRejected(CanonicalCatalogueJson.ToBytes(mutate(Golden.Document())), expected);
     }
+
+    [Fact]
+    public void Six_containers_is_the_largest_accepted_count()
+        => Assert.Equal(6, GameCatalogue.Load(CanonicalCatalogueJson.ToBytes(Loot(Golden.Document(), t => t with { ContainerCount = 6 }))).Document.LootTable.ContainerCount);
 
     [Fact]
     public void Every_problem_is_reported_at_once()

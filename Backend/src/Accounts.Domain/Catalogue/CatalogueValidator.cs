@@ -9,6 +9,13 @@ public static class CatalogueValidator
     /// <summary>Unity's OperativeDefinition.MaxAbilities.</summary>
     public const int MaxAbilities = 4;
 
+    /// <summary>
+    /// Unity's LootTable.MaxContainers: the most containers a loot table may ask for, a rule of the table itself and so of
+    /// format 1. How many a mission actually places depends on its layout (it may place fewer); that count belongs to the
+    /// attempt's registered loot pool, validated against this table at ready (spec §7.4).
+    /// </summary>
+    public const int MaxContainers = 6;
+
     public static void Validate(CatalogueDocument d, List<string> errors)
     {
         if (d.FormatVersion != CatalogueDocument.SupportedFormatVersion)
@@ -58,6 +65,7 @@ public static class CatalogueValidator
     {
         if (table.Version < 1) errors.Add("malformed: lootTable: the version must be at least 1");
         if (table.ContainerCount < 0) errors.Add("malformed: lootTable: the container count is negative");
+        if (table.ContainerCount > MaxContainers) errors.Add($"malformed: lootTable: the container count is above {MaxContainers}");
         if (table.MinItems < 1 || table.MaxItems < table.MinItems) errors.Add("malformed: lootTable: the items per container range is empty");
         if (table.Entries.Count == 0) errors.Add("missing: lootTable.entries is empty");
         for (var i = 0; i < table.Entries.Count; i++)
