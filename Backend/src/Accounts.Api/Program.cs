@@ -1,2 +1,3 @@
-// The command-line entry point is wired in Task 9 (Cli.RunAsync).
-return 0;
+using Blackglass.Accounts.Api;
+
+return await Cli.RunAsync(args, ProcessEnvironment.Read(), Console.Out, Console.Error);
