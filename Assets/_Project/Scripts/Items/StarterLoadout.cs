@@ -36,6 +36,9 @@ namespace Blackglass
 
         public IReadOnlyList<StarterGrant> Stash => stash;
 
+        /// <summary>The per-operative grants as authored (the backend catalogue export reads them).</summary>
+        public IReadOnlyList<StarterOperative> Operatives => operatives ?? Array.Empty<StarterOperative>();
+
         public IReadOnlyList<StarterGrant> For(string operativeId)
         {
             if (byId != null && byId.TryGetValue(operativeId, out var direct))

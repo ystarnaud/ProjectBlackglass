@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d56ed679ab50e1428552949c017a3b6, type: 3}
   m_Name: Support
   m_EditorClassIdentifier: Blackglass::Blackglass.OperativeRole
+  id: role.support
   displayName: Support
   description: Keeps the squad standing.
   bonus:

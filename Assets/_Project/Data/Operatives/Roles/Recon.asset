@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0d56ed679ab50e1428552949c017a3b6, type: 3}
   m_Name: Recon
   m_EditorClassIdentifier: Blackglass::Blackglass.OperativeRole
+  id: role.recon
   displayName: Recon
   description: Fast scouting and long-range precision.
   bonus:

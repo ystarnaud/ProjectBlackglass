@@ -9,13 +9,18 @@ namespace Blackglass
     [CreateAssetMenu(menuName = "Blackglass/Operative Role", fileName = "Role")]
     public sealed class OperativeRole : ScriptableObject
     {
+        // The stable key the backend catalogue uses (never the display name). Authored once and never changed.
+        [SerializeField] string id = "";
         [SerializeField] string displayName = "Role";
         [SerializeField, TextArea] string description = "";
         [SerializeField] StatModifiers bonus;
 
+        public string Id => id;
         public string DisplayName => displayName;
         public string Description => description;
         public StatModifiers Bonus => bonus;
+
+        internal void SetId(string value) => id = value ?? string.Empty;
 
         internal static OperativeRole Create(string displayName, string description, StatModifiers bonus)
         {

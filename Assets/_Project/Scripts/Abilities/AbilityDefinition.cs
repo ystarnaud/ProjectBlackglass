@@ -43,6 +43,8 @@ namespace Blackglass
     [CreateAssetMenu(menuName = "Blackglass/Ability", fileName = "Ability")]
     public sealed class AbilityDefinition : ScriptableObject
     {
+        // The stable key the backend catalogue uses (never the display name). Authored once and never changed.
+        [SerializeField] string id = "";
         [SerializeField] string displayName = "Ability";
         [SerializeField] AbilityTargetMode targetMode = AbilityTargetMode.Unit;
         // Derived from the effect (Damage = Hostile, Heal = Friendly): Create and OnValidate normalise the stored value, and
@@ -60,6 +62,7 @@ namespace Blackglass
         [SerializeField, Min(0f)] float revealSeconds = 6f;
         [SerializeField] CombatPresentationProfile presentation;
 
+        public string Id => id;
         public string DisplayName => displayName;
         public AbilityTargetMode TargetMode => targetMode;
         /// <summary>Always derived from <see cref="Effect"/>: damage targets hostiles, healing targets friendlies.</summary>
@@ -89,6 +92,8 @@ namespace Blackglass
         public CombatPresentationProfile Presentation => presentation;
 
         internal void SetPresentation(CombatPresentationProfile profile) => presentation = profile;
+
+        internal void SetId(string value) => id = value ?? string.Empty;
 
         internal static AbilityDefinition Create(string displayName, AbilityTargetMode mode,
             float range, bool requiresLineOfSight, AbilityCoverRule coverRule, float cooldown, AbilityEffect effect,

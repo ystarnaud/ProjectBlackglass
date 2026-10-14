@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5aa171b7829999b4781d7e4aa6e37ab8, type: 3}
   m_Name: AimedShot
   m_EditorClassIdentifier: Blackglass::Blackglass.AbilityDefinition
+  id: ability.aimed-shot
   displayName: Aimed Shot
   targetMode: 0
   targetSide: 0
