@@ -48,7 +48,7 @@ public sealed class MigrationCatalog
         string text;
         try { text = StrictUtf8.GetString(content); }
         catch (DecoderFallbackException) { throw new MigrationCatalogException($"'{fileName}' is not valid UTF-8."); }
-        if (text.Length > 0 && text[0] == '﻿') text = text[1..];
+        if (text.Length > 0 && text[0] == '\uFEFF') text = text[1..];
         return text.Replace("\r\n", "\n");
     }
 }
