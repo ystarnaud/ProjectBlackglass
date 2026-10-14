@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Blackglass.BackendTools;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -158,13 +159,19 @@ namespace Blackglass.EditorTools
             AssetDatabase.Refresh();
         }
 
-        static OperativeRole Role(string name, string description, Action<SerializedObject> fill) =>
-            Make<OperativeRole>($"{RoleDir}/{name}.asset", s =>
+        static OperativeRole Role(string name, string description, Action<SerializedObject> fill)
+        {
+            var path = $"{RoleDir}/{name}.asset";
+            var role = Make<OperativeRole>(path, s =>
             {
                 s.FindProperty("displayName").stringValue = name;
                 s.FindProperty("description").stringValue = description;
                 fill(s);
             });
+            // The permanent backend id: filled when blank, kept when it matches; a different or duplicate id stops the build.
+            PermanentIds.Ensure(role, PermanentIds.Roles[path], PermanentIds.AllInProject<OperativeRole>());
+            return role;
+        }
 
         static AdvancementChoice Choice(string file, string id, string name, string description, Action<SerializedObject> fill) =>
             Make<AdvancementChoice>($"{ChoiceDir}/{file}.asset", s =>

@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using Blackglass.BackendTools;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -43,9 +44,16 @@ namespace Blackglass.EditorTools
 
         static AbilityDefinition CreateScan()
         {
-            var existing = AssetDatabase.LoadAssetAtPath<AbilityDefinition>(ScanPath);
-            if (existing != null)
-                return existing;
+            var scan = AssetDatabase.LoadAssetAtPath<AbilityDefinition>(ScanPath);
+            if (scan == null)
+                scan = NewScan();
+            // The permanent backend id: filled when blank, kept when it matches; a different or duplicate id stops the build.
+            PermanentIds.Ensure(scan, PermanentIds.Abilities[ScanPath], PermanentIds.AllInProject<AbilityDefinition>());
+            return scan;
+        }
+
+        static AbilityDefinition NewScan()
+        {
             var asset = ScriptableObject.CreateInstance<AbilityDefinition>();
             AssetDatabase.CreateAsset(asset, ScanPath);
             var serialized = new SerializedObject(asset);
