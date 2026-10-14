@@ -25,7 +25,8 @@ The step currently authorized is **Phase 13: authenticated between-mission flow 
 
 Progress:
 - Stage 0 (decision records) and Stage 1 (the backend foundation: migrator, loopback-only Compose stack, backup and restore drill) are done, merged into `main` and pushed (`ad14373`).
-- Stage 2 (catalogue export) is the authorized work in progress, on branch `phase13-stage2`, per `Docs/superpowers/plans/2026-10-14-phase-13-stage2-catalogue-export.md`.
+- Stage 2 (catalogue export) is done, per `Docs/superpowers/plans/2026-10-14-phase-13-stage2-catalogue-export.md`. Unity exports `Backend/catalogue/catalogue.json` (`Blackglass > Backend > Export Catalogue`; an EditMode test fails on a stale export). The backend's `Accounts.Domain` validates it, and `serve` refuses to start on an invalid one (exit 4).
+- Item ids, operative GUIDs, progression choice ids and the role and ability ids are permanent backend-facing keys: never rename one.
 
 Phase 13 authorizes:
 - the account and mission backend in `Backend/`, loopback-only, reached through SSH tunnels;
@@ -227,8 +228,8 @@ Do not generate extensive documentation for trivial implementation details.
 
 Phase 13, stage by stage (plan revision 2.1).
 - Stage 0 (decision records and this authorization) and Stage 1 (backend foundation) are done, merged and pushed.
-- Stage 2 (catalogue export: Unity exports `Backend/catalogue/catalogue.json`; the backend validates it and refuses to start on an invalid one) is authorized and in progress.
-- Stage 3 (accounts and development authentication) and every later stage start only when the owner says so.
+- Stage 2 (catalogue export) is done.
+- Stage 3 (accounts and development authentication) is next. Its detailed plan is prepared for the owner's review, and implementation starts only when the owner says so; the same holds for every later stage.
 - No merge, push or live accounts-stack deployment happens without the owner's approval.
 
 - Each stage records concrete evidence (test counts, transcripts, diff stat) and changes only the paths it lists.

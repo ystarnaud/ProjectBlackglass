@@ -303,7 +303,7 @@ Anything else is a finding to explain before the stage closes.
 
 An Editor batch method (`Blackglass.BackendTools.CatalogueExporter`) writes `Backend/catalogue/catalogue.json`, format 1 (as built in Stage 2). It holds ids and rules only, no display text:
 - the items: id, category, slot, stackable flag, max stack, heal amount;
-- the loot table: version, container count, items per container, and its entries (item id, quantity range, weight) in authored order;
+- the loot table: version, container count (0 to 6, `LootTable.MaxContainers`: a catalogue-wide rule of format 1), items per container, and its entries (item id, quantity range, weight) in authored order. How many containers a mission actually places depends on its layout and may be fewer; that count is the attempt's registered loot pool, validated against the table at ready (§7.4);
 - the progression track: XP thresholds, `MissionCompletionXp` and choice ids;
 - the operative definitions: id, `roleId` and `abilityIds` (authored role and ability ids, in slot order);
 - the starter loadout: per-operative grants (item, quantity, equip) and the stash.
@@ -316,7 +316,7 @@ The file has one canonical form: UTF-8 without a BOM, LF, two-space indentation,
 |---|---|---|
 | account, operative, attempt, sessions, insurance activations | UUIDv7 | API |
 | Item minted at settlement, insurance retention, provisioning or dev grant | `item_id = UUIDv5(fixed namespace, origin_ref)`, with `unique (origin, origin_ref)` | API, deterministic across retries |
-| Catalogue ids | Authored string ids: items (`item.*`), progression choices, operative GUIDs, and (Stage 2) roles (`role.*`) and abilities (`ability.*`); permanent once stored | Unity assets |
+| Catalogue ids | Authored string ids, all permanent backend-facing keys (owner, 2026-10-14): items (`item.*`), operative GUIDs, the existing progression choice ids (`ability`, `combat`, `mobility`, `survivability`), and (Stage 2) roles (`role.*`) and abilities (`ability.*`). Editor builders fill a blank id and never overwrite or duplicate one | Unity assets |
 | In-mission entry and lot ids | Local | Mission process, never persisted |
 
 **`origin_ref` formats.** Every field is fixed-width or a canonical UUID, so the strings can't collide across kinds, attempts, accounts or units:

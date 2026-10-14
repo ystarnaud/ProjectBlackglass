@@ -113,7 +113,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 2: catalogue export
 
-**Status: done on branch `phase13-stage2`, not merged.** Detailed plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage2-catalogue-export.md`. Evidence: `.claude/scratchpad/phase13/stage-02/summary.md` (not committed).
+**Status: done.** Corrections after review (owner, 2026-10-14): the backend enforces the loot table's 0-6 container bound, and the role and Recon Scan builders give the assets they create their approved ids. Merging into `main` is owner-authorized once the gates pass. Detailed plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage2-catalogue-export.md`. Evidence: `.claude/scratchpad/phase13/stage-02/summary.md` (not committed).
 
 **Touches (owner-approved expansion, 2026-10-14):**
 - `Assets/_Project/Editor/Backend/` (new Editor-only assembly `Blackglass.Backend.Editor`);
