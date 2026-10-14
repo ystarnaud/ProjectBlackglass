@@ -123,6 +123,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - `Backend/src/Accounts.Domain/`, `Backend/tests/Accounts.Domain.Tests/`, `Backend/Backend.sln`;
 - the `serve` startup gate in `Backend/src/Accounts.Api/` (exit 4) and its test `Backend/tests/Accounts.Integration.Tests/Unit/ServeCatalogueTests.cs`, `Backend/Dockerfile`, `Backend/README.md`;
 - `CLAUDE.md` (Stage 1 done, Stage 2 authorized).
+- owner-requested corrections (2026-10-14): `Assets/_Project/Editor/OperativeDataBuilder.cs`, `IntelligenceSceneBuilder.cs` and `Presentation/CombatPresentationSceneBuilder.cs` (approved ids for created roles and the Recon Scan; the PreviewBlast clone carries no id), `Assets/_Project/Editor/Backend/PermanentIds.cs` (the assembly is now `autoReferenced` so the builders can call it), `Assets/_Project/Tests/EditMode/PermanentIdsTests.cs`, and the backend's 0-6 container bound.
 
 **Work:**
 - an Editor batch export of items, loot table, progression track, operative definitions (with ability ids) and the starter loadout, with a canonical hash;

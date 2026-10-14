@@ -150,6 +150,9 @@ These conditions are implied by the spec and most likely to bite. Each is pinned
 | `Backend/Dockerfile` | 7 | `COPY catalogue/ catalogue/` |
 | `Backend/README.md` | 7 | catalogue section, exit code 4, layout |
 | `Docs/superpowers/plans/2026-10-14-phase-13-backend.md`, `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` | 8 | Stage 2 status and touches; §4.6, §4.7 and §19 alignment |
+| `Assets/_Project/Editor/Backend/PermanentIds.cs`, `Assets/_Project/Tests/EditMode/PermanentIdsTests.cs` | owner correction | approved role and ability ids by asset path; fill a blank id, keep a match, refuse a different or duplicate id (the asmdef becomes `autoReferenced`) |
+| `Assets/_Project/Editor/OperativeDataBuilder.cs`, `IntelligenceSceneBuilder.cs`, `Presentation/CombatPresentationSceneBuilder.cs` | owner correction | created roles and the Recon Scan get their approved ids; the PreviewBlast clone's copied id is cleared |
+| `Backend/src/Accounts.Domain/Catalogue/CatalogueValidator.cs` | owner correction | the 0-6 container bound (`MaxContainers`) |
 
 ---
 
