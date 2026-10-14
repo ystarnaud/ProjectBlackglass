@@ -21,7 +21,13 @@ Gameplay is complete through Phase 12.5 (combat presentation and VFX). The contr
 
 The owner is building the online foundation with an authoritative dedicated server; see `Docs/OnlineReadinessAudit.md`. For Phase 13 the backend stack is decided (decision 048): ASP.NET Core on .NET 10, PostgreSQL, Npgsql and Dapper, Docker Compose on `bg-dev-services01`. FishNet and the Unity Linux dedicated server are in use. HAProxy, a private VLAN, Docker for mission servers and orchestration remain **provisional, not decided**.
 
-The step currently authorized is **Phase 13: authenticated between-mission flow and trusted settlement**, following `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` and the staged plan `Docs/superpowers/plans/2026-10-14-phase-13-backend.md`, one stage at a time, each stage started only when the owner says so. Decisions 048-050 record the design. Phase 13 authorizes:
+The step currently authorized is **Phase 13: authenticated between-mission flow and trusted settlement**, following `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` and the staged plan `Docs/superpowers/plans/2026-10-14-phase-13-backend.md`, one stage at a time, each stage started only when the owner says so. Decisions 048-050 record the design.
+
+Progress:
+- Stage 0 (decision records) and Stage 1 (the backend foundation: migrator, loopback-only Compose stack, backup and restore drill) are done, merged into `main` and pushed (`ad14373`).
+- Stage 2 (catalogue export) is the authorized work in progress, on branch `phase13-stage2`, per `Docs/superpowers/plans/2026-10-14-phase-13-stage2-catalogue-export.md`.
+
+Phase 13 authorizes:
 - the account and mission backend in `Backend/`, loopback-only, reached through SSH tunnels;
 - the mission host agent and on-demand systemd mission units on `bg-dev-mission01`, under unprivileged users;
 - server-side reconnect (solo pause, resume tokens, re-admission by ticket) and backend settlement;
@@ -219,7 +225,11 @@ Do not generate extensive documentation for trivial implementation details.
 
 ## Current Priority
 
-Phase 13, stage by stage (plan revision 2.1). Stage 0 (decision records and this authorization) is done; Stage 1 (backend foundation) starts only when the owner says so.
+Phase 13, stage by stage (plan revision 2.1).
+- Stage 0 (decision records and this authorization) and Stage 1 (backend foundation) are done, merged and pushed.
+- Stage 2 (catalogue export: Unity exports `Backend/catalogue/catalogue.json`; the backend validates it and refuses to start on an invalid one) is authorized and in progress.
+- Stage 3 (accounts and development authentication) and every later stage start only when the owner says so.
+- No merge, push or live accounts-stack deployment happens without the owner's approval.
 
 - Each stage records concrete evidence (test counts, transcripts, diff stat) and changes only the paths it lists.
 - Keep visibility policy and the backend core free of networking-library types.
