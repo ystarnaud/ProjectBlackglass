@@ -142,7 +142,10 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - 401 on a bad, expired or revoked token;
 - the account is taken from the token only;
 - a log-capture test finds no keys or tokens in the logs;
-- a source audit bans string-built SQL.
+- a source audit bans string-built SQL;
+- carried over from the Stage 1 review: with `0001` and its invariants in place, the upgrade tests and `drill-test.sh` still show that invariants numbered at or below the database's version run and higher-numbered ones are skipped, with versions derived from the catalog or the backup (no hard-coded numbers).
+
+**Carried over from the Stage 1 review (owner, 2026-10-14):** if `0001` is the appropriate first forward migration, it revokes PostgreSQL's default `PUBLIC` `EXECUTE` on the migrator's future functions (`alter default privileges for role accounts_migrator in schema public revoke execute on functions from public`), with a test. `0000_foundation` stays unchanged. In any case this must land before Stage 6's first function; see `Backend/README.md`, "Required follow-ups".
 
 **Evidence:** test counts; the log-capture output. Covers spec B2.
 
@@ -188,7 +191,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 **Work:**
 - migration `0004` (energy);
-- the regeneration function;
+- the regeneration function (only after the default `PUBLIC` `EXECUTE` revoke carried over from Stage 1 is in place; grant `EXECUTE` to `accounts_app` explicitly, and test that an ungranted function is refused);
 - the wallet under lock;
 - the ledger with idempotency keys, **including a `regen` entry for every materialization**, keyed by the anchor it consumed, in the same transaction;
 - the wallet-versus-ledger reconciliation check (anomaly on a mismatch, no automatic correction);
@@ -467,6 +470,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - **re-verify** Docker Engine **≥ 28** and Compose (installed in E1), with the version recorded;
 - **re-verify** `daemon.json` (`"ip": "127.0.0.1"` **and** `default-network-opts` → `bridge` → `com.docker.network.bridge.host_binding_ipv4: 127.0.0.1`); the stack's networks recreated and inspected;
 - the secrets files;
+- before the stack holds persistent application data: the base images (`postgres:17`, the .NET SDK and ASP.NET images) pinned to approved versions and digests, carried over from the Stage 1 review; no unrelated image upgrades;
 - the nightly backup timer;
 - `ufw`, following the spec's §4.5 sequence (console checked, second SSH session);
 - the `systemd-resolved` LLMNR drop-in (`LLMNR=no`, `MulticastDNS=no`), applied the same SSH-safe way. If the owner prefers to keep LLMNR, 5355 must show filtered instead.
