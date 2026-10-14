@@ -41,20 +41,22 @@ files=("$invariants"/*.sql)
 
 # The schema version the backup was taken at (a backup is taken before a deploy migrates, so it can be older than the
 # invariants in the tree). Same rule as InvariantRunner.VersionPrefix: NNNN_<name>.sql holds from version NNNN onward.
-# Only an empty database (a backup taken before the first migrate) may lack schema_migrations; anything else would make
-# every numbered invariant skip silently.
+# Only an empty database (a backup taken before the first migrate) may have no migration history (no or an empty
+# schema_migrations); anything else would make every numbered invariant skip silently.
 present="$(psql_su -d "$scratch" -c "select to_regclass('public.schema_migrations') is not null")" \
   || fail "schema_migrations could not be probed"
 case "$present" in
   t) version="$(psql_su -d "$scratch" -c "select coalesce(max(version), -1) from schema_migrations")" \
        || fail "schema version could not be read" ;;
-  f) tables="$(psql_su -d "$scratch" -c "select count(*) from information_schema.tables where table_schema = 'public'")" \
-       || fail "the restored tables could not be counted"
-     [[ "$tables" == 0 ]] || fail "the restored database has $tables table(s) but no schema_migrations, so its invariants can't be selected"
-     version=-1 ;;
+  f) version=-1 ;;
   *) fail "unreadable schema_migrations probe result '$present'" ;;
 esac
 [[ "$version" =~ ^-?[0-9]+$ ]] || fail "unreadable schema version '$version'"
+if (( version < 0 )); then
+  tables="$(psql_su -d "$scratch" -c "select count(*) from information_schema.tables where table_schema = 'public' and table_name <> 'schema_migrations'")" \
+    || fail "the restored tables could not be counted"
+  [[ "$tables" == 0 ]] || fail "the restored database has $tables table(s) but no migration history, so its invariants can't be selected"
+fi
 
 held=0
 skipped=0

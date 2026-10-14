@@ -45,12 +45,17 @@ done
 before="$(api_started_at)"
 check "a second deploy applies nothing and passes health and exposure" bash -c "bash '$here/deploy.sh' > '$work/deploy2.log' 2>&1 && grep -q 'nothing applied' '$work/deploy2.log' && grep -q 'EXPOSURE PASS' '$work/deploy2.log'"
 check "the second deploy stopped the running API before the backup and restarted it" restarted_in_order
+
+# Keeps the stack up, with the API serving, so the PC can run tools/offhost-probe.sh against it (default 0: no hold).
+# This comes before the failed-backup case below, which leaves the API stopped.
+hold="${BLACKGLASS_SMOKE_HOLD:-0}"
+if (( hold > 0 )); then
+  echo "holding the stack for $hold s for the off-host probe (API serving on 127.0.0.1:5080)"; sleep "$hold"
+  check "the API was serving throughout the hold" curl -sf --max-time 5 http://127.0.0.1:5080/health -o /dev/null
+fi
+
 check "a failed backup stops the deploy at the backup step" bash -c "! BLACKGLASS_BACKUP_DIR=/proc/forbidden bash '$here/deploy.sh' > '$work/deploy3.log' 2>&1 && grep -q '^== backup' '$work/deploy3.log' && ! grep -q '^== migrate' '$work/deploy3.log' && ! grep -q '^== api' '$work/deploy3.log'"
 check "and leaves the API stopped (fails closed)" not curl -sf --max-time 3 http://127.0.0.1:5080/health
-
-# Keeps the stack up so the PC can run tools/offhost-probe.sh against it (default 0: no hold).
-hold="${BLACKGLASS_SMOKE_HOLD:-0}"
-if (( hold > 0 )); then echo "holding the stack for $hold s for the off-host probe"; sleep "$hold"; fi
 
 echo "smoke-test: $failures failure(s)"
 exit $(( failures > 0 ))

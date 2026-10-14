@@ -84,7 +84,13 @@ check "an invariant numbered above the backup's version is skipped" env BLACKGLA
 psql_su -d postgres -c "create database no_history"
 psql_su -d no_history -c "create table orphan (id int); insert into orphan values (1);"
 orphan_dump="$(BLACKGLASS_DB=no_history bash "$here/backup.sh" | tail -n 1)"
-check "a database with tables but no migration history fails the drill" drill_fails "but no schema_migrations" "$orphan_dump"
+check "a database with tables but no schema_migrations fails the drill" drill_fails "but no migration history" "$orphan_dump"
+
+# The same with an empty schema_migrations next to application data.
+psql_su -d postgres -c "create database empty_history"
+psql_su -d empty_history -c "create table schema_migrations (version integer primary key); create table orphan (id int); insert into orphan values (1);"
+empty_history_dump="$(BLACKGLASS_DB=empty_history bash "$here/backup.sh" | tail -n 1)"
+check "a database with tables and an empty schema_migrations fails the drill" drill_fails "but no migration history" "$empty_history_dump"
 
 check "no scratch database is left behind" test -z "$(psql_su -d postgres -c "select datname from pg_database where datname like 'drill\_%'")"
 echo "drill-test: $failures failure(s)"
