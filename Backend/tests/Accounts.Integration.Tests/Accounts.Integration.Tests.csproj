@@ -24,5 +24,6 @@
     <None Include="..\..\db\invariants\*.sql" Link="invariants\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\**\*.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Seeds\*.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\deploy\services\compose*.yaml" Link="compose\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

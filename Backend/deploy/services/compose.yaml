@@ -1,0 +1,102 @@
+# Blackglass accounts stack (bg-dev-services01). Loopback only, spec §4.5: the API is published on 127.0.0.1:5080;
+# PostgreSQL has no ports and sits on an internal network. Deploy with deploy.sh (backup -> migrate -> start).
+# Static tests read this file line by line: two-space indentation, ports in the short quoted form only.
+name: blackglass-accounts
+
+services:
+  postgres:
+    image: postgres:17
+    command: ["postgres", "-c", "cluster_name=blackglass-accounts"]
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/pg_superuser_password
+    secrets:
+      - pg_superuser_password
+      - pg_init_migrator_password
+      - pg_init_app_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    networks:
+      - db
+    healthcheck:
+      # TCP, not the socket: during first-start init the image runs a temporary server on the socket only.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d accounts"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    logging:
+      driver: local
+
+  migrate:
+    image: blackglass-accounts-api:${BLACKGLASS_API_TAG:-dev}
+    profiles:
+      - tools
+    command: ["migrate"]
+    environment:
+      BLACKGLASS_DB_HOST: postgres
+      BLACKGLASS_DB_NAME: accounts
+      BLACKGLASS_DB_USER: accounts_migrator
+      BLACKGLASS_DB_PASSWORD_FILE: /run/secrets/migrate_db_password
+    secrets:
+      - migrate_db_password
+    networks:
+      - db
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: blackglass-accounts-api:${BLACKGLASS_API_TAG:-dev}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command: ["serve"]
+    environment:
+      BLACKGLASS_DB_HOST: postgres
+      BLACKGLASS_DB_NAME: accounts
+      BLACKGLASS_DB_USER: accounts_app
+      BLACKGLASS_DB_PASSWORD_FILE: /run/secrets/api_db_password
+    secrets:
+      - api_db_password
+    ports:
+      - "127.0.0.1:5080:8080"
+    networks:
+      - db
+      - edge
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    logging:
+      driver: local
+
+networks:
+  db:
+    internal: true
+  edge:
+    driver_opts:
+      com.docker.network.bridge.host_binding_ipv4: "127.0.0.1"
+
+volumes:
+  pgdata:
+
+# One 0400 file per consumer, owned by that container's user (ruling 5); see make-secrets.sh.
+secrets:
+  pg_superuser_password:
+    file: ${BLACKGLASS_SECRETS_DIR:-/opt/blackglass/accounts/secrets}/postgres/superuser_password
+  pg_init_migrator_password:
+    file: ${BLACKGLASS_SECRETS_DIR:-/opt/blackglass/accounts/secrets}/postgres/migrator_password
+  pg_init_app_password:
+    file: ${BLACKGLASS_SECRETS_DIR:-/opt/blackglass/accounts/secrets}/postgres/app_password
+  migrate_db_password:
+    file: ${BLACKGLASS_SECRETS_DIR:-/opt/blackglass/accounts/secrets}/migrate/db_password
+  api_db_password:
+    file: ${BLACKGLASS_SECRETS_DIR:-/opt/blackglass/accounts/secrets}/api/db_password
