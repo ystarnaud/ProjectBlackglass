@@ -45,7 +45,7 @@ for f in "${files[@]}"; do
   name="$(basename "$f")"
   if [[ "$name" =~ ^([0-9]{4})_ ]] && (( 10#${BASH_REMATCH[1]} > version )); then continue; fi
   # Judge by the row count psql reports, not by the text: a NULL or empty violating row prints nothing visible.
-  out="$({ cat "$f"; printf '\n;\n\echo BG_ROWS :ROW_COUNT\n'; } | psql_su -d "$scratch")" || fail "invariant $name errored"
+  out="$({ cat "$f"; printf '\n;\n%s\n' '\echo BG_ROWS :ROW_COUNT'; } | psql_su -d "$scratch")" || fail "invariant $name errored"
   rows="$(grep -E '^BG_ROWS [0-9]+$' <<<"$out" | tail -n 1 | cut -d' ' -f2 || true)"
   [[ -n "$rows" ]] || fail "invariant $name did not report a row count"
   (( rows == 0 )) || fail "invariant $name reported: $rows row(s): $(grep -vE '^BG_ROWS ' <<<"$out" | head -c 200)"
