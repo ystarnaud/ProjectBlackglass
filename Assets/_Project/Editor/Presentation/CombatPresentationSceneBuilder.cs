@@ -174,6 +174,8 @@ namespace Blackglass.EditorTools
             clone.name = "PreviewBlast";
             var serialized = new SerializedObject(clone);
             serialized.FindProperty("cooldown").floatValue = 0f;
+            // The copy took Blast's permanent backend id too; a preview clone carries none, so the id is never duplicated.
+            serialized.FindProperty("id").stringValue = "";
             serialized.ApplyModifiedPropertiesWithoutUndo();
             EditorUtility.SetDirty(clone);
             AssetDatabase.SaveAssets();

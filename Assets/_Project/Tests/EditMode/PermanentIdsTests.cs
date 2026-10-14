@@ -105,6 +105,24 @@ namespace Blackglass.Tests
             Assert.That(ability.Id, Is.EqualTo("ability.recon-scan"));
         }
 
+        [Test]
+        public void ProjectAssets_ShareNoRoleOrAbilityId()
+        {
+            var ids = PermanentIds.AllInProject<AbilityDefinition>().Select(a => (a.Id, a.name))
+                .Concat(PermanentIds.AllInProject<OperativeRole>().Select(r => (r.Id, r.name)))
+                .Where(x => !string.IsNullOrEmpty(x.Id));
+            var duplicates = ids.GroupBy(x => x.Id).Where(g => g.Count() > 1).Select(g => $"{g.Key}: {string.Join(", ", g.Select(x => x.name))}").ToList();
+            Assert.That(duplicates, Is.Empty);
+        }
+
+        // CopySerialized/Instantiate copy every field, the permanent id included; the preview clone must not carry Blast's.
+        [Test]
+        public void PreviewBlastBuilder_ClearsTheCopiedId()
+        {
+            var source = File.ReadAllText(Path.Combine(SharedVectors.ProjectRoot, "Assets", "_Project", "Editor", "Presentation", "CombatPresentationSceneBuilder.cs"));
+            Assert.That(source, Does.Contain("serialized.FindProperty(\"id\").stringValue = \"\";"));
+        }
+
         // The builders live in Assembly-CSharp-Editor, which a test assembly can't reference, and running them would write
         // project assets; so check that each asset they create goes through Ensure with its approved id.
         [TestCase("OperativeDataBuilder.cs", "PermanentIds.Ensure(", "PermanentIds.Roles")]
