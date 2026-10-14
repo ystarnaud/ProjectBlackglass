@@ -301,14 +301,14 @@ Anything else is a finding to explain before the stage closes.
 
 ### 4.6 Catalogue export [P] [A-22]
 
-An Editor batch method writes `Backend/catalogue/catalogue.json`. It contains:
+An Editor batch method (`Blackglass.BackendTools.CatalogueExporter`) writes `Backend/catalogue/catalogue.json`, format 1 (as built in Stage 2). It holds ids and rules only, no display text:
 - the items: id, category, slot, stackable flag, max stack, heal amount;
-- the loot table: version and bounds;
+- the loot table: version, container count, items per container, and its entries (item id, quantity range, weight) in authored order;
 - the progression track: XP thresholds, `MissionCompletionXp` and choice ids;
-- the operative definitions: id, role and ability ids;
-- the starter loadout.
+- the operative definitions: id, `roleId` and `abilityIds` (authored role and ability ids, in slot order);
+- the starter loadout: per-operative grants (item, quantity, equip) and the stash.
 
-`catalogueVersion` is the SHA-256 of its canonical content. An EditMode test fails if the committed file differs from a fresh export. The backend refuses to start on an invalid catalogue, and refuses any process whose `catalogueVersion` isn't on the build allowlist.
+The file has one canonical form: UTF-8 without a BOM, LF, two-space indentation, members in a fixed order, sets sorted by id. Unity's writer and the backend's produce the shared golden vector in `Backend/contracts/catalogue/` byte for byte. `catalogueVersion` is `sha256:` and the lowercase hex SHA-256 of the file's bytes; it is never stored in the file it hashes. An EditMode test fails if the committed file differs from a fresh export. The backend accepts only canonical bytes and refuses to start on an invalid catalogue (exit 4), and refuses any process whose `catalogueVersion` isn't on the build allowlist. Bag capacity is not in format 1: Stage 4/5 establishes its authoritative, versioned configuration.
 
 ### 4.7 Ids [P]
 
@@ -316,7 +316,7 @@ An Editor batch method writes `Backend/catalogue/catalogue.json`. It contains:
 |---|---|---|
 | account, operative, attempt, sessions, insurance activations | UUIDv7 | API |
 | Item minted at settlement, insurance retention, provisioning or dev grant | `item_id = UUIDv5(fixed namespace, origin_ref)`, with `unique (origin, origin_ref)` | API, deterministic across retries |
-| Catalogue ids | Existing string ids | Unity assets |
+| Catalogue ids | Authored string ids: items (`item.*`), progression choices, operative GUIDs, and (Stage 2) roles (`role.*`) and abilities (`ability.*`); permanent once stored | Unity assets |
 | In-mission entry and lot ids | Local | Mission process, never persisted |
 
 **`origin_ref` formats.** Every field is fixed-width or a canonical UUID, so the strings can't collide across kinds, attempts, accounts or units:
@@ -1583,7 +1583,7 @@ All are configuration, none is decided, and changing one doesn't need a code cha
 | Insurance coverage, refund %, retention entries and units, eligible categories, category priority, progress XP % | §6.2 example | `insurance_policies.terms` (versioned) |
 | Insurance activation durations | per dev activation | admin endpoint argument |
 | Success XP | existing `ProgressionTrack.MissionCompletionXp` | catalogue export |
-| Bag capacity | existing 8 | catalogue export |
+| Bag capacity | existing 8 (`SquadInventory.bagCapacity`) | not in catalogue format 1; Stage 4/5 establishes an authoritative, versioned configuration (owner, 2026-10-14) |
 | Access token lifetime | 60 min | API configuration |
 | Ticket lifetime | 120 s | API configuration |
 | Assign, launch, join and start-ack deadlines | 60 s, 120 s, 120 s, = join | API configuration |

@@ -80,7 +80,7 @@ and it re-verifies the Docker version, `daemon.json`, and the sshd and resolved 
 
 Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-foundation.md`. Tasks 1 to 4 need no database; Task 5 onward needs E1.
 
-**Status: done on branch `phase13-stage1`, not merged.** Task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-foundation.md`. Evidence (test counts, drill and smoke transcripts, exposure output, diff stat): `.claude/scratchpad/phase13/stage-01/summary.md` (not committed).
+**Status: done; merged into `main` and pushed (`ad14373`).** Task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-foundation.md`. Evidence (test counts, drill and smoke transcripts, exposure output, diff stat): `.claude/scratchpad/phase13/stage-01/summary.md` (not committed).
 
 **Touches:** `Backend/` (new), `.gitignore` (the `Backend` csproj/sln exceptions and `bin`, `obj`, `secrets`), `.gitattributes` (LF for `Backend` scripts and SQL), and in Task 13 the spec's §2.3, §4.4 and §4.5 rows.
 
@@ -113,10 +113,16 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 2: catalogue export
 
-**Touches:**
-- `Assets/_Project/Editor/Backend/` (new);
-- `Backend/catalogue/`;
-- one new EditMode test file.
+**Status: done on branch `phase13-stage2`, not merged.** Detailed plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage2-catalogue-export.md`. Evidence: `.claude/scratchpad/phase13/stage-02/summary.md` (not committed).
+
+**Touches (owner-approved expansion, 2026-10-14):**
+- `Assets/_Project/Editor/Backend/` (new Editor-only assembly `Blackglass.Backend.Editor`);
+- additive ids: `AbilityDefinition`, `OperativeRole` (and their 7 assets, one `id:` line each) and `StarterLoadout.Operatives`;
+- the EditMode test assembly's references; `CatalogueExportTests.cs` and `CatalogueBuilderTests.cs`;
+- `Backend/catalogue/`, `Backend/contracts/catalogue/` (shared golden vector);
+- `Backend/src/Accounts.Domain/`, `Backend/tests/Accounts.Domain.Tests/`, `Backend/Backend.sln`;
+- the `serve` startup gate in `Backend/src/Accounts.Api/` (exit 4), `Backend/Dockerfile`, `Backend/README.md`;
+- `CLAUDE.md` (Stage 1 done, Stage 2 authorized).
 
 **Work:**
 - an Editor batch export of items, loot table, progression track, operative definitions (with ability ids) and the starter loadout, with a canonical hash;
