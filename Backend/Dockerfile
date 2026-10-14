@@ -4,6 +4,7 @@ WORKDIR /src
 COPY Directory.Build.props Directory.Packages.props global.json ./
 COPY src/ src/
 COPY db/ db/
+COPY catalogue/ catalogue/
 RUN dotnet publish src/Accounts.Api/Accounts.Api.csproj -c Release -o /app
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0

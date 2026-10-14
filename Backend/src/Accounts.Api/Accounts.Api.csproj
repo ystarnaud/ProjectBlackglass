@@ -4,6 +4,7 @@
     <RootNamespace>Blackglass.Accounts.Api</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Accounts.Domain\Accounts.Domain.csproj" />
     <ProjectReference Include="..\Accounts.Persistence\Accounts.Persistence.csproj" />
   </ItemGroup>
 </Project>

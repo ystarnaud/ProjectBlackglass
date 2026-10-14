@@ -1,4 +1,5 @@
 using Npgsql;
+using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Migrations;
 
@@ -8,8 +9,14 @@ public sealed record ServeStart(int ExitCode, WebApplication? App);
 
 public static class ServeCommand
 {
-    public static async Task<ServeStart> StartAsync(IReadOnlyDictionary<string, string?> env, TextWriter error, CancellationToken ct)
+    public static async Task<ServeStart> StartAsync(IReadOnlyDictionary<string, string?> env, TextWriter error, CancellationToken ct,
+        Func<GameCatalogue>? loadCatalogue = null)
     {
+        // The catalogue comes first: an image with an invalid catalogue never reads its settings or the database.
+        GameCatalogue catalogue;
+        try { catalogue = (loadCatalogue ?? (() => GameCatalogue.Embedded))(); }
+        catch (CatalogueException e) { error.WriteLine($"Refusing to start: {e.Message}"); return new(ExitCodes.InvalidCatalogue, null); }
+
         DbSettings settings;
         try { settings = DbSettings.FromEnvironment(env); }
         catch (DbSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return new(ExitCodes.Failure, null); }
@@ -38,6 +45,7 @@ public static class ServeCommand
         var builder = WebApplication.CreateBuilder(); // no command-line arguments: see Cli
         if (ApiHost.ResolveUrls(env) is { } urls) builder.WebHost.UseUrls(urls);
         builder.Services.AddSingleton(dataSource);
+        builder.Services.AddSingleton(catalogue);
         var app = builder.Build();
         app.Lifetime.ApplicationStopped.Register(dataSource.Dispose);
         app.MapHealth(catalog.LatestVersion);

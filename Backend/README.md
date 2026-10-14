@@ -1,11 +1,12 @@
-# Blackglass backend (Phase 13, Stage 1: foundation)
+# Blackglass backend (Phase 13, Stages 1–2: foundation and catalogue)
 
 ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loopback only; the VM is reached by SSH alias `bg-dev-services01-admin` (user `admin`, `sudo -n`; root SSH login is disabled).
 
 ## Layout
-- `src/Accounts.Persistence` DbSettings (password from a file) and the migrator; `src/Accounts.Api` the `serve` and `migrate` commands and `GET /health` (exit codes: 0 ok, 1 failure, 2 `migrate` refused a drifted or ahead schema, 3 `serve` refused a schema that is not current, 64 usage).
+- `src/Accounts.Domain` the catalogue model, strict reader and validator (pure, no I/O). `src/Accounts.Persistence` DbSettings (password from a file) and the migrator. `src/Accounts.Api` the `serve` and `migrate` commands and `GET /health` (exit codes: 0 ok, 1 failure, 2 `migrate` refused a drifted or ahead schema, 3 `serve` refused a schema that is not current, 4 `serve` refused an invalid catalogue, 64 usage).
+- `catalogue/catalogue.json` the catalogue exported from Unity; `contracts/catalogue/` the golden vector shared with Unity's tests.
 - `db/migrations/NNNN_lower_snake_name.sql` forward-only history; `db/invariants/` invariant queries.
-- `deploy/services/` Compose stacks (`compose.yaml` accounts, `compose.test.yaml` test cluster), `initdb/`, `sql/`, VM scripts and `tests/`. `tools/` PC-side helpers. `tests/Accounts.Integration.Tests` xUnit.
+- `deploy/services/` Compose stacks (`compose.yaml` accounts, `compose.test.yaml` test cluster), `initdb/`, `sql/`, VM scripts and `tests/`. `tools/` PC-side helpers. `tests/Accounts.Domain.Tests` and `tests/Accounts.Integration.Tests` xUnit.
 
 ## Tests (run from `Backend/`)
 - `UNIT` = `dotnet test Backend.sln --filter "Requires!=Postgres"`: no database needed.
@@ -20,6 +21,12 @@ ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loo
 - Deploys are not zero-downtime: `deploy.sh` stops the running API before the backup, so a migration never runs while the old API writes and may be incompatible with it. Expand and contract (add first, backfill, switch the code, drop in a later release) is still the way to change data safely across releases.
 - A migration that transforms data adds `tests/Accounts.Integration.Tests/Seeds/NNNN.sql`, applied to the previous version before the upgrade test.
 - An invariant file returns the violating rows (zero rows = holds). A real invariant named `NNNN_<lower_snake>.sql` holds from schema version NNNN: the upgrade harness skips later-numbered files when it tests an older version; the restore drill reads the restored schema version and applies the same rule.
+
+## Catalogue
+- `catalogue/catalogue.json` is exported from Unity (Blackglass > Backend > Export Catalogue, or `Tools/run-method.sh Blackglass.BackendTools.CatalogueExporter.ExportFromCommandLine` with the Editor closed). Never edit it by hand: Unity's `CatalogueExportTests` fails while it differs from a fresh export, and the backend refuses a file that isn't in the exporter's canonical form.
+- `catalogueVersion` is `sha256:` plus the lowercase hex SHA-256 of the file's bytes; nothing inside the file states it. `src/Accounts.Domain` embeds the file, and `serve` refuses to start (exit 4) when it is invalid.
+- Format 1 holds ids and rules only (items, loot table, progression, operatives with role and ability ids, starter loadout); display text stays in Unity. Any other `formatVersion` is refused. Bag capacity is not part of format 1 (Stage 4/5 establishes its authoritative, versioned configuration).
+- `contracts/catalogue/golden-catalogue.json` and `.version` are the shared vector: Unity's and the backend's writers must both produce it byte for byte, and both hash it to the `.version` value.
 
 ## VM scripts (`deploy/services/`, run on `bg-dev-services01` with `sudo`; `tools/vm-sync.sh` copies HEAD there)
 Order: `make-secrets.sh <dir>` (once), then `deploy.sh` = build, database up, stop the API (in-flight requests finish, up to 30 s), `backup.sh`, `migrate`, API up, health, `check-exposure.sh`. If the backup or the migration fails, the API stays stopped: restore from the backup or fix and deploy again. `serve` and `migrate` take no arguments (anything else is a usage error, exit 64), so no argument can change the listen address. It is set by the environment (`ASPNETCORE_URLS`, `ASPNETCORE_HTTP_PORTS`, or ASP.NET Core's own `Kestrel__*` settings) or defaults to `127.0.0.1:5080`; in the stack that environment comes from `compose.yaml`, and Docker publishes the API's port on `127.0.0.1` only.
