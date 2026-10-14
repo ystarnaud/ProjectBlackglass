@@ -70,19 +70,25 @@ public class UpgradeTests
         Assert.Contains(failures, f => f.StartsWith("probe_label_not_empty.sql", StringComparison.Ordinal));
     }
 
+    /// <summary>Holds for any number of real migrations: an invariant numbered at the database's version runs, one
+    /// numbered above it is skipped. Nothing here assumes which versions exist.</summary>
     [Fact]
     public async Task Invariants_are_gated_by_their_version_prefix()
     {
         await using var db = await (await TestCluster.Instance).CreateDatabaseAsync();
-        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync(0);
+        var latest = MigrationCatalog.Embedded.LatestVersion;
+        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync();
         var dir = Directory.CreateTempSubdirectory("bg_invariants_").FullName;
         try
         {
             foreach (var f in Directory.GetFiles(InvariantRunner.RealDirectory, "*.sql"))
                 File.Copy(f, Path.Combine(dir, Path.GetFileName(f)));
-            await File.WriteAllTextAsync(Path.Combine(dir, "0001_needs_future_table.sql"), "select 1 from no_such_table;");
+            var current = $"{latest:D4}_violated_at_current_version.sql";
+            await File.WriteAllTextAsync(Path.Combine(dir, current), "select 1;");
+            await File.WriteAllTextAsync(Path.Combine(dir, $"{latest + 1:D4}_needs_future_table.sql"), "select 1 from no_such_table;");
 
-            Assert.Empty(await InvariantRunner.RunAsync(db.AsSuperuser(), 0, dir));
+            var failures = await InvariantRunner.RunAsync(db.AsSuperuser(), latest, dir);
+            Assert.Equal([current], failures.Select(f => f.Split(':')[0]));
             var e = await Assert.ThrowsAsync<PostgresException>(() => InvariantRunner.RunAsync(db.AsSuperuser(), dir));
             Assert.Equal("42P01", e.SqlState);
         }
