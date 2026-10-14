@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>Blackglass.Accounts.Domain</RootNamespace>
+  </PropertyGroup>
+</Project>
