@@ -2,4 +2,8 @@
   <PropertyGroup>
     <RootNamespace>Blackglass.Accounts.Domain</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The committed catalogue, embedded so the image carries exactly the file the tests checked. -->
+    <EmbeddedResource Include="..\..\catalogue\catalogue.json" LogicalName="catalogue.json" />
+  </ItemGroup>
 </Project>
