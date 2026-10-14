@@ -8,7 +8,7 @@ public static class Cli
     {
         var command = args.Length == 0 ? "serve" : args[0];
         // Neither command takes arguments. Nothing is forwarded to ASP.NET Core's configuration, so an argument can't
-        // rebind Kestrel off loopback (the listen address comes only from ApiHost.ResolveUrls).
+        // rebind Kestrel (the listen address comes from the environment via ApiHost.ResolveUrls, else the loopback default).
         if (args.Length > 1) { error.WriteLine(Usage); return ExitCodes.Usage; }
         switch (command)
         {

@@ -95,7 +95,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
   - the API on `127.0.0.1:5080:8080`;
   - PostgreSQL on an `internal: true` network with no `ports:`;
 - write `backup.sh` (`pg_dump -Fc`) and `restore-drill.sh` (restore into a scratch database, run the invariant queries, compare row counts);
-- make the deployment order backup → migrate → start.
+- make the deployment order stop API → backup → migrate → start (no zero-downtime compatibility; owner, 2026-10-14).
 
 **Tests:**
 - the migrator: empty database, re-run (no-op), changed file (refused), behind-version API start (refused);
@@ -145,7 +145,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - a source audit bans string-built SQL;
 - carried over from the Stage 1 review: with `0001` and its invariants in place, the upgrade tests and `drill-test.sh` still show that invariants numbered at or below the database's version run and higher-numbered ones are skipped, with versions derived from the catalog or the backup (no hard-coded numbers).
 
-**Carried over from the Stage 1 review (owner, 2026-10-14):** if `0001` is the appropriate first forward migration, it revokes PostgreSQL's default `PUBLIC` `EXECUTE` on the migrator's future functions (`alter default privileges for role accounts_migrator in schema public revoke execute on functions from public`), with a test. `0000_foundation` stays unchanged. In any case this must land before Stage 6's first function; see `Backend/README.md`, "Required follow-ups".
+**Carried over from the Stage 1 review (owner, 2026-10-14):** if `0001` is the appropriate first forward migration, it revokes PostgreSQL's default `PUBLIC` `EXECUTE` on the migrator's future functions (`alter default privileges for role accounts_migrator revoke execute on functions from public`, global: a per-schema revoke can't remove the built-in global default), with a test. `0000_foundation` stays unchanged. In any case this must land before Stage 6's first function; see `Backend/README.md`, "Required follow-ups".
 
 **Evidence:** test counts; the log-capture output. Covers spec B2.
 

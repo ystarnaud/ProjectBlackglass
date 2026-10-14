@@ -1368,7 +1368,7 @@ Admission has no attempt row yet, so it starts at step 3. All transactions run a
 ### 15.4 Migrations and safety (correction 8, D-14)
 
 - **Files:** `db/migrations/NNNN_name.sql`, explicitly numbered, checksummed (SHA-256) and recorded in `schema_migrations`. Each runs in its own transaction with `lock_timeout` set. Forward-only: a fix is a new migration. A changed applied file stops the migrator.
-- **Order of operations:** `migrate` is a separate command, never run implicitly at API start. The API refuses to start if the database is behind its expected version. The deployment runs, in order: backup (`pg_dump -Fc`), `migrate`, then API start.
+- **Order of operations:** `migrate` is a separate command, never run implicitly at API start. The API refuses to start if the database is behind its expected version. The deployment runs, in order: stop the running API (no writes during backup and migrate; no zero-downtime compatibility yet), backup (`pg_dump -Fc`), `migrate`, then API start and health check.
 - **Expand and contract:** add new columns and tables first, backfill, switch the code, and drop the old ones only in a later release. There is no destructive change in the same release as the code that stops using it.
 - **Upgrade test:** every migration is tested by applying it to a database populated through the previous migrations and seeded fixtures, then running the invariant queries (§18.3).
 - **Roles:** `accounts_migrator` (DDL) and `accounts_app` (DML only; no UPDATE or DELETE on the append-only tables).

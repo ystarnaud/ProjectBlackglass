@@ -1,5 +1,5 @@
 # Blackglass accounts stack (bg-dev-services01). Loopback only, spec §4.5: the API is published on 127.0.0.1:5080;
-# PostgreSQL has no ports and sits on an internal network. Deploy with deploy.sh (backup -> migrate -> start).
+# PostgreSQL has no ports and sits on an internal network. Deploy with deploy.sh (stop api -> backup -> migrate -> start).
 # Static tests read this file line by line: two-space indentation, ports in the short quoted form only.
 name: blackglass-accounts
 
