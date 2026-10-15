@@ -24,6 +24,8 @@
     <None Include="..\..\db\invariants\*.sql" Link="invariants\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\**\*.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Seeds\*.sql" CopyToOutputDirectory="PreserveNewest" />
+    <!-- src/ for the string-built-SQL source audit (SqlSourceAuditTests). -->
+    <None Include="..\..\src\**\*.cs" Exclude="..\..\src\**\obj\**;..\..\src\**\bin\**" Link="source\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\deploy\services\compose*.yaml" Link="compose\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

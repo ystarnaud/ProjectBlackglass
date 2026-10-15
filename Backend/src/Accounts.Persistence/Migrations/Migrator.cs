@@ -1,3 +1,4 @@
+using System.Globalization;
 using Dapper;
 using Npgsql;
 
@@ -68,8 +69,10 @@ public sealed class Migrator(NpgsqlDataSource dataSource, MigrationCatalog catal
         await using var tx = await conn.BeginTransactionAsync(ct);
         try
         {
+            // set_config(…, true) is SET LOCAL with a bound parameter (SET itself takes no parameters).
             await conn.ExecuteAsync(new CommandDefinition(
-                $"set local lock_timeout = {(long)options.LockTimeout.TotalMilliseconds}", transaction: tx, cancellationToken: ct));
+                "select set_config('lock_timeout', @ms, true)",
+                new { ms = ((long)options.LockTimeout.TotalMilliseconds).ToString(CultureInfo.InvariantCulture) }, tx, cancellationToken: ct));
             await using (var cmd = new NpgsqlCommand(script.Sql, conn, tx) { CommandTimeout = 0 })
                 await cmd.ExecuteNonQueryAsync(ct);
             await conn.ExecuteAsync(new CommandDefinition(
