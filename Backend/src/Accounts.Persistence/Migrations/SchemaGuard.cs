@@ -7,7 +7,7 @@ public static class SchemaGuard
 {
     public static async Task<SchemaStatus> CheckAsync(NpgsqlDataSource dataSource, MigrationCatalog catalog, CancellationToken ct)
     {
-        await using var conn = await dataSource.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(dataSource, ct);
         return SchemaComparison.Compare(catalog, await SchemaMigrationsTable.ReadAsync(conn, ct) ?? []);
     }
 }

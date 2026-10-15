@@ -71,6 +71,21 @@ public static class AdminCommand
             error.WriteLine(e.Message);
             return e.Error switch { AccountAdminError.NotFound => ExitCodes.NotFound, AccountAdminError.HandleTaken => ExitCodes.Conflict, _ => ExitCodes.Usage };
         }
-        catch (NpgsqlException e) { error.WriteLine($"Database error ({settings}): {ServeCommand.Describe(e)}"); return ExitCodes.Failure; }
+        catch (NpgsqlException e)
+        {
+            // The SQLSTATE and constraint only: a server message can quote values.
+            switch (DbFailure.Classify(e))
+            {
+                case DbFailureKind.Busy:
+                    error.WriteLine($"The database is busy (a lock or statement timeout): nothing was changed; retry. {DbFailure.SafeDescription(e)}");
+                    return ExitCodes.Busy;
+                case DbFailureKind.Unavailable:
+                    error.WriteLine($"The database is unavailable ({settings}): {DbFailure.SafeDescription(e)}");
+                    return ExitCodes.Unavailable;
+                default:
+                    error.WriteLine($"Unexpected database error: {DbFailure.SafeDescription(e)}");
+                    return ExitCodes.Failure;
+            }
+        }
     }
 }

@@ -43,7 +43,7 @@ public sealed class SessionStore(NpgsqlDataSource db)
     /// account, all alike.</summary>
     public async Task<IssuedSession?> LoginAsync(byte[] accountKeyHash, int lifetimeMinutes, CancellationToken ct = default)
     {
-        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         var accountId = await conn.ExecuteScalarAsync<long?>(new CommandDefinition(FindAccountSql, new { keyHash = accountKeyHash }, tx, cancellationToken: ct));
         if (accountId is null) return null;
@@ -61,7 +61,7 @@ public sealed class SessionStore(NpgsqlDataSource db)
 
     public async Task<AuthenticatedSession?> AuthenticateAsync(byte[] tokenHash, CancellationToken ct = default)
     {
-        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
         return await conn.QuerySingleOrDefaultAsync<AuthenticatedSession>(new CommandDefinition(AuthenticateSql, new { tokenHash }, cancellationToken: ct));
     }
 
@@ -70,7 +70,7 @@ public sealed class SessionStore(NpgsqlDataSource db)
     /// after any wait, e.g. behind an operator revoking the same session.</summary>
     public async Task<bool> RevokeAsync(Guid sessionId, long accountId, CancellationToken ct = default)
     {
-        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         var locked = await conn.ExecuteScalarAsync<Guid?>(new CommandDefinition(
             "select session_id from auth_sessions where session_id = @sessionId and account_id = @accountId and revoked_at is null for update",

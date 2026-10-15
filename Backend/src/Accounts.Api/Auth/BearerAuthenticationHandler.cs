@@ -10,8 +10,8 @@ namespace Blackglass.Accounts.Api.Auth;
 /// <summary>
 /// "Authorization: Bearer at1_…" → the session's account (spec §4.2). Exactly one header, the exact scheme and one space,
 /// a strictly parsed token, then one database check per request (no cache, so revocation is immediate). Failures are the
-/// uniform 401; the log names the reason and at most an 8-hex hash prefix. A database outage is not a bad token: the
-/// NpgsqlException propagates to the outage middleware, which answers 503 (AuthEndpoints.UseDatabaseOutageAs503).
+/// uniform 401; the log names the reason and at most an 8-hex hash prefix. A database failure is not a bad token: the
+/// NpgsqlException propagates to AuthEndpoints.UseDatabaseFailureResponses (503 unavailable or busy, 500 otherwise).
 /// </summary>
 public sealed class BearerAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, SessionStore sessions)
     : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)

@@ -65,7 +65,7 @@ public static class ServeCommand
         configure?.Invoke(builder);
         var app = builder.Build();
         app.Lifetime.ApplicationStopped.Register(dataSource.Dispose);
-        app.UseDatabaseOutageAs503();
+        app.UseDatabaseFailureResponses();
         app.UseAuthentication();
         app.UseRateLimiter();
         app.UseAuthorization();

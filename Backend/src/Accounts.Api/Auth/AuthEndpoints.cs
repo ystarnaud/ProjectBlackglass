@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Domain.Auth;
+using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
 
 namespace Blackglass.Accounts.Api.Auth;
@@ -58,18 +59,28 @@ public static class AuthEndpoints
             .RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
     }
 
-    /// <summary>A database outage during authentication or a handler is 503 with an empty body: never a 401 that would
-    /// tell a client its credential is bad, never unauthenticated access, never error details.</summary>
-    public static void UseDatabaseOutageAs503(this WebApplication app) =>
+    /// <summary>
+    /// A database failure during authentication or a handler, by kind (DbFailure): unavailable → 503; busy (a lock or
+    /// statement timeout, nothing committed) → 503 with Retry-After; anything else → 500, never presented as an outage.
+    /// Never a 401 that would tell a client its credential is bad, never unauthenticated access; an empty body, and a log
+    /// line with the SQLSTATE and constraint only (a server message can quote values). Known conflicts (a taken handle,
+    /// input the database refuses) are AccountAdminExceptions answered by their routes, not failures.
+    /// </summary>
+    public static void UseDatabaseFailureResponses(this WebApplication app) =>
         app.Use(async (context, next) =>
         {
             try { await next(context); }
             catch (NpgsqlException e) when (!context.Response.HasStarted)
             {
-                context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Blackglass.Database")
-                    .LogWarning("Database unavailable for {Path}: {Kind} {SqlState}", context.Request.Path, e.GetType().Name, (e as PostgresException)?.SqlState);
+                var kind = DbFailure.Classify(e)!.Value;
+                var log = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Blackglass.Database");
+                if (kind == DbFailureKind.Unexpected)
+                    log.LogError("Unexpected database error for {Path}: {Failure}", context.Request.Path, DbFailure.SafeDescription(e));
+                else
+                    log.LogWarning("Database {Kind} for {Path}: {Failure}", kind == DbFailureKind.Busy ? "busy" : "unavailable", context.Request.Path, DbFailure.SafeDescription(e));
                 context.Response.Clear();
-                context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                context.Response.StatusCode = kind == DbFailureKind.Unexpected ? StatusCodes.Status500InternalServerError : StatusCodes.Status503ServiceUnavailable;
+                if (kind == DbFailureKind.Busy) context.Response.Headers.RetryAfter = "1";
             }
         });
 }

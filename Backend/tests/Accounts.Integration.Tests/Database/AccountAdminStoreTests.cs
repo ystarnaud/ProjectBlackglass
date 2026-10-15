@@ -145,9 +145,10 @@ public class AccountAdminStoreTests : IAsyncLifetime
         var session = await InsertSessionAsync(db, a.AccountId, a.CredentialId);
         // A reason over 1000 characters bypasses OperatorContext.Create and fails the audit insert after the state change.
         var bad = new OperatorContext("op", new string('r', 1001), Guid.CreateVersion7());
-        Assert.Equal("23514", (await Assert.ThrowsAsync<PostgresException>(() => store.SuspendAsync(a.AccountId, bad))).SqlState);
-        await Assert.ThrowsAsync<PostgresException>(() => store.RotateCredentialAsync(a.AccountId, bad));
-        await Assert.ThrowsAsync<PostgresException>(() => store.CreateAccountAsync("never", null, bad));
+        // The database's refusal (23514 on operator_actions_reason_check) is the known InvalidOperator conflict.
+        Assert.Equal(AccountAdminError.InvalidOperator, (await Assert.ThrowsAsync<AccountAdminException>(() => store.SuspendAsync(a.AccountId, bad))).Error);
+        await Assert.ThrowsAsync<AccountAdminException>(() => store.RotateCredentialAsync(a.AccountId, bad));
+        await Assert.ThrowsAsync<AccountAdminException>(() => store.CreateAccountAsync("never", null, bad));
         Assert.Equal("active", await ScalarAsync<string>("select status from accounts where account_id = @a", new { a = a.AccountId }));
         Assert.Null(await ScalarAsync<DateTime?>("select revoked_at from auth_sessions where session_id = @session", new { session }));
         Assert.Equal(a.CredentialId, await ScalarAsync<Guid>("select credential_id from dev_credentials where revoked_at is null"));

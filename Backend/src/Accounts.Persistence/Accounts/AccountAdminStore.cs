@@ -35,10 +35,19 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
             throw new AccountAdminException(AccountAdminError.InvalidDisplayName, "A display name must be 1 to 64 characters, without control characters or surrounding spaces.");
         var credentialId = Guid.CreateVersion7();
         var key = OpaqueSecret.New(OpaqueSecret.AccountKeyPrefix);
-        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
-        var accountId = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
-            "insert into accounts (status, display_name) values ('active', @displayName) returning account_id", new { displayName }, tx, cancellationToken: ct));
+        long accountId;
+        try
+        {
+            accountId = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
+                "insert into accounts (status, display_name) values ('active', @displayName) returning account_id", new { displayName }, tx, cancellationToken: ct));
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.CheckViolation && e.ConstraintName == "accounts_display_name_check")
+        {
+            // DisplayName.IsValid and the column check should agree; where they don't (e.g. a Unicode class), it's still bad input.
+            throw new AccountAdminException(AccountAdminError.InvalidDisplayName, "The database refused that display name.");
+        }
         if (handle is not null)
         {
             try
@@ -61,7 +70,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
     {
         var credentialId = Guid.CreateVersion7();
         var key = OpaqueSecret.New(OpaqueSecret.AccountKeyPrefix);
-        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await LockAccountAsync(conn, tx, accountId, ct);
         var old = (await conn.QueryAsync<Guid>(new CommandDefinition(
@@ -81,7 +90,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
     /// already revoked credential changes nothing but is still recorded.</summary>
     public async Task<int> RevokeCredentialAsync(Guid credentialId, OperatorContext op, CancellationToken ct = default)
     {
-        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         // A credential never moves to another account (primary key plus the app's column privileges), so reading its
         // account before taking the account lock is safe; the lock then serializes against the other lifecycle calls.
@@ -102,7 +111,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
 
     public async Task<int> RevokeSessionsAsync(long accountId, OperatorContext op, CancellationToken ct = default)
     {
-        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await LockAccountAsync(conn, tx, accountId, ct);
         var sessions = await RevokeAllSessionsAsync(conn, tx, accountId, ct);
@@ -114,7 +123,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
     /// <summary>Suspends the account and revokes every live session; returns the number of sessions revoked.</summary>
     public async Task<int> SuspendAsync(long accountId, OperatorContext op, CancellationToken ct = default)
     {
-        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await LockAccountAsync(conn, tx, accountId, ct);
         await conn.ExecuteAsync(new CommandDefinition("update accounts set status = 'suspended' where account_id = @accountId", new { accountId }, tx, cancellationToken: ct));
@@ -127,7 +136,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
     /// <summary>Reactivates the account. Sessions revoked earlier stay revoked; the live credential works again.</summary>
     public async Task ReactivateAsync(long accountId, OperatorContext op, CancellationToken ct = default)
     {
-        await using var conn = await db.OpenConnectionAsync(ct);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await LockAccountAsync(conn, tx, accountId, ct);
         await conn.ExecuteAsync(new CommandDefinition("update accounts set status = 'active' where account_id = @accountId", new { accountId }, tx, cancellationToken: ct));
@@ -155,12 +164,22 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
             "insert into dev_credentials (credential_id, account_id, secret_hash) values (@credentialId, @accountId, @hash)",
             new { credentialId, accountId, hash = key.Hash() }, tx, cancellationToken: ct));
 
-    static Task AuditAsync(NpgsqlConnection conn, NpgsqlTransaction tx, OperatorContext op, string action, long accountId, Guid? credentialId, object result, CancellationToken ct) =>
-        conn.ExecuteAsync(new CommandDefinition(
-            """
-            insert into operator_actions (correlation_id, operator, action, account_id, credential_id, reason, checks, result)
-            values (@correlationId, @operator, @action, @accountId, @credentialId, @reason, '{}'::jsonb, @result::jsonb)
-            """,
-            new { correlationId = op.CorrelationId, @operator = op.Operator, action, accountId, credentialId, reason = op.Reason, result = JsonSerializer.Serialize(result) },
-            tx, cancellationToken: ct));
+    static async Task AuditAsync(NpgsqlConnection conn, NpgsqlTransaction tx, OperatorContext op, string action, long accountId, Guid? credentialId, object result, CancellationToken ct)
+    {
+        try
+        {
+            await conn.ExecuteAsync(new CommandDefinition(
+                """
+                insert into operator_actions (correlation_id, operator, action, account_id, credential_id, reason, checks, result)
+                values (@correlationId, @operator, @action, @accountId, @credentialId, @reason, '{}'::jsonb, @result::jsonb)
+                """,
+                new { correlationId = op.CorrelationId, @operator = op.Operator, action, accountId, credentialId, reason = op.Reason, result = JsonSerializer.Serialize(result) },
+                tx, cancellationToken: ct));
+        }
+        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.CheckViolation && e.ConstraintName is "operator_actions_operator_check" or "operator_actions_reason_check")
+        {
+            // OperatorContext.Create and the column checks should agree; where they don't, it's bad input and the change rolls back.
+            throw new AccountAdminException(AccountAdminError.InvalidOperator, "The database refused that operator name or reason.");
+        }
+    }
 }
