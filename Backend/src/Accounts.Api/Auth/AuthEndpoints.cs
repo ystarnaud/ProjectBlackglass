@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Mvc;
 using Npgsql;
 using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Domain.Auth;
@@ -15,6 +16,9 @@ public static class AuthEndpoints
 
     public sealed record MeResponse([property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId);
 
+    /// <summary>The largest body login or the admin routes read: a key is 47 characters, an admin request a few hundred.</summary>
+    public const int MaxBodyBytes = 4096;
+
     public static void MapAuth(this WebApplication app, AuthSettings settings)
     {
         if (settings.DevAuthEnabled)
@@ -25,7 +29,11 @@ public static class AuthEndpoints
                 if (!OpaqueSecret.TryParse(body?.AccountKey, OpaqueSecret.AccountKeyPrefix, out var key))
                     return UniformUnauthorized.Result;
                 var hash = key!.Hash();
-                if (!throttle.TryAcquire(hash)) return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+                if (!throttle.TryAcquire(hash))
+                {
+                    http.Response.Headers.RetryAfter = "60";
+                    return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+                }
                 var session = await sessions.LoginAsync(hash, settings.TokenLifetimeMinutes, http.RequestAborted);
                 var log = logs.CreateLogger("Blackglass.Auth");
                 if (session is null)
@@ -35,7 +43,7 @@ public static class AuthEndpoints
                 }
                 log.LogInformation("Login for account {AccountId}, session {SessionId}", AccountId.Format(session.AccountId), session.SessionId);
                 return Results.Ok(new LoginResponse(session.AccessToken.Text, session.ExpiresAt, session.AccountId));
-            });
+            }).WithMetadata(new RequestSizeLimitAttribute(MaxBodyBytes));
         }
 
         // Logout needs a valid session. A repeat (or any unknown token) is the uniform 401 from the handler: harmless and

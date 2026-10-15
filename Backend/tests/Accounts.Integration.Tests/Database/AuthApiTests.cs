@@ -99,6 +99,27 @@ public class AuthApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_oversized_login_body_is_refused_before_it_is_read()
+    {
+        await using var api = await ApiServer.StartAsync(db, DevOn);
+        var body = new StringContent($"{{\"accountKey\":\"{new string('A', 100_000)}\"}}", System.Text.Encoding.UTF8, "application/json");
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, (await api.Http.PostAsync("/v1/auth/dev/login", body)).StatusCode);
+    }
+
+    [Theory]
+    [InlineData("{not json", "application/json")]
+    [InlineData("[]", "application/json")]
+    [InlineData("{\"accountKey\":5}", "application/json")]
+    [InlineData("{\"accountKey\":[\"dk1_x\"]}", "application/json")]
+    [InlineData("dk1_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "text/plain")]
+    public async Task A_malformed_login_body_is_a_client_error_never_a_500(string json, string mediaType)
+    {
+        await using var api = await ApiServer.StartAsync(db, DevOn);
+        var response = await api.Http.PostAsync("/v1/auth/dev/login", new StringContent(json, System.Text.Encoding.UTF8, mediaType));
+        Assert.InRange((int)response.StatusCode, 400, 415);
+    }
+
+    [Fact]
     public async Task Me_without_a_token_is_the_uniform_401()
     {
         await using var api = await ApiServer.StartAsync(db, DevOn);

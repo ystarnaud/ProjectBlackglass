@@ -38,6 +38,10 @@ public class RateLimitTests : IAsyncLifetime
         var codes = new List<HttpStatusCode>();
         for (var i = 0; i < 3; i++) codes.Add(await LoginAsync(api.Http, key));
         Assert.Equal(new[] { HttpStatusCode.OK, HttpStatusCode.OK, HttpStatusCode.TooManyRequests }, codes);
+        var limited = await api.Http.PostAsJsonAsync("/v1/auth/dev/login", new { accountKey = key });
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.StatusCode);
+        Assert.Equal("60", limited.Headers.GetValues("Retry-After").Single());
+        Assert.True(limited.Headers.CacheControl!.NoStore);
     }
 
     [Fact]

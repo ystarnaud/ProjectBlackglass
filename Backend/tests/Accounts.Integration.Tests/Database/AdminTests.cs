@@ -199,6 +199,28 @@ public class AdminTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_oversized_admin_body_is_refused_and_writes_nothing()
+    {
+        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        var response = await api.Http.SendAsync(CreateRequest(new { @operator = "ops", reason = new string('r', 100_000) }, AdminKey));
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
+        Assert.Equal(0L, await AccountCountAsync());
+    }
+
+    [Theory]
+    [InlineData("ops\nAdmin created account 2 (operator root", "forging a log line")]
+    [InlineData("nul\u0000", "a NUL")]
+    [InlineData("ops", "two\nlines")]
+    public async Task Control_characters_in_operator_or_reason_are_422_InvalidOperator(string op, string reason)
+    {
+        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        var response = await api.Http.SendAsync(CreateRequest(new { @operator = op, reason }, AdminKey));
+        Assert.Equal(422, (int)response.StatusCode);
+        Assert.Equal("InvalidOperator", JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("code").GetString());
+        Assert.Equal(0L, await AccountCountAsync());
+    }
+
+    [Fact]
     public async Task Admin_requests_are_rate_limited_before_the_key_is_checked()
     {
         await using var api = await ApiServer.StartAsync(db, AdminOn(perMinute: 2));

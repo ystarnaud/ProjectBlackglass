@@ -7,8 +7,12 @@ public sealed record OperatorContext(string Operator, string Reason, Guid Correl
     public const int MaxOperatorLength = 200;
     public const int MaxReasonLength = 1000;
 
+    /// <summary>Refuses control characters too: both values reach audit rows and log lines, where a line break could
+    /// forge a log line and a NUL is refused by PostgreSQL.</summary>
     public static OperatorContext Create(string? op, string? reason)
     {
+        if (op is not null && op.Any(char.IsControl)) throw new ArgumentException("The operator name contains a control character.", nameof(op));
+        if (reason is not null && reason.Any(char.IsControl)) throw new ArgumentException("The reason contains a control character.", nameof(reason));
         if (string.IsNullOrWhiteSpace(op) || op.Trim().Length > MaxOperatorLength)
             throw new ArgumentException($"An operator name (1 to {MaxOperatorLength} characters) is required.", nameof(op));
         if (string.IsNullOrWhiteSpace(reason) || reason.Trim().Length > MaxReasonLength)

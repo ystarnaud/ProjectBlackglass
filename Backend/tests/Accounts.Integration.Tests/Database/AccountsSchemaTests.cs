@@ -236,6 +236,8 @@ public class AccountsSchemaTests : IAsyncLifetime
     [InlineData("insert into account_identities (provider, subject, account_id) values ('dev', E'tester\\n', @a)")]
     [InlineData("insert into account_identities (provider, subject, account_id) values ('dev', repeat('a', 65), @a)")]
     [InlineData("insert into dev_credentials (credential_id, account_id, secret_hash) values (gen_random_uuid(), @a, '\\x00')")]
+    [InlineData("insert into operator_actions (correlation_id, operator, action, reason, checks, result) values (gen_random_uuid(), E'ops\\nforged', 'account_create', 'r', '{}', '{}')")]
+    [InlineData("insert into operator_actions (correlation_id, operator, action, reason, checks, result) values (gen_random_uuid(), 'ops', 'account_create', E'r\\tx', '{}', '{}')")]
     public async Task Check_constraints_refuse_bad_rows(string sql)
     {
         var a = await NewAccountAsync();

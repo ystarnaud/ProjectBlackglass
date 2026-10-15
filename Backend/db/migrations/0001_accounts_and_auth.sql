@@ -56,7 +56,7 @@ create index auth_sessions_live_credential on auth_sessions (credential_id) wher
 create table operator_actions (
   id bigint generated always as identity primary key,
   correlation_id uuid not null,
-  operator text not null check (length(operator) between 1 and 200),
+  operator text not null check (length(operator) between 1 and 200 and operator !~ '[[:cntrl:]]'),
   action text not null check (action in (
     'account_create', 'credential_rotate', 'credential_revoke', 'sessions_revoke', 'account_suspend', 'account_reactivate',
     'revalidate', 'participant_void', 'host_declared_lost', 'host_drain', 'host_enable', 'build_disable', 'energy_adjust')),
@@ -64,7 +64,7 @@ create table operator_actions (
   account_id bigint references accounts,
   credential_id uuid references dev_credentials,
   host_id text,
-  reason text not null check (length(reason) between 1 and 1000),
+  reason text not null check (length(reason) between 1 and 1000 and reason !~ '[[:cntrl:]]'),
   checks jsonb not null,
   result jsonb not null,
   created_at timestamptz not null default statement_timestamp());

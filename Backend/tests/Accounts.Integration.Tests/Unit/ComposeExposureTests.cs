@@ -84,6 +84,7 @@ public class ComposeExposureTests
         Assert.Contains("BLACKGLASS_DB_USER: accounts_app", admin);
         Assert.Contains("BLACKGLASS_DB_PASSWORD_FILE: /run/secrets/admin_db_password", admin);
         Assert.Equal(["- admin_db_password"], ComposeText.Block(lines, "services", "admin", "secrets").Select(l => l.Trim()));
+        Assert.Equal(["driver: none"], ComposeText.Block(lines, "services", "admin", "logging").Select(l => l.Trim())); // its stdout carries a new key once
 
         // Still exactly one publication in the whole file: the API's 127.0.0.1:5080.
         Assert.Single(Regex.Matches(string.Join('\n', lines), @"""127\.0\.0\.1:\d+:\d+"""));

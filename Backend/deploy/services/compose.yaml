@@ -114,6 +114,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Its stdout carries a new account key once, for the operator's terminal only: no log driver keeps it.
+    logging:
+      driver: none
 
 networks:
   db:

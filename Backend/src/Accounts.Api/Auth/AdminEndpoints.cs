@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Mvc;
 using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Persistence.Accounts;
 
@@ -43,6 +44,7 @@ public static class AdminEndpoints
             CreateAccountRequest? body;
             try { body = await http.Request.ReadFromJsonAsync<CreateAccountRequest>(Web, http.RequestAborted); }
             catch (Exception e) when (e is JsonException or InvalidOperationException) { body = null; }
+            catch (BadHttpRequestException e) { return Results.StatusCode(e.StatusCode); } // e.g. 413 over MaxBodyBytes
             if (body is null) return Problem(400, "InvalidBody");
 
             OperatorContext op;
@@ -60,7 +62,7 @@ public static class AdminEndpoints
                 log.LogWarning("Admin request refused: {Error} (correlation {CorrelationId})", e.Error, correlationId);
                 return e.Error == AccountAdminError.HandleTaken ? Problem(409, "HandleTaken") : Problem(422, e.Error.ToString());
             }
-        });
+        }).WithMetadata(new RequestSizeLimitAttribute(AuthEndpoints.MaxBodyBytes));
     }
 
     static bool KeyMatches(Microsoft.Extensions.Primitives.StringValues presented, byte[] expectedHash) =>
