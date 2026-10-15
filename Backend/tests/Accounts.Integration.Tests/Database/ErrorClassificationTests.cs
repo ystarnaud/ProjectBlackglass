@@ -203,8 +203,9 @@ public class ErrorClassificationTests : IAsyncLifetime
         var env = db.EnvFor("app");
         env[DbTimeouts.LockTimeoutVar] = "300";
         var (code, output, error) = await WhileLockedAsync("select 1 from accounts where account_id = @a for update", new { a = account.AccountId },
-            () => CliAsync(env, "account", "suspend", "--account", AccountId.Format(account.AccountId), "--operator", "ops", "--reason", "test"));
-        Assert.Equal((ExitCodes.Busy, ""), (code, output));
+            () => CliAsync(env, "account", "suspend", "--account-base58", AccountId.Format(account.AccountId), "--operator", "ops", "--reason", "test", "--yes"));
+        Assert.Equal(ExitCodes.Busy, code);
+        Assert.DoesNotContain("correlationId=", output); // the target preview only (a plain read takes no lock)
         Assert.Contains("busy", error);
         Assert.Contains("nothing was changed", error);
         Assert.Equal("active", await ScalarAsSuperuserAsync<string>(db, "select status from accounts"));

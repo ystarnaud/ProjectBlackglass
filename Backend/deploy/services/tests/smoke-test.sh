@@ -41,10 +41,35 @@ http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$@"; }
 check "dev login is off by default (404)" test "$(http_code -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:5080/v1/auth/dev/login)" = 404
 check "the admin route is off by default (404)" test "$(http_code -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:5080/dev/v1/accounts)" = 404
 check "GET /v1/me without a token is 401" test "$(http_code http://127.0.0.1:5080/v1/me)" = 401
-# The operator CLI in the real image: the first account gets id 1, printed in Base58 as "2". Its key stays in the
-# throwaway work directory (removed on exit) and is never echoed.
-check "the admin CLI creates the first account and prints its Base58 id" bash -c "dc() { docker compose -p bg-smoke -f '$here/compose.yaml' \"\$@\"; }; dc --profile tools run --rm -T admin account create --handle smoke --operator smoke-test --reason smoke > '$work/admin.out' 2>&1 && grep -qx 'accountId=2' '$work/admin.out' && grep -q '^accountKey=dk1_' '$work/admin.out'"
-check "an unknown Base58 account id is exit 65" bash -c "dc() { docker compose -p bg-smoke -f '$here/compose.yaml' \"\$@\"; }; dc --profile tools run --rm -T admin account suspend --account zz --operator smoke-test --reason smoke >/dev/null 2>&1; test \$? -eq 65"
+# The operator CLI in the real image: the first account gets id 1, printed in Base58 as "2". The key line is redacted
+# before anything is written, so no key is kept even in the throwaway work directory.
+admin_cli() { dc --profile tools run --rm -T admin "$@" 2>&1 | sed -E 's/^accountKey=dk1_.*/accountKey=dk1_[redacted]/'; return "${PIPESTATUS[0]}"; }
+admin_creates_the_first_account() {
+  admin_cli account create --handle smoke --operator smoke-test --reason smoke > "$work/admin.out" \
+    && grep -qx 'accountId=2' "$work/admin.out" && grep -qx 'accountKey=dk1_\[redacted\]' "$work/admin.out"
+}
+admin_refuses_the_old_flag() {
+  local code=0; admin_cli account suspend --account 2 --operator smoke-test --reason smoke > "$work/old-flag.out" || code=$?
+  test "$code" -eq 64 && grep -q -- '--account-base58' "$work/old-flag.out"
+}
+admin_shows_the_target_and_changes_nothing_without_yes() {
+  local code=0; admin_cli account suspend --account-base58 2 --operator smoke-test --reason smoke > "$work/preview.out" || code=$?
+  test "$code" -eq 64 && grep -qx 'target.accountId=2' "$work/preview.out" && grep -qx 'target.status=active' "$work/preview.out" \
+    && grep -qx 'target.handle=smoke' "$work/preview.out" && ! grep -q '^correlationId=' "$work/preview.out"
+}
+admin_suspends_with_yes() {
+  admin_cli account suspend --account-base58 2 --operator smoke-test --reason smoke --yes > "$work/suspend.out" \
+    && grep -qx 'accountId=2' "$work/suspend.out" && grep -qx 'status=suspended' "$work/suspend.out"
+}
+admin_unknown_account_is_65() {
+  local code=0; admin_cli account suspend --account-base58 zz --operator smoke-test --reason smoke --yes > /dev/null || code=$?
+  test "$code" -eq 65
+}
+check "the admin CLI creates the first account and prints its Base58 id" admin_creates_the_first_account
+check "the old --account flag is refused (64): ids are named by --account-base58" admin_refuses_the_old_flag
+check "suspend without --yes and without a terminal shows the target and changes nothing (64)" admin_shows_the_target_and_changes_nothing_without_yes
+check "suspend with --yes acts on the account the Base58 id names" admin_suspends_with_yes
+check "an unknown Base58 account id is exit 65" admin_unknown_account_is_65
 n=0
 for ip in $(hostname -I); do
   n=$((n + 1))

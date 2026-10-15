@@ -67,14 +67,14 @@ public class AdminTests : IAsyncLifetime
     {
         var created = (await CliAsync("account", "create", "--operator", "ops", "--reason", "test")).Out;
         var id = Field(created, "accountId");
-        var rotated = await CliAsync("credential", "rotate", "--account", id, "--operator", "ops", "--reason", "rotate");
+        var rotated = await CliAsync("credential", "rotate", "--account-base58", id, "--operator", "ops", "--reason", "rotate", "--yes");
         Assert.Equal((ExitCodes.Ok, id), (rotated.Code, Field(rotated.Out, "accountId")));
         Assert.NotEqual(Field(created, "accountKey"), Field(rotated.Out, "accountKey"));
-        Assert.Equal(ExitCodes.Ok, (await CliAsync("credential", "revoke", "--credential", Field(rotated.Out, "credentialId"), "--operator", "ops", "--reason", "revoke")).Code);
-        Assert.Equal(ExitCodes.Ok, (await CliAsync("sessions", "revoke", "--account", id, "--operator", "ops", "--reason", "sessions")).Code);
-        var suspended = await CliAsync("account", "suspend", "--account", id, "--operator", "ops", "--reason", "suspend");
+        Assert.Equal(ExitCodes.Ok, (await CliAsync("credential", "revoke", "--credential", Field(rotated.Out, "credentialId"), "--operator", "ops", "--reason", "revoke", "--yes")).Code);
+        Assert.Equal(ExitCodes.Ok, (await CliAsync("sessions", "revoke", "--account-base58", id, "--operator", "ops", "--reason", "sessions", "--yes")).Code);
+        var suspended = await CliAsync("account", "suspend", "--account-base58", id, "--operator", "ops", "--reason", "suspend", "--yes");
         Assert.Equal((ExitCodes.Ok, id), (suspended.Code, Field(suspended.Out, "accountId")));
-        Assert.Equal(ExitCodes.Ok, (await CliAsync("account", "reactivate", "--account", id, "--operator", "ops", "--reason", "reactivate")).Code);
+        Assert.Equal(ExitCodes.Ok, (await CliAsync("account", "reactivate", "--account-base58", id, "--operator", "ops", "--reason", "reactivate", "--yes")).Code);
         Assert.Equal(6L, await ScalarAsSuperuserAsync<long>(db, "select count(*) from operator_actions"));
     }
 
@@ -83,11 +83,11 @@ public class AdminTests : IAsyncLifetime
     {
         await CliAsync("account", "create", "--handle", "cli-2", "--operator", "ops", "--reason", "test");
         Assert.Equal(ExitCodes.Conflict, (await CliAsync("account", "create", "--handle", "cli-2", "--operator", "ops", "--reason", "again")).Code);
-        var unknown = await CliAsync("account", "suspend", "--account", AccountId.Format(999), "--operator", "ops", "--reason", "x");
+        var unknown = await CliAsync("account", "suspend", "--account-base58", AccountId.Format(999), "--operator", "ops", "--reason", "x", "--yes");
         Assert.Equal(ExitCodes.NotFound, unknown.Code);
         Assert.Equal("", unknown.Out);
         Assert.Equal(ExitCodes.Usage, (await CliAsync("account", "create", "--handle", "cli-3")).Code);
-        Assert.Equal(ExitCodes.Usage, (await CliAsync("account", "suspend", "--account", "1BukQL", "--operator", "ops", "--reason", "x")).Code);
+        Assert.Equal(ExitCodes.Usage, (await CliAsync("account", "suspend", "--account-base58", "1BukQL", "--operator", "ops", "--reason", "x", "--yes")).Code);
         Assert.Equal(ExitCodes.Usage, (await CliAsync("account", "create", "--handle", "Not Valid", "--operator", "ops", "--reason", "x")).Code);
         Assert.Equal(1L, await AccountCountAsync());
     }
@@ -103,9 +103,10 @@ public class AdminTests : IAsyncLifetime
     [InlineData(null)]
     [InlineData("")]
     [InlineData("wrong-admin-key-0123456789abcdef0123")]
-    [InlineData("admin-key-for-tests-0123456789abcdeF")]
+    [InlineData("case-flipped")] // the right key with its first letter upper-cased
     public async Task A_missing_or_wrong_admin_key_is_401_and_writes_nothing(string? key)
     {
+        if (key == "case-flipped") key = char.ToUpperInvariant(AdminKey[0]) + AdminKey[1..]; // "test-admin-…" → "Test-admin-…"
         await using var api = await StartAdminApiAsync();
         var response = await api.Http.SendAsync(CreateRequest(new { handle = "y", @operator = "o", reason = "r" }, key));
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);

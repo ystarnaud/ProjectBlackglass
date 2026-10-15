@@ -7,6 +7,11 @@ namespace Blackglass.Accounts.Persistence.Accounts;
 
 public sealed record IssuedCredential(long AccountId, Guid CredentialId, OpaqueSecret AccountKey);
 
+/// <summary>What an operator is about to change (the admin CLI shows it before asking for confirmation).</summary>
+public sealed record AccountSummary(long AccountId, string Status, string? Handle, string? DisplayName, DateTime CreatedAt, Guid? LiveCredentialId, int LiveSessions);
+
+public sealed record CredentialSummary(Guid CredentialId, long AccountId, bool Live);
+
 /// <summary>
 /// The operator credential lifecycle (spec §4.2): create an account (PostgreSQL mints its id) with its optional dev
 /// handle and first key, rotate, revoke a credential, revoke sessions, suspend and reactivate. Each call is one
@@ -142,6 +147,29 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
         await conn.ExecuteAsync(new CommandDefinition("update accounts set status = 'active' where account_id = @accountId", new { accountId }, tx, cancellationToken: ct));
         await AuditAsync(conn, tx, op, "account_reactivate", accountId, null, new { }, ct);
         await tx.CommitAsync(ct);
+    }
+
+    /// <summary>Read only: the account an operator names, or null.</summary>
+    public async Task<AccountSummary?> DescribeAccountAsync(long accountId, CancellationToken ct = default)
+    {
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        return await conn.QuerySingleOrDefaultAsync<AccountSummary>(new CommandDefinition(
+            """
+            select a.account_id as AccountId, a.status as Status, i.subject as Handle, a.display_name as DisplayName, a.created_at as CreatedAt,
+              (select c.credential_id from dev_credentials c where c.account_id = a.account_id and c.revoked_at is null) as LiveCredentialId,
+              (select count(*)::int from auth_sessions s where s.account_id = a.account_id and s.revoked_at is null and s.expires_at > now()) as LiveSessions
+            from accounts a left join account_identities i on i.account_id = a.account_id and i.provider = 'dev'
+            where a.account_id = @accountId
+            """, new { accountId }, cancellationToken: ct));
+    }
+
+    /// <summary>Read only: the credential an operator names, or null.</summary>
+    public async Task<CredentialSummary?> DescribeCredentialAsync(Guid credentialId, CancellationToken ct = default)
+    {
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        return await conn.QuerySingleOrDefaultAsync<CredentialSummary>(new CommandDefinition(
+            "select credential_id as CredentialId, account_id as AccountId, revoked_at is null as Live from dev_credentials where credential_id = @credentialId",
+            new { credentialId }, cancellationToken: ct));
     }
 
     static async Task LockAccountAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, CancellationToken ct)

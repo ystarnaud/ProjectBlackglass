@@ -10,6 +10,8 @@ public static class ExitCodes
     public const int Usage = 64;
     public const int NotFound = 65;
     public const int Conflict = 66;
+    /// <summary>The admin CLI asked for confirmation and the operator didn't type the Base58 account id.</summary>
+    public const int NotConfirmed = 67;
     /// <summary>The database can't be reached (sysexits EX_UNAVAILABLE).</summary>
     public const int Unavailable = 69;
     /// <summary>A lock or statement timeout: nothing was changed; retry (sysexits EX_TEMPFAIL).</summary>
