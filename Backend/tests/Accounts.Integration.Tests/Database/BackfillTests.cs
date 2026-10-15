@@ -42,22 +42,9 @@ public class BackfillTests : IAsyncLifetime
 
     Task<T> ScalarAsync<T>(string sql, object? args = null) => ScalarAsSuperuserAsync<T>(db, sql, args);
 
-    /// <summary>Inserts accounts as the app role (the Stage 3 way) while the schema is still at version 2.</summary>
-    async Task<long> InsertPreStage4AccountAsync(string status = "active")
-    {
-        await using var conn = await db.AsApp().OpenConnectionAsync();
-        return await conn.ExecuteScalarAsync<long>("insert into accounts (status) values (@status) returning account_id", new { status });
-    }
-
     Task MigrateToLatestAsync() => new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync();
 
-    async Task<long> PreStage4AccountAsync(string status = "active")
-    {
-        var account = await InsertPreStage4AccountAsync(status);
-        await MigrateToLatestAsync();
-        Assert.Equal(0L, await ScalarAsync<long>("select count(*) from inventories where account_id = @account", new { account }));
-        return account;
-    }
+    Task<long> PreStage4AccountAsync(string status = "active") => AccountTestKit.PreStage4AccountAsync(db, status);
 
     sealed record AuditRow(string Operator, string Reason, Guid CorrelationId, long? AccountId, JsonElement Result);
 

@@ -32,6 +32,19 @@ public sealed class TestDatabase : IAsyncDisposable
         return ds;
     }
 
+    /// <summary>The app role on connections whose sessions default to read-only transactions
+    /// (<c>default_transaction_read_only=on</c>): any write that is not explicitly in a read-write transaction fails with 25006.</summary>
+    public NpgsqlDataSource AsAppReadOnly()
+    {
+        var ds = NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder
+        {
+            Host = "127.0.0.1", Port = cluster.Port, Database = Name, Username = "accounts_app", Password = cluster.AppPassword,
+            ApplicationName = "blackglass-tests", Timeout = 5, MaxPoolSize = 5, Options = "-c default_transaction_read_only=on",
+        });
+        boundedSources.Add(ds);
+        return ds;
+    }
+
     public string Password(string role) => role switch
     {
         "migrator" => cluster.MigratorPassword,

@@ -18,6 +18,18 @@ public static class AccountTestKit
         return db;
     }
 
+    /// <summary>An account as Stage 3 created it: inserted as the app role while the schema is at version 2 (the database must
+    /// have been migrated to exactly 2), then migrated to the latest version, so it has no inventories row (unprovisioned).</summary>
+    public static async Task<long> PreStage4AccountAsync(TestDatabase db, string status = "active")
+    {
+        long account;
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+            account = await conn.ExecuteScalarAsync<long>("insert into accounts (status) values (@status) returning account_id", new { status });
+        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync();
+        Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(db, "select count(*) from inventories where account_id = @account", new { account }));
+        return account;
+    }
+
     /// <summary>Backdates or corrupts rows as the cluster superuser: time is never mocked (spec §18.1).</summary>
     public static async Task ExecuteAsSuperuserAsync(TestDatabase db, string sql, object? args = null)
     {
