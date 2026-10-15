@@ -1,6 +1,9 @@
+using Microsoft.AspNetCore.Authentication;
 using Npgsql;
+using Blackglass.Accounts.Api.Auth;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Persistence;
+using Blackglass.Accounts.Persistence.Accounts;
 using Blackglass.Accounts.Persistence.Migrations;
 
 namespace Blackglass.Accounts.Api;
@@ -10,7 +13,7 @@ public sealed record ServeStart(int ExitCode, WebApplication? App);
 public static class ServeCommand
 {
     public static async Task<ServeStart> StartAsync(IReadOnlyDictionary<string, string?> env, TextWriter error, CancellationToken ct,
-        Func<GameCatalogue>? loadCatalogue = null)
+        Func<GameCatalogue>? loadCatalogue = null, Action<WebApplicationBuilder>? configure = null)
     {
         // The catalogue comes first: an image with an invalid catalogue never reads its settings or the database.
         GameCatalogue catalogue;
@@ -20,6 +23,10 @@ public static class ServeCommand
         DbSettings settings;
         try { settings = DbSettings.FromEnvironment(env); }
         catch (DbSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return new(ExitCodes.Failure, null); }
+
+        AuthSettings auth;
+        try { auth = AuthSettings.FromEnvironment(env); }
+        catch (AuthSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return new(ExitCodes.Failure, null); }
 
         var dataSource = settings.CreateDataSource("blackglass-api");
         var catalog = MigrationCatalog.Embedded;
@@ -46,9 +53,23 @@ public static class ServeCommand
         if (ApiHost.ResolveUrls(env) is { } urls) builder.WebHost.UseUrls(urls);
         builder.Services.AddSingleton(dataSource);
         builder.Services.AddSingleton(catalogue);
+        builder.Services.AddSingleton(auth);
+        builder.Services.AddSingleton(new SessionStore(dataSource));
+        builder.Services.AddSingleton(new AccountAdminStore(dataSource));
+        builder.Services.AddSingleton<LoginThrottle>();
+        builder.Services.AddAuthentication(AccountClaims.Scheme)
+            .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null);
+        builder.Services.AddAuthorization();
+        builder.Services.AddAccountRateLimits(auth);
+        configure?.Invoke(builder);
         var app = builder.Build();
         app.Lifetime.ApplicationStopped.Register(dataSource.Dispose);
+        app.UseDatabaseOutageAs503();
+        app.UseAuthentication();
+        app.UseRateLimiter();
+        app.UseAuthorization();
         app.MapHealth(catalog.LatestVersion);
+        app.MapAuth(auth);
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
     }
