@@ -1415,7 +1415,8 @@ create table schema_migrations (
 | Regeneration credited once per interval | Unique ledger key `regen:<consumed anchor>`; the anchor only moves forward under the wallet lock |
 | No zero-quantity stack rows | `quantity > 0` CHECK; consumption deletes fully consumed rows and updates only when `quantity > q` |
 | Energy effects once | Unique `energy_ledger (account_id, idempotency_key)`; PK `energy_holds`; guarded `UPDATE` |
-| Minted items once | Unique `item_instances (origin, origin_ref)` with deterministic ids |
+| Minted items once | Unique `item_instances (origin, origin_ref)`; PostgreSQL identity ids; minting is insert on conflict do nothing, then the committed row is read back |
+| Starter granted once and never re-granted or replaced | `inventories` all-or-nothing CHECK + trigger `starter_grant_is_final`; version never decreases (`inventory_version_never_decreases`) |
 | Ownership never crosses accounts | Composite FKs `(account_id, operative_id)` on items and stacks |
 | One item per slot; equipped implies in a bag | Partial unique index; CHECK |
 | No negative quantities or balances | CHECKs on stacks, wallets and ledger |

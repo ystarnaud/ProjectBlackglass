@@ -250,6 +250,45 @@ public class PlayerSchemaTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_starter_grant_is_final_and_the_version_never_decreases()
+    {
+        var a = await NewAccountAsync();
+        await GrantStarterAsync(a); // false -> true with all three columns together, and version + 1: both pass
+        Assert.Equal(2L, await SuperScalarAsync<long>("select version from inventories where account_id = @a", new { a }));
+
+        async Task<PostgresException> Refused(string sql)
+        {
+            await using var conn = await db.AsApp().OpenConnectionAsync();
+            var e = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(sql, new { a, Other = "sha256:" + new string('b', 64) }));
+            Assert.Equal("23514", e.SqlState);
+            return e;
+        }
+
+        Assert.Equal("starter_grant_is_final", (await Refused("update inventories set starter_granted = false, starter_catalogue_version = null, starter_granted_at = null where account_id = @a")).ConstraintName);
+        Assert.Equal("starter_grant_is_final", (await Refused("update inventories set starter_catalogue_version = @Other where account_id = @a")).ConstraintName);
+        Assert.Equal("starter_grant_is_final", (await Refused("update inventories set starter_granted_at = now() + interval '1 day' where account_id = @a")).ConstraintName);
+        Assert.Equal("inventory_version_never_decreases", (await Refused("update inventories set version = version - 1 where account_id = @a")).ConstraintName);
+        Assert.Equal("inventory_version_never_decreases", (await Refused("update inventories set version = 1 where account_id = @a")).ConstraintName);
+
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await conn.ExecuteAsync("update inventories set version = version where account_id = @a", new { a });      // unchanged is fine
+        await conn.ExecuteAsync("update inventories set version = version + 5 where account_id = @a", new { a });
+        Assert.Equal(7L, await conn.ExecuteScalarAsync<long>("select version from inventories where account_id = @a", new { a }));
+        Assert.Equal(Catalogue, await conn.ExecuteScalarAsync<string>("select starter_catalogue_version from inventories where account_id = @a", new { a }));
+    }
+
+    [Fact]
+    public async Task The_version_of_an_ungranted_inventory_also_never_decreases()
+    {
+        var a = await NewAccountAsync();
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await conn.ExecuteAsync("insert into inventories (account_id) values (@a)", new { a });
+        await conn.ExecuteAsync("update inventories set version = 4 where account_id = @a", new { a });
+        var e = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync("update inventories set version = 3 where account_id = @a", new { a }));
+        Assert.Equal(("23514", "inventory_version_never_decreases"), (e.SqlState, e.ConstraintName));
+    }
+
+    [Fact]
     public async Task An_account_has_one_inventory_row()
     {
         var a = await NewAccountAsync();

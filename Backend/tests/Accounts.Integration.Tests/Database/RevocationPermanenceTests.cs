@@ -109,17 +109,22 @@ public class RevocationPermanenceTests : IAsyncLifetime
     [InlineData("drop trigger dev_credentials_revocation_is_final on dev_credentials")]
     [InlineData("drop function revocation_is_final() cascade")]
     [InlineData("create or replace function revocation_is_final() returns trigger language plpgsql as 'begin return new; end'")]
+    [InlineData("alter table inventories disable trigger inventories_forward_only")]
+    [InlineData("alter table inventories disable trigger all")]
+    [InlineData("drop trigger inventories_forward_only on inventories")]
+    [InlineData("drop function inventory_is_forward_only() cascade")]
+    [InlineData("create or replace function inventory_is_forward_only() returns trigger language plpgsql as 'begin return new; end'")]
     [InlineData("set session_replication_role = replica")]
     public async Task The_app_role_cannot_switch_the_guard_off(string sql) =>
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, (await RefusedAsApp(sql)).SqlState);
 
     [Fact]
-    public async Task The_guard_triggers_are_enabled_on_both_tables()
+    public async Task The_guard_triggers_are_enabled_on_their_tables()
     {
         var triggers = await ScalarAsSuperuserAsync<string>(db, """
             select string_agg(tgrelid::regclass || ':' || tgname || ':' || tgenabled::text, ',' order by tgname)
             from pg_trigger where not tgisinternal
             """);
-        Assert.Equal("auth_sessions:auth_sessions_revocation_is_final:O,dev_credentials:dev_credentials_revocation_is_final:O", triggers);
+        Assert.Equal("auth_sessions:auth_sessions_revocation_is_final:O,dev_credentials:dev_credentials_revocation_is_final:O,inventories:inventories_forward_only:O", triggers);
     }
 }
