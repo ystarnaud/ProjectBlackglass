@@ -1,0 +1,380 @@
+{
+  "note": "Shared starter vector. The backend's StarterPlanner and Unity's InventorySession.SeedStarter must agree on every case. Written by hand from ItemInventory.Add (open stacks fill first, then new entries of min(left, maxStack)) and SeedStarter (every grant is added to the bag, then equip takes the first bag entry of that definition). The stash is an uncapped ItemInventory filled the same way and never equipped. Each case is self-contained: items in ascending id order, the bag capacity, the starter operatives (definition guids, ascending) with grants in authored order, the stash grants. Expected: either a refusal class (second-equip-in-slot, equip-without-slot, unknown-item, bag-capacity) or, per operative guid, the bag entries as [definitionId, quantity] in creation order and the equipped definition per slot (null when empty), plus the stash entries in creation order.",
+  "cases": [
+    {
+      "name": "equipped-rifle-and-two-medkits",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 },
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true },
+          { "itemId": "item.medkit", "quantity": 2, "equip": false }
+        ] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.rifle", 1], ["item.medkit", 2]],
+            "equipped": { "weapon": "item.rifle", "armor": null, "utility": null }
+          }
+        },
+        "stash": []
+      }
+    },
+    {
+      "name": "duplicate-nonstackable-grants-equip-the-first-entry",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 2, "equip": true }
+        ] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.rifle", 1], ["item.rifle", 1]],
+            "equipped": { "weapon": "item.rifle", "armor": null, "utility": null }
+          }
+        },
+        "stash": []
+      }
+    },
+    {
+      "name": "duplicate-nonstackable-grant-lines",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": false },
+          { "itemId": "item.rifle", "quantity": 1, "equip": true }
+        ] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.rifle", 1], ["item.rifle", 1]],
+            "equipped": { "weapon": "item.rifle", "armor": null, "utility": null }
+          }
+        },
+        "stash": []
+      }
+    },
+    {
+      "name": "duplicate-stackable-grant-lines-fill-open-stacks",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.medkit", "quantity": 2, "equip": false },
+          { "itemId": "item.medkit", "quantity": 2, "equip": false }
+        ] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.medkit", 3], ["item.medkit", 1]],
+            "equipped": { "weapon": null, "armor": null, "utility": null }
+          }
+        },
+        "stash": []
+      }
+    },
+    {
+      "name": "interleaved-stackable-grants-keep-creation-order",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 },
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.medkit", "quantity": 2, "equip": false },
+          { "itemId": "item.rifle", "quantity": 1, "equip": true },
+          { "itemId": "item.medkit", "quantity": 2, "equip": false }
+        ] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.medkit", 3], ["item.rifle", 1], ["item.medkit", 1]],
+            "equipped": { "weapon": "item.rifle", "armor": null, "utility": null }
+          }
+        },
+        "stash": []
+      }
+    },
+    {
+      "name": "one-large-stackable-grant-splits-by-max-stack",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.medkit", "quantity": 7, "equip": false }
+        ] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.medkit", 3], ["item.medkit", 3], ["item.medkit", 1]],
+            "equipped": { "weapon": null, "armor": null, "utility": null }
+          }
+        },
+        "stash": []
+      }
+    },
+    {
+      "name": "equipment-placement-fills-all-three-slots",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.boots", "category": "utility", "slot": "utility", "stackable": false, "maxStack": 1, "healAmount": 0 },
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 },
+        { "id": "item.vest", "category": "armor", "slot": "armor", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true },
+          { "itemId": "item.vest", "quantity": 1, "equip": true },
+          { "itemId": "item.boots", "quantity": 1, "equip": true }
+        ] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.rifle", 1], ["item.vest", 1], ["item.boots", 1]],
+            "equipped": { "weapon": "item.rifle", "armor": "item.vest", "utility": "item.boots" }
+          }
+        },
+        "stash": []
+      }
+    },
+    {
+      "name": "two-operatives-keep-separate-bags",
+      "bagCapacity": 4,
+      "items": [
+        { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 },
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 },
+        { "id": "item.vest", "category": "armor", "slot": "armor", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true },
+          { "itemId": "item.medkit", "quantity": 1, "equip": false }
+        ] },
+        { "id": "00000000-0000-4000-8000-000000000002", "grants": [
+          { "itemId": "item.vest", "quantity": 1, "equip": true },
+          { "itemId": "item.rifle", "quantity": 1, "equip": false },
+          { "itemId": "item.medkit", "quantity": 4, "equip": false }
+        ] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.rifle", 1], ["item.medkit", 1]],
+            "equipped": { "weapon": "item.rifle", "armor": null, "utility": null }
+          },
+          "00000000-0000-4000-8000-000000000002": {
+            "bag": [["item.vest", 1], ["item.rifle", 1], ["item.medkit", 3], ["item.medkit", 1]],
+            "equipped": { "weapon": null, "armor": "item.vest", "utility": null }
+          }
+        },
+        "stash": []
+      }
+    },
+    {
+      "name": "second-equip-in-an-occupied-slot",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.carbine", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 },
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true },
+          { "itemId": "item.carbine", "quantity": 1, "equip": true }
+        ] }
+      ],
+      "stash": [],
+      "expected": { "refused": "second-equip-in-slot" }
+    },
+    {
+      "name": "equip-on-a-consumable",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.medkit", "quantity": 1, "equip": true }
+        ] }
+      ],
+      "stash": [],
+      "expected": { "refused": "equip-without-slot" }
+    },
+    {
+      "name": "grant-names-an-item-missing-from-the-items",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true },
+          { "itemId": "item.ghost", "quantity": 1, "equip": false }
+        ] }
+      ],
+      "stash": [],
+      "expected": { "refused": "unknown-item" }
+    },
+    {
+      "name": "stash-grant-names-an-item-missing-from-the-items",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true }
+        ] }
+      ],
+      "stash": [
+        { "itemId": "item.ghost", "quantity": 1 }
+      ],
+      "expected": { "refused": "unknown-item" }
+    },
+    {
+      "name": "bag-exactly-at-capacity",
+      "bagCapacity": 3,
+      "items": [
+        { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 },
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 },
+        { "id": "item.vest", "category": "armor", "slot": "armor", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true },
+          { "itemId": "item.vest", "quantity": 1, "equip": true },
+          { "itemId": "item.medkit", "quantity": 3, "equip": false }
+        ] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.rifle", 1], ["item.vest", 1], ["item.medkit", 3]],
+            "equipped": { "weapon": "item.rifle", "armor": "item.vest", "utility": null }
+          }
+        },
+        "stash": []
+      }
+    },
+    {
+      "name": "bag-one-entry-over-capacity",
+      "bagCapacity": 3,
+      "items": [
+        { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 },
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 },
+        { "id": "item.vest", "category": "armor", "slot": "armor", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true },
+          { "itemId": "item.vest", "quantity": 1, "equip": true },
+          { "itemId": "item.medkit", "quantity": 4, "equip": false }
+        ] }
+      ],
+      "stash": [],
+      "expected": { "refused": "bag-capacity" }
+    },
+    {
+      "name": "stash-with-a-nonstackable-and-a-stackable",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 },
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true }
+        ] }
+      ],
+      "stash": [
+        { "itemId": "item.rifle", "quantity": 1 },
+        { "itemId": "item.medkit", "quantity": 4 }
+      ],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.rifle", 1]],
+            "equipped": { "weapon": "item.rifle", "armor": null, "utility": null }
+          }
+        },
+        "stash": [["item.rifle", 1], ["item.medkit", 3], ["item.medkit", 1]]
+      }
+    },
+    {
+      "name": "stash-duplicates-are-uncapped-and-never-equipped",
+      "bagCapacity": 1,
+      "items": [
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [
+          { "itemId": "item.rifle", "quantity": 1, "equip": true }
+        ] }
+      ],
+      "stash": [
+        { "itemId": "item.rifle", "quantity": 2 },
+        { "itemId": "item.rifle", "quantity": 1 }
+      ],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [["item.rifle", 1]],
+            "equipped": { "weapon": "item.rifle", "armor": null, "utility": null }
+          }
+        },
+        "stash": [["item.rifle", 1], ["item.rifle", 1], ["item.rifle", 1]]
+      }
+    },
+    {
+      "name": "operative-without-grants",
+      "bagCapacity": 6,
+      "items": [
+        { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 }
+      ],
+      "operatives": [
+        { "id": "00000000-0000-4000-8000-000000000001", "grants": [] }
+      ],
+      "stash": [],
+      "expected": {
+        "operatives": {
+          "00000000-0000-4000-8000-000000000001": {
+            "bag": [],
+            "equipped": { "weapon": null, "armor": null, "utility": null }
+          }
+        },
+        "stash": []
+      }
+    }
+  ]
+}
