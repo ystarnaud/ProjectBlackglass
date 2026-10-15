@@ -2,7 +2,9 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Blackglass.Accounts.Api.Auth;
+using Blackglass.Accounts.Api.Player;
 using Blackglass.Accounts.Domain.Accounts;
+using Blackglass.Accounts.Domain.Ids;
 
 namespace Blackglass.Accounts.IntegrationTests.Unit;
 
@@ -20,6 +22,7 @@ public class DtoAuditTests
     {
         var requests = ApiTypes("Request").Where(t => t.DeclaringType != typeof(AdminEndpoints)).ToList();
         Assert.NotEmpty(requests);
+        Assert.Contains(requests, t => t == typeof(PickChoiceRequest)); // the player routes are audited too
         foreach (var type in requests)
             Assert.DoesNotContain(type.GetProperties(BindingFlags.Public | BindingFlags.Instance),
                 p => p.Name.Contains("Account", StringComparison.OrdinalIgnoreCase) && !p.Name.Equals("AccountKey", StringComparison.Ordinal));
@@ -39,12 +42,43 @@ public class DtoAuditTests
     }
 
     [Fact]
+    public void No_player_type_carries_an_account_and_every_owned_id_is_a_long_behind_a_base58_converter()
+    {
+        var types = typeof(PickChoiceRequest).Assembly.GetTypes().Where(t => t.Namespace == typeof(PickChoiceRequest).Namespace && t.IsPublic).ToList();
+        Assert.Contains(typeof(RosterResponse), types);
+        Assert.Contains(typeof(InventoryResponse), types);
+        Assert.Contains(typeof(PickChoiceResponse), types);
+        foreach (var p in types.SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)))
+        {
+            Assert.DoesNotContain("Account", p.Name, StringComparison.OrdinalIgnoreCase);
+            if (p.PropertyType != typeof(long) && p.PropertyType != typeof(long?)) continue;
+            if (p.Name == "Version" || p.Name == "ExpectedVersion") continue; // counters, not ids
+            Assert.Contains(p.GetCustomAttribute<JsonConverterAttribute>()?.ConverterType,
+                new[] { typeof(Base58IdJsonConverter), typeof(NullableBase58IdJsonConverter) });
+        }
+    }
+
+    [Fact]
+    public void Player_responses_serialize_owned_ids_as_base58_strings_never_numbers()
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        const long id = 9007199254740993; // 2^53 + 1
+        var operative = new OperativeDto(id, "def", true, 0, 1, 0, []);
+        var location = new LocationDto([new InstanceDto(id + 1, "item", true)], []);
+        var text = JsonSerializer.Serialize(new InventoryResponse(1, false, location, [new BagDto(id, location, new EquipmentDto(id + 1, null, null))]), web)
+            + JsonSerializer.Serialize(new RosterResponse(1, [operative]), web);
+        Assert.Contains($"\"operativeId\":\"{Base58Id.Format(id)}\"", text);
+        Assert.Contains($"\"itemId\":\"{Base58Id.Format(id + 1)}\"", text);
+        Assert.Contains($"\"weapon\":\"{Base58Id.Format(id + 1)}\",\"armor\":null,\"utility\":null", text);
+    }
+
+    [Fact]
     public void Responses_serialize_account_ids_as_base58_strings()
     {
         var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         const long id = 9007199254740993; // 2^53 + 1: a JSON number would lose it in JavaScript
         var expected = $"\"accountId\":\"{AccountId.Format(id)}\"";
-        Assert.Contains(expected, JsonSerializer.Serialize(new AuthEndpoints.MeResponse(id), web));
+        Assert.Contains(expected, JsonSerializer.Serialize(new AuthEndpoints.MeResponse(id, null), web));
         Assert.Contains(expected, JsonSerializer.Serialize(new AuthEndpoints.LoginResponse("at1_x", DateTimeOffset.UnixEpoch, id), web));
         Assert.Contains(expected, JsonSerializer.Serialize(new AdminEndpoints.CreateAccountResponse(id, Guid.Empty, "dk1_x"), web));
     }

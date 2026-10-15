@@ -62,7 +62,7 @@ public class AuthApiTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Login_returns_a_token_its_expiry_and_the_base58_account_id_and_me_returns_only_that_id()
+    public async Task Login_returns_a_token_its_expiry_and_the_base58_account_id_and_me_returns_that_id_with_the_inventory_version()
     {
         await using var api = await ApiServer.StartAsync(db, DevOn);
         var account = await admin.CreateAccountAsync("me-1", null, Op);
@@ -78,7 +78,7 @@ public class AuthApiTests : IAsyncLifetime
 
         var me = await api.Http.SendAsync(Me(token));
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account.AccountId)}\"}}", await me.Content.ReadAsStringAsync());
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account.AccountId)}\",\"inventoryVersion\":1}}", await me.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -273,6 +273,6 @@ public class AuthApiTests : IAsyncLifetime
         var token = await TokenAsync(api.Http, mine.AccountKey);
         var request = Me(token);
         request.RequestUri = new Uri($"/v1/me?accountId={AccountId.Format(other.AccountId)}", UriKind.Relative);
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(mine.AccountId)}\"}}", await (await api.Http.SendAsync(request)).Content.ReadAsStringAsync());
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(mine.AccountId)}\",\"inventoryVersion\":1}}", await (await api.Http.SendAsync(request)).Content.ReadAsStringAsync());
     }
 }

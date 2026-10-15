@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authentication;
 using Npgsql;
 using Blackglass.Accounts.Api.Auth;
+using Blackglass.Accounts.Api.Player;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
 using Blackglass.Accounts.Persistence.Migrations;
+using Blackglass.Accounts.Persistence.Player;
 
 namespace Blackglass.Accounts.Api;
 
@@ -57,6 +59,8 @@ public static class ServeCommand
         builder.Services.AddSingleton(auth);
         builder.Services.AddSingleton(new SessionStore(dataSource));
         builder.Services.AddSingleton(new AccountAdminStore(dataSource, catalogue));
+        builder.Services.AddSingleton(new PlayerReadStore(dataSource, catalogue));
+        builder.Services.AddSingleton(new PickStore(dataSource, catalogue));
         builder.Services.AddSingleton<LoginThrottle>();
         builder.Services.AddAuthentication(AccountClaims.Scheme)
             .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null);
@@ -72,6 +76,7 @@ public static class ServeCommand
         app.MapHealth(catalog.LatestVersion);
         app.MapAuth(auth);
         app.MapAdmin(auth);
+        app.MapPlayer();
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
     }

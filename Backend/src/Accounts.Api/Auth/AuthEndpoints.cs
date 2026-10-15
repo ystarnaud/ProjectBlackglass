@@ -5,6 +5,7 @@ using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Domain.Auth;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
+using Blackglass.Accounts.Persistence.Player;
 
 namespace Blackglass.Accounts.Api.Auth;
 
@@ -15,7 +16,7 @@ public static class AuthEndpoints
     public sealed record LoginResponse(string AccessToken, DateTimeOffset ExpiresAt,
         [property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId);
 
-    public sealed record MeResponse([property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId);
+    public sealed record MeResponse([property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId, long? InventoryVersion);
 
     /// <summary>The largest body login or the admin routes read: a key is 47 characters, an admin request a few hundred.</summary>
     public const int MaxBodyBytes = 4096;
@@ -55,8 +56,12 @@ public static class AuthEndpoints
             return Results.NoContent();
         }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
 
-        app.MapGet("/v1/me", (HttpContext http) => Results.Ok(new MeResponse(AccountClaims.AccountOf(http.User))))
-            .RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
+        app.MapGet("/v1/me", async (HttpContext http, PlayerReadStore players) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var account = AccountClaims.AccountOf(http.User);
+            return Results.Ok(new MeResponse(account, await players.GetInventoryVersionAsync(account, http.RequestAborted)));
+        }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
     }
 
     /// <summary>

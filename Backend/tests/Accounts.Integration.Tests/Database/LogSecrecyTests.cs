@@ -52,6 +52,20 @@ public class LogSecrecyTests
             var unknownToken = OpaqueSecret.New("at1");
             foreach (var bearer in new[] { token, unknownToken.Text, "garbage", routeToken })
                 await api.Http.SendAsync(Bearer(HttpMethod.Get, "/v1/me", bearer));
+            // The player routes (Stage 4): served, refused for the token, refused for the id or the body, and refused by the rules.
+            foreach (var bearer in new[] { token, unknownToken.Text, "garbage", routeToken })
+            {
+                var roster = await api.Http.SendAsync(Bearer(HttpMethod.Get, "/v1/roster", bearer));
+                var inventory = await api.Http.SendAsync(Bearer(HttpMethod.Get, "/v1/inventory", bearer));
+                var served = bearer == token || bearer == routeToken;
+                Assert.Equal(served, roster.IsSuccessStatusCode && inventory.IsSuccessStatusCode);
+                foreach (var (id, body) in new[] { ("2", "{\"choiceId\":\"combat\",\"expectedVersion\":1}"), ("2", "{\"choiceId\":\"combat\",\"expectedVersion\":1,\"accountId\":\"2\"}"), ("0", "{not json") })
+                {
+                    var pick = Bearer(HttpMethod.Post, $"/v1/operatives/{id}/choices", bearer);
+                    pick.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+                    await api.Http.SendAsync(pick);
+                }
+            }
             await api.Http.SendAsync(Bearer(HttpMethod.Post, "/v1/auth/logout", token));
             await api.Http.SendAsync(Bearer(HttpMethod.Post, "/v1/auth/logout", token)); // the repeat
 
@@ -60,6 +74,7 @@ public class LogSecrecyTests
             try
             {
                 await api.Http.SendAsync(Bearer(HttpMethod.Get, "/v1/me", routeToken));
+                await api.Http.SendAsync(Bearer(HttpMethod.Get, "/v1/roster", routeToken));
                 await api.Http.PostAsJsonAsync("/v1/auth/dev/login", new { accountKey = account.AccountKey.Text });
             }
             finally { await ApiServer.SetDatabaseReachableAsync(db, true); }
