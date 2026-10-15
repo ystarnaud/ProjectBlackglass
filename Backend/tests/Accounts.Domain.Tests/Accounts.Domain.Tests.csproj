@@ -20,5 +20,6 @@
   <ItemGroup>
     <None Include="..\..\catalogue\catalogue.json" Link="catalogue\catalogue.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\contracts\catalogue\*" Link="contracts\catalogue\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\contracts\progression\*" Link="contracts\progression\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

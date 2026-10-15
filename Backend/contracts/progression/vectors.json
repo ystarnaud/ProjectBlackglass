@@ -1,0 +1,40 @@
+{
+  "track": { "xpThresholds": [0, 100, 250, 450, 700], "choiceIds": ["ability", "combat", "mobility", "survivability"] },
+  "cases": [
+    { "name": "xp-minus-1-is-rank-1", "xp": -1, "picksMade": 0, "choiceId": "combat", "rank": 1, "pending": 0, "outcome": "NoPendingPick" },
+    { "name": "xp-0-is-rank-1", "xp": 0, "picksMade": 0, "choiceId": "combat", "rank": 1, "pending": 0, "outcome": "NoPendingPick" },
+    { "name": "xp-99-is-rank-1", "xp": 99, "picksMade": 0, "choiceId": "combat", "rank": 1, "pending": 0, "outcome": "NoPendingPick" },
+    { "name": "xp-100-is-rank-2", "xp": 100, "picksMade": 0, "choiceId": "combat", "rank": 2, "pending": 1, "outcome": "ok" },
+    { "name": "xp-249-is-rank-2", "xp": 249, "picksMade": 0, "choiceId": "combat", "rank": 2, "pending": 1, "outcome": "ok" },
+    { "name": "xp-250-is-rank-3", "xp": 250, "picksMade": 0, "choiceId": "combat", "rank": 3, "pending": 2, "outcome": "ok" },
+    { "name": "xp-449-is-rank-3", "xp": 449, "picksMade": 0, "choiceId": "combat", "rank": 3, "pending": 2, "outcome": "ok" },
+    { "name": "xp-450-is-rank-4", "xp": 450, "picksMade": 0, "choiceId": "combat", "rank": 4, "pending": 3, "outcome": "ok" },
+    { "name": "xp-699-is-rank-4", "xp": 699, "picksMade": 0, "choiceId": "combat", "rank": 4, "pending": 3, "outcome": "ok" },
+    { "name": "xp-700-is-max-rank", "xp": 700, "picksMade": 0, "choiceId": "combat", "rank": 5, "pending": 4, "outcome": "ok" },
+    { "name": "xp-701-stays-max-rank", "xp": 701, "picksMade": 0, "choiceId": "combat", "rank": 5, "pending": 4, "outcome": "ok" },
+    { "name": "xp-int-max-stays-max-rank", "xp": 2147483647, "picksMade": 0, "choiceId": "combat", "rank": 5, "pending": 4, "outcome": "ok" },
+
+    { "name": "picks-1-of-4-at-max-rank", "xp": 700, "picksMade": 1, "choiceId": "combat", "rank": 5, "pending": 3, "outcome": "ok" },
+    { "name": "picks-3-of-4-at-max-rank", "xp": 700, "picksMade": 3, "choiceId": "combat", "rank": 5, "pending": 1, "outcome": "ok" },
+    { "name": "picks-4-of-4-leaves-none", "xp": 700, "picksMade": 4, "choiceId": "combat", "rank": 5, "pending": 0, "outcome": "NoPendingPick" },
+    { "name": "picks-6-more-than-ranks-allow", "xp": 700, "picksMade": 6, "choiceId": "combat", "rank": 5, "pending": 0, "outcome": "NoPendingPick" },
+    { "name": "picks-1-of-1-at-rank-2", "xp": 100, "picksMade": 1, "choiceId": "combat", "rank": 2, "pending": 0, "outcome": "NoPendingPick" },
+    { "name": "picks-1-of-2-at-rank-3", "xp": 250, "picksMade": 1, "choiceId": "combat", "rank": 3, "pending": 1, "outcome": "ok" },
+    { "name": "picks-2-of-2-at-rank-3", "xp": 250, "picksMade": 2, "choiceId": "combat", "rank": 3, "pending": 0, "outcome": "NoPendingPick" },
+    { "name": "picks-4-at-rank-1-more-than-ranks-allow", "xp": 0, "picksMade": 4, "choiceId": "combat", "rank": 1, "pending": 0, "outcome": "NoPendingPick" },
+
+    { "name": "known-choice-ability", "xp": 100, "picksMade": 0, "choiceId": "ability", "rank": 2, "pending": 1, "outcome": "ok" },
+    { "name": "known-choice-mobility", "xp": 100, "picksMade": 0, "choiceId": "mobility", "rank": 2, "pending": 1, "outcome": "ok" },
+    { "name": "known-choice-survivability", "xp": 100, "picksMade": 0, "choiceId": "survivability", "rank": 2, "pending": 1, "outcome": "ok" },
+    { "name": "unknown-choice-blink", "xp": 100, "picksMade": 0, "choiceId": "blink", "rank": 2, "pending": 1, "outcome": "UnknownChoice" },
+    { "name": "empty-choice", "xp": 100, "picksMade": 0, "choiceId": "", "rank": 2, "pending": 1, "outcome": "UnknownChoice" },
+    { "name": "null-choice", "xp": 100, "picksMade": 0, "choiceId": null, "rank": 2, "pending": 1, "outcome": "UnknownChoice" },
+    { "name": "wrong-case-choice", "xp": 100, "picksMade": 0, "choiceId": "Combat", "rank": 2, "pending": 1, "outcome": "UnknownChoice" },
+    { "name": "same-choice-again-is-allowed", "xp": 250, "picksMade": 1, "choiceId": "combat", "rank": 3, "pending": 1, "outcome": "ok" },
+
+    { "name": "unknown-choice-with-no-pending-pick", "xp": 0, "picksMade": 0, "choiceId": "blink", "rank": 1, "pending": 0, "outcome": "UnknownChoice" },
+    { "name": "null-choice-with-no-pending-pick", "xp": 0, "picksMade": 0, "choiceId": null, "rank": 1, "pending": 0, "outcome": "UnknownChoice" },
+    { "name": "empty-choice-with-no-pending-pick", "xp": 700, "picksMade": 4, "choiceId": "", "rank": 5, "pending": 0, "outcome": "UnknownChoice" },
+    { "name": "unknown-choice-beyond-max-picks", "xp": 700, "picksMade": 6, "choiceId": "blink", "rank": 5, "pending": 0, "outcome": "UnknownChoice" }
+  ]
+}
