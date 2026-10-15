@@ -63,6 +63,21 @@ public class AdminTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_cli_reports_the_starter_it_granted_between_the_key_and_the_correlation_id()
+    {
+        var (code, output, _) = await CliAsync("account", "create", "--operator", "ops", "--reason", "test");
+        Assert.Equal(ExitCodes.Ok, code);
+        var plan = Blackglass.Accounts.Domain.Inventory.StarterPlanner.For(1, Blackglass.Accounts.Domain.Catalogue.GameCatalogue.Embedded.Document);
+        Assert.Equal("granted", Field(output, "starterGranted"));
+        Assert.Equal(plan.Operatives.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), Field(output, "starterOperatives"));
+        Assert.Equal(plan.Instances.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), Field(output, "starterInstances"));
+        Assert.Equal(plan.Stacks.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), Field(output, "starterStacks"));
+        Assert.True(plan.Operatives.Count > 0 && plan.Instances.Count > 0 && plan.Stacks.Count > 0);
+        var names = output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r').Split('=')[0]).ToArray();
+        Assert.Equal(["accountId", "credentialId", "accountKey", "starterGranted", "starterOperatives", "starterInstances", "starterStacks", "correlationId"], names);
+    }
+
+    [Fact]
     public async Task The_cli_refuses_an_invalid_catalogue_before_touching_the_database()
     {
         var error = new StringWriter();

@@ -55,6 +55,13 @@ public static class AdminCommand
                     output.WriteLine($"accountId={AccountId.Format(issued.AccountId)}");
                     output.WriteLine($"credentialId={issued.CredentialId}");
                     output.WriteLine($"accountKey={issued.AccountKey.Text}");
+                    if (issued.Starter is { } starter)
+                    {
+                        output.WriteLine($"starterGranted={(starter.Granted ? "granted" : "already")}");
+                        output.WriteLine($"starterOperatives={starter.Operatives}");
+                        output.WriteLine($"starterInstances={starter.Instances}");
+                        output.WriteLine($"starterStacks={starter.Stacks}");
+                    }
                     break;
                 case "credential-revoke":
                     var revoked = await store.RevokeCredentialAsync(a.Credential!.Value, a.Operator, ct);

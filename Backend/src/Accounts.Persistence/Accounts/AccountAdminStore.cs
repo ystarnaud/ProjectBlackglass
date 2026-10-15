@@ -7,7 +7,8 @@ using Blackglass.Accounts.Persistence.Player;
 
 namespace Blackglass.Accounts.Persistence.Accounts;
 
-public sealed record IssuedCredential(long AccountId, Guid CredentialId, OpaqueSecret AccountKey);
+/// <param name="Starter">What account creation provisioned; null for a rotation.</param>
+public sealed record IssuedCredential(long AccountId, Guid CredentialId, OpaqueSecret AccountKey, ProvisionResult? Starter = null);
 
 /// <summary>What an operator is about to change (the admin CLI shows it before asking for confirmation).</summary>
 public sealed record AccountSummary(long AccountId, string Status, string? Handle, string? DisplayName, DateTime CreatedAt, Guid? LiveCredentialId, int LiveSessions, bool StarterGranted);
@@ -78,7 +79,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, GameCatalogue? catalo
         await AuditAsync(conn, tx, op, "account_create", accountId, credentialId,
             new { handle, displayName, starter = new { catalogueVersion = starter.CatalogueVersion, operatives = starter.Operatives, instances = starter.Instances, stacks = starter.Stacks } }, ct);
         await tx.CommitAsync(ct);
-        return new IssuedCredential(accountId, credentialId, key);
+        return new IssuedCredential(accountId, credentialId, key, starter);
     }
 
     public async Task<IssuedCredential> RotateCredentialAsync(long accountId, OperatorContext op, CancellationToken ct = default)
