@@ -923,6 +923,32 @@ Design: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` (revision
     - `origin_ref` strings name the account by its decimal `bigint`.
     - Manifests, tickets and API bodies carry the Base58 string.
     - Sequential ids leak the account count and creation order. This is accepted; no endpoint grants anything on the strength of an id.
+- **Amendment 2 (owner rulings D1–D6, 2026-10-15, Stage 4): owned operatives and items get sequential `BIGINT` ids; accounts are provisioned when they are created.** Amendment 1 and the record above stand as history. This amendment settles what amendment 1 left open ("operative and item-instance ids are revisited, if at all, in their own stages"). It supersedes spec revision 2.3's UUIDv7 operative ids, its UUIDv5 minted-item ids, and the lazy provisioning recommended in the first Stage 4 plan draft.
+  - **Decided:**
+    - **Ids.** Owned operatives and non-stackable owned item instances are `bigint generated always as identity`, minted only by PostgreSQL. They are canonical Base58 strings outside the database, with the same codec as accounts, and `long` in the backend. Catalogue definition ids (item ids, operative definition GUIDs, choice, role and ability ids) are unchanged and are never confused with instance ids. Consumable stacks stay fungible quantities with no per-stack id.
+    - **Exactly-once minting without UUIDv5.** Every permanent instance has an `(origin, origin_ref)` unique key. Minting is `insert … on conflict (origin, origin_ref) do nothing returning id`; when nothing comes back, it reads the existing row and checks it belongs to the same account and definition. So:
+      - a retry after a commit finds the committed row;
+      - a retry after a rollback mints fresh;
+      - concurrent mints of one reference converge on one id;
+      - every unit of a multi-unit line has its own reference.
+    - **Provisioning.** Starter operatives, inventory, equipment and the starter-granted state are created in the same transaction as the account, by the CLI and by `POST /dev/v1/accounts`. A failure rolls the account back too. Accounts created before Stage 4 get them through an explicit, audited, idempotent operator backfill. The catalogue version used is recorded, and a later catalogue never re-grants or replaces an existing starter. Reads never write.
+    - **Starter references** name the source, account, destination and item definition, plus a disambiguator: `starter:a<account>:op:<operative definition>` for an operative, `…:op:<operative definition>:item:<item definition>:n<k>` for a bag item, and `starter:a<account>:stash:item:<item definition>:n<k>` for a stash item. `k` counts the units of that item for that destination, so identical items each get their own id and no reference depends on an array index alone.
+    - **Bag capacity (D1).** A Unity `InventoryRules` asset (8 entries) is exported through catalogue format 2. The backend validates the exported rule and holds no constant of its own. An EditMode test catches drift from the offline scene's `SquadInventory.bagCapacity`.
+    - **Shared rules (D2).** Golden vectors for starter grants and advancement picks run in both xUnit and Unity EditMode.
+    - **`GET /v1/me` (D6)** gains only `inventoryVersion`.
+  - **Unchanged:**
+    - mission attempts (UUIDv7), sessions and credentials (UUID), and opaque tokens;
+    - offline Unity id generation (`Guid.NewGuid()` instance ids, definition-GUID operative ids): Unity's models already hold ids as opaque strings, so Base58 ids need no gameplay change.
+  - **Why:** one id policy for everything a player owns; compact, well-indexed keys for the inventory tables that later stages lock and join heavily; short ids for support. Atomic provisioning means an account never exists half-provisioned, and keeps reads free of side effects.
+  - **Rejected:**
+    - UUIDv5 ids derived from `origin_ref`: the origin reference plus atomic transactions already give exactly-once minting, without a second id scheme;
+    - UUIDv7 owned ids;
+    - lazy provisioning on first read (a GET with side effects);
+    - a backend constant or table for bag capacity (two sources of truth).
+  - **Implications:**
+    - an owned id isn't known until its row is inserted, so settlement (Stage 8+) mints first, then reads the ids back for receipts;
+    - sequential owned ids are guessable, so every player query is scoped by the session's account, and a guessed id of another account is indistinguishable from an unknown one;
+    - the catalogue's `formatVersion` is 2 from Stage 4, so the `catalogueVersion` changes once.
 
 ## 049. Phase 13 attempts: lifecycle, energy, insurance and loss rules (2026-10-14)
 
