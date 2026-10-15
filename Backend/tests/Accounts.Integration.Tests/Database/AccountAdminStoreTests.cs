@@ -195,6 +195,28 @@ public class AccountAdminStoreTests : IAsyncLifetime
         Assert.Empty(await InvariantFailuresAsync(db));
     }
 
+    [Fact]
+    public async Task A_lifecycle_call_waits_for_the_account_lock_and_stamps_its_rows_after_the_wait()
+    {
+        var first = await store.CreateAccountAsync(null, null, Op);
+        IssuedCredential second;
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        await using (var tx = await conn.BeginTransactionAsync())
+        {
+            await conn.ExecuteAsync("select account_id from accounts where account_id = @a for update", new { a = first.AccountId }, tx);
+            var rotation = store.RotateCredentialAsync(first.AccountId, Op);
+            await WaitUntilABackendWaitsOnALockAsync(db);
+            Assert.False(rotation.IsCompleted);
+            await tx.CommitAsync();
+            second = await rotation;
+        }
+        var revokedAt = await ScalarAsync<DateTime>("select revoked_at from dev_credentials where credential_id = @c", new { c = first.CredentialId });
+        var createdAt = await ScalarAsync<DateTime>("select created_at from dev_credentials where credential_id = @c", new { c = second.CredentialId });
+        var auditedAt = await ScalarAsync<DateTime>("select created_at from operator_actions where action = 'credential_rotate'");
+        Assert.True(createdAt >= revokedAt, $"the successor {createdAt:O} was created before its predecessor was revoked {revokedAt:O}");
+        Assert.True(auditedAt >= revokedAt, $"the audit row {auditedAt:O} precedes the change it records {revokedAt:O}");
+    }
+
     sealed record AuditRow(string Action, long? AccountId, Guid? CredentialId, Guid CorrelationId, string Operator, string Reason, string Result);
 
     async Task<IReadOnlyList<AuditRow>> QueryAuditAsync()

@@ -38,6 +38,19 @@ public static class AccountTestKit
         return sessionId;
     }
 
+    /// <summary>Returns once some backend of this database waits on a row lock (polls pg_stat_activity; never sleeps).</summary>
+    public static async Task WaitUntilABackendWaitsOnALockAsync(TestDatabase db)
+    {
+        await using var su = await db.AsSuperuser().OpenConnectionAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (await su.ExecuteScalarAsync<long>(
+                   "select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'") == 0)
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("Nothing waited on the lock: the call under test takes no lock.");
+            await Task.Yield();
+        }
+    }
+
     public static Task<IReadOnlyList<string>> InvariantFailuresAsync(TestDatabase db) =>
         InvariantRunner.RunAsync(db.AsSuperuser(), MigrationCatalog.Embedded.LatestVersion, InvariantRunner.RealDirectory);
 }

@@ -164,7 +164,7 @@ public class SessionStoreTests : IAsyncLifetime
         await conn.ExecuteAsync("select account_id from accounts where account_id = @a for update", new { a = account.AccountId }, tx);
 
         var login = sessions.LoginAsync(account.AccountKey.Hash(), 60);
-        await WaitUntilABackendWaitsOnALockAsync();
+        await WaitUntilABackendWaitsOnALockAsync(db);
         Assert.False(login.IsCompleted);
 
         if (how == "suspend")
@@ -233,15 +233,24 @@ public class SessionStoreTests : IAsyncLifetime
         for (var i = 0; i < 5; i++) Assert.Null(await sessions.AuthenticateAsync(session.AccessToken.Hash()));
     }
 
-    async Task WaitUntilABackendWaitsOnALockAsync()
+    [Fact]
+    public async Task A_session_that_waited_for_the_account_lock_is_stamped_after_the_wait()
     {
-        await using var su = await db.AsSuperuser().OpenConnectionAsync();
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (await su.ExecuteScalarAsync<long>(
-                   "select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'") == 0)
+        var account = await admin.CreateAccountAsync(null, null, Op);
+        DateTime heldUntil;
+        IssuedSession? session;
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        await using (var tx = await conn.BeginTransactionAsync())
         {
-            if (DateTime.UtcNow > deadline) throw new TimeoutException("No login waited on the account lock: the login takes no lock.");
-            await Task.Yield();
+            await conn.ExecuteAsync("select account_id from accounts where account_id = @a for update", new { a = account.AccountId }, tx);
+            var login = sessions.LoginAsync(account.AccountKey.Hash(), 60);
+            await WaitUntilABackendWaitsOnALockAsync(db);
+            heldUntil = await conn.ExecuteScalarAsync<DateTime>("select clock_timestamp()", transaction: tx);
+            await tx.CommitAsync();
+            session = await login;
         }
+        var createdAt = await ScalarAsSuperuserAsync<DateTime>(db, "select created_at from auth_sessions where session_id = @s", new { s = session!.SessionId });
+        Assert.True(createdAt >= heldUntil, $"created_at {createdAt:O} precedes the lock release {heldUntil:O}");
+        Assert.Equal(TimeSpan.FromMinutes(60), session.ExpiresAt.UtcDateTime - createdAt);
     }
 }

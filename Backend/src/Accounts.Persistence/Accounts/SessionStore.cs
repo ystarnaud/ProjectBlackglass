@@ -26,7 +26,7 @@ public sealed class SessionStore(NpgsqlDataSource db)
         "select credential_id from dev_credentials where secret_hash = @keyHash and account_id = @accountId and revoked_at is null for share";
     const string InsertSessionSql = """
         insert into auth_sessions (session_id, account_id, credential_id, token_hash, expires_at)
-        values (@sessionId, @accountId, @credentialId, @tokenHash, now() + make_interval(mins => @minutes))
+        values (@sessionId, @accountId, @credentialId, @tokenHash, statement_timestamp() + make_interval(mins => @minutes))
         returning expires_at
         """;
 

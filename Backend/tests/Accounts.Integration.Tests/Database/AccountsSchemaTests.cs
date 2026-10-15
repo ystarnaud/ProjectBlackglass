@@ -98,6 +98,16 @@ public class AccountsSchemaTests : IAsyncLifetime
     [InlineData("delete from auth_sessions", "42501")]
     [InlineData("update operator_actions set reason = 'x'", "42501")]
     [InlineData("delete from operator_actions", "42501")]
+    [InlineData("insert into operator_actions (id, correlation_id, operator, action, reason, checks, result) overriding system value values (5000, gen_random_uuid(), 'op', 'account_create', 'r', '{}', '{}')", "42501")]
+    [InlineData("insert into operator_actions (correlation_id, operator, action, reason, checks, result, created_at) values (gen_random_uuid(), 'op', 'account_create', 'r', '{}', '{}', '2000-01-01')", "42501")]
+    [InlineData("insert into dev_credentials (credential_id, account_id, secret_hash, created_at) values (gen_random_uuid(), 1, decode(repeat('03', 32), 'hex'), '2000-01-01')", "42501")]
+    [InlineData("insert into dev_credentials (credential_id, account_id, secret_hash, revoked_at) values (gen_random_uuid(), 1, decode(repeat('03', 32), 'hex'), now())", "42501")]
+    [InlineData("insert into auth_sessions (session_id, account_id, credential_id, token_hash, expires_at, created_at) values (gen_random_uuid(), 1, gen_random_uuid(), decode(repeat('04', 32), 'hex'), now() + interval '1 hour', '2000-01-01')", "42501")]
+    [InlineData("insert into auth_sessions (session_id, account_id, credential_id, token_hash, expires_at, revoked_at) values (gen_random_uuid(), 1, gen_random_uuid(), decode(repeat('04', 32), 'hex'), now() + interval '1 hour', now())", "42501")]
+    [InlineData("insert into account_identities (provider, subject, account_id, created_at) values ('dev', 'backdated', 1, '2000-01-01')", "42501")]
+    [InlineData("insert into accounts (status, created_at) values ('active', '2000-01-01')", "42501")]
+    [InlineData("select nextval('accounts_account_id_seq')", "42501")]
+    [InlineData("select nextval('operator_actions_id_seq')", "42501")]
     [InlineData("alter table accounts add column x int", "42501")]
     [InlineData("alter table accounts alter column account_id restart with 1", "42501")]
     [InlineData("select setval(pg_get_serial_sequence('accounts', 'account_id'), 1)", "42501")]
@@ -127,11 +137,11 @@ public class AccountsSchemaTests : IAsyncLifetime
             """)).ToList();
         Assert.Equal(new[]
         {
-            "account_identities:INSERT,SELECT",
+            "account_identities:SELECT",
             "accounts:SELECT",
-            "auth_sessions:INSERT,SELECT",
-            "dev_credentials:INSERT,SELECT",
-            "operator_actions:INSERT,SELECT",
+            "auth_sessions:SELECT",
+            "dev_credentials:SELECT",
+            "operator_actions:SELECT",
             "schema_migrations:SELECT",
         }, tables);
         var columns = (await conn.QueryAsync<string>("""
@@ -146,11 +156,59 @@ public class AccountsSchemaTests : IAsyncLifetime
             """)).ToList();
         Assert.Equal(new[]
         {
+            "account_identities.account_id:INSERT",
+            "account_identities.provider:INSERT",
+            "account_identities.subject:INSERT",
             "accounts.display_name:INSERT,UPDATE",
             "accounts.status:INSERT,UPDATE",
+            "auth_sessions.account_id:INSERT",
+            "auth_sessions.credential_id:INSERT",
+            "auth_sessions.expires_at:INSERT",
             "auth_sessions.revoked_at:UPDATE",
+            "auth_sessions.session_id:INSERT",
+            "auth_sessions.token_hash:INSERT",
+            "dev_credentials.account_id:INSERT",
+            "dev_credentials.credential_id:INSERT",
             "dev_credentials.revoked_at:UPDATE",
+            "dev_credentials.secret_hash:INSERT",
+            "operator_actions.account_id:INSERT",
+            "operator_actions.action:INSERT",
+            "operator_actions.attempt_id:INSERT",
+            "operator_actions.checks:INSERT",
+            "operator_actions.correlation_id:INSERT",
+            "operator_actions.credential_id:INSERT",
+            "operator_actions.host_id:INSERT",
+            "operator_actions.operator:INSERT",
+            "operator_actions.reason:INSERT",
+            "operator_actions.result:INSERT",
         }, columns);
+        // Identity sequences need no privilege for inserts; the app holds none, so it can't burn or reset ids.
+        Assert.Empty(await conn.QueryAsync<string>(
+            "select relname::text from pg_class where case when relkind = 'S' then has_sequence_privilege('accounts_app', oid, 'USAGE, SELECT, UPDATE') else false end"));
+        Assert.Equal(2L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'"));
+    }
+
+    [Fact]
+    public async Task The_app_may_lock_account_and_credential_rows_for_share_as_login_does()
+    {
+        var (account, credential) = await SeedAsync();
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+        Assert.Equal("active", await conn.ExecuteScalarAsync<string>("select status from accounts where account_id = @account for share", new { account }, tx));
+        Assert.Equal(credential, await conn.ExecuteScalarAsync<Guid>("select credential_id from dev_credentials where account_id = @account for share", new { account }, tx));
+    }
+
+    [Fact]
+    public async Task Rows_are_stamped_when_their_statement_runs_not_when_their_transaction_began()
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        var defaults = (await conn.QueryAsync<string>(
+            "select table_name || '=' || column_default from information_schema.columns where table_schema = 'public' and column_name = 'created_at' and table_name <> 'schema_migrations' order by 1")).ToList();
+        Assert.Equal(new[]
+        {
+            "account_identities=statement_timestamp()", "accounts=statement_timestamp()", "auth_sessions=statement_timestamp()",
+            "dev_credentials=statement_timestamp()", "operator_actions=statement_timestamp()",
+        }, defaults);
     }
 
     [Fact]
