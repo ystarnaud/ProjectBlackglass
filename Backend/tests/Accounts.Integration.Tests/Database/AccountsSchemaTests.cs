@@ -1,0 +1,279 @@
+using Dapper;
+using Npgsql;
+using Blackglass.Accounts.IntegrationTests.Support;
+using Blackglass.Accounts.Persistence.Migrations;
+
+namespace Blackglass.Accounts.IntegrationTests.Database;
+
+/// <summary>Migration 0001 against a real PostgreSQL 17: bigint account ids minted only by PostgreSQL, the constraints,
+/// the application role's exact privileges, the function EXECUTE revoke, and the invariants.</summary>
+[Trait("Requires", "Postgres")]
+public class AccountsSchemaTests : IAsyncLifetime
+{
+    TestDatabase db = null!;
+    const string Hash32 = "decode(repeat('ab', 32), 'hex')";
+
+    public async Task InitializeAsync()
+    {
+        db = await (await TestCluster.Instance).CreateDatabaseAsync();
+        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync();
+    }
+
+    public async Task DisposeAsync() => await db.DisposeAsync();
+
+    static async Task<string> SqlStateOf(NpgsqlDataSource ds, string sql, object? args = null)
+    {
+        await using var conn = await ds.OpenConnectionAsync();
+        var e = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(sql, args));
+        return e.SqlState;
+    }
+
+    async Task<long> NewAccountAsync()
+    {
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        return await conn.ExecuteScalarAsync<long>("insert into accounts (status) values ('active') returning account_id");
+    }
+
+    async Task<(long Account, Guid Credential)> SeedAsync(string? handle = null)
+    {
+        var account = await NewAccountAsync();
+        var credential = Guid.CreateVersion7();
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        if (handle is not null)
+            await conn.ExecuteAsync("insert into account_identities (provider, subject, account_id) values ('dev', @handle, @account)", new { handle, account });
+        await conn.ExecuteAsync("insert into dev_credentials (credential_id, account_id, secret_hash) values (@credential, @account, decode(md5(@seed) || md5(@seed), 'hex'))",
+            new { credential, account, seed = credential.ToString() });
+        return (account, credential);
+    }
+
+    async Task<T> SuperScalarAsync<T>(string sql, object? args = null)
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        return (await conn.ExecuteScalarAsync<T>(sql, args))!;
+    }
+
+    [Fact]
+    public void The_schema_is_at_version_1_or_later() => Assert.True(MigrationCatalog.Embedded.LatestVersion >= 1);
+
+    [Fact]
+    public async Task PostgreSQL_generates_sequential_bigint_account_ids()
+    {
+        var ids = new List<long> { await NewAccountAsync(), await NewAccountAsync(), await NewAccountAsync() };
+        Assert.Equal(new long[] { 1, 2, 3 }, ids);
+        Assert.Equal("bigint", await SuperScalarAsync<string>("select data_type from information_schema.columns where table_name = 'accounts' and column_name = 'account_id'"));
+        Assert.Equal("ALWAYS", await SuperScalarAsync<string>("select identity_generation from information_schema.columns where table_name = 'accounts' and column_name = 'account_id'"));
+    }
+
+    [Fact]
+    public async Task A_rolled_back_insert_leaves_a_gap_and_no_id_is_ever_reused()
+    {
+        var first = await NewAccountAsync();
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        await using (var tx = await conn.BeginTransactionAsync())
+        {
+            await conn.ExecuteScalarAsync<long>("insert into accounts (status) values ('active') returning account_id", transaction: tx);
+            await tx.RollbackAsync();
+        }
+        var next = await NewAccountAsync();
+        Assert.Equal(first + 2, next); // the rolled-back id is burned, never handed out
+        Assert.Equal(2L, await SuperScalarAsync<long>("select count(distinct account_id) from accounts"));
+    }
+
+    [Theory]
+    [InlineData("insert into accounts (account_id) values (999)", "428C9")]                              // generated always
+    [InlineData("insert into accounts (account_id) overriding system value values (999)", "42501")]     // and no column privilege
+    [InlineData("update accounts set account_id = 999", "428C9")]
+    [InlineData("update accounts set account_id = default", "42501")]
+    [InlineData("update accounts set created_at = now()", "42501")]
+    [InlineData("delete from accounts", "42501")]
+    [InlineData("truncate accounts cascade", "42501")]
+    [InlineData("update account_identities set account_id = 1", "42501")]
+    [InlineData("delete from account_identities", "42501")]
+    [InlineData("update dev_credentials set account_id = 1", "42501")]
+    [InlineData("update dev_credentials set secret_hash = decode(repeat('00', 32), 'hex')", "42501")]
+    [InlineData("delete from dev_credentials", "42501")]
+    [InlineData("update auth_sessions set account_id = 1", "42501")]
+    [InlineData("update auth_sessions set token_hash = decode(repeat('00', 32), 'hex')", "42501")]
+    [InlineData("update auth_sessions set expires_at = now() + interval '1 year'", "42501")]
+    [InlineData("delete from auth_sessions", "42501")]
+    [InlineData("update operator_actions set reason = 'x'", "42501")]
+    [InlineData("delete from operator_actions", "42501")]
+    [InlineData("alter table accounts add column x int", "42501")]
+    [InlineData("alter table accounts alter column account_id restart with 1", "42501")]
+    [InlineData("select setval(pg_get_serial_sequence('accounts', 'account_id'), 1)", "42501")]
+    public async Task The_app_cannot_choose_change_or_remove_ids_and_keys(string sql, string sqlState)
+    {
+        await SeedAsync("victim");
+        Assert.Equal(sqlState, await SqlStateOf(db.AsApp(), sql));
+    }
+
+    [Fact]
+    public async Task The_app_may_change_only_status_display_name_and_revocation_times()
+    {
+        var (account, credential) = await SeedAsync("allowed");
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await conn.ExecuteAsync("update accounts set status = 'suspended', display_name = 'Shown' where account_id = @account", new { account });
+        await conn.ExecuteAsync("update dev_credentials set revoked_at = now() where credential_id = @credential", new { credential });
+        await conn.ExecuteAsync("insert into accounts (display_name) values ('Second')");
+    }
+
+    [Fact]
+    public async Task The_app_holds_exactly_the_expected_table_and_column_privileges()
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        var tables = (await conn.QueryAsync<string>("""
+            select table_name || ':' || string_agg(privilege_type, ',' order by privilege_type)
+            from information_schema.role_table_grants where grantee = 'accounts_app' group by table_name order by table_name
+            """)).ToList();
+        Assert.Equal(new[]
+        {
+            "account_identities:INSERT,SELECT",
+            "accounts:SELECT",
+            "auth_sessions:INSERT,SELECT",
+            "dev_credentials:INSERT,SELECT",
+            "operator_actions:INSERT,SELECT",
+            "schema_migrations:SELECT",
+        }, tables);
+        var columns = (await conn.QueryAsync<string>("""
+            select table_name || '.' || column_name || ':' || string_agg(privilege_type, ',' order by privilege_type)
+            from information_schema.column_privileges
+            where grantee = 'accounts_app' and privilege_type in ('INSERT', 'UPDATE')
+              and (table_name, column_name, privilege_type) not in (
+                select table_name, column_name, privilege_type from information_schema.column_privileges c
+                join information_schema.role_table_grants t using (table_name, privilege_type)
+                where c.grantee = 'accounts_app' and t.grantee = 'accounts_app')
+            group by table_name, column_name order by 1
+            """)).ToList();
+        Assert.Equal(new[]
+        {
+            "accounts.display_name:INSERT,UPDATE",
+            "accounts.status:INSERT,UPDATE",
+            "auth_sessions.revoked_at:UPDATE",
+            "dev_credentials.revoked_at:UPDATE",
+        }, columns);
+    }
+
+    [Fact]
+    public async Task Every_account_id_column_is_bigint_and_other_ids_stay_uuid()
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        var types = (await conn.QueryAsync<(string Table, string Column, string Type)>("""
+            select table_name, column_name, data_type from information_schema.columns
+            where table_schema = 'public' and column_name in ('account_id', 'credential_id', 'session_id', 'correlation_id', 'attempt_id')
+            order by table_name, column_name
+            """)).ToList();
+        Assert.All(types.Where(t => t.Column == "account_id"), t => Assert.Equal("bigint", t.Type));
+        Assert.All(types.Where(t => t.Column != "account_id"), t => Assert.Equal("uuid", t.Type));
+        Assert.Equal(["account_identities", "accounts", "auth_sessions", "dev_credentials", "operator_actions"],
+            types.Where(t => t.Column == "account_id").Select(t => t.Table).ToArray());
+    }
+
+    [Theory]
+    [InlineData("insert into accounts (status) values ('deleted')")]
+    [InlineData("insert into accounts (display_name) values ('')")]
+    [InlineData("insert into accounts (display_name) values (E'two\\nlines')")]
+    [InlineData("insert into accounts (display_name) values (repeat('n', 65))")]
+    [InlineData("insert into account_identities (provider, subject, account_id) values ('google', 'x', @a)")]
+    [InlineData("insert into account_identities (provider, subject, account_id) values ('dev', 'Upper', @a)")]
+    [InlineData("insert into account_identities (provider, subject, account_id) values ('dev', E'tester\\n', @a)")]
+    [InlineData("insert into account_identities (provider, subject, account_id) values ('dev', repeat('a', 65), @a)")]
+    [InlineData("insert into dev_credentials (credential_id, account_id, secret_hash) values (gen_random_uuid(), @a, '\\x00')")]
+    public async Task Check_constraints_refuse_bad_rows(string sql)
+    {
+        var a = await NewAccountAsync();
+        Assert.Equal("23514", await SqlStateOf(db.AsApp(), sql, new { a }));
+    }
+
+    [Fact]
+    public async Task A_non_positive_account_id_is_refused_even_for_the_superuser() =>
+        Assert.Equal("23514", await SqlStateOf(db.AsSuperuser(), "insert into accounts (account_id) overriding system value values (0)"));
+
+    [Theory]
+    [InlineData("insert into account_identities (provider, subject, account_id) values ('dev', 'ghost', 999)")]
+    [InlineData("insert into dev_credentials (credential_id, account_id, secret_hash) values (gen_random_uuid(), 999, decode(repeat('01', 32), 'hex'))")]
+    [InlineData("insert into operator_actions (correlation_id, operator, action, account_id, reason, checks, result) values (gen_random_uuid(), 'op', 'account_suspend', 999, 'r', '{}', '{}')")]
+    [InlineData("insert into operator_actions (correlation_id, operator, action, credential_id, reason, checks, result) values (gen_random_uuid(), 'op', 'credential_revoke', gen_random_uuid(), 'r', '{}', '{}')")]
+    public async Task Foreign_keys_refuse_an_unknown_account_or_credential(string sql) =>
+        Assert.Equal("23503", await SqlStateOf(db.AsApp(), sql));
+
+    [Fact]
+    public async Task A_session_cannot_name_a_credential_of_another_account()
+    {
+        var a = await SeedAsync();
+        var b = await SeedAsync();
+        Assert.Equal("23503", await SqlStateOf(db.AsApp(),
+            $"insert into auth_sessions (session_id, account_id, credential_id, token_hash, expires_at) values (gen_random_uuid(), @a, @c, {Hash32}, now() + interval '1 hour')",
+            new { a = a.Account, c = b.Credential }));
+    }
+
+    [Fact]
+    public async Task A_session_must_expire_after_it_starts()
+    {
+        var a = await SeedAsync();
+        Assert.Equal("23514", await SqlStateOf(db.AsApp(),
+            $"insert into auth_sessions (session_id, account_id, credential_id, token_hash, expires_at) values (gen_random_uuid(), @a, @c, {Hash32}, now())",
+            new { a = a.Account, c = a.Credential }));
+    }
+
+    [Fact]
+    public async Task An_account_has_at_most_one_dev_identity_and_a_handle_names_one_account()
+    {
+        var a = await SeedAsync("delta");
+        var b = await SeedAsync();
+        Assert.Equal("23505", await SqlStateOf(db.AsApp(), "insert into account_identities (provider, subject, account_id) values ('dev', 'delta-2', @a)", new { a = a.Account }));
+        Assert.Equal("23505", await SqlStateOf(db.AsApp(), "insert into account_identities (provider, subject, account_id) values ('dev', 'delta', @b)", new { b = b.Account }));
+    }
+
+    [Fact]
+    public async Task An_account_has_at_most_one_live_credential()
+    {
+        var a = await SeedAsync();
+        const string insert = "insert into dev_credentials (credential_id, account_id, secret_hash) values (gen_random_uuid(), @a, decode(repeat('02', 32), 'hex'))";
+        Assert.Equal("23505", await SqlStateOf(db.AsApp(), insert, new { a = a.Account }));
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await conn.ExecuteAsync("update dev_credentials set revoked_at = now() where credential_id = @c", new { c = a.Credential });
+        await conn.ExecuteAsync(insert, new { a = a.Account }); // a replacement after revocation is fine
+    }
+
+    [Fact]
+    public async Task The_app_can_append_operator_actions()
+    {
+        var a = await NewAccountAsync();
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await conn.ExecuteAsync("insert into operator_actions (correlation_id, operator, action, account_id, reason, checks, result) values (gen_random_uuid(), 'op', 'account_create', @a, 'r', '{}', '{}')", new { a });
+    }
+
+    // Stage 1 carry-over: PostgreSQL grants EXECUTE to PUBLIC on every new function unless the global default is revoked.
+    [Fact]
+    public async Task Functions_the_migrator_creates_later_are_not_executable_by_the_app_or_public_until_granted()
+    {
+        await using (var conn = await db.AsMigrator().OpenConnectionAsync())
+            await conn.ExecuteAsync("create function bg_probe() returns int language sql as 'select 1'");
+        Assert.Equal("42501", await SqlStateOf(db.AsApp(), "select bg_probe()"));
+        Assert.False(await SuperScalarAsync<bool>("select has_function_privilege('public', 'bg_probe()', 'execute')"));
+        Assert.False(await SuperScalarAsync<bool>("select has_function_privilege('accounts_app', 'bg_probe()', 'execute')"));
+        await using (var conn = await db.AsMigrator().OpenConnectionAsync())
+            await conn.ExecuteAsync("grant execute on function bg_probe() to accounts_app"); // the explicit path a later migration uses
+        await using var app = await db.AsApp().OpenConnectionAsync();
+        Assert.Equal(1, await app.ExecuteScalarAsync<int>("select bg_probe()"));
+    }
+
+    [Fact]
+    public async Task The_invariants_hold_on_consistent_data_and_catch_live_sessions_of_revoked_credentials_or_suspended_accounts()
+    {
+        var a = await SeedAsync("echo");
+        var b = await SeedAsync("foxtrot");
+        Assert.Empty(await InvariantRunner.RunAsync(db.AsSuperuser(), MigrationCatalog.Embedded.LatestVersion, InvariantRunner.RealDirectory));
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        await conn.ExecuteAsync($"insert into auth_sessions (session_id, account_id, credential_id, token_hash, expires_at) values (gen_random_uuid(), @a, @c, {Hash32}, now() + interval '1 hour')", new { a = a.Account, c = a.Credential });
+        await conn.ExecuteAsync("update dev_credentials set revoked_at = now() where credential_id = @c", new { c = a.Credential });
+        var failures = await InvariantRunner.RunAsync(db.AsSuperuser(), MigrationCatalog.Embedded.LatestVersion, InvariantRunner.RealDirectory);
+        Assert.Equal(["0001_revocations_cascade.sql: 1 violating row(s)"], failures);
+
+        await conn.ExecuteAsync("update auth_sessions set revoked_at = now()");
+        await conn.ExecuteAsync($"insert into auth_sessions (session_id, account_id, credential_id, token_hash, expires_at) values (gen_random_uuid(), @a, @c, decode(repeat('cd', 32), 'hex'), now() + interval '1 hour')", new { a = b.Account, c = b.Credential });
+        await conn.ExecuteAsync("update accounts set status = 'suspended' where account_id = @a", new { a = b.Account });
+        failures = await InvariantRunner.RunAsync(db.AsSuperuser(), MigrationCatalog.Embedded.LatestVersion, InvariantRunner.RealDirectory);
+        Assert.Equal(["0001_revocations_cascade.sql: 1 violating row(s)"], failures);
+    }
+}
