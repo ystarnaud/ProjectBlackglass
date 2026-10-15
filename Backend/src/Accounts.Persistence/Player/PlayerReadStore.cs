@@ -46,7 +46,7 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogu
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await BeginSnapshotAsync(conn, ct);
         var version = await ReadVersionAsync(conn, tx, accountId, ct) ?? throw NotProvisioned();
-        return new RosterView(version, await ReadOperativesAsync(conn, tx, accountId, ct));
+        return new RosterView(version, await ReadOperativesAsync(known, conn, tx, accountId, null, ct));
     }
 
     public async Task<InventoryView> GetInventoryAsync(long accountId, CancellationToken ct = default)
@@ -54,7 +54,7 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogu
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await BeginSnapshotAsync(conn, ct);
         var version = await ReadVersionAsync(conn, tx, accountId, ct) ?? throw NotProvisioned();
-        var operatives = await ReadOperativesAsync(conn, tx, accountId, ct);
+        var operatives = await ReadOperativesAsync(known, conn, tx, accountId, null, ct);
         var instances = (await conn.QueryAsync<InstanceRow>(new CommandDefinition(
             """
             select item_id as ItemId, definition_id as DefinitionId, operative_id as OperativeId, equipped_slot as EquippedSlot
@@ -95,17 +95,20 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogu
         conn.ExecuteScalarAsync<long?>(new CommandDefinition(
             "select version from inventories where account_id = @accountId and starter_granted", new { accountId }, tx, cancellationToken: ct));
 
-    async Task<List<OperativeView>> ReadOperativesAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, CancellationToken ct)
+    /// <summary>The account's operatives (or only <paramref name="operativeId"/>) as views; shared with <see cref="PickStore"/>.</summary>
+    internal static async Task<List<OperativeView>> ReadOperativesAsync(GameCatalogue known, NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, long? operativeId, CancellationToken ct)
     {
         var rows = (await conn.QueryAsync<OperativeRow>(new CommandDefinition(
-            "select operative_id as OperativeId, definition_id as DefinitionId, experience as Experience from operatives where account_id = @accountId order by operative_id",
-            new { accountId }, tx, cancellationToken: ct))).ToList();
+            """
+            select operative_id as OperativeId, definition_id as DefinitionId, experience as Experience from operatives
+            where account_id = @accountId and (@operativeId::bigint is null or operative_id = @operativeId) order by operative_id
+            """, new { accountId, operativeId }, tx, cancellationToken: ct))).ToList();
         var choices = (await conn.QueryAsync<ChoiceRow>(new CommandDefinition(
             """
             select c.operative_id as OperativeId, c.choice_id as ChoiceId
             from operative_choices c join operatives o on o.operative_id = c.operative_id
-            where o.account_id = @accountId order by c.operative_id, c.ordinal
-            """, new { accountId }, tx, cancellationToken: ct))).ToLookup(c => c.OperativeId, c => c.ChoiceId);
+            where o.account_id = @accountId and (@operativeId::bigint is null or o.operative_id = @operativeId) order by c.operative_id, c.ordinal
+            """, new { accountId, operativeId }, tx, cancellationToken: ct))).ToLookup(c => c.OperativeId, c => c.ChoiceId);
         var track = known.Document.Progression;
         return rows.Select(o =>
         {
