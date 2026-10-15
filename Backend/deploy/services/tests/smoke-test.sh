@@ -2,6 +2,7 @@
 # Stage 1 smoke test (bg-dev-services01), on a fresh volume: the API refuses an unmigrated database, deploy.sh runs
 # stop API -> backup -> migrate -> start in order, health answers on loopback, a second deploy stops and restarts the
 # API and migrates nothing, a failed backup stops the deploy and leaves the API stopped, and the exposure check passes.
+# Stage 3: dev login and admin routes are off by default, /v1/me needs a token, and the admin CLI works in the image.
 # Throwaway project bg-smoke; removed at the end.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,6 +36,15 @@ check "deploy stopped the API, backed up, migrated, then started the API" awk "$
 check "a dump exists" compgen -G "$BLACKGLASS_BACKUP_DIR/accounts-*.dump"
 check "health answers on loopback at schema $latest" test "$(curl -sf --max-time 5 http://127.0.0.1:5080/health)" = "{\"status\":\"ok\",\"schemaVersion\":$((10#$latest))}"
 check "the exposure check passes" bash "$here/check-exposure.sh"
+# Stage 3, with the stack's defaults: dev login and the admin routes are not mapped; the bearer challenge works.
+http_code() { curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$@"; }
+check "dev login is off by default (404)" test "$(http_code -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:5080/v1/auth/dev/login)" = 404
+check "the admin route is off by default (404)" test "$(http_code -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:5080/dev/v1/accounts)" = 404
+check "GET /v1/me without a token is 401" test "$(http_code http://127.0.0.1:5080/v1/me)" = 401
+# The operator CLI in the real image: the first account gets id 1, printed in Base58 as "2". Its key stays in the
+# throwaway work directory (removed on exit) and is never echoed.
+check "the admin CLI creates the first account and prints its Base58 id" bash -c "dc() { docker compose -p bg-smoke -f '$here/compose.yaml' \"\$@\"; }; dc --profile tools run --rm -T admin account create --handle smoke --operator smoke-test --reason smoke > '$work/admin.out' 2>&1 && grep -qx 'accountId=2' '$work/admin.out' && grep -q '^accountKey=dk1_' '$work/admin.out'"
+check "an unknown Base58 account id is exit 65" bash -c "dc() { docker compose -p bg-smoke -f '$here/compose.yaml' \"\$@\"; }; dc --profile tools run --rm -T admin account suspend --account zz --operator smoke-test --reason smoke >/dev/null 2>&1; test \$? -eq 65"
 n=0
 for ip in $(hostname -I); do
   n=$((n + 1))

@@ -57,8 +57,19 @@ services:
       BLACKGLASS_DB_NAME: accounts
       BLACKGLASS_DB_USER: accounts_app
       BLACKGLASS_DB_PASSWORD_FILE: /run/secrets/api_db_password
+      # Stage 3: development login and the /dev/v1 admin routes are off unless set to exactly "enabled" (spec §4.2).
+      BLACKGLASS_DEV_AUTH: ${BLACKGLASS_DEV_AUTH:-disabled}
+      BLACKGLASS_ADMIN_ROUTES: ${BLACKGLASS_ADMIN_ROUTES:-disabled}
+      BLACKGLASS_ADMIN_KEY_FILE: /run/secrets/api_admin_key
+      # Provisional limits (spec §19); empty means the built-in default.
+      BLACKGLASS_TOKEN_LIFETIME_MINUTES: ${BLACKGLASS_TOKEN_LIFETIME_MINUTES:-}
+      BLACKGLASS_RATE_LOGIN_PER_MINUTE: ${BLACKGLASS_RATE_LOGIN_PER_MINUTE:-}
+      BLACKGLASS_RATE_LOGIN_GLOBAL_PER_MINUTE: ${BLACKGLASS_RATE_LOGIN_GLOBAL_PER_MINUTE:-}
+      BLACKGLASS_RATE_REQUESTS_PER_MINUTE: ${BLACKGLASS_RATE_REQUESTS_PER_MINUTE:-}
+      BLACKGLASS_RATE_ADMIN_PER_MINUTE: ${BLACKGLASS_RATE_ADMIN_PER_MINUTE:-}
     secrets:
       - api_db_password
+      - api_admin_key
     ports:
       - "127.0.0.1:5080:8080"
     networks:
@@ -77,6 +88,32 @@ services:
     restart: unless-stopped
     logging:
       driver: local
+
+  # The operator CLI (spec §4.2): `docker compose -p blackglass-accounts -f compose.yaml --profile tools run --rm admin
+  # account create [--handle <h>] [--display-name <name>] --operator <name> --reason <text>`. Runs as accounts_app on the
+  # internal network only; publishes nothing.
+  admin:
+    image: blackglass-accounts-api:${BLACKGLASS_API_TAG:-dev}
+    profiles:
+      - tools
+    entrypoint: ["dotnet", "Accounts.Api.dll", "admin"]
+    environment:
+      BLACKGLASS_DB_HOST: postgres
+      BLACKGLASS_DB_NAME: accounts
+      BLACKGLASS_DB_USER: accounts_app
+      BLACKGLASS_DB_PASSWORD_FILE: /run/secrets/admin_db_password
+    secrets:
+      - admin_db_password
+    networks:
+      - db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
 networks:
   db:
@@ -100,3 +137,7 @@ secrets:
     file: ${BLACKGLASS_SECRETS_DIR:-/opt/blackglass/accounts/secrets}/migrate/db_password
   api_db_password:
     file: ${BLACKGLASS_SECRETS_DIR:-/opt/blackglass/accounts/secrets}/api/db_password
+  api_admin_key:
+    file: ${BLACKGLASS_SECRETS_DIR:-/opt/blackglass/accounts/secrets}/api/admin_key
+  admin_db_password:
+    file: ${BLACKGLASS_SECRETS_DIR:-/opt/blackglass/accounts/secrets}/admin/db_password

@@ -4,6 +4,8 @@
 #   postgres/{superuser,migrator,app}_password   uid BLACKGLASS_PG_UID  (default 999, "postgres" in postgres:17)
 #   migrate/db_password  (= migrator password)    uid BLACKGLASS_APP_UID (default 1654, "app" in the API image)
 #   api/db_password      (= app password)         uid BLACKGLASS_APP_UID
+#   api/admin_key        (the /dev/v1 admin key)  uid BLACKGLASS_APP_UID; read only when BLACKGLASS_ADMIN_ROUTES=enabled
+#   admin/db_password    (= app password)         uid BLACKGLASS_APP_UID (the operator CLI service, Stage 3)
 # Directories are root-owned 0700. Run as root (sudo).   Usage: make-secrets.sh <directory>
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "make-secrets.sh must run as root (sudo)" >&2; exit 1; }
@@ -11,7 +13,7 @@ dir="${1:?usage: make-secrets.sh <directory>}"
 pg_uid="${BLACKGLASS_PG_UID:-999}"
 app_uid="${BLACKGLASS_APP_UID:-1654}"
 umask 077
-install -d -m 0700 -o root -g root "$dir" "$dir/postgres" "$dir/migrate" "$dir/api"
+install -d -m 0700 -o root -g root "$dir" "$dir/postgres" "$dir/migrate" "$dir/api" "$dir/admin"
 
 random_password() {
   local pw
@@ -34,4 +36,6 @@ place "$dir/postgres/migrator_password" "$pg_uid" "$migrator"
 place "$dir/postgres/app_password" "$pg_uid" "$app"
 place "$dir/migrate/db_password" "$app_uid" "$migrator"
 place "$dir/api/db_password" "$app_uid" "$app"
+place "$dir/admin/db_password" "$app_uid" "$app"
+place "$dir/api/admin_key" "$app_uid" "$(existing_or_new "$dir/api/admin_key")"
 echo "secrets ready in $dir"

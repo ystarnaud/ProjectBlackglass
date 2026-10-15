@@ -67,6 +67,29 @@ public class ComposeExposureTests
     }
 
     [Fact]
+    public void Accounts_stack_keeps_dev_auth_and_admin_routes_off_by_default_and_the_admin_service_publishes_nothing()
+    {
+        var lines = ComposeText.Lines("compose.yaml");
+        var api = ComposeText.Block(lines, "services", "api", "environment").Select(l => l.Trim()).ToList();
+        Assert.Contains("BLACKGLASS_DEV_AUTH: ${BLACKGLASS_DEV_AUTH:-disabled}", api);
+        Assert.Contains("BLACKGLASS_ADMIN_ROUTES: ${BLACKGLASS_ADMIN_ROUTES:-disabled}", api);
+        Assert.Contains("BLACKGLASS_ADMIN_KEY_FILE: /run/secrets/api_admin_key", api);
+        Assert.Contains("- api_admin_key", ComposeText.Block(lines, "services", "api", "secrets").Select(l => l.Trim()));
+
+        Assert.Contains("admin", ComposeText.ChildKeys(lines, "services"));
+        Assert.Empty(Ports(lines, "admin"));
+        Assert.Equal(["- tools"], ComposeText.Block(lines, "services", "admin", "profiles").Select(l => l.Trim()));
+        Assert.Equal(["- db"], ComposeText.Block(lines, "services", "admin", "networks").Select(l => l.Trim()));
+        var admin = ComposeText.Block(lines, "services", "admin", "environment").Select(l => l.Trim()).ToList();
+        Assert.Contains("BLACKGLASS_DB_USER: accounts_app", admin);
+        Assert.Contains("BLACKGLASS_DB_PASSWORD_FILE: /run/secrets/admin_db_password", admin);
+        Assert.Equal(["- admin_db_password"], ComposeText.Block(lines, "services", "admin", "secrets").Select(l => l.Trim()));
+
+        // Still exactly one publication in the whole file: the API's 127.0.0.1:5080.
+        Assert.Single(Regex.Matches(string.Join('\n', lines), @"""127\.0\.0\.1:\d+:\d+"""));
+    }
+
+    [Fact]
     public void Test_cluster_publishes_only_55432()
     {
         Assert.Equal(["- \"127.0.0.1:55432:5432\""], Ports(ComposeText.Lines("compose.test.yaml"), "postgres"));
