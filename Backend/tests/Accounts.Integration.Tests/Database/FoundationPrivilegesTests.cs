@@ -14,7 +14,7 @@ public class FoundationPrivilegesTests : IAsyncLifetime
     {
         db = await (await TestCluster.Instance).CreateDatabaseAsync();
         // The real foundation, then a table the migrator creates afterwards (as a later migration would).
-        await new Migrator(db.AsMigrator(), Catalogs.RealPlus(("0001_probe.sql", "create table probe (id int primary key, label text not null);"))).MigrateAsync();
+        await new Migrator(db.AsMigrator(), Catalogs.RealPlus((Catalogs.NextVersionFile("probe"), "create table probe (id int primary key, label text not null);"))).MigrateAsync();
     }
 
     public async Task DisposeAsync() => await db.DisposeAsync();
@@ -30,7 +30,7 @@ public class FoundationPrivilegesTests : IAsyncLifetime
     public async Task App_reads_schema_migrations()
     {
         await using var conn = await db.AsApp().OpenConnectionAsync();
-        Assert.Equal(2, await conn.ExecuteScalarAsync<int>("select count(*) from schema_migrations"));
+        Assert.Equal(MigrationCatalog.Embedded.LatestVersion + 2, await conn.ExecuteScalarAsync<int>("select count(*) from schema_migrations")); // the real files plus the probe
     }
 
     [Theory]

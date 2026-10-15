@@ -40,10 +40,10 @@ public class UpgradeTests
     {
         await using var db = await (await TestCluster.Instance).CreateDatabaseAsync();
         var catalog = Catalogs.RealPlus(
-            ("0001_probe.sql", "create table probe (id int primary key, label text not null);"),
-            ("0002_probe_created_at.sql", "alter table probe add column created_at timestamptz not null default now();"));
+            (Catalogs.NextVersionFile("probe"), "create table probe (id int primary key, label text not null);"),
+            (Catalogs.NextVersionFile("probe_created_at", 2), "alter table probe add column created_at timestamptz not null default now();"));
         var migrator = new Migrator(db.AsMigrator(), catalog);
-        await migrator.MigrateAsync(1);
+        await migrator.MigrateAsync(MigrationCatalog.Embedded.LatestVersion + 1);
         await using (var conn = await db.AsApp().OpenConnectionAsync())
             await conn.ExecuteAsync("insert into probe (id, label) select g, 'row ' || g from generate_series(1, 100) g");
         await migrator.MigrateAsync();
@@ -58,7 +58,7 @@ public class UpgradeTests
     public async Task The_runner_reports_violations()
     {
         await using var db = await (await TestCluster.Instance).CreateDatabaseAsync();
-        await new Migrator(db.AsMigrator(), Catalogs.RealPlus(("0001_probe.sql", "create table probe (id int primary key, label text not null);"))).MigrateAsync();
+        await new Migrator(db.AsMigrator(), Catalogs.RealPlus((Catalogs.NextVersionFile("probe"), "create table probe (id int primary key, label text not null);"))).MigrateAsync();
         await using (var conn = await db.AsSuperuser().OpenConnectionAsync())
         {
             await conn.ExecuteAsync("insert into probe values (1, '')");
