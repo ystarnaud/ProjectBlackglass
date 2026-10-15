@@ -51,8 +51,8 @@ Each item below is pinned by a test in the named task.
 
 1. **Revoke during use.** A token revoked by logout, rotation, credential revocation or suspension must fail on the very next request, with no cache or grace period. Task 7: `A_revoked_token_fails_on_the_next_request`, one case per revocation path.
 2. **Reactivation must not resurrect sessions.** A suspended account that is reactivated must not find its old tokens working again. Task 5: `Reactivation_does_not_restore_revoked_sessions`.
-3. **Malformed bearer values.** Wrong prefix, extra whitespace, a lower-case `bearer` scheme, two `Authorization` headers, a 1 MB header, or non-canonical base64url must all give a uniform 401 with no 500. Task 7: `Malformed_authorization_values_are_401`.
-4. **A database outage during authentication.** It must give 503, not a 401 that tells the client its token is bad, and log no secret. Task 7: `Authentication_during_a_database_outage_is_503`.
+3. **Malformed bearer values.** Wrong prefix, extra whitespace, a lower-case `bearer` scheme, two `Authorization` headers, a 1 MB header, or non-canonical base64url must all give a uniform 401 with no 500 (as built: a 1 MB header is refused by Kestrel with 431 before the app sees it). Task 7: `Malformed_authorization_values_are_the_uniform_401`, `Two_separate_authorization_fields_are_401_even_when_both_are_valid` (raw TCP: HttpClient folds repeated headers into one line) and `Two_authorization_headers_or_a_huge_one_are_refused_not_500`.
+4. **A database outage during authentication.** It must give 503, not a 401 that tells the client its token is bad, and log no secret. Task 7: `Authentication_during_a_database_outage_is_503_never_401` (login too).
 5. **Two operators race on one account.** For example, rotation against suspension, or two rotations at once. The result must leave exactly one consistent state, never two live credentials or a live session on a suspended account. Task 4: `Concurrent_rotations_leave_exactly_one_live_credential` and `Rotation_racing_suspension_leaves_no_live_session`. The `0001_revocations_cascade` invariant checks this after every database test class.
 6. **Login racing a revocation.** A login that overlaps a rotation, a credential revocation or a suspension must never leave a live session on a revoked credential or a suspended account once the revocation has committed. Task 5: `Login_waits_for_an_in_flight_revocation_and_then_fails` (deterministic: the test holds the account lock) and the repeated race tests.
 7. **Guessable ids grant nothing.** Account ids are sequential. Account A, knowing or guessing B's Base58 id, must get nothing of B's from any route, header or body. Task 10: `AuthorizationTests`.
@@ -2436,8 +2436,8 @@ The owner approved Stage 3 with Q1–Q3 answered as recommended, and changed the
 Branch `phase13-stage3`, from `main` `b6f7e1d`; **not merged, not pushed, live accounts stack not deployed**. Evidence, the SDD ledger and every ruling: `.claude/scratchpad/phase13/stage-03/` (not committed).
 
 **Measured (not predicted):**
-- ALL 530/0 (Domain 191, Integration 339); UNIT 319/0 (Domain 191, Integration 128). The baseline was ALL 177/0, UNIT 139/0.
-- VM, throwaway projects: smoke 28 ok, 0 failures; drill 16 ok, 0 failures; the off-host probe passes (5080, 5432 and 55432 closed, 22 answers); afterwards only `blackglass-testdb` runs and the listeners are unchanged.
+- ALL 537/0 (Domain 191, Integration 346); UNIT 319/0 (Domain 191, Integration 128), at `be66ac1`. The baseline was ALL 177/0, UNIT 139/0.
+- VM, throwaway projects, at `be66ac1`: smoke 28 ok, 0 failures; drill 16 ok, 0 failures; the off-host probe passes (5080, 5432 and 55432 closed, 22 answers); afterwards only `blackglass-testdb` runs and the listeners are unchanged.
 
 **Departures from the listings above** (each in the ledger as a ruling):
 - **Base58.** The codec and converter landed in Task 2.
@@ -2453,6 +2453,8 @@ Branch `phase13-stage3`, from `main` `b6f7e1d`; **not merged, not pushed, live a
 - **Admin CLI service.** Uses `entrypoint: [dotnet, Accounts.Api.dll, admin]` and `logging: driver: none`.
 - **Source audit.** It flags a literal only when SQL opens it or SQL structure follows a statement keyword. The migrator's `lock_timeout` is parameterized.
 - **Review Focus 5.** The rotation-against-suspension case is `Concurrent_lifecycle_calls_on_one_account_serialize_and_each_is_audited`. The deterministic lock-wait tests are `A_lifecycle_call_waits_for_the_account_lock_and_stamps_its_rows_after_the_wait` and `Login_waits_for_an_in_flight_revocation_and_then_fails`.
+
+- **Admin CLI.** It checks the schema like `serve` (exit 3). Revocations use `greatest(statement_timestamp(), created_at)`, so a backward clock step can't block them.
 
 **Reviews:** A, B and the final review, all independent (see the ledger).
 

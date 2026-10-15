@@ -1168,7 +1168,7 @@ alter default privileges for role accounts_migrator revoke execute on functions 
 create table accounts (
   account_id bigint generated always as identity primary key check (account_id > 0),  -- only PostgreSQL mints ids
   status text not null default 'active' check (status in ('active','suspended')),
-  display_name text check (display_name is null or (length(display_name) between 1 and 64 and display_name !~ '[[:cntrl:]]')),
+  display_name text check (display_name is null or (length(display_name) between 1 and 64 and display_name !~ '[[:cntrl:]]' and display_name !~ '^\s|\s$')),
   created_at timestamptz not null default statement_timestamp());
 create table account_identities (                        -- optional dev handle; at most one per account
   provider text not null check (provider in ('dev')),
@@ -1397,7 +1397,7 @@ Every transaction that touches several of these takes locks in this order:
 5. `insurance_coverages`, ascending `account_id` (activations lock only this row; admission reads it without locking);
 6. item and stack rows (by key, through `DELETE`/`UPDATE … WHERE`).
 
-The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for operator changes, `FOR SHARE` for login), then `dev_credentials`, then `auth_sessions`; a later stage that also needs the participant or inventory rows takes the `accounts` row before step 2. Admission has no attempt row yet, so it starts at step 3. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries.
+The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for operator changes, `FOR SHARE` for login), then `dev_credentials`, then `auth_sessions`; a later stage that also needs the participant or inventory rows takes the `accounts` row before step 2. Admission has no attempt row yet, so it starts at step 3. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries. **Stage 3 does not apply the retry or the `lock_timeout` yet:** its account-lifecycle and login transactions wait without a limit (noted for the owner); the stage that adds the first mission-table transaction brings both.
 
 ### 15.4 Migrations and safety (correction 8, D-14)
 
@@ -1418,7 +1418,7 @@ All JSON is camelCase, and errors are RFC 9457 ProblemDetails with a stable `cod
 
 | Route | Body → response | Errors |
 |---|---|---|
-| `POST /v1/auth/dev/login` | `{accountKey}` → `{accessToken, expiresAt, accountId}` | 401 |
+| `POST /v1/auth/dev/login` | `{accountKey}` → `{accessToken, expiresAt, accountId}` | 401 (uniform); 429 with `Retry-After`; 503 when the database is unavailable; 400, 413 (over 4 KiB) or 415 for an unusable body |
 | `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returns exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data | 401 |
 | `POST /v1/auth/logout` | → 204; revokes the current session only (Stage 3) | 401 (also on a repeat) |
 | `GET /v1/roster` | → operatives with XP, derived rank, pending picks, choices | |
