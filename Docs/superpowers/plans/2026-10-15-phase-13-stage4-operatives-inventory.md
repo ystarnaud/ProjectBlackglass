@@ -661,3 +661,54 @@ public sealed record InventoryView(long Version, bool Locked, LocationView Stash
 - recruitment, respec, trading, crafting and purchases;
 - wiring the offline-scene `SquadInventory` or `SquadRoster` to `InventoryRules` or the backend;
 - live deployment.
+
+## As built (2026-10-15)
+
+**Status:** implemented on branch `phase13-stage4`; awaiting the owner's review; not merged, not pushed, the live accounts stack not deployed.
+
+**Measured** (predictions were backend ALL about 669 + 140 and Unity EditMode about +12):
+
+| Suite | Baseline (`fc823e8`) | Stage 4 |
+|---|---|---|
+| Backend ALL (`Backend.sln`) | 669/0 (Domain 191, Integration 478) | 974/0 (Domain 292, Integration 682) |
+| Backend UNIT (`--filter "Requires!=Postgres"`) | not recorded | 480/0 |
+| Unity EditMode | 1500/0 | 1524/0 |
+| Unity PlayMode | 1434/0 | 1434/0 |
+
+Catalogue: format 2, `catalogueVersion` `sha256:e83352b1c9d8764a92281551a25bea42621da2b592bc30d35986a5f0a86c496b` (three-way equal: Unity's writer, the backend's writer, `sha256sum`). Schema version 4.
+
+**VM: pending (controller).** Smoke at schema 0004 (including the create output's starter counts and `starter backfill` saying `already`), the restore drill with the 0004 invariant, the off-host probe during the hold, and the after-state check.
+
+**Rulings** (from the execution ledger, short form):
+- Pre-flight: `Reads_write_nothing` creates no cluster role (roles are cluster-global and the owner limits tests to the authorized test databases); it uses a data source whose connections set `default_transaction_read_only=on`, asserts the reads succeed and that the store's transactions are read only. Cost if wrong: a weaker proof than a SELECT-only role.
+- Pre-flight: Unity batch runs are serialized with the controller's own Unity runs (one Unity instance).
+- Task 2: the namespace is `Blackglass.Accounts.Domain.Advancement` (folder `Progression/`); a `Progression` namespace shadows the catalogue record `Progression` (CS0118).
+- Task 5: the invariant query returns one row per violation (not a count row); the restore drill fails on any row. `origin_ref` must be non-empty (the plan's SQL allowed an empty string; fixed before review).
+- Checkpoint 1 (Task 5, folded into the opus review of `5b98ccc..0935ea0`): one Important finding, fixed: the app could mutate the granted starter record and the version, so `0004` gained the trigger `inventories_forward_only`. Spec section 15.2 corrected.
+- Task 7: the `starter_backfill` audit result carries flat `operatives`, `instances`, `stacks` counts (same shape as `account_create`'s starter).
+- Task 8: `Bag.Instances` includes the equipped items and `Equipment` lists the item id per slot (Unity's `OperativeEquipment` points into the bag; the schema stores `equipped_slot` on the carried row).
+- Checkpoint 2 (Task 10, folded into the opus review of `8d0e032..062b1f4`): no Critical or Important findings. A pick is allowed for an operative whose definition the catalogue no longer knows (picks depend only on XP and the track).
+- Task 12: `account create` prints `starterGranted=granted` and `starterOperatives=`, `starterInstances=`, `starterStacks=` (operators see the grant; the smoke test needs a visible signal). The smoke test also checks `starter backfill` reports `already`.
+
+**Departures from the plan text:**
+- Namespace `Advancement` instead of `Progression` (above).
+- `Bag.Instances` includes equipped items (above).
+- `ProvisionResult` gained `bool Granted` (Task 7), and `IssuedCredential` carries the optional `ProvisionResult` of account creation (Task 12). `AdminCommand.RunAsync` has an optional `loadCatalogue` test seam (Task 6).
+- The read-only proof uses `default_transaction_read_only` on the data source rather than a SELECT-only role (above).
+- Unity's contract tests read the vectors through `ContractVectors.cs`, a strict JSON reader in the test assembly (no Newtonsoft reference).
+- The `inventories_forward_only` trigger was added at checkpoint 1 (above).
+- `origin_ref` is non-empty (above).
+- `/v1/me` also sends `Cache-Control: no-store`; four existing `/v1/me` assertions now expect `inventoryVersion`.
+
+**Deferred minors** (none blocks the stage):
+- Task 1: `Base58IdJsonConverter` error text says "An id" where `AccountIdJsonConverter` says "An account id" (intentional); `StarterRefTests` bad ids lack a trailing-newline case (the `\z` anchor covers it).
+- Task 2: `ProgressionRules.PendingPicks` overflows for `int.MinValue` picks made (callers pass counts; validate at the caller if a database value is ever fed in); `Pending_is_never_negative` is weak for in-range rows (the vectors cover exact values); redundant `using` lines.
+- Task 3: the `bagCapacity` 1..64 bounds are duplicated in Unity and the backend (covered by the export and the golden vector).
+- Task 4: the planner throws for an equip on a slotted stackable that the validator would accept (unreachable: the validator forces consumables to slot none and equipment to max stack 1; add a validator rule if categories change); `StarterPlanner.Destination` has seven parameters; `AssertPlanMatches` compares stack totals (entry order is checked by the test-side model and by Unity).
+- Checkpoint 1: `item_stacks` has no primary key (no replica identity); split null and non-null operative predicates in Stage 5 updates; the invariant's stack rows report `account_id` as the id.
+- Task 6: the invalid-catalogue CLI test does not prove the database was untouched, and no test tells a passed catalogue from `Embedded`; the creation test name overstates atomicity; the rolled-back-mint test is near-tautological; two provisioning tests use exactly the pool's `MaxPoolSize` of 5; the wait poll busy-yields; the "nobody minted while waiting" count check is weak (the lock or deadlock is the real guard).
+- Task 7: `WaitUntilBackendsWaitOnLocksAsync` is duplicated in `BackfillTests`, `ProvisioningTests` and `AccountTestKit`; the account-first lock order is not pinned by a `FOR NO KEY UPDATE` holder; the hard-coded 5 waiters equal the test pool size; a long doc-comment line in `AdminCommand`.
+- Task 8: `Reads_write_nothing` cannot catch a dropped `set transaction read only` without an added write (inherent to the ruling; the data-source layer is covered by mutation); the utility slot is never exercised; per-operative list filtering is O(n·m); the transaction is not disposed if `set transaction read only` throws (the connection is).
+- Task 9: no null `choiceId` case in `PickStoreTests` (the route rejects it as `InvalidBody`, tested at the route); the ordinal cast overflow is unreachable; the timeout test cannot tell which statement waited (the race test pins the lock).
+- Checkpoint 2: `PlayerEndpoints`' refusal switch `_ => 422` would mis-map a future `InventoryLocked` (409); an already-granted `ProvisionResult` reports current holdings under the starter-count labels (identical in Stage 4, diverges from Stage 5 in backfill audits and CLI lines); the origin-reference collision exception is unmapped in the CLI and route (unreachable today); no 429 or unavailable-503 test on the new routes (shared middleware); an invalid catalogue blocks every admin verb including security revocations (exit 4): owner awareness.
+- Task 11: the Unity runners' case-count guards are lower bounds (30 and 10), not exactly 32 and 17; one test per runner (the first failing case hides the rest); the JSON reader is lenient on `+1`, leading zeros and raw control characters.

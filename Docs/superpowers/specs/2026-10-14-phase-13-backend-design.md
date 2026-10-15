@@ -88,6 +88,8 @@ Companion documents:
 | Shared rules | Inventory vectors planned for Stage 5 | Starter and pick vectors run in xUnit and Unity EditMode (§5.3) |
 | `GET /v1/me` | `{accountId}` | `{accountId, inventoryVersion}` (§16.1) |
 
+**As built (2026-10-15, branch `phase13-stage4`; amendment, nothing above is removed).** Schema version 4 (`0003_operatives_and_picks`, `0004_inventory`). The catalogue is format 2 with `catalogueVersion` `sha256:e83352b1c9d8764a92281551a25bea42621da2b592bc30d35986a5f0a86c496b` (equal in Unity's writer, the backend's writer and `sha256sum`). Measured: backend ALL 974/0 (Domain 292, Integration 682), UNIT 480/0 (`--filter "Requires!=Postgres"`); Unity EditMode 1524/0, PlayMode 1434/0. The exact SQL is in `Backend/db/migrations/`; the route and CLI shapes are in §16 and `Backend/README.md`. Departures from the plan text are listed in the stage plan's "As built" section.
+
 ---
 
 ## 1. Goal, scope and starting point
@@ -1257,17 +1259,26 @@ end $$;
 create trigger dev_credentials_revocation_is_final before update on dev_credentials for each row execute function revocation_is_final();
 create trigger auth_sessions_revocation_is_final before update on auth_sessions for each row execute function revocation_is_final();
 
--- 0003 operatives and picks / 0004 inventory (Stage 4, revision 2.4): exact SQL in
--- Docs/superpowers/plans/2026-10-15-phase-13-stage4-operatives-inventory.md (Task 5) and, once applied, in db/migrations.
--- operatives (operative_id bigint identity, account_id bigint, definition_id, experience >= 0, origin, origin_ref,
---   unique (account_id, operative_id), unique (origin, origin_ref)); operative_choices (operative_id, ordinal, choice_id;
---   append-only); inventories (account_id pk, version, starter_granted, starter_catalogue_version, starter_granted_at,
---   all-or-nothing check); item_instances (item_id bigint identity, account_id, definition_id, operative_id bigint,
---   equipped_slot, origin, origin_ref, composite FK (account_id, operative_id), equipped => in a bag,
---   unique (origin, origin_ref), one item per slot); item_stacks (account_id, operative_id, definition_id, quantity > 0,
---   composite FK, unique nulls not distinct (account_id, operative_id, definition_id)). Stamps use statement_timestamp().
--- operator_actions gains the 'starter_backfill' action. accounts_app: column-level INSERT, no UPDATE on owned rows
--- (Stage 5 adds inventory edits), no DELETE, no sequence privilege.
+-- 0003 operatives and picks / 0004 inventory (Stage 4, revision 2.4), AS BUILT. The exact SQL is in
+-- Backend/db/migrations/0003_operatives_and_picks.sql and 0004_inventory.sql; this is a summary.
+-- operatives (operative_id bigint identity > 0, account_id, definition_id, experience >= 0, origin = 'starter',
+--   origin_ref non-empty (1..300, no whitespace or control characters), unique (account_id, operative_id),
+--   unique (origin, origin_ref)); operative_choices (operative_id, ordinal, choice_id; append-only, no respec);
+--   inventories (account_id pk, version >= 1, starter_granted, starter_catalogue_version 'sha256:<64 hex>',
+--   starter_granted_at, all-or-nothing check); item_instances (item_id bigint identity > 0, account_id, definition_id,
+--   operative_id null = stash, equipped_slot weapon|armor|utility, origin, origin_ref, composite FK
+--   (account_id, operative_id), equipped => operative_id not null (in a bag), unique (origin, origin_ref), one item per
+--   slot per operative); item_stacks (account_id, operative_id null = stash, definition_id, quantity > 0, composite FK,
+--   unique nulls not distinct (account_id, operative_id, definition_id); no primary key). Stamps use statement_timestamp().
+-- Trigger inventories_forward_only (function inventory_is_forward_only; added at checkpoint 1, because column grants
+--   cannot say "one way"): once starter_granted is true, starter_granted, starter_catalogue_version and
+--   starter_granted_at cannot change (constraint starter_grant_is_final) and version never decreases (constraint
+--   inventory_version_never_decreases). The false -> true grant and version = version + 1 still pass.
+-- operator_actions: 0004 drops and recreates operator_actions_action_check with 'starter_backfill' added to the action list.
+-- accounts_app: column-level INSERT on operatives, operative_choices, item_instances and item_stacks (never operative_id
+--   or item_id), inventories INSERT account_id and UPDATE version and the three starter columns only; no DELETE, no
+--   UPDATE of owned rows (Stage 5 adds the grants for inventory edits), no privilege on the identity sequences.
+-- Invariants: db/invariants/0004_inventory_consistency.sql (one row per violation; zero rows = holds).
 
 -- 0005 energy and insurance
 create table energy_policies (
@@ -1465,11 +1476,11 @@ All JSON is camelCase, and errors are RFC 9457 ProblemDetails with a stable `cod
 | Route | Body → response | Errors |
 |---|---|---|
 | `POST /v1/auth/dev/login` | `{accountKey}` → `{accessToken, expiresAt, accountId}` | 401 (uniform); 429 with `Retry-After`; 503 when the database is unavailable, 503 with `Retry-After` when it is busy (a lock or statement timeout); 500 for any other database error; 400, 413 (over 4 KiB) or 415 for an unusable body |
-| `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returns exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data | 401; 503 when the database is unavailable, 503 with `Retry-After` when busy; 500 for any other database error; 429 per account |
+| `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returned exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data. **As built, Stage 4 returns exactly `{accountId, inventoryVersion}`** (`inventoryVersion` is the shared `inventories.version`, null for an unprovisioned account; the response is `Cache-Control: no-store`) | 401; 503 when the database is unavailable, 503 with `Retry-After` when busy; 500 for any other database error; 429 per account |
 | `POST /v1/auth/logout` | → 204; revokes the current session only (Stage 3) | 401 (also on a repeat); 503 unavailable, 503 with `Retry-After` busy (it locks its session row); 500 for any other database error; 429 per account |
-| `GET /v1/roster` | → `{version, operatives:[{operativeId, definitionId, definitionKnown, experience, rank, pendingPicks, choices}]}`; owned ids Base58 (Stage 4) | 409 `NotProvisioned` (reads never write) |
-| `POST /v1/operatives/{id}/choices` | `{choiceId, expectedVersion}` → `{version, operative}`; `{id}` is the Base58 operative id | 400 `InvalidOperativeId`; 404 `OperativeNotFound` (also for another account's id); 409 `VersionMismatch`, `NotProvisioned` (`InventoryLocked` arrives with participations); 422 `NoPendingPick`, `UnknownChoice` |
-| `GET /v1/inventory` | → `{version, locked, stash:{instances, stacks}, operatives:[{operativeId, bag:{instances, stacks}, equipment:{weapon, armor, utility}}]}`; item ids Base58 | 409 `NotProvisioned` |
+| `GET /v1/roster` | → `{version, operatives:[{operativeId, definitionId, definitionKnown, experience, rank, pendingPicks, choices:[choiceId]}]}`; owned ids Base58 strings (Stage 4, as built). `definitionKnown` is false for an operative whose definition the current catalogue no longer lists | 409 `NotProvisioned` (reads never write); `Cache-Control: no-store` |
+| `POST /v1/operatives/{id}/choices` | `{choiceId, expectedVersion}` → `{version, operative}` (the updated operative, shaped like a roster row); `{id}` is the Base58 operative id; both members are required and an unknown member (an account id included) is refused. Stage 4, as built | 400 `InvalidOperativeId` (malformed id), 400 `InvalidBody` (missing, null, mistyped or unknown member, or a wrong content type: unlike login's 415), 413 over 4 KiB; 404 `OperativeNotFound` (also for another account's id, identical answer); 409 `VersionMismatch`, `NotProvisioned` (`InventoryLocked` arrives with participations); 422 `NoPendingPick`, `UnknownChoice`. A pick is allowed for an operative whose definition the catalogue no longer knows (picks depend only on XP and the track) |
+| `GET /v1/inventory` | → `{version, locked, stash:{instances:[{itemId, definitionId, definitionKnown}], stacks:[{definitionId, definitionKnown, quantity}]}, operatives:[{operativeId, bag:{instances, stacks}, equipment:{weapon, armor, utility}}]}`; item ids Base58. As built, `bag.instances` includes the equipped items and `equipment` gives the item id per slot (or null); `locked` is false until participations exist (Stage 4, as built) | 409 `NotProvisioned`; `Cache-Control: no-store` |
 | `POST /v1/inventory/operations` | `{expectedVersion, operations:[…]}` → `{version, inventory}` | 409, 422 `{code, index}` |
 | `POST /v1/attempts` + `Idempotency-Key` | `{missionTemplate, operativeIds}` → 201 `{attemptId, state, energy:{cost, balanceAfter}, insurance:{covered, policyId, policyVersion}}`; the same key and body → the stored response | 503 `ServiceUnavailable`; 409 `AttemptActive`, `InsufficientEnergy`, `IdempotencyKeyReused` (same key, different body: nothing created or charged); 422 |
 | `GET /v1/attempts/{id}` | → `{state, participantState, deadlines, join:{endpoint, ticket, ticketExpiresAt}?}` | 404 |
@@ -1518,6 +1529,7 @@ Idempotency-Key: 6f7c0a52-2d4e-4b3a-9a77-1b1f9d0c2e10
 ### 16.4 Admin (admin key, loopback, disabled by default)
 
 - `POST /dev/v1/accounts` (Stage 3: `{handle?, displayName?, operator, reason}` → 201 `{accountId, credentialId, accountKey}`, `X-Correlation-Id`, `Cache-Control: no-store`; 409 `HandleTaken`, 422 `InvalidHandle`/`InvalidDisplayName`/`InvalidOperator`), `/energy/grants`, `/insurance/activations` (`{accountId, policyId, policyVersion, durationSeconds, idempotencyKey}`; extends the same benefit; `409 CrossTierDeferred` for a different one), `/hosts`, `/builds`;
+- **Stage 4:** `POST /dev/v1/accounts` (and the operator CLI's `account create`) now provisions the starter in the same transaction as the account, so a failure rolls the account back with it; the response keeps exactly `{accountId, credentialId, accountKey}`. The CLI also prints `starterGranted=granted` and `starterOperatives=`, `starterInstances=`, `starterStacks=` counts. The CLI verb `admin starter backfill --account-base58 <id>` grants the starter to an earlier account (spec §5.4);
 - `POST /dev/v1/attempts/{aid}/participants/{acc}/revalidate`: re-runs V1–V14 on the stored original manifest and settles it if it passes (§10.4);
 - `POST /dev/v1/attempts/{aid}/participants/{acc}/void` `{operator, reason, revalidated: true, outboxChecked: true, outboxNote}`: a protective void of a quarantined participant, refused unless the checks are recorded (§10.4);
 - `POST /dev/v1/hosts/{id}/declare-lost` `{operator, reason, outboxUnrecoverable: true}`: disables the host and voids its started, unsettled participants (§11.1);
@@ -1664,7 +1676,7 @@ All are configuration, none is decided, and changing one doesn't need a code cha
 | Insurance coverage, refund %, retention entries and units, eligible categories, category priority, progress XP % | §6.2 example | `insurance_policies.terms` (versioned) |
 | Insurance activation durations | per dev activation | admin endpoint argument |
 | Success XP | existing `ProgressionTrack.MissionCompletionXp` | catalogue export |
-| Bag capacity | 8 | Unity `InventoryRules` asset → catalogue format 2 `inventory.bagCapacity` (D1, 2026-10-15); versioned by `catalogueVersion` |
+| Bag capacity | 8 | Unity `InventoryRules` asset → catalogue format 2 `inventory.bagCapacity` (D1, 2026-10-15); versioned by `catalogueVersion`. As built (2026-10-15): the value 8 lives in the Unity `InventoryRules` asset and nowhere in the backend; `InventoryRules` is bag capacity's single home, exported in format 2 as `inventory.bagCapacity` (validated 1..64) and read by the backend's planner and validator; a scene-drift EditMode test compares `ProceduralMission`'s `SquadInventory.bagCapacity` with the asset |
 | Access token lifetime | 60 min | API configuration |
 | Ticket lifetime | 120 s | API configuration |
 | Assign, launch, join and start-ack deadlines | 60 s, 120 s, 120 s, = join | API configuration |

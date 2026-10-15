@@ -160,7 +160,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 4: provisioning, roster, inventory read and picks (C-4)
 
-**Status: authorized by the owner on 2026-10-15 with rulings D1–D6 (decision 048 amendment 2, spec revision 2.4); in progress on `phase13-stage4`.** Detailed plan: `Docs/superpowers/plans/2026-10-15-phase-13-stage4-operatives-inventory.md` (revision 2). It supersedes the work list below where they differ: bigint owned ids, provisioning at account creation plus a backfill, catalogue format 2 with `InventoryRules` (so it touches Unity's editor export and EditMode tests, no scene), and shared vectors.
+**Status: implemented on branch `phase13-stage4`; not merged or pushed (2026-10-15).** Authorized by the owner on 2026-10-15 with rulings D1–D6 (decision 048 amendment 2, spec revision 2.4). Measured: backend ALL 974/0 (Domain 292, Integration 682), UNIT 480/0 (`--filter "Requires!=Postgres"`); Unity EditMode 1524/0, PlayMode 1434/0; the catalogue `catalogueVersion` is `sha256:e83352b1c9d8764a92281551a25bea42621da2b592bc30d35986a5f0a86c496b`. The VM results are in the detailed plan's "As built" section. Detailed plan: `Docs/superpowers/plans/2026-10-15-phase-13-stage4-operatives-inventory.md` (revision 2). It supersedes the work list below where they differ: bigint owned ids, provisioning at account creation plus a backfill, catalogue format 2 with `InventoryRules` (so it touches Unity's editor export and EditMode tests, no scene), and shared vectors.
 
 **Touches:** `Backend/` only.
 

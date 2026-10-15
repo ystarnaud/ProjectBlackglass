@@ -1,4 +1,4 @@
-# Blackglass backend (Phase 13, Stages 1–3: foundation, catalogue, accounts and development authentication)
+# Blackglass backend (Phase 13, Stages 1–4: foundation, catalogue, accounts and development authentication, operatives and inventory)
 
 ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loopback only; the VM is reached by SSH alias `bg-dev-services01-admin` (user `admin`, `sudo -n`; root SSH login is disabled).
 
@@ -25,7 +25,7 @@ ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loo
 ## Catalogue
 - `catalogue/catalogue.json` is exported from Unity (Blackglass > Backend > Export Catalogue, or `Tools/run-method.sh Blackglass.BackendTools.CatalogueExporter.ExportFromCommandLine` with the Editor closed). Never edit it by hand: Unity's `CatalogueExportTests` fails while it differs from a fresh export, and the backend refuses a file that isn't in the exporter's canonical form.
 - `catalogueVersion` is `sha256:` plus the lowercase hex SHA-256 of the file's bytes; nothing inside the file states it. `src/Accounts.Domain` embeds the file, and `serve` refuses to start (exit 4) when it is invalid.
-- Format 1 holds ids and rules only (items, loot table, progression, operatives with role and ability ids, starter loadout); display text stays in Unity. Any other `formatVersion` is refused. Bag capacity is not part of format 1 (Stage 4/5 establishes its authoritative, versioned configuration).
+- Format 2 (Stage 4; format 1 is no longer accepted) holds ids and rules only (items, loot table, progression, operatives with role and ability ids, starter loadout, and `inventory.bagCapacity`); display text stays in Unity. Any other `formatVersion` is refused. **Bag capacity's single home is Unity's `InventoryRules` asset** (8 entries per operative, validated 1..64): it is exported as `inventory.bagCapacity`, the backend validates it and has no constant of its own, and an EditMode test compares the `ProceduralMission` scene's `SquadInventory.bagCapacity` with the asset. The format 1 to 2 change moved `catalogueVersion` to `sha256:e83352b1c9d8764a92281551a25bea42621da2b592bc30d35986a5f0a86c496b`, equal in Unity, the backend and `sha256sum`.
 - Permanent backend-facing ids (owner, 2026-10-14): item ids, operative GUIDs, the role and ability ids, and the existing progression choice ids `ability`, `combat`, `mobility` and `survivability`. Once stored they are never renamed; a change is a new id plus a migration of stored data.
 - The loot table's `containerCount` is 0 to 6 (Unity's `LootTable.MaxContainers`), a rule of the table and so of format 1. A mission may place fewer containers than the table asks for when its layout has no room (a logged shortfall); that per-mission count belongs to the attempt's registered loot pool, validated against the table at ready (Stage 8/9).
 - `contracts/catalogue/golden-catalogue.json` and `.version` are the shared vector: Unity's and the backend's writers must both produce it byte for byte, and both hash it to the `.version` value.
@@ -53,7 +53,8 @@ Order: `make-secrets.sh <dir>` (once), then `deploy.sh` = build, database up, st
    - `0001_accounts_and_auth` narrows that for its tables. `accounts_app` gets column-level `INSERT` and `UPDATE` for exactly the columns it writes, no `DELETE`, and no privilege on the identity sequences. So it can never choose an account or audit id (not even with `OVERRIDING SYSTEM VALUE`), set a creation time, change a key or a stored hash, or re-point a row.
    - `0001` also revokes the global `PUBLIC` `EXECUTE` default on the migrator's future functions.
    - `0002_revocation_is_final` makes a revocation permanent. A trigger on `dev_credentials` and `auth_sessions` refuses any update that clears or changes a set `revoked_at` (23514, constraint `revocation_is_final`). `accounts_app` can't disable, drop or replace it (it owns nothing) or skip it with `session_replication_role` (superuser only).
-   - `AccountsSchemaTests` pins the app's exact privilege set.
+   - `0003_operatives_and_picks` and `0004_inventory` (Stage 4) revoke the default privileges on their tables and grant `accounts_app` column-level `INSERT` only (never `operative_id` or `item_id`), plus, on `inventories`, `UPDATE` of `version` and the three `starter_*` columns. No `DELETE`, no `UPDATE` of operatives, choices, instances or stacks (Stage 5's grant migration adds the inventory edits), no privilege on the identity sequences. The trigger `inventories_forward_only` (0004) makes a granted starter record final and keeps `version` from decreasing (constraints `starter_grant_is_final`, `inventory_version_never_decreases`); `0004` also adds `starter_backfill` to the `operator_actions` action list.
+   - `AccountsSchemaTests` and `PlayerSchemaTests` pin the app's exact privilege set.
 4. **The API runs as `accounts_app`.** It owns nothing and has no `CREATE` on the schema or `TEMPORARY` on the database, so it has **no DDL**: no `CREATE`, `ALTER`, `DROP` or `TRUNCATE`.
 5. **The superuser is used only** by the image's init, and by `backup.sh` and `restore-drill.sh` through `docker exec` over the container's local socket. No service connects as it.
 
@@ -95,7 +96,7 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 
 **Routes.**
 - `POST /v1/auth/dev/login {accountKey}` → `{accessToken, expiresAt, accountId}`, with `Cache-Control: no-store`.
-- `GET /v1/me` → `{accountId}`.
+- `GET /v1/me` → `{accountId, inventoryVersion}` (Stage 4; `inventoryVersion` is the shared inventory version, null for an account without a starter).
 - `POST /v1/auth/logout` → 204. It revokes the current session only. A repeat gets the same 401 as any unknown token.
 - `POST /dev/v1/accounts` with header `X-Admin-Key` and body `{handle?, displayName?, operator, reason}` → 201 `{accountId, credentialId, accountKey}`, with `X-Correlation-Id`.
 
@@ -126,7 +127,7 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 sudo -n docker compose -p blackglass-accounts -f compose.yaml --profile tools run --rm -T admin account create [--handle <h>] [--display-name <name>] --operator <name> --reason <text>
 … admin credential rotate --account-base58 <id> | credential revoke --credential <uuid> | sessions revoke --account-base58 <id> | account suspend --account-base58 <id> | account reactivate --account-base58 <id>   (each with --operator and --reason, and --yes to confirm without a terminal)
 ```
-- `create` and `rotate` print `accountId=`, `credentialId=`, `accountKey=` (once) and `correlationId=`.
+- `create` and `rotate` print `accountId=`, `credentialId=`, `accountKey=` (once) and `correlationId=`. `create` also prints `starterGranted=granted` and `starterOperatives=`, `starterInstances=`, `starterStacks=` (the counts it provisioned) before `correlationId=`.
 - **Confirmation.** Every command but `create` first prints its target as `target.*` lines: the canonical Base58 id, status, handle, display name, creation time, live credential and live sessions, plus the credential for `credential revoke`. It then acts only when confirmed: either type that Base58 id at a terminal (run without `-T`), or add `--yes`. Without either it changes nothing. Running it without `--yes` and without a terminal is a dry run that shows the target.
 - Exit codes:
   - 0: ok.
@@ -140,6 +141,28 @@ sudo -n docker compose -p blackglass-accounts -f compose.yaml --profile tools ru
   - 75: database busy (a lock or statement timeout); nothing was changed, retry.
 - Output shows the SQLSTATE and constraint, never a server message.
 - Typing a decimal id, or `--account-base58 <decimal>`, names a different account or none. That's why the target is shown first, with its handle and display name.
+
+## Operatives, inventory and picks (Stage 4)
+
+Schema version 4. Owned ids (operatives and item instances) are PostgreSQL `bigint` identities, shown outside as canonical Base58 JSON strings exactly like account ids; catalogue definition ids are unchanged, stacks have no id. Every route needs a session, takes its account from the session alone (no path, query, header or body member names one; an unknown body member is a 400), answers `Cache-Control: no-store` and is rate limited per account. A database failure is 503, busy 503 with `Retry-After`, or 500, as in Stage 3.
+
+**Routes.**
+- `GET /v1/roster` → `{version, operatives:[{operativeId, definitionId, definitionKnown, experience, rank, pendingPicks, choices:[choiceId]}]}`.
+- `GET /v1/inventory` → `{version, locked, stash:{instances:[{itemId, definitionId, definitionKnown}], stacks:[{definitionId, definitionKnown, quantity}]}, operatives:[{operativeId, bag:{instances, stacks}, equipment:{weapon, armor, utility}}]}`. `bag.instances` includes the equipped items; `equipment` gives the item id per slot or null; `locked` is false until participations exist.
+- `POST /v1/operatives/{operativeId}/choices {choiceId, expectedVersion}` → `{version, operative}`. It follows `PersistentOperativeState.TryPickChoice` (a pending pick and a known choice) under the inventory row lock and bumps the shared inventory version.
+- Errors: 400 `InvalidOperativeId` or `InvalidBody` (a wrong content type is also 400 here, where login's is 415), 413 over 4 KiB, 404 `OperativeNotFound` (unknown and another account's operative are the same answer), 409 `VersionMismatch` or `NotProvisioned`, 422 `NoPendingPick` or `UnknownChoice`. Reads never write: an account without a starter gets 409 `NotProvisioned` (nobody is provisioned by looking). A pick is allowed for an operative whose definition the catalogue no longer knows.
+
+**Provisioning.** `account create` (CLI and `POST /dev/v1/accounts`) creates the account, its credential and its starter (operatives, instances equipped as authored, stacks, the `inventories` row and the starter's catalogue version) in one transaction with its audit row: a failure anywhere leaves nothing. Every operative and item is minted by `INSERT … ON CONFLICT (origin, origin_ref) DO NOTHING RETURNING`, or found by that reference, so a retry or a concurrent mint never makes a second row. A later catalogue never re-grants or replaces a starter.
+
+**Backfill** (accounts created before Stage 4):
+```
+… admin starter backfill --account-base58 <id> --operator <name> --reason <text> [--yes]
+```
+- It is confirmed like every lifecycle command (target lines, then `--yes` or typing the Base58 id) and the target lines include `target.starterGranted`.
+- It locks the account row and then the `inventories` row, grants only when `starter_granted` is false (exactly once, even concurrently) and writes a `starter_backfill` audit row either way (granted true or false, the catalogue version and the counts). A suspended account is backfilled too.
+- It prints `accountId=`, `starterGranted=granted|already`, `catalogueVersion=`, `operatives=`, `instances=`, `stacks=` and `correlationId=`. Exit codes are the CLI's: 0 ok (including `already`), 3, 64, 65 (no such account), 67, 69, 75. An invalid catalogue blocks every admin verb with exit 4, security revocations included.
+
+**Schema objects** (`0003`, `0004`): `operatives`, `operative_choices`, `inventories`, `item_instances`, `item_stacks`, the trigger `inventories_forward_only`, and the extended `operator_actions` action list. Invariants: `db/invariants/0004_inventory_consistency.sql` (one row per violation).
 
 **Rate limits behind the tunnel.** Every request reaches the container from the Docker bridge address, so no limit is per IP. Login is limited per presented key, plus a global window that fabricated keys can't get around. Authenticated requests are limited per account. Per-IP limits wait for Phase 14's HAProxy.
 
