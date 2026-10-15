@@ -1,6 +1,6 @@
 # Phase 13A: backend architecture and persistent mission settlement (design)
 
-Date: 2026-10-14. **Revision 2.2** (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
+Date: 2026-10-14. **Revision 2.3** (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
 
 "Project Blackglass" is an internal codename. No identifier, table, route, credential or claim introduced here carries the product name, apart from the C# namespace and repository paths that already exist. Player-facing names live in data (`display_name`), never in keys.
 
@@ -66,6 +66,16 @@ Companion documents:
 |---|---|---|
 | Account id | UUIDv7 minted by the API | **`bigint generated always as identity`**, minted by PostgreSQL only; every account foreign key is `bigint`. Outside the database it is the canonical **Base58** string (Bitcoin alphabet, at most 11 characters, strict parsing), always a JSON string. Decision 048 amendment (§4.1, §4.7, §15.1, §16) |
 | Other ids | UUIDv7 | Unchanged: attempts, sessions, credentials and insurance activations stay UUIDv7; tokens stay opaque |
+
+### 0.3 Revision 2.3 (Stage 3 security corrections, owner request, 2026-10-15)
+
+| Area | Revision 2.2 (Stage 3 as first built) | Revision 2.3 |
+|---|---|---|
+| Revocation | The app role could set `revoked_at` back to null | Permanent: migration `0002_revocation_is_final` (a trigger) refuses clearing or changing a set `revoked_at` (§15.1). Later planned migrations move up one number |
+| Lock waits | Unbounded in Stage 3 | `lock_timeout` 5 s and `statement_timeout` 15 s on every API and admin CLI connection, configurable; a timeout rolls back and is 503 with `Retry-After` (§15.3) |
+| Revocation times | Stamped by `statement_timestamp()` in a statement that could itself wait on a row lock | Rows are locked by an earlier statement and stamped by a later one, so every stamp follows every wait (§15.3) |
+| Database errors | Every database exception was 503 | Unavailable is 503; busy is 503 with `Retry-After`; known conflicts get 409 or 422; anything else is 500. No server message in a body or a log (§4.2, §16.1) |
+| Admin CLI | `--account <Base58 id>`, acted at once | `--account-base58 <id>` (an id is never read as decimal). A change to an existing account shows its target and acts only when confirmed, by typing the Base58 id at a terminal or with `--yes` (§4.2) |
 
 ---
 
@@ -229,9 +239,24 @@ The agent is a .NET 10 worker published self-contained, so the mission VM needs 
   - **Formats.** Account keys are `dk1_` and tokens `at1_`, each followed by base64url of 32 random bytes; SHA-256 is taken of the raw bytes, and parsing is strict.
   - **Sessions.** A session is bound to the credential that created it. Rotation revokes the old credential and its sessions and issues one new credential; the database allows one live credential per account. Revoking a credential revokes its sessions. Suspension revokes every session, and reactivation restores none.
   - **Logout.** `POST /v1/auth/logout` revokes the current session only. A repeat gets the uniform 401, so it is harmless and reveals nothing.
-  - **Failures.** Every authentication failure is one 401: no body, `WWW-Authenticate: Bearer`. A database outage during authentication or login is 503, never 401.
-  - **Locks.** Every lifecycle call locks the account row `FOR UPDATE` first, and login locks it `FOR SHARE` (then the credential), so no ordering leaves a live session on a credential or account revoked after it (§15.3). Rows are stamped with `statement_timestamp()`, so a call that waited for a lock stamps its rows after the change it waited for.
-  - **Operator surfaces.** The CLI is `admin account create [--handle] [--display-name] | credential rotate | credential revoke | sessions revoke | account suspend | account reactivate`, each with `--operator` and `--reason`; accounts are named by their Base58 id. Each change writes an `operator_actions` row with a correlation id in the same transaction.
+  - **Failures.**
+    - Every authentication failure is one 401: no body, `WWW-Authenticate: Bearer`.
+    - A database failure is never a 401, and its body is empty:
+      - **Unavailable** is 503. This covers any failure to open a connection, a broken connection, and SQLSTATE classes 08, 53 and 58, and 57P01–57P03.
+      - **Busy** is 503 with `Retry-After`. This covers a lock or statement timeout, a deadlock or a serialization failure, and nothing was committed.
+      - **Any other SQL error** is 500.
+    - Known conflicts are answered by their routes: a taken handle is 409, and a display name or operator text the database refuses is 422.
+    - Logs carry the SQLSTATE and constraint only, never the server's message, which can quote values.
+  - **Locks.**
+    - Every lifecycle call locks the account row `FOR UPDATE` first. Login locks it `FOR SHARE`, then the credential. So no ordering leaves a live session on a credential or account revoked after it (§15.3).
+    - Rows are stamped with `statement_timestamp()`. Every stamping statement comes after a separate statement that locked its rows, so each stamp follows every lock its call waited for. Logout is a transaction for the same reason.
+    - Every wait is bounded (§15.3).
+    - A revocation is permanent (`0002`).
+  - **Operator surfaces.**
+    - The CLI is `admin account create [--handle] [--display-name] | credential rotate | credential revoke | sessions revoke | account suspend | account reactivate`, each with `--operator` and `--reason`.
+    - Accounts are named by `--account-base58 <id>`, always the Base58 id, even when it is all digits.
+    - Every command but `create` first prints its target: canonical id, status, handle, display name, creation time, live credential and sessions. It acts only when confirmed: the operator types the Base58 id at a terminal, or passes `--yes`. Otherwise nothing changes.
+    - Each change writes an `operator_actions` row with a correlation id in the same transaction.
   - **Admin route.** `POST /dev/v1/accounts` is rate-limited before the key check and compares exactly one `X-Admin-Key` in constant time before reading the body. "Loopback only" is the API's own `127.0.0.1` publication: inside the container every request comes from the bridge gateway, so an in-app address check would prove nothing.
   - **Rate limits** (§19) are per presented key plus one global login window, per account for authenticated requests, and one admin window. None is per IP behind the tunnel.
 
@@ -1187,7 +1212,7 @@ create table auth_sessions (                             -- bound to the credent
   created_at timestamptz not null default statement_timestamp(), expires_at timestamptz not null, revoked_at timestamptz,
   check (expires_at > created_at), check (revoked_at is null or revoked_at >= created_at),
   foreign key (credential_id, account_id) references dev_credentials (credential_id, account_id));
-create table operator_actions (                          -- every operator decision, append-only (moved here from 0006)
+create table operator_actions (                          -- every operator decision, append-only (moved here from the settlement migration)
   id bigint generated always as identity primary key, correlation_id uuid not null,
   operator text not null check (length(operator) between 1 and 200 and operator !~ '[[:cntrl:]]'),
   action text not null check (action in ('account_create','credential_rotate','credential_revoke','sessions_revoke',
@@ -1201,7 +1226,19 @@ create table operator_actions (                          -- every operator decis
 -- account or audit id, set a creation time, or change a key, a hash or an owner. Rows are stamped with
 -- statement_timestamp() so a call that waited for a lock stamps after the change it waited for.
 
--- 0002 operatives and picks
+-- 0002 revocation is final (Stage 3 security correction, revision 2.3): once set, revoked_at can't be cleared or changed.
+create function revocation_is_final() returns trigger language plpgsql as $$
+begin
+  if old.revoked_at is not null and new.revoked_at is distinct from old.revoked_at then
+    raise exception 'a revocation is permanent: %.revoked_at cannot be cleared or changed', tg_table_name
+      using errcode = 'check_violation', constraint = 'revocation_is_final';
+  end if;
+  return new;
+end $$;
+create trigger dev_credentials_revocation_is_final before update on dev_credentials for each row execute function revocation_is_final();
+create trigger auth_sessions_revocation_is_final before update on auth_sessions for each row execute function revocation_is_final();
+
+-- 0003 operatives and picks (planned; every planned number below moved up one when 0002 was taken)
 create table operatives (
   operative_id uuid primary key, account_id bigint not null references accounts,
   definition_id text not null, experience integer not null default 0 check (experience >= 0),
@@ -1210,7 +1247,7 @@ create table operative_choices (
   operative_id uuid not null references operatives, ordinal smallint not null check (ordinal >= 0),
   choice_id text not null, picked_at timestamptz not null default now(), primary key (operative_id, ordinal));
 
--- 0003 inventory
+-- 0004 inventory
 create table inventories (
   account_id bigint primary key references accounts,
   version bigint not null default 1 check (version >= 1),
@@ -1230,7 +1267,7 @@ create table item_stacks (
   foreign key (account_id, operative_id) references operatives (account_id, operative_id),
   unique nulls not distinct (account_id, operative_id, definition_id));
 
--- 0004 energy and insurance
+-- 0005 energy and insurance
 create table energy_policies (
   version integer primary key, cap integer not null check (cap > 0),
   regen_interval interval not null check (regen_interval > interval '0'),
@@ -1265,7 +1302,7 @@ create table insurance_activations (                     -- append-only; extensi
   unique (account_id, idempotency_key),
   foreign key (policy_id, policy_version) references insurance_policies);
 
--- 0005 hosts, builds, attempts, participants
+-- 0006 hosts, builds, attempts, participants
 create table mission_hosts (
   host_id text primary key, secret_hash bytea not null unique check (length(secret_hash) = 32),
   enabled boolean not null default true, drained boolean not null default false,
@@ -1334,7 +1371,7 @@ create table deploy_requests (
   attempt_id uuid references mission_attempts,
   response jsonb not null, created_at timestamptz not null default now(), primary key (account_id, idempotency_key));
 
--- 0006 settlement, review, monitoring
+-- 0007 settlement, review, monitoring
 create table participant_settlements (
   attempt_id uuid not null, account_id bigint not null,
   manifest_hash bytea, manifest jsonb,                 -- null for infra_void
@@ -1359,7 +1396,7 @@ create table anomaly_events (
 create table schema_migrations (
   version integer primary key, name text not null, checksum bytea not null,
   applied_at timestamptz not null default now());
--- Triggers (0006): UPDATE/DELETE rejected on insurance_policies, insurance_activations, attempt_insurance,
+-- Triggers (0007): UPDATE/DELETE rejected on insurance_policies, insurance_activations, attempt_insurance,
 -- participant_settlements, energy_ledger and operator_actions; pool_collections.collected may only grow and must
 -- stay <= the pool line quantity (CHECK via trigger).
 ```
@@ -1397,7 +1434,13 @@ Every transaction that touches several of these takes locks in this order:
 5. `insurance_coverages`, ascending `account_id` (activations lock only this row; admission reads it without locking);
 6. item and stack rows (by key, through `DELETE`/`UPDATE … WHERE`).
 
-The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for operator changes, `FOR SHARE` for login), then `dev_credentials`, then `auth_sessions`; a later stage that also needs the participant or inventory rows takes the `accounts` row before step 2. Admission has no attempt row yet, so it starts at step 3. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries. **Stage 3 does not apply the retry or the `lock_timeout` yet:** its account-lifecycle and login transactions wait without a limit (noted for the owner); the stage that adds the first mission-table transaction brings both.
+The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for operator changes, `FOR SHARE` for login), then `dev_credentials`, then `auth_sessions`; a later stage that also needs the participant or inventory rows takes the `accounts` row before step 2. Admission has no attempt row yet, so it starts at step 3. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries.
+
+**As built (Stage 3, revision 2.3).**
+- **Bounds.** Every connection of the API's and the admin CLI's data sources carries `lock_timeout` (5 s) and `statement_timeout` (15 s), set by `BLACKGLASS_DB_LOCK_TIMEOUT_MS` and `BLACKGLASS_DB_STATEMENT_TIMEOUT_MS`. The migrator keeps its own `lock_timeout` and has no statement bound.
+- **Timeouts.** A timeout cancels the statement and rolls the transaction back, including writes made before the wait. The API answers 503 with `Retry-After`; the admin CLI exits 75.
+- **Stamping.** No statement that stamps a row with `statement_timestamp()` may itself wait. The account lock, then `FOR UPDATE` on the credentials and sessions to revoke, are taken by earlier statements. Logout locks its session row before stamping it.
+- **Retry.** The deadlock and serialization retry is still deferred: the stage that adds the first mission-table transaction brings it.
 
 ### 15.4 Migrations and safety (correction 8, D-14)
 
@@ -1418,7 +1461,7 @@ All JSON is camelCase, and errors are RFC 9457 ProblemDetails with a stable `cod
 
 | Route | Body → response | Errors |
 |---|---|---|
-| `POST /v1/auth/dev/login` | `{accountKey}` → `{accessToken, expiresAt, accountId}` | 401 (uniform); 429 with `Retry-After`; 503 when the database is unavailable; 400, 413 (over 4 KiB) or 415 for an unusable body |
+| `POST /v1/auth/dev/login` | `{accountKey}` → `{accessToken, expiresAt, accountId}` | 401 (uniform); 429 with `Retry-After`; 503 when the database is unavailable, 503 with `Retry-After` when it is busy (a lock or statement timeout); 500 for any other database error; 400, 413 (over 4 KiB) or 415 for an unusable body |
 | `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returns exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data | 401 |
 | `POST /v1/auth/logout` | → 204; revokes the current session only (Stage 3) | 401 (also on a repeat) |
 | `GET /v1/roster` | → operatives with XP, derived rank, pending picks, choices | |
@@ -1636,7 +1679,7 @@ All are configuration, none is decided, and changing one doesn't need a code cha
 | Rate limits | login 10/min per presented key plus 60/min for all logins together; deploy 6/min; other 120/min per account; admin 10/min for all admin requests (Stage 3: none per IP behind the tunnel) | API configuration |
 | Anomaly thresholds, drain rule | to be set from measurements | worker configuration |
 | Plausibility tolerance (V13) | to be set from measurements | API configuration |
-| `lock_timeout`, retry count | 5 s, 3 | API configuration |
+| `lock_timeout`, `statement_timeout`, retry count | 5 s, 15 s, 3 (the retry is not built yet) | API and admin CLI configuration |
 | Unit resource limits | to be set from measurements | systemd unit |
 
 ---

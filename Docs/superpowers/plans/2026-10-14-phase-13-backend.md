@@ -163,7 +163,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Touches:** `Backend/` only.
 
 **Work:**
-- migrations `0002` and `0003`;
+- migrations `0003` and `0004` (`0002` is Stage 3's `revocation_is_final`);
 - idempotent provisioning;
 - `GET /v1/roster` and `GET /v1/inventory`;
 - `POST /v1/operatives/{id}/choices`, with the rule ported from `PersistentOperativeState.TryPickChoice`. No new progression features.
@@ -199,7 +199,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Touches:** `Backend/` only.
 
 **Work:**
-- migration `0004` (energy);
+- migration `0005` (energy);
 - the regeneration function (only after the default `PUBLIC` `EXECUTE` revoke carried over from Stage 1 is in place; grant `EXECUTE` to `accounts_app` explicitly, and test that an ungranted function is refused);
 - the wallet under lock;
 - the ledger with idempotency keys, **including a `regen` entry for every materialization**, keyed by the anchor it consumed, in the same transaction;
@@ -221,7 +221,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 **Work:**
 - insurance policies, coverage and activations: the same policy **extends** (`greatest(expires_at, now) + duration`), a different policy while active is refused (`409 CrossTierDeferred`), an idempotency key is honoured once; immutability triggers;
-- migration `0005` (attempts, participants with the `one_active_participation` partial unique index, holds, snapshots, tickets, deploy requests, hosts, builds);
+- migration `0006` (attempts, participants with the `one_active_participation` partial unique index, holds, snapshots, tickets, deploy requests, hosts, builds);
 - `POST /v1/attempts`, following the spec's §7.3 and the §15.3 lock order;
 - the service-health admission check, with a host-health seam until stage 8;
 - `GET /v1/attempts/{id}` and `cancel`;
@@ -270,7 +270,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Touches:** `Backend/` only.
 
 **Work:**
-- migration `0006`;
+- migration `0007`;
 - domain validation V4–V14, including conservation;
 - the retention selection (category priority plus salted hash), payout and settlement plan;
 - the settlement transaction (spec §10.3), with stack consumption as `DELETE` when fully consumed and `UPDATE … WHERE quantity > q` when partial, and per-unit `origin_ref` minting;

@@ -3,7 +3,7 @@
 ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loopback only; the VM is reached by SSH alias `bg-dev-services01-admin` (user `admin`, `sudo -n`; root SSH login is disabled).
 
 ## Layout
-- `src/Accounts.Domain` the catalogue model, strict reader and validator (pure, no I/O). `src/Accounts.Persistence` DbSettings (password from a file) and the migrator. `src/Accounts.Api` the `serve`, `migrate` and `admin` commands, `GET /health` and the Stage 3 auth routes (exit codes: 0 ok, 1 failure, 2 `migrate` refused a drifted or ahead schema, 3 `serve` or `admin` refused a schema that is not current, 4 `serve` refused an invalid catalogue, 64 usage, 65 `admin` found no such account or credential, 66 `admin` found the handle taken).
+- `src/Accounts.Domain` the catalogue model, strict reader and validator (pure, no I/O). `src/Accounts.Persistence` DbSettings (password from a file) and the migrator. `src/Accounts.Api` the `serve`, `migrate` and `admin` commands, `GET /health` and the Stage 3 auth routes (exit codes: 0 ok, 1 failure, 2 `migrate` refused a drifted or ahead schema, 3 `serve` or `admin` refused a schema that is not current, 4 `serve` refused an invalid catalogue, 64 usage, 65 `admin` found no such account or credential, 66 `admin` found the handle taken, 67 `admin` change not confirmed, 69 `admin` database unavailable, 75 `admin` database busy).
 - `catalogue/catalogue.json` the catalogue exported from Unity; `contracts/catalogue/` the golden vector shared with Unity's tests.
 - `db/migrations/NNNN_lower_snake_name.sql` forward-only history; `db/invariants/` invariant queries.
 - `deploy/services/` Compose stacks (`compose.yaml` accounts, `compose.test.yaml` test cluster), `initdb/`, `sql/`, VM scripts and `tests/`. `tools/` PC-side helpers. `tests/Accounts.Domain.Tests` and `tests/Accounts.Integration.Tests` xUnit.
@@ -52,6 +52,7 @@ Order: `make-secrets.sh <dir>` (once), then `deploy.sh` = build, database up, st
 3. **Later migrations, as `accounts_migrator`.** They create tables, and `accounts_app` gets `SELECT`, `INSERT`, `UPDATE` and `DELETE` through the default privileges. Append-only tables revoke `UPDATE` and `DELETE` in their own migration.
    - `0001_accounts_and_auth` narrows that for its tables. `accounts_app` gets column-level `INSERT` and `UPDATE` for exactly the columns it writes, no `DELETE`, and no privilege on the identity sequences. So it can never choose an account or audit id (not even with `OVERRIDING SYSTEM VALUE`), set a creation time, change a key or a stored hash, or re-point a row.
    - `0001` also revokes the global `PUBLIC` `EXECUTE` default on the migrator's future functions.
+   - `0002_revocation_is_final` makes a revocation permanent. A trigger on `dev_credentials` and `auth_sessions` refuses any update that clears or changes a set `revoked_at` (23514, constraint `revocation_is_final`). `accounts_app` can't disable, drop or replace it (it owns nothing) or skip it with `session_replication_role` (superuser only).
    - `AccountsSchemaTests` pins the app's exact privilege set.
 4. **The API runs as `accounts_app`.** It owns nothing and has no `CREATE` on the schema or `TEMPORARY` on the database, so it has **no DDL**: no `CREATE`, `ALTER`, `DROP` or `TRUNCATE`.
 5. **The superuser is used only** by the image's init, and by `backup.sh` and `restore-drill.sh` through `docker exec` over the container's local socket. No service connects as it.
@@ -89,6 +90,8 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 | `BLACKGLASS_RATE_LOGIN_GLOBAL_PER_MINUTE` | 1–100000, all logins together | 60 |
 | `BLACKGLASS_RATE_REQUESTS_PER_MINUTE` | 1–100000, per account | 120 |
 | `BLACKGLASS_RATE_ADMIN_PER_MINUTE` | 1–1000, all admin requests together, before the key check | 10 |
+| `BLACKGLASS_DB_LOCK_TIMEOUT_MS` | 1–60000, `lock_timeout` on every API and admin CLI connection; at most the statement bound | 5000 |
+| `BLACKGLASS_DB_STATEMENT_TIMEOUT_MS` | 1–600000, `statement_timeout` on the same connections (the migrator has neither: it sets its own `lock_timeout`) | 15000 |
 
 **Routes.**
 - `POST /v1/auth/dev/login {accountKey}` → `{accessToken, expiresAt, accountId}`, with `Cache-Control: no-store`.
@@ -96,7 +99,14 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 - `POST /v1/auth/logout` → 204. It revokes the current session only. A repeat gets the same 401 as any unknown token.
 - `POST /dev/v1/accounts` with header `X-Admin-Key` and body `{handle?, displayName?, operator, reason}` → 201 `{accountId, credentialId, accountKey}`, with `X-Correlation-Id`.
 
-**Failures.** Every authentication failure (bad, unknown, malformed, expired or revoked key or token, suspended account) is one 401: no body and `WWW-Authenticate: Bearer`. A database outage during authentication or login is 503, never 401.
+**Failures.**
+- Every authentication failure (bad, unknown, malformed, expired or revoked key or token, suspended account) is one 401: no body and `WWW-Authenticate: Bearer`.
+- Database failures are never 401:
+  - **Unavailable** is 503. This covers any failure to open a connection, a broken connection, and SQLSTATE classes 08, 53 and 58, and 57P01–57P03.
+  - **Busy** is 503 with `Retry-After: 1`. This covers a lock or statement timeout, a deadlock or a serialization failure, and nothing was committed.
+  - **Any other SQL error** is 500 with an empty body.
+- Known conflicts have their own answers: a taken handle is 409, and a display name or operator text the database refuses is 422.
+- Logs name the SQLSTATE and constraint only, never the server's message.
 
 **Secrets.** Account keys are `dk1_` and access tokens `at1_`, each followed by base64url of 32 random bytes. Only SHA-256 of the raw bytes is stored. A key is shown once, to the operator who issued it. Logs show at most an 8-hex hash prefix and name accounts by their Base58 id.
 
@@ -106,16 +116,30 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 - Revoking a credential revokes its sessions.
 - Suspension revokes every session. Reactivation restores none.
 - Every lifecycle call locks the account row first, and login takes the same lock (`FOR SHARE`), so no ordering leaves a live session on a revoked credential or a suspended account.
+- A revocation is permanent (`0002`).
+- Revocation and creation times come after every lock their call waited for. The rows are locked by an earlier statement, so `statement_timestamp()` is taken after the wait. Logout is a transaction too.
+- Every wait is bounded by the two timeouts above. A call that times out rolls back everything it did.
 - Each change writes an `operator_actions` row (operator, reason, correlation id, target account and credential) in the same transaction.
 
-**Operator CLI** (on `bg-dev-services01`; `<id>` is always the Base58 account id the CLI prints):
+**Operator CLI** (on `bg-dev-services01`). Accounts are named by `--account-base58`, always the Base58 id the CLI prints, even when it is all digits: `2` is account 1. The old `--account` is refused.
 ```
 sudo -n docker compose -p blackglass-accounts -f compose.yaml --profile tools run --rm -T admin account create [--handle <h>] [--display-name <name>] --operator <name> --reason <text>
-… admin credential rotate --account <id> | credential revoke --credential <uuid> | sessions revoke --account <id> | account suspend --account <id> | account reactivate --account <id>   (each with --operator and --reason)
+… admin credential rotate --account-base58 <id> | credential revoke --credential <uuid> | sessions revoke --account-base58 <id> | account suspend --account-base58 <id> | account reactivate --account-base58 <id>   (each with --operator and --reason, and --yes to confirm without a terminal)
 ```
 - `create` and `rotate` print `accountId=`, `credentialId=`, `accountKey=` (once) and `correlationId=`.
-- Exit codes: 0 ok, 3 schema not current (the same policy as `serve`; nothing is written), 64 usage (including a malformed id), 65 not found, 66 handle taken, 1 failure.
-- **Hazard:** a decimal id with no `0` and no leading `1` (for example `23456789`) is also valid Base58 for a *different* account. Always paste the Base58 id; every command echoes the account it acted on.
+- **Confirmation.** Every command but `create` first prints its target as `target.*` lines: the canonical Base58 id, status, handle, display name, creation time, live credential and live sessions, plus the credential for `credential revoke`. It then acts only when confirmed: either type that Base58 id at a terminal (run without `-T`), or add `--yes`. Without either it changes nothing. Running it without `--yes` and without a terminal is a dry run that shows the target.
+- Exit codes:
+  - 0: ok.
+  - 1: unexpected failure.
+  - 3: schema not current (the same policy as `serve`; nothing is written).
+  - 64: usage error, including a malformed id, or not confirmed with no terminal.
+  - 65: not found.
+  - 66: handle taken.
+  - 67: the typed id didn't match.
+  - 69: database unavailable.
+  - 75: database busy (a lock or statement timeout); nothing was changed, retry.
+- Output shows the SQLSTATE and constraint, never a server message.
+- Typing a decimal id, or `--account-base58 <decimal>`, names a different account or none. That's why the target is shown first, with its handle and display name.
 
 **Rate limits behind the tunnel.** Every request reaches the container from the Docker bridge address, so no limit is per IP. Login is limited per presented key, plus a global window that fabricated keys can't get around. Authenticated requests are limited per account. Per-IP limits wait for Phase 14's HAProxy.
 
