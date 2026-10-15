@@ -10,7 +10,10 @@ namespace Blackglass.Accounts.Persistence.Accounts;
 public sealed record IssuedCredential(long AccountId, Guid CredentialId, OpaqueSecret AccountKey);
 
 /// <summary>What an operator is about to change (the admin CLI shows it before asking for confirmation).</summary>
-public sealed record AccountSummary(long AccountId, string Status, string? Handle, string? DisplayName, DateTime CreatedAt, Guid? LiveCredentialId, int LiveSessions);
+public sealed record AccountSummary(long AccountId, string Status, string? Handle, string? DisplayName, DateTime CreatedAt, Guid? LiveCredentialId, int LiveSessions, bool StarterGranted);
+
+/// <summary>The outcome of a starter backfill: whether this call granted, and the account's starter state as it now stands.</summary>
+public sealed record BackfillResult(bool Granted, ProvisionResult State);
 
 public sealed record CredentialSummary(Guid CredentialId, long AccountId, bool Live);
 
@@ -156,6 +159,27 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, GameCatalogue? catalo
         await tx.CommitAsync(ct);
     }
 
+    /// <summary>
+    /// The explicit starter backfill for an account created before Stage 4 (owner ruling D4): grants the starter once, from
+    /// this store's catalogue, and records that catalogue's version. Under the account lock, then the inventories row lock
+    /// (inside <see cref="StarterProvisioner"/>), so concurrent backfills, and account creation, serialize: one grants, the
+    /// rest find it granted. An account that already has its starter is left exactly as it is, whatever catalogue this
+    /// store holds: a later catalogue never grants again or replaces a starter. The audit row is written either way
+    /// (granted true or false, the recorded catalogue version and the counts); a failure anywhere rolls everything back.
+    /// A suspended account is backfilled too: the starter is property, not access.
+    /// </summary>
+    public async Task<BackfillResult> BackfillStarterAsync(long accountId, OperatorContext op, CancellationToken ct = default)
+    {
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        await LockAccountAsync(conn, tx, accountId, ct);
+        var state = await StarterProvisioner.ProvisionAsync(conn, tx, accountId, starterCatalogue, ct);
+        await AuditAsync(conn, tx, op, "starter_backfill", accountId, null,
+            new { granted = state.Granted, catalogueVersion = state.CatalogueVersion, operatives = state.Operatives, instances = state.Instances, stacks = state.Stacks }, ct);
+        await tx.CommitAsync(ct);
+        return new BackfillResult(state.Granted, state);
+    }
+
     /// <summary>Read only: the account an operator names, or null.</summary>
     public async Task<AccountSummary?> DescribeAccountAsync(long accountId, CancellationToken ct = default)
     {
@@ -164,7 +188,8 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, GameCatalogue? catalo
             """
             select a.account_id as AccountId, a.status as Status, i.subject as Handle, a.display_name as DisplayName, a.created_at as CreatedAt,
               (select c.credential_id from dev_credentials c where c.account_id = a.account_id and c.revoked_at is null) as LiveCredentialId,
-              (select count(*)::int from auth_sessions s where s.account_id = a.account_id and s.revoked_at is null and s.expires_at > now()) as LiveSessions
+              (select count(*)::int from auth_sessions s where s.account_id = a.account_id and s.revoked_at is null and s.expires_at > now()) as LiveSessions,
+              coalesce((select v.starter_granted from inventories v where v.account_id = a.account_id), false) as StarterGranted
             from accounts a left join account_identities i on i.account_id = a.account_id and i.provider = 'dev'
             where a.account_id = @accountId
             """, new { accountId }, cancellationToken: ct));

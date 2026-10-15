@@ -79,6 +79,7 @@ public class AdminConfirmationTests : IAsyncLifetime
         Assert.Matches(@"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$", Field(output, "target.createdAt"));
         Assert.Equal(account.CredentialId.ToString(), Field(output, "target.liveCredentialId"));
         Assert.Equal("1", Field(output, "target.liveSessions"));
+        Assert.Equal("true", Field(output, "target.starterGranted")); // created in Stage 4: its starter was granted with it
         Assert.DoesNotContain("correlationId=", output);
         Assert.Contains("--yes", error);
         Assert.Contains("nothing was changed", error);

@@ -5,7 +5,8 @@ using Blackglass.Accounts.Domain.Inventory;
 
 namespace Blackglass.Accounts.Persistence.Player;
 
-public sealed record ProvisionResult(long InventoryVersion, int Operatives, int Instances, int Stacks, string CatalogueVersion);
+/// <param name="Granted">True when this call granted the starter; false when it found it already granted (then the rest is the current state, as granted).</param>
+public sealed record ProvisionResult(long InventoryVersion, int Operatives, int Instances, int Stacks, string CatalogueVersion, bool Granted);
 
 /// <summary>
 /// Creates an account's starter operatives, items and stacks from the catalogue (owner ruling D4), inside the caller's
@@ -37,7 +38,7 @@ public static class StarterProvisioner
                        (select count(*)::int from item_instances where account_id = @accountId) as Instances,
                        (select count(*)::int from item_stacks where account_id = @accountId) as Stacks
                 """, new { accountId }, tx, cancellationToken: ct));
-            return new ProvisionResult(state.Version, counts.Operatives, counts.Instances, counts.Stacks, state.CatalogueVersion!);
+            return new ProvisionResult(state.Version, counts.Operatives, counts.Instances, counts.Stacks, state.CatalogueVersion!, Granted: false);
         }
 
         var plan = StarterPlanner.For(accountId, catalogue.Document);
@@ -61,7 +62,7 @@ public static class StarterProvisioner
             update inventories set starter_granted = true, starter_catalogue_version = @version, starter_granted_at = statement_timestamp()
             where account_id = @accountId
             """, new { accountId, version = catalogue.Version }, tx, cancellationToken: ct));
-        return new ProvisionResult(state.Version, plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count, catalogue.Version);
+        return new ProvisionResult(state.Version, plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count, catalogue.Version, Granted: true);
     }
 
     /// <summary>The id of the operative with this origin reference, minting it if there is none. A found row of another

@@ -154,7 +154,7 @@ public class ProvisioningTests : IAsyncLifetime
         var issued = await store.CreateAccountAsync(null, null, Op);
         var plan = StarterPlanner.For(issued.AccountId, Catalogue.Document);
         var again = await InTransactionAsync((c, t) => StarterProvisioner.ProvisionAsync(c, t, issued.AccountId, Catalogue, default));
-        Assert.Equal(new ProvisionResult(1, plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count, Catalogue.Version), again);
+        Assert.Equal(new ProvisionResult(1, plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count, Catalogue.Version, false), again);
         await AssertStarterRowsAsync(issued.AccountId);
     }
 
@@ -336,8 +336,8 @@ public class ProvisioningTests : IAsyncLifetime
 
         var results = await Task.WhenAll(others); // none throws: each sees the committed grant
         var plan = StarterPlanner.For(account, Catalogue.Document);
-        Assert.Equal(new ProvisionResult(1, plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count, Catalogue.Version), granted);
-        Assert.All(results, r => Assert.Equal(granted, r));
+        Assert.Equal(new ProvisionResult(1, plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count, Catalogue.Version, true), granted);
+        Assert.All(results, r => Assert.Equal(granted with { Granted = false }, r));
         await AssertStarterRowsAsync(account);
         Assert.Equal(plan.Operatives.Count, (int)await ScalarAsync<long>("select count(*) from operatives"));
         Assert.Equal(plan.Instances.Count, (int)await ScalarAsync<long>("select count(*) from item_instances"));
@@ -370,7 +370,8 @@ public class ProvisioningTests : IAsyncLifetime
         await firstTx.CommitAsync();
 
         var results = await Task.WhenAll(others); // none throws: each finds the committed grant
-        Assert.All(results, r => Assert.Equal(granted, r));
+        Assert.True(granted.Granted);
+        Assert.All(results, r => Assert.Equal(granted with { Granted = false }, r));
         await AssertStarterRowsAsync(account);
     }
 

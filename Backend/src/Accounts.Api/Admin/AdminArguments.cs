@@ -22,7 +22,7 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         "usage: Accounts.Api admin account create [--handle <h>] [--display-name <name>] | " +
         "credential rotate --account-base58 <Base58 account id> | credential revoke --credential <uuid> | " +
         "sessions revoke --account-base58 <Base58 account id> | account suspend --account-base58 <Base58 account id> | " +
-        "account reactivate --account-base58 <Base58 account id>; each with --operator <name> --reason <text>. " +
+        "account reactivate --account-base58 <Base58 account id> | starter backfill --account-base58 <Base58 account id>; each with --operator <name> --reason <text>. " +
         "An account id is always Base58 (as printed, e.g. BukQL or 2), never decimal. Every command but create shows its " +
         "target and acts only when confirmed: type the Base58 account id at the terminal, or add --yes.";
 
@@ -34,6 +34,7 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         ["sessions-revoke"] = ([AccountFlag], []),
         ["account-suspend"] = ([AccountFlag], []),
         ["account-reactivate"] = ([AccountFlag], []),
+        ["starter-backfill"] = ([AccountFlag], []),
     };
 
     /// <summary>Every verb but account create changes an existing account and needs confirmation.</summary>

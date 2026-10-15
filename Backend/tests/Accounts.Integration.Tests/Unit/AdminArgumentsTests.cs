@@ -47,6 +47,7 @@ public class AdminArgumentsTests
     [InlineData("sessions revoke --account-base58 BukQL --operator o --reason r")]
     [InlineData("account suspend --account-base58 BukQL --operator o --reason r")]
     [InlineData("account reactivate --account-base58 BukQL --operator o --reason r")]
+    [InlineData("starter backfill --account-base58 BukQL --operator o --reason r")]
     public void Every_change_to_an_existing_account_needs_confirmation_and_takes_yes(string line)
     {
         var a = Parse(line);
@@ -80,6 +81,10 @@ public class AdminArgumentsTests
     [InlineData("credential rotate --account-base58 BukQL --operator o --reason r --yes yes")]   // a switch takes no value
     [InlineData("credential revoke --credential not-a-uuid --operator o --reason r")]
     [InlineData("sessions revoke --account-base58 BukQL --credential 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]
+    [InlineData("starter backfill --operator o --reason r")]                                // account missing
+    [InlineData("starter backfill --credential 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")] // a credential is not an account
+    [InlineData("starter backfill --account-base58 BukQL --handle x --operator o --reason r")]  // a flag this verb doesn't take
+    [InlineData("starter grant --account-base58 BukQL --operator o --reason r")]            // unknown verb
     [InlineData("account")]
     [InlineData("")]
     public void Bad_arguments_are_usage_errors(string line) =>

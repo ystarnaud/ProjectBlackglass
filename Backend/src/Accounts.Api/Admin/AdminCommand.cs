@@ -13,7 +13,7 @@ namespace Blackglass.Accounts.Api.Admin;
 /// key is printed once, on stdout, to the operator who asked for it; nothing else ever shows it. Every command prints
 /// the Base58 account id it acted on and the correlation id of its audit row.
 /// A change to an existing account first prints its target ("target.*" lines: the canonical Base58 id, status, handle,
-/// display name, creation time, live credential and sessions) and then acts only when confirmed: --yes, or, at a
+/// display name, creation time, live credential and sessions, and whether its starter is granted) and then acts only when confirmed: --yes, or, at a
 /// terminal, typing that Base58 id. Without either it changes nothing (exit 64 with no terminal, 67 on a wrong answer).
 /// </summary>
 public static class AdminCommand
@@ -75,6 +75,15 @@ public static class AdminCommand
                     output.WriteLine($"accountId={AccountId.Format(a.Account.Value)}");
                     output.WriteLine("status=active");
                     break;
+                case "starter-backfill":
+                    var backfill = await store.BackfillStarterAsync(a.Account!.Value, a.Operator, ct);
+                    output.WriteLine($"accountId={AccountId.Format(a.Account.Value)}");
+                    output.WriteLine($"starterGranted={(backfill.Granted ? "granted" : "already")}");
+                    output.WriteLine($"catalogueVersion={backfill.State.CatalogueVersion}");
+                    output.WriteLine($"operatives={backfill.State.Operatives}");
+                    output.WriteLine($"instances={backfill.State.Instances}");
+                    output.WriteLine($"stacks={backfill.State.Stacks}");
+                    break;
             }
             output.WriteLine($"correlationId={a.Operator.CorrelationId}");
             return ExitCodes.Ok;
@@ -127,6 +136,7 @@ public static class AdminCommand
         output.WriteLine($"target.createdAt={target.CreatedAt.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}");
         output.WriteLine($"target.liveCredentialId={target.LiveCredentialId?.ToString() ?? "(none)"}");
         output.WriteLine($"target.liveSessions={target.LiveSessions}");
+        output.WriteLine($"target.starterGranted={(target.StarterGranted ? "true" : "false")}");
 
         if (a.Confirmed) return null;
         var action = a.Verb.Replace('-', ' ');
