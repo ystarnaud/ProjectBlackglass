@@ -141,6 +141,11 @@ public class AccountsSchemaTests : IAsyncLifetime
             "accounts:SELECT",
             "auth_sessions:SELECT",
             "dev_credentials:SELECT",
+            "inventories:SELECT",
+            "item_instances:SELECT",
+            "item_stacks:SELECT",
+            "operative_choices:SELECT",
+            "operatives:SELECT",
             "operator_actions:SELECT",
             "schema_migrations:SELECT",
         }, tables);
@@ -171,6 +176,28 @@ public class AccountsSchemaTests : IAsyncLifetime
             "dev_credentials.credential_id:INSERT",
             "dev_credentials.revoked_at:UPDATE",
             "dev_credentials.secret_hash:INSERT",
+            "inventories.account_id:INSERT",
+            "inventories.starter_catalogue_version:UPDATE",
+            "inventories.starter_granted:UPDATE",
+            "inventories.starter_granted_at:UPDATE",
+            "inventories.version:UPDATE",
+            "item_instances.account_id:INSERT",
+            "item_instances.definition_id:INSERT",
+            "item_instances.equipped_slot:INSERT",
+            "item_instances.operative_id:INSERT",
+            "item_instances.origin:INSERT",
+            "item_instances.origin_ref:INSERT",
+            "item_stacks.account_id:INSERT",
+            "item_stacks.definition_id:INSERT",
+            "item_stacks.operative_id:INSERT",
+            "item_stacks.quantity:INSERT",
+            "operative_choices.choice_id:INSERT",
+            "operative_choices.operative_id:INSERT",
+            "operative_choices.ordinal:INSERT",
+            "operatives.account_id:INSERT",
+            "operatives.definition_id:INSERT",
+            "operatives.origin:INSERT",
+            "operatives.origin_ref:INSERT",
             "operator_actions.account_id:INSERT",
             "operator_actions.action:INSERT",
             "operator_actions.attempt_id:INSERT",
@@ -181,11 +208,11 @@ public class AccountsSchemaTests : IAsyncLifetime
             "operator_actions.operator:INSERT",
             "operator_actions.reason:INSERT",
             "operator_actions.result:INSERT",
-        }, columns);
+        }, columns.OrderBy(c => c, StringComparer.Ordinal));
         // Identity sequences need no privilege for inserts; the app holds none, so it can't burn or reset ids.
         Assert.Empty(await conn.QueryAsync<string>(
             "select relname::text from pg_class where case when relkind = 'S' then has_sequence_privilege('accounts_app', oid, 'USAGE, SELECT, UPDATE') else false end"));
-        Assert.Equal(2L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'"));
+        Assert.Equal(4L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'"));
     }
 
     [Fact]
@@ -207,8 +234,9 @@ public class AccountsSchemaTests : IAsyncLifetime
         Assert.Equal(new[]
         {
             "account_identities=statement_timestamp()", "accounts=statement_timestamp()", "auth_sessions=statement_timestamp()",
-            "dev_credentials=statement_timestamp()", "operator_actions=statement_timestamp()",
-        }, defaults);
+            "dev_credentials=statement_timestamp()", "item_instances=statement_timestamp()", "operatives=statement_timestamp()",
+            "operator_actions=statement_timestamp()",
+        }, defaults.OrderBy(d => d, StringComparer.Ordinal));
     }
 
     [Fact]
@@ -217,13 +245,19 @@ public class AccountsSchemaTests : IAsyncLifetime
         await using var conn = await db.AsSuperuser().OpenConnectionAsync();
         var types = (await conn.QueryAsync<(string Table, string Column, string Type)>("""
             select table_name, column_name, data_type from information_schema.columns
-            where table_schema = 'public' and column_name in ('account_id', 'credential_id', 'session_id', 'correlation_id', 'attempt_id')
+            where table_schema = 'public' and column_name in ('account_id', 'credential_id', 'session_id', 'correlation_id', 'attempt_id', 'operative_id', 'item_id')
             order by table_name, column_name
             """)).ToList();
-        Assert.All(types.Where(t => t.Column == "account_id"), t => Assert.Equal("bigint", t.Type));
-        Assert.All(types.Where(t => t.Column != "account_id"), t => Assert.Equal("uuid", t.Type));
-        Assert.Equal(["account_identities", "accounts", "auth_sessions", "dev_credentials", "operator_actions"],
-            types.Where(t => t.Column == "account_id").Select(t => t.Table).ToArray());
+        string[] bigintColumns = ["account_id", "operative_id", "item_id"];
+        Assert.All(types.Where(t => bigintColumns.Contains(t.Column)), t => Assert.Equal("bigint", t.Type));
+        Assert.All(types.Where(t => !bigintColumns.Contains(t.Column)), t => Assert.Equal("uuid", t.Type));
+        Assert.Equal(["account_identities", "accounts", "auth_sessions", "dev_credentials", "inventories", "item_instances", "item_stacks", "operatives", "operator_actions"],
+            types.Where(t => t.Column == "account_id").Select(t => t.Table).Order(StringComparer.Ordinal).ToArray());
+        // Operative and item ids are bigint identities; stack and choice rows carry them as bigint references.
+        Assert.Equal(["item_instances.item_id", "item_instances.operative_id", "item_stacks.operative_id", "operative_choices.operative_id", "operatives.operative_id"],
+            types.Where(t => t.Column is "operative_id" or "item_id").Select(t => $"{t.Table}.{t.Column}").Order(StringComparer.Ordinal).ToArray());
+        // Mission attempts are not affected: no attempt table exists yet, and attempt ids stay UUIDv7 when it does.
+        Assert.DoesNotContain(types, t => t.Column == "attempt_id" && t.Type != "uuid");
     }
 
     [Theory]
