@@ -45,7 +45,7 @@ namespace Blackglass.Tests
             Kit = Item("item.gamma-kit", ItemCategory.Consumable, ItemSlot.None, 3, 10);
             Rules = Keep(InventoryRules.Create(6));
             Items = Keep(ItemCatalogue.Create(Kit, Boots, Rifle, Vest));
-            Loot =Keep(LootTable.Create(7, 2, 1, 3, new[] { Entry(Kit, 1, 2, 5), Entry(Rifle, 1, 1, 1) }));
+            Loot = Keep(LootTable.Create(7, 2, 1, 3, new[] { Entry(Kit, 1, 2, 5), Entry(Rifle, 1, 1, 1) }));
             Progression = Keep(ProgressionTrack.Create(new[] { 0, 10, 30 }, new[] { Choice("choice.two"), Choice("choice.one") }, 20, 5));
             AbilityOne = Ability("ability.one");
             AbilityTwo = Ability("ability.two");

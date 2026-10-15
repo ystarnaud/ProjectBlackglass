@@ -2,6 +2,7 @@ using Blackglass.BackendTools;
 using NUnit.Framework;
 using UnityEditor;
 using UnityEditor.SceneManagement;
+using UnityEngine.SceneManagement;
 
 namespace Blackglass.Tests
 {
@@ -36,7 +37,11 @@ namespace Blackglass.Tests
             var rules = AssetDatabase.LoadAssetAtPath<InventoryRules>(RulesPath);
             Assert.That(rules != null, Is.True, "missing " + RulesPath);
 
-            var scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Additive);
+            // Read the scene if the Editor already has it loaded (and leave it open); only close a scene this test opened.
+            var scene = SceneManager.GetSceneByPath(ScenePath);
+            var openedHere = !scene.isLoaded;
+            if (openedHere)
+                scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Additive);
             try
             {
                 var found = 0;
@@ -55,7 +60,8 @@ namespace Blackglass.Tests
             }
             finally
             {
-                EditorSceneManager.CloseScene(scene, true);
+                if (openedHere)
+                    EditorSceneManager.CloseScene(scene, true);
             }
         }
     }
