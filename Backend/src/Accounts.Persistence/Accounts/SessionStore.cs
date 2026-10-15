@@ -66,13 +66,21 @@ public sealed class SessionStore(NpgsqlDataSource db)
     }
 
     /// <summary>Logout: revokes one live session of one account. False when it was already revoked or isn't that
-    /// account's.</summary>
+    /// account's. The row is locked by its own statement first, so the stamp (fixed when its statement starts) comes
+    /// after any wait, e.g. behind an operator revoking the same session.</summary>
     public async Task<bool> RevokeAsync(Guid sessionId, long accountId, CancellationToken ct = default)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
-        return await conn.ExecuteAsync(new CommandDefinition(
-            "update auth_sessions set revoked_at = greatest(statement_timestamp(), created_at) where session_id = @sessionId and account_id = @accountId and revoked_at is null",
-            new { sessionId, accountId }, cancellationToken: ct)) == 1;
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        var locked = await conn.ExecuteScalarAsync<Guid?>(new CommandDefinition(
+            "select session_id from auth_sessions where session_id = @sessionId and account_id = @accountId and revoked_at is null for update",
+            new { sessionId, accountId }, tx, cancellationToken: ct));
+        if (locked is null) return false;
+        await conn.ExecuteAsync(new CommandDefinition(
+            "update auth_sessions set revoked_at = greatest(statement_timestamp(), created_at) where session_id = @sessionId",
+            new { sessionId }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return true;
     }
 
     static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
