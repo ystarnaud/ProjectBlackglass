@@ -33,6 +33,14 @@ public class DbFailureTests
         Assert.Equal(DbFailureKind.Unavailable, DbFailure.Classify(Pg(sqlState)));
 
     [Theory]
+    [InlineData("57P04", "FATAL")] // database dropped
+    [InlineData("57P05", "FATAL")] // idle_session_timeout
+    [InlineData("25P03", "FATAL")] // idle_in_transaction_session_timeout
+    [InlineData("XX000", "PANIC")]
+    public void A_fatal_server_error_ends_the_connection_and_is_unavailable(string sqlState, string severity) =>
+        Assert.Equal(DbFailureKind.Unavailable, DbFailure.Classify(new PostgresException("m", severity, severity, sqlState)));
+
+    [Theory]
     [InlineData("55P03")] // lock_timeout
     [InlineData("57014")] // statement_timeout (or a cancelled request)
     [InlineData("40001")] // serialization failure

@@ -36,7 +36,7 @@ public static class ServeCommand
         catch (NpgsqlException e)
         {
             await dataSource.DisposeAsync();
-            error.WriteLine($"Database unavailable at startup ({settings}): {Describe(e)}");
+            error.WriteLine($"Database unavailable at startup ({settings}): {DbFailure.SafeDescription(e)}");
             return new(ExitCodes.Failure, null);
         }
 

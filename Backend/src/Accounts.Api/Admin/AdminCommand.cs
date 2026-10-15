@@ -114,6 +114,8 @@ public static class AdminCommand
             output.WriteLine($"target.credentialStatus={(credential.Live ? "live" : "revoked")}");
         }
         output.WriteLine($"target.accountId={id}");
+        if (a.AccountWasAllDigits) // the decimal-id hazard: say how the argument was read, next to the account it named
+            output.WriteLine($"target.note={id} was read as a Base58 account id (account ids are never decimal); check the handle and display name below");
         output.WriteLine($"target.status={target.Status}");
         output.WriteLine($"target.handle={target.Handle ?? "(none)"}");
         output.WriteLine($"target.displayName={target.DisplayName ?? "(none)"}"); // no control characters: one line (0001's check)

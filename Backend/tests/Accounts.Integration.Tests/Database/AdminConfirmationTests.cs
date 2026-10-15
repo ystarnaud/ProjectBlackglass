@@ -135,6 +135,8 @@ public class AdminConfirmationTests : IAsyncLifetime
         var (code, output, _) = await CliAsync(null, "account", "suspend", "--account-base58", "2", "--operator", "ops", "--reason", "test", "--yes");
         Assert.Equal(ExitCodes.Ok, code);
         Assert.Equal(("2", "first"), (Field(output, "target.accountId"), Field(output, "target.handle")));
+        Assert.Contains("Base58", Field(output, "target.note"));
+        Assert.Contains("never decimal", Field(output, "target.note"));
         Assert.Equal("suspended", await ScalarAsSuperuserAsync<string>(db, "select status from accounts where account_id = @a", new { a = first.AccountId }));
         Assert.Equal("active", await ScalarAsSuperuserAsync<string>(db, "select status from accounts where account_id = @a", new { a = second.AccountId }));
     }

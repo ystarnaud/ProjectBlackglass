@@ -1462,8 +1462,8 @@ All JSON is camelCase, and errors are RFC 9457 ProblemDetails with a stable `cod
 | Route | Body → response | Errors |
 |---|---|---|
 | `POST /v1/auth/dev/login` | `{accountKey}` → `{accessToken, expiresAt, accountId}` | 401 (uniform); 429 with `Retry-After`; 503 when the database is unavailable, 503 with `Retry-After` when it is busy (a lock or statement timeout); 500 for any other database error; 400, 413 (over 4 KiB) or 415 for an unusable body |
-| `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returns exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data | 401 |
-| `POST /v1/auth/logout` | → 204; revokes the current session only (Stage 3) | 401 (also on a repeat) |
+| `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returns exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data | 401; 503 when the database is unavailable, 503 with `Retry-After` when busy; 500 for any other database error; 429 per account |
+| `POST /v1/auth/logout` | → 204; revokes the current session only (Stage 3) | 401 (also on a repeat); 503 unavailable, 503 with `Retry-After` busy (it locks its session row); 500 for any other database error; 429 per account |
 | `GET /v1/roster` | → operatives with XP, derived rank, pending picks, choices | |
 | `POST /v1/operatives/{id}/choices` | `{choiceId, expectedVersion}` → operative | 409 `VersionMismatch`, `InventoryLocked`; 422 `NoPendingPick`, `UnknownChoice` |
 | `GET /v1/inventory` | → `{version, locked, stash, operatives:[{operativeId, bag, equipment}]}` | |

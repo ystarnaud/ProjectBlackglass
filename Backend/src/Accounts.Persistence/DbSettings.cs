@@ -47,6 +47,8 @@ public sealed class DbSettings(string host, int port, string database, string us
         {
             Host = Host, Port = Port, Database = Database, Username = Username, Password = password,
             ApplicationName = applicationName, Timeout = 5, MaxPoolSize = maxPoolSize, Options = timeouts?.StartupOptions,
+            // The server's bounds decide; the client's own command timeout (default 30 s) must never fire first.
+            CommandTimeout = timeouts is null ? 30 : timeouts.StatementTimeoutMs / 1000 + 30,
         });
 
     public override string ToString() => $"{Username}@{Host}:{Port}/{Database}";

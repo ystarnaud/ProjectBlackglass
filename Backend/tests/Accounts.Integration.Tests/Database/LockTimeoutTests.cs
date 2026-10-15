@@ -85,12 +85,13 @@ public class LockTimeoutTests : IAsyncLifetime
         await AssertNothingChangedAsync();
     }
 
-    /// <summary>Suspend has already set the status when it waits for the session row: the timeout must undo that too.</summary>
+    /// <summary>Blocked on a session row, after the account lock. Suspend has already set the status by then, so its
+    /// case proves the timeout undoes earlier writes; rotate and revoke-sessions have written nothing yet.</summary>
     [Theory]
     [InlineData("suspend")]
     [InlineData("revoke-sessions")]
     [InlineData("rotate")]
-    public async Task A_lifecycle_call_that_times_out_part_way_rolls_back_what_it_already_did(string how)
+    public async Task A_lifecycle_call_blocked_on_a_session_row_times_out_and_changes_nothing(string how)
     {
         var e = await BlockedAsync("select 1 from auth_sessions where session_id = @s for update", Lifecycle(how, new AccountAdminStore(db.AsAppWith(Short))));
         Assert.Equal(PostgresErrorCodes.LockNotAvailable, e.SqlState);
@@ -155,6 +156,15 @@ public class LockTimeoutTests : IAsyncLifetime
         Assert.Equal(Blackglass.Accounts.Api.ExitCodes.Failure,
             await Blackglass.Accounts.Api.Cli.RunAsync(["admin", "account", "create", "--operator", "o", "--reason", "r"], env, TextWriter.Null, error));
         Assert.Contains(DbTimeouts.LockTimeoutVar, error.ToString());
+    }
+
+    [Fact]
+    public async Task The_client_command_timeout_outlasts_the_largest_configured_statement_bound()
+    {
+        await using var conn = await db.AsAppWith(new DbTimeouts(60_000, 600_000)).OpenConnectionAsync();
+        Assert.True(conn.CommandTimeout > 600, $"CommandTimeout {conn.CommandTimeout} s would fire before the 600 s server bound");
+        await using var bounded = await db.AsAppWith(new DbTimeouts(300, 2_000)).OpenConnectionAsync();
+        Assert.True(bounded.CommandTimeout > 2, $"CommandTimeout {bounded.CommandTimeout} s");
     }
 
     [Fact]

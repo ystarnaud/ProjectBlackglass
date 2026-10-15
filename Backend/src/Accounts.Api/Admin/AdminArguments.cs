@@ -12,7 +12,8 @@ public sealed class AdminUsageException(string message) : Exception(message);
 /// is never read as decimal). Credentials are named by UUID. A change to an existing account must be confirmed
 /// (<see cref="Confirmed"/> or at a terminal; see AdminCommand).
 /// </summary>
-public sealed record AdminArguments(string Verb, string? Handle, string? DisplayName, long? Account, Guid? Credential, OperatorContext Operator, bool Confirmed)
+public sealed record AdminArguments(string Verb, string? Handle, string? DisplayName, long? Account, Guid? Credential, OperatorContext Operator, bool Confirmed,
+    bool AccountWasAllDigits = false)
 {
     public const string AccountFlag = "--account-base58";
     public const string YesSwitch = "--yes";
@@ -70,6 +71,7 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         Guid? credential = null;
         if (flags.TryGetValue("--credential", out var credentialText))
             credential = Guid.TryParseExact(credentialText, "D", out var g) ? g : throw new AdminUsageException("--credential must be a UUID.");
-        return new AdminArguments(verb, flags.GetValueOrDefault("--handle"), flags.GetValueOrDefault("--display-name"), account, credential, op, confirmed);
+        return new AdminArguments(verb, flags.GetValueOrDefault("--handle"), flags.GetValueOrDefault("--display-name"), account, credential, op, confirmed,
+            accountText is not null && accountText.All(char.IsAsciiDigit));
     }
 }

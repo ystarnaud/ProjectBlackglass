@@ -43,12 +43,26 @@ public class SecretFileTests
         var stale = Path.Combine(SecretFile.Root, $"{int.MaxValue}-{Guid.NewGuid():N}");
         Directory.CreateDirectory(stale);
         File.WriteAllText(Path.Combine(stale, "leftover"), "x");
-        var live = Path.GetDirectoryName(SecretFile.Write("y").Path)!;
+        using var own = SecretFile.Write("y");
+        var live = Path.GetDirectoryName(own.Path)!;
 
         SecretFile.SweepStaleDirectories();
 
         Assert.False(Directory.Exists(stale));
         Assert.True(Directory.Exists(live)); // this process's own directory stays
+    }
+
+    [Fact]
+    public void A_directory_named_for_a_process_this_user_cannot_inspect_is_kept_and_does_not_break_the_sweep()
+    {
+        var guarded = Path.Combine(SecretFile.Root, $"4-{Guid.NewGuid():N}"); // Windows: the System process
+        Directory.CreateDirectory(guarded);
+        try
+        {
+            SecretFile.SweepStaleDirectories(); // must not throw (Win32Exception: access denied)
+            Assert.True(Directory.Exists(guarded) || !OperatingSystem.IsWindows());
+        }
+        finally { if (Directory.Exists(guarded)) Directory.Delete(guarded, recursive: true); }
     }
 
     [Fact]

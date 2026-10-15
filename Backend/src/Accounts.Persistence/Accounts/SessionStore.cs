@@ -19,7 +19,7 @@ public sealed class SessionStore(NpgsqlDataSource db)
     // Every AccountAdminStore call locks the account row FOR UPDATE first, so a login and a rotation, revocation or
     // suspension of the same account serialize: a login that waited re-reads the committed revocation and fails, and a
     // session committed first is revoked by the revocation that follows. The session's foreign key alone isn't enough:
-    // its FOR KEY SHARE doesn't conflict with the revocation's FOR NO KEY UPDATE.
+    // its FOR KEY SHARE doesn't conflict with a plain UPDATE of revoked_at (FOR NO KEY UPDATE).
     const string FindAccountSql = "select account_id from dev_credentials where secret_hash = @keyHash";
     const string LockAccountSql = "select status from accounts where account_id = @accountId for share";
     const string LockCredentialSql =

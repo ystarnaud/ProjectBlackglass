@@ -53,10 +53,13 @@ public sealed class SecretFile : IDisposable
         }
     }
 
+    /// <summary>False only when no such process exists; a process this user can't inspect counts as running (its
+    /// directory is kept, never a reason to fail every later secret write).</summary>
     static bool IsRunning(int pid)
     {
         try { using var p = Process.GetProcessById(pid); return !p.HasExited; }
         catch (ArgumentException) { return false; }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException) { return true; }
     }
 
     static void CreatePrivateDirectory(string dir)

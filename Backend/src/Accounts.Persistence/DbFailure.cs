@@ -28,6 +28,7 @@ public static class DbFailure
     public static DbFailureKind? Classify(Exception e) => e switch
     {
         DatabaseUnavailableException => DbFailureKind.Unavailable,
+        PostgresException { InvariantSeverity: "FATAL" or "PANIC" } => DbFailureKind.Unavailable, // the server ended the connection
         PostgresException pg => ClassifySqlState(pg.SqlState),
         NpgsqlException => DbFailureKind.Unavailable, // no server error at all: a broken socket, an I/O or connect timeout, an exhausted pool
         _ => null,

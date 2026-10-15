@@ -117,7 +117,7 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 - Suspension revokes every session. Reactivation restores none.
 - Every lifecycle call locks the account row first, and login takes the same lock (`FOR SHARE`), so no ordering leaves a live session on a revoked credential or a suspended account.
 - A revocation is permanent (`0002`).
-- Revocation and creation times come after every lock their call waited for. The rows are locked by an earlier statement, so `statement_timestamp()` is taken after the wait. Logout is a transaction too.
+- Revocation times, and the creation time of a rotated-in credential, come after every lock their call waited for. The rows are locked by an earlier statement, so `statement_timestamp()` is taken after the wait. Logout is a transaction too. (A handle's own `created_at` can precede a wait on a concurrent create of the same handle; nothing depends on it.)
 - Every wait is bounded by the two timeouts above. A call that times out rolls back everything it did.
 - Each change writes an `operator_actions` row (operator, reason, correlation id, target account and credential) in the same transaction.
 

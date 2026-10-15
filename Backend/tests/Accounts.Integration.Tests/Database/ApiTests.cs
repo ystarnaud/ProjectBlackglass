@@ -121,6 +121,7 @@ public class ApiTests
         Assert.Equal(ExitCodes.Failure, (await ServeCommand.StartAsync(env, err, default)).ExitCode);
         Assert.DoesNotContain("wrong-password-XYZ", err.ToString());
         Assert.DoesNotContain(db.Password("app"), err.ToString());
+        Assert.Contains("28P01", err.ToString()); // invalid_password: the operator can tell what failed
     }
 
     [Fact]

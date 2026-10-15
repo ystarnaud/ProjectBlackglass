@@ -20,7 +20,7 @@ public sealed record CredentialSummary(Guid CredentialId, long AccountId, bool L
 /// plain form.
 /// Revocations are stamped with statement_timestamp(), not now(): now() is the transaction's start, and a call that waited
 /// for a lock would otherwise stamp a credential or session revoked before it was created. statement_timestamp() is
-/// itself fixed when its statement starts, so no stamping statement may wait: the rows it changes are locked first, by
+/// itself fixed when its statement starts, so no revoking statement may wait: the rows it changes are locked first, by
 /// an earlier statement (the account lock, then FOR UPDATE on the credentials and sessions; a concurrent logout holds a
 /// session row). greatest(…, created_at) keeps a revocation possible even after the clock steps back: a security action
 /// never fails on time.

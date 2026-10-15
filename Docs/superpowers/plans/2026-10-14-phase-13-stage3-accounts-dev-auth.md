@@ -1935,7 +1935,7 @@ The owner approved Stage 3 with Q1–Q3 answered as recommended, and changed the
     [Trait("Requires", "Postgres")]
     public class AdminTests : IAsyncLifetime
     {
-        const string AdminKey = "admin-key-for-tests-0123456789abcdef";
+        static readonly string AdminKey = NewAdminKey(); // random per run since the 2026-10-15 corrections
         TestDatabase db = null!;
         public async Task InitializeAsync() => db = await MigratedAsync();
         public async Task DisposeAsync() => await db.DisposeAsync();
