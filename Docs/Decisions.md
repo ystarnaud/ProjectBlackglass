@@ -858,7 +858,7 @@ Design: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` (revision
   - **What stays provisional:** HAProxy, a private VLAN, Docker for mission servers and orchestration remain provisional and out of Phase 13.
 
   **Identity:**
-  - **Accounts:** a server-generated UUIDv7 account id. External identities are linkable rows; Phase 13 has a development provider only.
+  - **Accounts:** a server-generated UUIDv7 account id (**superseded** by the amendment below: a sequential `BIGINT`, shown as Base58). External identities are linkable rows; Phase 13 has a development provider only.
   - **Development login:** an admin-issued 256-bit account key, exchanged for an opaque, hashed, short-lived access token.
 
   **Mission host credentials:**
@@ -900,6 +900,29 @@ Design: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` (revision
 - **Implications:**
   - Offline client scenes keep their in-memory roster and inventory. Their developer keys can't reach the backend.
   - This supersedes the audit's preliminary schema (audit §9.5) and, for online play, the "Phase 14 serializes locally" notes in 036 and 043.
+
+- **Amendment (owner decision, 2026-10-14, Stage 3): account ids are a sequential `BIGINT`, shown as Base58.** This supersedes the "server-generated UUIDv7 account id" above. The original wording stays as the historical record: it was chosen because a UUIDv7 is permanent, platform-independent, free of product or provider names, and can be minted by the API without a database round trip.
+  - **Decided:**
+    - **Storage.** `accounts.account_id bigint generated always as identity primary key`, positive values only. PostgreSQL generates every id; no client and no application code chooses one, and nothing computes `max(account_id) + 1`. The key never changes. Gaps from rolled-back transactions are accepted.
+    - **Relationships.** Every account foreign key, in Stage 3 and in every later stage's tables, is `bigint`. Those tables are dev identities, credentials, sessions, operator-audit targets, operatives, inventories, item instances and stacks, energy wallets and ledger, insurance, mission participants and the account-scoped settlement records.
+    - **Public form.** Outside the database, an account id is the canonical Bitcoin Base58 encoding of the number (alphabet `123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz`, no `0`, `O`, `I` or `l`), at most 11 characters, not padded. Parsing is strict: case-sensitive, alphabet only, no whitespace, no leading `1` (the zero digit), no zero, nothing above `9223372036854775807`. In JSON it is always a **string**, never a number. Example: `123456789` is `"BukQL"`.
+    - **Code.** The backend works with a plain `long`. A small dependency-free codec and one JSON converter form the only conversion boundary. The admin CLI and account-lookup logs show the Base58 form. The database never stores the Base58 string.
+    - **Security.** An account id is a public identifier, not a secret: it is sequential and guessable by design. Every client request takes its account from the validated session. No self-service endpoint accepts an account id. Admin surfaces that accept one validate the id and the admin's authority. Base58 is an encoding, not encryption or authorization.
+  - **Unchanged:** mission attempts keep UUIDv7 ids (they are minted independently and cross mission processes, journals, retries and settlement). Session and credential ids stay UUIDv7. Tokens and keys stay opaque 256-bit random values. Operative and item-instance ids are revisited, if at all, in their own stages.
+  - **Why:**
+    - Native integer keys are compact, index well, and make the account foreign keys of every later table cheaper.
+    - Short Base58 ids are easy to read aloud and to type in operator and support tooling.
+    - A JSON string sidesteps JavaScript's 53-bit integer limit.
+    - No permanent account existed yet (verified on 2026-10-14: no live accounts stack is deployed, and the test cluster's `accounts` database holds no account table), so nothing needs migrating.
+  - **Rejected:**
+    - Keeping UUIDv7 account ids: longer for operators, and wider foreign keys everywhere.
+    - Hashids or encrypted ids: they hide nothing that matters, because the id is never an authorization secret.
+    - Fixed-width or padded Base58: it adds a second spelling of the same number.
+    - Converting every id to `BIGINT` for consistency: attempts need ids minted independently of the database.
+  - **Implications:**
+    - `origin_ref` strings name the account by its decimal `bigint`.
+    - Manifests, tickets and API bodies carry the Base58 string.
+    - Sequential ids leak the account count and creation order. This is accepted; no endpoint grants anything on the strength of an id.
 
 ## 049. Phase 13 attempts: lifecycle, energy, insurance and loss rules (2026-10-14)
 

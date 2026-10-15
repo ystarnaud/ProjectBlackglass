@@ -26,7 +26,9 @@ The step currently authorized is **Phase 13: authenticated between-mission flow 
 Progress:
 - Stage 0 (decision records) and Stage 1 (the backend foundation: migrator, loopback-only Compose stack, backup and restore drill) are done, merged into `main` and pushed (`ad14373`).
 - Stage 2 (catalogue export) is done, per `Docs/superpowers/plans/2026-10-14-phase-13-stage2-catalogue-export.md`. Unity exports `Backend/catalogue/catalogue.json` (`Blackglass > Backend > Export Catalogue`; an EditMode test fails on a stale export). The backend's `Accounts.Domain` validates it, and `serve` refuses to start on an invalid one (exit 4).
+- Stage 3 (accounts and development authentication) is authorized and in progress on branch `phase13-stage3`, per `Docs/superpowers/plans/2026-10-14-phase-13-stage3-accounts-dev-auth.md` (revision 2).
 - Item ids, operative GUIDs, progression choice ids and the role and ability ids are permanent backend-facing keys: never rename one.
+- Account ids are a PostgreSQL-generated sequential `BIGINT` (decision 048 amendment, superseding UUIDv7). Outside the database they are canonical Base58 JSON strings, converted at one boundary; C# uses `long`. An account id is public, never an authorization secret: client requests take the account from the session only. Mission attempt ids stay UUIDv7.
 
 Phase 13 authorizes:
 - the account and mission backend in `Backend/`, loopback-only, reached through SSH tunnels;
@@ -229,7 +231,7 @@ Do not generate extensive documentation for trivial implementation details.
 Phase 13, stage by stage (plan revision 2.1).
 - Stage 0 (decision records and this authorization) and Stage 1 (backend foundation) are done, merged and pushed.
 - Stage 2 (catalogue export) is done.
-- Stage 3 (accounts and development authentication) is next. Its detailed plan is prepared for the owner's review, and implementation starts only when the owner says so; the same holds for every later stage.
+- Stage 3 (accounts and development authentication) is authorized (2026-10-14) and in progress, with the `BIGINT` + Base58 account id. Stage 4 and every later stage start only when the owner says so.
 - No merge, push or live accounts-stack deployment happens without the owner's approval.
 
 - Each stage records concrete evidence (test counts, transcripts, diff stat) and changes only the paths it lists.
