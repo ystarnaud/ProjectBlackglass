@@ -19,9 +19,10 @@ public static class AdminCommand
         try { a = AdminArguments.Parse(args); }
         catch (AdminUsageException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
         DbSettings settings;
-        try { settings = DbSettings.FromEnvironment(env); }
+        DbTimeouts timeouts;
+        try { (settings, timeouts) = (DbSettings.FromEnvironment(env), DbTimeouts.FromEnvironment(env)); }
         catch (DbSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return ExitCodes.Failure; }
-        await using var dataSource = settings.CreateDataSource("blackglass-admin", maxPoolSize: 2);
+        await using var dataSource = settings.CreateDataSource("blackglass-admin", maxPoolSize: 2, timeouts: timeouts);
         var store = new AccountAdminStore(dataSource);
         try
         {

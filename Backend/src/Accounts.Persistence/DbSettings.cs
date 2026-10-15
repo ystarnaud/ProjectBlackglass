@@ -41,11 +41,12 @@ public sealed class DbSettings(string host, int port, string database, string us
         return new DbSettings(Required(HostVar), port, Required(NameVar), Required(UserVar), password);
     }
 
-    public NpgsqlDataSource CreateDataSource(string applicationName, int maxPoolSize = 20) =>
+    /// <param name="timeouts">Wait bounds set on every connection (the API and the admin CLI); null for none (the migrator).</param>
+    public NpgsqlDataSource CreateDataSource(string applicationName, int maxPoolSize = 20, DbTimeouts? timeouts = null) =>
         NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder
         {
             Host = Host, Port = Port, Database = Database, Username = Username, Password = password,
-            ApplicationName = applicationName, Timeout = 5, MaxPoolSize = maxPoolSize,
+            ApplicationName = applicationName, Timeout = 5, MaxPoolSize = maxPoolSize, Options = timeouts?.StartupOptions,
         });
 
     public override string ToString() => $"{Username}@{Host}:{Port}/{Database}";

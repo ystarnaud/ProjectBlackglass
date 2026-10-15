@@ -21,14 +21,15 @@ public static class ServeCommand
         catch (CatalogueException e) { error.WriteLine($"Refusing to start: {e.Message}"); return new(ExitCodes.InvalidCatalogue, null); }
 
         DbSettings settings;
-        try { settings = DbSettings.FromEnvironment(env); }
+        DbTimeouts timeouts;
+        try { (settings, timeouts) = (DbSettings.FromEnvironment(env), DbTimeouts.FromEnvironment(env)); }
         catch (DbSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return new(ExitCodes.Failure, null); }
 
         AuthSettings auth;
         try { auth = AuthSettings.FromEnvironment(env); }
         catch (AuthSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return new(ExitCodes.Failure, null); }
 
-        var dataSource = settings.CreateDataSource("blackglass-api");
+        var dataSource = settings.CreateDataSource("blackglass-api", timeouts: timeouts);
         var catalog = MigrationCatalog.Embedded;
         SchemaStatus status;
         try { status = await SchemaGuard.CheckAsync(dataSource, catalog, ct); }

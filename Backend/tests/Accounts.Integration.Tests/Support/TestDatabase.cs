@@ -9,6 +9,7 @@ public sealed class TestDatabase : IAsyncDisposable
     readonly TestCluster cluster;
     readonly Dictionary<string, NpgsqlDataSource> sources = new();
     readonly List<SecretFile> passwordFiles = new();
+    readonly List<NpgsqlDataSource> boundedSources = new();
 
     public string Name { get; }
 
@@ -21,6 +22,15 @@ public sealed class TestDatabase : IAsyncDisposable
     public NpgsqlDataSource AsMigrator() => Source("accounts_migrator", cluster.MigratorPassword);
     public NpgsqlDataSource AsApp() => Source("accounts_app", cluster.AppPassword);
     public NpgsqlDataSource AsOutsider() => Source("bg_test_outsider", cluster.OutsiderPassword);
+
+    /// <summary>The app role through the production factory (DbSettings.CreateDataSource), with these wait bounds.</summary>
+    public NpgsqlDataSource AsAppWith(Blackglass.Accounts.Persistence.DbTimeouts timeouts)
+    {
+        var ds = new Blackglass.Accounts.Persistence.DbSettings("127.0.0.1", cluster.Port, Name, "accounts_app", cluster.AppPassword)
+            .CreateDataSource("blackglass-tests", maxPoolSize: 5, timeouts: timeouts);
+        boundedSources.Add(ds);
+        return ds;
+    }
 
     public string Password(string role) => role switch
     {
@@ -48,7 +58,7 @@ public sealed class TestDatabase : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         foreach (var f in passwordFiles) f.Dispose(); // first: nothing below may leave a password behind
-        foreach (var ds in sources.Values) await ds.DisposeAsync();
+        foreach (var ds in sources.Values.Concat(boundedSources)) await ds.DisposeAsync();
         await using var admin = cluster.DataSource("postgres", "postgres", cluster.SuperuserPassword);
         await using var conn = await admin.OpenConnectionAsync();
         await conn.ExecuteAsync($"drop database if exists \"{Name}\" with (force)");
