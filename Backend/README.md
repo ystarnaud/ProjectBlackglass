@@ -133,6 +133,7 @@ sudo -n docker compose -p blackglass-accounts -f compose.yaml --profile tools ru
   - 0: ok.
   - 1: unexpected failure.
   - 3: schema not current (the same policy as `serve`; nothing is written).
+  - 4: the embedded catalogue is invalid (checked before the database; nothing is touched; every verb, as for `serve`).
   - 64: usage error, including a malformed id, or not confirmed with no terminal.
   - 65: not found.
   - 66: handle taken.

@@ -677,7 +677,18 @@ public sealed record InventoryView(long Version, bool Locked, LocationView Stash
 
 Catalogue: format 2, `catalogueVersion` `sha256:e83352b1c9d8764a92281551a25bea42621da2b592bc30d35986a5f0a86c496b` (three-way equal: Unity's writer, the backend's writer, `sha256sum`). Schema version 4.
 
-**VM: pending (controller).** Smoke at schema 0004 (including the create output's starter counts and `starter backfill` saying `already`), the restore drill with the 0004 invariant, the off-host probe during the hold, and the after-state check.
+**VM (controller, at `69779ce`, throwaway projects only):**
+- **Smoke:** 33 ok, 0 failures. Health answers at schema 0004, the admin CLI's create prints the granted starter counts, and `starter backfill` on that account exits 0 and says `already`. No key appears in the transcript.
+- **Restore drill:** 16 ok, 0 failures (DRILL PASS, 3 invariants held, including `0004_inventory_consistency`).
+- **Off-host probe** with the API serving: 5080, 5432 and 55432 closed, 22 answers.
+- **Afterwards:** only `blackglass-testdb` runs (accepting connections), the listeners are identical to before, and no throwaway volumes remain.
+
+**Reviews:**
+- Checkpoint 1 (identity, schema, migrations): 0 Critical, 1 Important, fixed (the `inventories_forward_only` trigger).
+- Checkpoint 2 (provisioning, picks, endpoints): 0 Critical, 0 Important.
+- Checkpoint 3 (final): 0 Critical, 0 Important, ready to merge.
+
+All three were independent reviews on the most capable model. The task reviews before them were scoped gates.
 
 **Rulings** (from the execution ledger, short form):
 - Pre-flight: `Reads_write_nothing` creates no cluster role (roles are cluster-global and the owner limits tests to the authorized test databases); it uses a data source whose connections set `default_transaction_read_only=on`, asserts the reads succeed and that the store's transactions are read only. Cost if wrong: a weaker proof than a SELECT-only role.
@@ -691,6 +702,7 @@ Catalogue: format 2, `catalogueVersion` `sha256:e83352b1c9d8764a92281551a25bea42
 - Task 12: `account create` prints `starterGranted=granted` and `starterOperatives=`, `starterInstances=`, `starterStacks=` (operators see the grant; the smoke test needs a visible signal). The smoke test also checks `starter backfill` reports `already`.
 
 **Departures from the plan text:**
+- Task 3: the golden vector `Backend/contracts/catalogue/golden-catalogue.json` was regenerated as the synthetic writer-equivalence fixture in format 2 (bag capacity 6, its own items), not copied from the project export. It is a fixture for both writers' byte equality, as in Stage 2; the committed `catalogue.json` is pinned separately by its own tests and the export test.
 - Namespace `Advancement` instead of `Progression` (above).
 - `Bag.Instances` includes equipped items (above).
 - `ProvisionResult` gained `bool Granted` (Task 7), and `IssuedCredential` carries the optional `ProvisionResult` of account creation (Task 12). `AdminCommand.RunAsync` has an optional `loadCatalogue` test seam (Task 6).
