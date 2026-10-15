@@ -16,7 +16,7 @@ create table item_instances (
   operative_id bigint,
   equipped_slot text check (equipped_slot in ('weapon', 'armor', 'utility')),
   origin text not null check (origin in ('starter', 'settlement', 'insurance', 'dev_grant')),
-  origin_ref text not null check (length(origin_ref) <= 300 and origin_ref !~ '[[:space:][:cntrl:]]'),
+  origin_ref text not null check (length(origin_ref) between 1 and 300 and origin_ref !~ '[[:space:][:cntrl:]]'),
   created_at timestamptz not null default statement_timestamp(),
   foreign key (account_id, operative_id) references operatives (account_id, operative_id),
   check (equipped_slot is null or operative_id is not null),

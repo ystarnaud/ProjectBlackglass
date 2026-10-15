@@ -276,6 +276,8 @@ public class PlayerSchemaTests : IAsyncLifetime
     [InlineData("insert into operatives (account_id, definition_id, origin, origin_ref) values (@a, 'ok', 'starter', 'has space')")]
     [InlineData("insert into operatives (account_id, definition_id, origin, origin_ref) values (@a, 'ok', 'starter', E'tab\\there')")]
     [InlineData("insert into operatives (account_id, definition_id, origin, origin_ref) values (@a, 'ok', 'starter', repeat('r', 301))")]
+    [InlineData("insert into operatives (account_id, definition_id, origin, origin_ref) values (@a, 'ok', 'starter', '')")]
+    [InlineData("insert into item_instances (account_id, definition_id, origin, origin_ref) values (@a, 'ok', 'starter', '')")]
     [InlineData("insert into item_instances (account_id, definition_id, origin, origin_ref) values (@a, 'Upper', 'starter', 'x')")]
     [InlineData("insert into item_instances (account_id, definition_id, origin, origin_ref) values (@a, E'new\\nline', 'starter', 'x')")]
     [InlineData("insert into item_instances (account_id, definition_id, origin, origin_ref) values (@a, repeat('a', 65), 'starter', 'x')")]

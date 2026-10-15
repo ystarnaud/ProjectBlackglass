@@ -7,7 +7,7 @@ create table operatives (
   definition_id text not null check (length(definition_id) <= 64 and definition_id ~ '^[a-z0-9]+([.-][a-z0-9]+)*$'),
   experience integer not null default 0 check (experience >= 0),
   origin text not null check (origin in ('starter')),
-  origin_ref text not null check (length(origin_ref) <= 300 and origin_ref !~ '[[:space:][:cntrl:]]'),
+  origin_ref text not null check (length(origin_ref) between 1 and 300 and origin_ref !~ '[[:space:][:cntrl:]]'),
   created_at timestamptz not null default statement_timestamp(),
   unique (account_id, operative_id),
   unique (origin, origin_ref));
