@@ -1,6 +1,7 @@
 using System.Globalization;
 using Npgsql;
 using Blackglass.Accounts.Domain.Accounts;
+using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
 using Blackglass.Accounts.Persistence.Migrations;
@@ -19,17 +20,21 @@ public static class AdminCommand
 {
     /// <param name="input">The operator's terminal, or null when stdin isn't one (then only --yes confirms).</param>
     public static async Task<int> RunAsync(IReadOnlyList<string> args, IReadOnlyDictionary<string, string?> env, TextWriter output, TextWriter error,
-        CancellationToken ct, TextReader? input = null)
+        CancellationToken ct, TextReader? input = null, Func<GameCatalogue>? loadCatalogue = null)
     {
         AdminArguments a;
         try { a = AdminArguments.Parse(args); }
         catch (AdminUsageException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
+        // The catalogue comes before the database, as for serve: account creation grants its starter.
+        GameCatalogue catalogue;
+        try { catalogue = (loadCatalogue ?? (() => GameCatalogue.Embedded))(); }
+        catch (CatalogueException e) { error.WriteLine($"Refusing to run: {e.Message}"); return ExitCodes.InvalidCatalogue; }
         DbSettings settings;
         DbTimeouts timeouts;
         try { (settings, timeouts) = (DbSettings.FromEnvironment(env), DbTimeouts.FromEnvironment(env)); }
         catch (DbSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return ExitCodes.Failure; }
         await using var dataSource = settings.CreateDataSource("blackglass-admin", maxPoolSize: 2, timeouts: timeouts);
-        var store = new AccountAdminStore(dataSource);
+        var store = new AccountAdminStore(dataSource, catalogue);
         try
         {
             // The same schema policy as serve (Stage 1 ruling 4): behind, drifted or ahead, the CLI writes nothing.

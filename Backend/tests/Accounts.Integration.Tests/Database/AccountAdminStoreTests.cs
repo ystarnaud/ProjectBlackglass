@@ -36,6 +36,7 @@ public class AccountAdminStoreTests : IAsyncLifetime
         var audit = (await QueryAuditAsync()).Single();
         Assert.Equal(("account_create", issued.AccountId, issued.CredentialId, op.CorrelationId, "test-operator", "integration test"),
             (audit.Action, audit.AccountId, audit.CredentialId, audit.CorrelationId, audit.Operator, audit.Reason));
+        Assert.Contains("\"starter\"", audit.Result); // provisioning adds the starter summary to the audited result (Stage 4, D4)
     }
 
     [Fact]

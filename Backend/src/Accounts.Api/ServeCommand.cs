@@ -56,7 +56,7 @@ public static class ServeCommand
         builder.Services.AddSingleton(catalogue);
         builder.Services.AddSingleton(auth);
         builder.Services.AddSingleton(new SessionStore(dataSource));
-        builder.Services.AddSingleton(new AccountAdminStore(dataSource));
+        builder.Services.AddSingleton(new AccountAdminStore(dataSource, catalogue));
         builder.Services.AddSingleton<LoginThrottle>();
         builder.Services.AddAuthentication(AccountClaims.Scheme)
             .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null);

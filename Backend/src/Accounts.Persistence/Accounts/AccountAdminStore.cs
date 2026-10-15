@@ -2,6 +2,8 @@ using System.Text.Json;
 using Dapper;
 using Npgsql;
 using Blackglass.Accounts.Domain.Auth;
+using Blackglass.Accounts.Domain.Catalogue;
+using Blackglass.Accounts.Persistence.Player;
 
 namespace Blackglass.Accounts.Persistence.Accounts;
 
@@ -25,8 +27,10 @@ public sealed record CredentialSummary(Guid CredentialId, long AccountId, bool L
 /// session row). greatest(…, created_at) keeps a revocation possible even after the clock steps back: a security action
 /// never fails on time.
 /// </summary>
-public sealed class AccountAdminStore(NpgsqlDataSource db)
+public sealed class AccountAdminStore(NpgsqlDataSource db, GameCatalogue? catalogue = null)
 {
+    readonly GameCatalogue starterCatalogue = catalogue ?? GameCatalogue.Embedded;
+
     const string LockSessionsOfCredentials =
         "select session_id from auth_sessions where revoked_at is null and credential_id = any(@credentials) order by session_id for update";
     const string RevokeSessionsOfCredentials =
@@ -66,7 +70,10 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
             }
         }
         await InsertCredentialAsync(conn, tx, accountId, credentialId, key, ct);
-        await AuditAsync(conn, tx, op, "account_create", accountId, credentialId, new { handle, displayName }, ct);
+        // The starter is part of the same transaction (owner ruling D4): any failure rolls the account back with it.
+        var starter = await StarterProvisioner.ProvisionAsync(conn, tx, accountId, starterCatalogue, ct);
+        await AuditAsync(conn, tx, op, "account_create", accountId, credentialId,
+            new { handle, displayName, starter = new { catalogueVersion = starter.CatalogueVersion, operatives = starter.Operatives, instances = starter.Instances, stacks = starter.Stacks } }, ct);
         await tx.CommitAsync(ct);
         return new IssuedCredential(accountId, credentialId, key);
     }

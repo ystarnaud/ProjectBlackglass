@@ -63,6 +63,17 @@ public class AdminTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_cli_refuses_an_invalid_catalogue_before_touching_the_database()
+    {
+        var error = new StringWriter();
+        var code = await Blackglass.Accounts.Api.Admin.AdminCommand.RunAsync(["account", "create", "--operator", "ops", "--reason", "test"], db.EnvFor("app"),
+            new StringWriter(), error, default, loadCatalogue: () => Blackglass.Accounts.Domain.Catalogue.GameCatalogue.Load("{}\n"u8.ToArray()));
+        Assert.Equal(ExitCodes.InvalidCatalogue, code);
+        Assert.Contains("Invalid catalogue", error.ToString());
+        Assert.Equal(0L, await AccountCountAsync());
+    }
+
+    [Fact]
     public async Task The_cli_runs_the_whole_lifecycle_by_base58_id()
     {
         var created = (await CliAsync("account", "create", "--operator", "ops", "--reason", "test")).Out;
