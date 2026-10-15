@@ -137,7 +137,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 3: accounts and development authentication
 
-**Status: implemented on branch `phase13-stage3` (owner-authorized 2026-10-14); not merged or pushed; the live accounts stack is not deployed.** Measured: ALL 537/0, UNIT 319/0; VM smoke 28 ok, drill 16 ok, off-host probe pass. Detailed plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage3-accounts-dev-auth.md` (revision 2). Account ids are a PostgreSQL-generated `bigint` shown as Base58 (decision 048 amendment, spec revision 2.2); every later stage's account foreign keys are `bigint`.
+**Status: implemented on branch `phase13-stage3` (owner-authorized 2026-10-14); not merged or pushed; the live accounts stack is not deployed.** Measured: ALL 537/0, UNIT 319/0; VM smoke 28 ok, drill 16 ok, off-host probe pass. **Security correction pass (2026-10-15, owner request):** migration `0002_revocation_is_final`, bounded waits, error classification, Base58-explicit CLI with confirmation, stamps after row locks, test-secret hygiene; ALL 669/0, UNIT 372/0, VM smoke 32 ok, 0 failures, drill 16 ok, 0 failures, at `1cda7e9`; schema version 2. Detailed plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage3-accounts-dev-auth.md` (revision 2). Account ids are a PostgreSQL-generated `bigint` shown as Base58 (decision 048 amendment, spec revision 2.2); every later stage's account foreign keys are `bigint`.
 
 **Touches:** `Backend/` only.
 

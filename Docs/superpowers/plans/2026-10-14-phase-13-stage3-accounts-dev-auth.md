@@ -2458,6 +2458,26 @@ Branch `phase13-stage3`, from `main` `b6f7e1d`; **not merged, not pushed, live a
 
 **Reviews:** A, B and the final review, all independent (see the ledger).
 
+## Security correction pass (owner request, 2026-10-15)
+
+After provisional acceptance, the owner asked for one focused correction pass before merging.
+- **Evidence:** `.claude/scratchpad/phase13/stage-03c/` (not committed). It holds the ledger with every ruling, the transcripts and the review diff.
+- **Spec:** revision 2.3 (§0.3).
+
+| Item | Change | Proof |
+|---|---|---|
+| 1. Revocation is irreversible | `0002_revocation_is_final`: a trigger refuses clearing or changing a set `revoked_at` on `dev_credentials` and `auth_sessions`. `accounts_app` can't disable, drop or replace it, or use `session_replication_role`. 0000 and 0001 are unchanged | `RevocationPermanenceTests` (direct SQL as `accounts_app`) |
+| 2. Test secrets | `SecretFile`: one private directory per test process (Windows: a protected ACL for the current user only; Unix: 0700, with files 0600). Files are deleted on dispose, and the directories of dead test processes are swept. The API's admin key file is deleted as soon as startup ends. Test admin keys are random per run. 283 leaked files were removed from %TEMP% | `SecretFileTests`, `SecretCleanupTests` |
+| 3. Bounded waits | `lock_timeout` (5 s) and `statement_timeout` (15 s) on every API and admin CLI connection (`BLACKGLASS_DB_LOCK_TIMEOUT_MS`, `BLACKGLASS_DB_STATEMENT_TIMEOUT_MS`). A timeout rolls back everything | `LockTimeoutTests`, `DbTimeoutsTests` |
+| 4. Error classification | `DbFailure`: unavailable is 503; busy is 503 with `Retry-After`; known conflicts are 409 or 422 (`InvalidOperator` is new); everything else is 500. Logs carry the SQLSTATE and constraint only. CLI exits: 69 unavailable, 75 busy, 1 unexpected | `ErrorClassificationTests`, `DbFailureTests` |
+| 5. Admin CLI | `--account-base58` (the old `--account` is refused). A change to an existing account prints `target.*` and acts only when the operator types the Base58 id at a terminal or passes `--yes`. Exit 67 when not confirmed. An all-digit id gets a `target.note` | `AdminConfirmationTests`, `AdminArgumentsTests` |
+| 6. Stamps after locks | A revocation `UPDATE` could itself wait on a session row (logout) or a credential row, so it stamped before the wait. Rows are now locked by an earlier statement, and logout is a transaction | `RevocationTimestampTests` (7 of 12 cases failed before the fix) |
+
+**Measured at `1cda7e9`:**
+- **Tests:** ALL 669/0 (Domain 191, Integration 478); UNIT 372/0. At the pass's start (`646f89d`) it was ALL 537/0.
+- **VM:** smoke 32 ok, 0 failures; drill 16 ok, 0 failures; the off-host probe passes with the API serving (5080, 5432 and 55432 closed, 22 answers). Afterwards only `blackglass-testdb` runs and the listeners are unchanged. Schema version 2.
+- **Review:** an independent final security review of the correction diff found 0 Critical and 0 Important. I re-graded and fixed eight of its Minors; three are deferred (see the ledger).
+
 ## Owner questions (answered 2026-10-14: Q1, Q2 and Q3 as recommended)
 
 **Q1. What `GET /v1/me` returns in Stage 3.** Spec §16.1 lists `{accountId, energy, insurance, inventoryVersion, activeAttemptId}`, but energy, insurance, inventory and attempts arrive in Stages 4–7.
