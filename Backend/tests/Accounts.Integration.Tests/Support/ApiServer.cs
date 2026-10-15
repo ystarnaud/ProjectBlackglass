@@ -33,6 +33,21 @@ public sealed class ApiServer : IAsyncDisposable
             await su.ExecuteAsync("select pg_terminate_backend(pid) from pg_stat_activity where datname = @name and usename = 'accounts_app'", new { name = db.Name });
     }
 
+    /// <summary>Sends exact request bytes over TCP and returns the status code. HttpClient folds repeated header values
+    /// into one line, so only a raw request can carry two separate Authorization or X-Admin-Key fields.</summary>
+    public async Task<int> SendRawAsync(string head, string body = "")
+    {
+        var uri = new Uri(App.Urls.Single());
+        using var tcp = new System.Net.Sockets.TcpClient();
+        await tcp.ConnectAsync(uri.Host, uri.Port);
+        await using var stream = tcp.GetStream();
+        var bytes = System.Text.Encoding.UTF8.GetBytes(head.Replace("\n", "\r\n") + $"Host: {uri.Host}\r\nContent-Length: {System.Text.Encoding.UTF8.GetByteCount(body)}\r\nConnection: close\r\n\r\n{body}");
+        await stream.WriteAsync(bytes);
+        using var reader = new StreamReader(stream);
+        var status = await reader.ReadLineAsync() ?? "";
+        return int.Parse(status.Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture); // "HTTP/1.1 401 Unauthorized"
+    }
+
     public async ValueTask DisposeAsync()
     {
         Http.Dispose();

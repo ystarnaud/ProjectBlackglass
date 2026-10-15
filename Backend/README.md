@@ -1,9 +1,9 @@
-# Blackglass backend (Phase 13, Stages 1–2: foundation and catalogue)
+# Blackglass backend (Phase 13, Stages 1–3: foundation, catalogue, accounts and development authentication)
 
 ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loopback only; the VM is reached by SSH alias `bg-dev-services01-admin` (user `admin`, `sudo -n`; root SSH login is disabled).
 
 ## Layout
-- `src/Accounts.Domain` the catalogue model, strict reader and validator (pure, no I/O). `src/Accounts.Persistence` DbSettings (password from a file) and the migrator. `src/Accounts.Api` the `serve` and `migrate` commands and `GET /health` (exit codes: 0 ok, 1 failure, 2 `migrate` refused a drifted or ahead schema, 3 `serve` refused a schema that is not current, 4 `serve` refused an invalid catalogue, 64 usage).
+- `src/Accounts.Domain` the catalogue model, strict reader and validator (pure, no I/O). `src/Accounts.Persistence` DbSettings (password from a file) and the migrator. `src/Accounts.Api` the `serve`, `migrate` and `admin` commands, `GET /health` and the Stage 3 auth routes (exit codes: 0 ok, 1 failure, 2 `migrate` refused a drifted or ahead schema, 3 `serve` or `admin` refused a schema that is not current, 4 `serve` refused an invalid catalogue, 64 usage, 65 `admin` found no such account or credential, 66 `admin` found the handle taken).
 - `catalogue/catalogue.json` the catalogue exported from Unity; `contracts/catalogue/` the golden vector shared with Unity's tests.
 - `db/migrations/NNNN_lower_snake_name.sql` forward-only history; `db/invariants/` invariant queries.
 - `deploy/services/` Compose stacks (`compose.yaml` accounts, `compose.test.yaml` test cluster), `initdb/`, `sql/`, VM scripts and `tests/`. `tools/` PC-side helpers. `tests/Accounts.Domain.Tests` and `tests/Accounts.Integration.Tests` xUnit.
@@ -71,6 +71,8 @@ Passwords come from files named by `BLACKGLASS_DB_PASSWORD_FILE` (with `BLACKGLA
 | `api/admin_key` | 1654 | the `api` service, only when `BLACKGLASS_ADMIN_ROUTES=enabled` | `api_admin_key` |
 | `admin/db_password` (= the app password) | 1654 | the `admin` operator CLI service (profile `tools`) | `admin_db_password` |
 
+A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_password`, and `compose up api` then fails on the missing file. Re-run `make-secrets.sh` on it: it only adds missing files and never replaces a value.
+
 ## Accounts and development authentication (Stage 3)
 
 **Account ids.** `accounts.account_id` is a `bigint generated always as identity`: PostgreSQL alone mints it (decision 048 amendment). Outside the database it is the canonical Bitcoin Base58 string (`123456789` is `"BukQL"`, at most 11 characters, no padding), always a JSON string. Parsing refuses any other spelling: other characters, whitespace, a leading `1`, zero, and values beyond `bigint`. An account id is public and sequential by design. It never authorizes anything: every client request takes its account from the session.
@@ -112,7 +114,7 @@ sudo -n docker compose -p blackglass-accounts -f compose.yaml --profile tools ru
 … admin credential rotate --account <id> | credential revoke --credential <uuid> | sessions revoke --account <id> | account suspend --account <id> | account reactivate --account <id>   (each with --operator and --reason)
 ```
 - `create` and `rotate` print `accountId=`, `credentialId=`, `accountKey=` (once) and `correlationId=`.
-- Exit codes: 0 ok, 64 usage (including a malformed id), 65 not found, 66 handle taken, 1 failure.
+- Exit codes: 0 ok, 3 schema not current (the same policy as `serve`; nothing is written), 64 usage (including a malformed id), 65 not found, 66 handle taken, 1 failure.
 - **Hazard:** a decimal id with no `0` and no leading `1` (for example `23456789`) is also valid Base58 for a *different* account. Always paste the Base58 id; every command echoes the account it acted on.
 
 **Rate limits behind the tunnel.** Every request reaches the container from the Docker bridge address, so no limit is per IP. Login is limited per presented key, plus a global window that fabricated keys can't get around. Authenticated requests are limited per account. Per-IP limits wait for Phase 14's HAProxy.

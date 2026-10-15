@@ -2,6 +2,7 @@ using Npgsql;
 using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
+using Blackglass.Accounts.Persistence.Migrations;
 
 namespace Blackglass.Accounts.Api.Admin;
 
@@ -24,6 +25,13 @@ public static class AdminCommand
         var store = new AccountAdminStore(dataSource);
         try
         {
+            // The same schema policy as serve (Stage 1 ruling 4): behind, drifted or ahead, the CLI writes nothing.
+            var status = await SchemaGuard.CheckAsync(dataSource, MigrationCatalog.Embedded, ct);
+            if (status.State != SchemaState.Current)
+            {
+                error.WriteLine($"Refusing to run: schema {status.State}: {status.Detail}");
+                return ExitCodes.SchemaNotCurrent;
+            }
             switch (a.Verb)
             {
                 case "account-create" or "credential-rotate":
@@ -35,8 +43,9 @@ public static class AdminCommand
                     output.WriteLine($"accountKey={issued.AccountKey.Text}");
                     break;
                 case "credential-revoke":
+                    var revoked = await store.RevokeCredentialAsync(a.Credential!.Value, a.Operator, ct);
                     output.WriteLine($"credentialId={a.Credential}");
-                    output.WriteLine($"revokedSessions={await store.RevokeCredentialAsync(a.Credential!.Value, a.Operator, ct)}");
+                    output.WriteLine($"revokedSessions={revoked}");
                     break;
                 case "sessions-revoke":
                     output.WriteLine($"revokedSessions={await store.RevokeSessionsAsync(a.Account!.Value, a.Operator, ct)}");

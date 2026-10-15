@@ -14,12 +14,13 @@ public sealed record IssuedCredential(long AccountId, Guid CredentialId, OpaqueS
 /// operator_actions row; a failed audit rolls the change back. Keys are returned once and never stored or recorded in
 /// plain form.
 /// Revocations are stamped with statement_timestamp(), not now(): now() is the transaction's start, and a call that waited
-/// for the account lock would otherwise stamp a credential or session revoked before it was created.
+/// for the account lock would otherwise stamp a credential or session revoked before it was created. greatest(…,
+/// created_at) keeps a revocation possible even after the clock steps back: a security action never fails on time.
 /// </summary>
 public sealed class AccountAdminStore(NpgsqlDataSource db)
 {
     const string RevokeSessionsOfCredentials =
-        "update auth_sessions set revoked_at = statement_timestamp() where revoked_at is null and credential_id = any(@credentials)";
+        "update auth_sessions set revoked_at = greatest(statement_timestamp(), created_at) where revoked_at is null and credential_id = any(@credentials)";
 
     public async Task<IssuedCredential> CreateAccountAsync(string? handle, string? displayName, OperatorContext op, CancellationToken ct = default)
     {
@@ -59,7 +60,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
         await using var tx = await conn.BeginTransactionAsync(ct);
         await LockAccountAsync(conn, tx, accountId, ct);
         var old = (await conn.QueryAsync<Guid>(new CommandDefinition(
-            "update dev_credentials set revoked_at = statement_timestamp() where account_id = @accountId and revoked_at is null returning credential_id",
+            "update dev_credentials set revoked_at = greatest(statement_timestamp(), created_at) where account_id = @accountId and revoked_at is null returning credential_id",
             new { accountId }, tx, cancellationToken: ct))).ToArray();
         var sessions = await conn.ExecuteAsync(new CommandDefinition(RevokeSessionsOfCredentials, new { credentials = old }, tx, cancellationToken: ct));
         await InsertCredentialAsync(conn, tx, accountId, credentialId, key, ct);
@@ -81,7 +82,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
             ?? throw new AccountAdminException(AccountAdminError.NotFound, "No such credential.");
         await LockAccountAsync(conn, tx, accountId, ct);
         var revoked = await conn.ExecuteAsync(new CommandDefinition(
-            "update dev_credentials set revoked_at = statement_timestamp() where credential_id = @credentialId and revoked_at is null", new { credentialId }, tx, cancellationToken: ct));
+            "update dev_credentials set revoked_at = greatest(statement_timestamp(), created_at) where credential_id = @credentialId and revoked_at is null", new { credentialId }, tx, cancellationToken: ct));
         var sessions = await conn.ExecuteAsync(new CommandDefinition(RevokeSessionsOfCredentials, new { credentials = new[] { credentialId } }, tx, cancellationToken: ct));
         await AuditAsync(conn, tx, op, "credential_revoke", accountId, credentialId, new { alreadyRevoked = revoked == 0, revokedSessions = sessions }, ct);
         await tx.CommitAsync(ct);
@@ -132,7 +133,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db)
 
     static Task<int> RevokeAllSessionsAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, CancellationToken ct) =>
         conn.ExecuteAsync(new CommandDefinition(
-            "update auth_sessions set revoked_at = statement_timestamp() where account_id = @accountId and revoked_at is null", new { accountId }, tx, cancellationToken: ct));
+            "update auth_sessions set revoked_at = greatest(statement_timestamp(), created_at) where account_id = @accountId and revoked_at is null", new { accountId }, tx, cancellationToken: ct));
 
     static Task InsertCredentialAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, Guid credentialId, OpaqueSecret key, CancellationToken ct) =>
         conn.ExecuteAsync(new CommandDefinition(

@@ -163,6 +163,16 @@ public class AuthApiTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.RequestHeaderFieldsTooLarge, (await api.Http.SendAsync(huge)).StatusCode);
     }
 
+    [Fact]
+    public async Task Two_separate_authorization_fields_are_401_even_when_both_are_valid()
+    {
+        await using var api = await ApiServer.StartAsync(db, DevOn);
+        var account = await admin.CreateAccountAsync(null, null, Op);
+        var token = await TokenAsync(api.Http, account.AccountKey);
+        Assert.Equal(200, await api.SendRawAsync($"GET /v1/me HTTP/1.1\nAuthorization: Bearer {token}\n"));
+        Assert.Equal(401, await api.SendRawAsync($"GET /v1/me HTTP/1.1\nAuthorization: Bearer {token}\nAuthorization: Bearer {token}\n"));
+    }
+
     [Theory]
     [InlineData("logout")]
     [InlineData("rotate")]

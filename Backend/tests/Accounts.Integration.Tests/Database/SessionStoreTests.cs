@@ -103,6 +103,15 @@ public class SessionStoreTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Logout_still_succeeds_after_the_clock_steps_back()
+    {
+        var account = await admin.CreateAccountAsync(null, null, Op);
+        var session = (await sessions.LoginAsync(account.AccountKey.Hash(), 60))!;
+        await ExecuteAsSuperuserAsync(db, "update auth_sessions set created_at = now() + interval '1 hour', expires_at = now() + interval '2 hours'");
+        Assert.True(await sessions.RevokeAsync(session.SessionId, account.AccountId));
+    }
+
+    [Fact]
     public async Task Logout_revokes_only_the_current_session()
     {
         var account = await admin.CreateAccountAsync(null, null, Op);

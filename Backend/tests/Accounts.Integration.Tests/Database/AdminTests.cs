@@ -136,6 +136,45 @@ public class AdminTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Two_separate_admin_key_fields_are_401_even_when_both_are_right()
+    {
+        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        const string body = "{\"operator\":\"o\",\"reason\":\"r\"}";
+        Assert.Equal(201, await api.SendRawAsync($"POST /dev/v1/accounts HTTP/1.1\nContent-Type: application/json\nX-Admin-Key: {AdminKey}\n", body));
+        Assert.Equal(401, await api.SendRawAsync($"POST /dev/v1/accounts HTTP/1.1\nContent-Type: application/json\nX-Admin-Key: {AdminKey}\nX-Admin-Key: {AdminKey}\n", body));
+        Assert.Equal(1L, await AccountCountAsync());
+    }
+
+    [Fact]
+    public async Task The_cli_refuses_a_schema_that_is_ahead_like_serve_does_and_writes_nothing()
+    {
+        await ExecuteAsSuperuserAsync(db, "insert into schema_migrations (version, name, checksum) values (@v, 'from_the_future', decode(repeat('00', 32), 'hex'))",
+            new { v = Blackglass.Accounts.Persistence.Migrations.MigrationCatalog.Embedded.LatestVersion + 1 });
+        var (code, output, error) = await CliAsync("account", "create", "--operator", "ops", "--reason", "test");
+        Assert.Equal(ExitCodes.SchemaNotCurrent, code);
+        Assert.Equal("", output);
+        Assert.Contains("Ahead", error);
+        Assert.Equal(0L, await AccountCountAsync());
+    }
+
+    [Fact]
+    public async Task The_cli_refuses_an_unmigrated_database()
+    {
+        await using var bare = await (await TestCluster.Instance).CreateDatabaseAsync();
+        var error = new StringWriter();
+        var code = await Cli.RunAsync(["admin", "account", "create", "--operator", "ops", "--reason", "test"], bare.EnvFor("app"), TextWriter.Null, error);
+        Assert.Equal(ExitCodes.SchemaNotCurrent, code);
+        Assert.Contains("Behind", error.ToString());
+    }
+
+    [Fact]
+    public async Task An_unknown_credential_prints_nothing_that_looks_like_success()
+    {
+        var (code, output, _) = await CliAsync("credential", "revoke", "--credential", Guid.CreateVersion7().ToString(), "--operator", "ops", "--reason", "x");
+        Assert.Equal((ExitCodes.NotFound, ""), (code, output));
+    }
+
+    [Fact]
     public async Task A_player_token_never_authorizes_an_admin_route()
     {
         await using var api = await ApiServer.StartAsync(db, AdminOn());

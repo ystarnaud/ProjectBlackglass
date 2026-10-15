@@ -217,6 +217,22 @@ public class AccountAdminStoreTests : IAsyncLifetime
         Assert.True(auditedAt >= revokedAt, $"the audit row {auditedAt:O} precedes the change it records {revokedAt:O}");
     }
 
+    /// <summary>A backward clock step must never block a security action: rows created "in the future" by the old clock
+    /// can still be revoked (revoked_at is never earlier than created_at).</summary>
+    [Fact]
+    public async Task Revocations_still_succeed_after_the_clock_steps_back()
+    {
+        var a = await store.CreateAccountAsync(null, null, Op);
+        await InsertSessionAsync(db, a.AccountId, a.CredentialId);
+        await ExecuteAsSuperuserAsync(db, "update dev_credentials set created_at = now() + interval '1 hour'");
+        await ExecuteAsSuperuserAsync(db, "update auth_sessions set created_at = now() + interval '1 hour', expires_at = now() + interval '2 hours'");
+        Assert.Equal(1, await store.SuspendAsync(a.AccountId, Op));
+        await store.ReactivateAsync(a.AccountId, Op);
+        await store.RotateCredentialAsync(a.AccountId, Op);
+        Assert.Equal(0L, await ScalarAsync<long>("select count(*) from auth_sessions where revoked_at is null"));
+        Assert.Equal(1L, await ScalarAsync<long>("select count(*) from dev_credentials where revoked_at is null"));
+    }
+
     sealed record AuditRow(string Action, long? AccountId, Guid? CredentialId, Guid CorrelationId, string Operator, string Reason, string Result);
 
     async Task<IReadOnlyList<AuditRow>> QueryAuditAsync()

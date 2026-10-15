@@ -71,7 +71,7 @@ public sealed class SessionStore(NpgsqlDataSource db)
     {
         await using var conn = await db.OpenConnectionAsync(ct);
         return await conn.ExecuteAsync(new CommandDefinition(
-            "update auth_sessions set revoked_at = statement_timestamp() where session_id = @sessionId and account_id = @accountId and revoked_at is null",
+            "update auth_sessions set revoked_at = greatest(statement_timestamp(), created_at) where session_id = @sessionId and account_id = @accountId and revoked_at is null",
             new { sessionId, accountId }, cancellationToken: ct)) == 1;
     }
 
