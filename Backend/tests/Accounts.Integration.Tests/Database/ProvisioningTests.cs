@@ -132,7 +132,8 @@ public class ProvisioningTests : IAsyncLifetime
             create function refuse_stacks() returns trigger language plpgsql as $$ begin raise exception 'provisioning failed on purpose'; end $$;
             create trigger refuse_stacks before insert on item_stacks for each row execute function refuse_stacks();
             """);
-        await Assert.ThrowsAnyAsync<PostgresException>(() => store.CreateAccountAsync("rolled-back", "Rolled Back", Op));
+        var failure = await Assert.ThrowsAnyAsync<PostgresException>(() => store.CreateAccountAsync("rolled-back", "Rolled Back", Op));
+        Assert.Contains("provisioning failed on purpose", failure.MessageText);
         Assert.Equal(0L, await ScalarAsync<long>(
             """
             select (select count(*) from accounts) + (select count(*) from dev_credentials) + (select count(*) from account_identities)
@@ -248,6 +249,131 @@ public class ProvisioningTests : IAsyncLifetime
         Assert.Equal(1L, await ScalarAsync<long>("select count(*) from item_instances"));
     }
 
+    /// <summary>Returns once at least <paramref name="count"/> backends of this database wait on a lock (polls pg_stat_activity).</summary>
+    async Task WaitUntilBackendsWaitOnLocksAsync(int count)
+    {
+        await using var su = await db.AsSuperuser().OpenConnectionAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (await su.ExecuteScalarAsync<long>("select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'") < count)
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException($"Fewer than {count} backends waited on a lock.");
+            await Task.Yield();
+        }
+    }
+
+    /// <summary>A mints and stays open; B mints the same reference and is seen waiting on A's uncommitted row; then A ends.</summary>
+    async Task<(long A, long B)> RaceAsync(Func<NpgsqlConnection, NpgsqlTransaction, Task<long>> mint, bool commitFirst)
+    {
+        await using var connA = await db.AsApp().OpenConnectionAsync();
+        await using var txA = await connA.BeginTransactionAsync();
+        var a = await mint(connA, txA);
+        var b = InTransactionAsync(mint);
+        await WaitUntilBackendsWaitOnLocksAsync(1);
+        Assert.False(b.IsCompleted); // B cannot finish while A holds its uncommitted row
+        if (commitFirst) await txA.CommitAsync(); else await txA.RollbackAsync();
+        return (a, await b);
+    }
+
+    [Theory]
+    [InlineData("operative")]
+    [InlineData("item")]
+    public async Task A_mint_waiting_on_an_uncommitted_mint_finds_the_row_when_it_commits(string kind)
+    {
+        var account = await NewAccountAsync();
+        var bag = await InTransactionAsync((c, t) => MintOperative(c, t, account, "wait:setup"));
+        Func<NpgsqlConnection, NpgsqlTransaction, Task<long>> mint = kind == "operative"
+            ? (c, t) => MintOperative(c, t, account, "wait:ref")
+            : (c, t) => MintItem(c, t, account, "wait:ref", bag, "weapon");
+        var (a, b) = await RaceAsync(mint, commitFirst: true);
+        Assert.Equal(a, b);
+        Assert.Equal(1L, await ScalarAsync<long>(kind == "operative"
+            ? "select count(*) from operatives where origin_ref = 'wait:ref'" : "select count(*) from item_instances where origin_ref = 'wait:ref'"));
+    }
+
+    [Theory]
+    [InlineData("operative")]
+    [InlineData("item")]
+    public async Task A_mint_waiting_on_a_mint_that_rolls_back_inserts_its_own_row(string kind)
+    {
+        var account = await NewAccountAsync();
+        var bag = await InTransactionAsync((c, t) => MintOperative(c, t, account, "wait:setup"));
+        Func<NpgsqlConnection, NpgsqlTransaction, Task<long>> mint = kind == "operative"
+            ? (c, t) => MintOperative(c, t, account, "wait:ref")
+            : (c, t) => MintItem(c, t, account, "wait:ref", bag, "weapon");
+        var (a, b) = await RaceAsync(mint, commitFirst: false);
+        Assert.NotEqual(a, b);
+        Assert.Equal(b, await ScalarAsync<long>(kind == "operative"
+            ? "select operative_id from operatives where origin_ref = 'wait:ref'" : "select item_id from item_instances where origin_ref = 'wait:ref'"));
+        Assert.Equal(1L, await ScalarAsync<long>(kind == "operative"
+            ? "select count(*) from operatives where origin_ref = 'wait:ref'" : "select count(*) from item_instances where origin_ref = 'wait:ref'"));
+    }
+
+    // --- concurrent provisioning of one account ---------------------------------------------------------------------------
+
+    /// <summary>Transaction 0 provisions and stays open; N-1 more provisioners are seen waiting (on the inventories row's
+    /// unique key when there is none yet, on its row lock when an ungranted one exists); then transaction 0 commits.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Concurrent_provisioning_of_one_account_grants_exactly_once(bool inventoryRowExists)
+    {
+        const int Callers = 5;
+        long account;
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            account = await conn.ExecuteScalarAsync<long>("insert into accounts (status) values ('active') returning account_id");
+            if (inventoryRowExists) await conn.ExecuteAsync("insert into inventories (account_id) values (@account)", new { account });
+        }
+        await using var first = await db.AsApp().OpenConnectionAsync();
+        await using var firstTx = await first.BeginTransactionAsync();
+        var granted = await StarterProvisioner.ProvisionAsync(first, firstTx, account, Catalogue, default);
+
+        var others = Enumerable.Range(1, Callers - 1)
+            .Select(_ => InTransactionAsync((c, t) => StarterProvisioner.ProvisionAsync(c, t, account, Catalogue, default))).ToArray();
+        await WaitUntilBackendsWaitOnLocksAsync(Callers - 1);
+        Assert.All(others, o => Assert.False(o.IsCompleted));
+        await firstTx.CommitAsync();
+
+        var results = await Task.WhenAll(others); // none throws: each sees the committed grant
+        var plan = StarterPlanner.For(account, Catalogue.Document);
+        Assert.Equal(new ProvisionResult(1, plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count, Catalogue.Version), granted);
+        Assert.All(results, r => Assert.Equal(granted, r));
+        await AssertStarterRowsAsync(account);
+        Assert.Equal(plan.Operatives.Count, (int)await ScalarAsync<long>("select count(*) from operatives"));
+        Assert.Equal(plan.Instances.Count, (int)await ScalarAsync<long>("select count(*) from item_instances"));
+        Assert.Equal(plan.Stacks.Count, (int)await ScalarAsync<long>("select count(*) from item_stacks"));
+    }
+
+    /// <summary>The inventories row lock is what serializes provisioners of one account (so nothing is minted before it is held).
+    /// Transaction 0 takes only that lock (no new row version, so the others' INSERT ... ON CONFLICT DO NOTHING passes) and
+    /// the others are seen waiting on it before it provisions: without FOR UPDATE they would read "not granted" and mint
+    /// alongside it instead of waiting.</summary>
+    [Fact]
+    public async Task Provisioners_of_one_account_wait_on_the_inventories_row_lock_before_minting()
+    {
+        const int Callers = 5;
+        long account;
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            account = await conn.ExecuteScalarAsync<long>("insert into accounts (status) values ('active') returning account_id");
+            await conn.ExecuteAsync("insert into inventories (account_id) values (@account)", new { account });
+        }
+        await using var first = await db.AsApp().OpenConnectionAsync();
+        await using var firstTx = await first.BeginTransactionAsync();
+        await first.ExecuteAsync(new CommandDefinition("select 1 from inventories where account_id = @account for update", new { account }, firstTx));
+
+        var others = Enumerable.Range(1, Callers - 1)
+            .Select(_ => InTransactionAsync((c, t) => StarterProvisioner.ProvisionAsync(c, t, account, Catalogue, default))).ToArray();
+        await WaitUntilBackendsWaitOnLocksAsync(Callers - 1);
+        Assert.Equal(0L, await ScalarAsync<long>("select count(*) from operatives")); // nobody minted while waiting
+        var granted = await StarterProvisioner.ProvisionAsync(first, firstTx, account, Catalogue, default);
+        await firstTx.CommitAsync();
+
+        var results = await Task.WhenAll(others); // none throws: each finds the committed grant
+        Assert.All(results, r => Assert.Equal(granted, r));
+        await AssertStarterRowsAsync(account);
+    }
+
     [Fact]
     public async Task A_mint_after_a_rolled_back_mint_creates_one_row()
     {
@@ -281,6 +407,47 @@ public class ProvisioningTests : IAsyncLifetime
         await Collides((c, t) => MintItem(c, t, first, "shared:item", null, null)); // the stash instead of the bag
 
         Assert.Equal((1L, 1L), (await ScalarAsync<long>("select count(*) from operatives"), await ScalarAsync<long>("select count(*) from item_instances")));
+    }
+
+    /// <summary>Each case differs from the committed row in exactly one field, so a check that ignores that field passes it.</summary>
+    [Fact]
+    public async Task Each_found_row_field_is_checked_on_its_own()
+    {
+        var first = await NewAccountAsync();
+        var second = await NewAccountAsync();
+        var bag = await InTransactionAsync((c, t) => MintOperative(c, t, first, "iso:op"));
+        var otherBag = await InTransactionAsync((c, t) => MintOperative(c, t, first, "iso:op2")); // the same account's other operative
+        await InTransactionAsync((c, t) => MintItem(c, t, first, "iso:equipped", bag, "weapon"));
+        await InTransactionAsync((c, t) => MintItem(c, t, first, "iso:bag", bag));
+        await InTransactionAsync((c, t) => MintItem(c, t, first, "iso:stash", null));
+
+        async Task Collides(Func<NpgsqlConnection, NpgsqlTransaction, Task<long>> mint)
+        {
+            var e = await Assert.ThrowsAsync<InvalidOperationException>(() => InTransactionAsync(mint));
+            Assert.Equal("origin reference collision", e.Message);
+        }
+        // operative_id alone: same account, definition and slot, another operative of the account
+        await Collides((c, t) => MintItem(c, t, first, "iso:equipped", otherBag, "weapon"));
+        // operative_id alone, unequipped: a bag item re-minted in another bag and as a stash item; a stash item re-minted in a bag
+        await Collides((c, t) => MintItem(c, t, first, "iso:bag", otherBag));
+        await Collides((c, t) => MintItem(c, t, first, "iso:bag", null));
+        await Collides((c, t) => MintItem(c, t, first, "iso:stash", bag));
+        // equipped_slot alone: the same operative, definition and account
+        await Collides((c, t) => MintItem(c, t, first, "iso:equipped", bag, "armor"));
+        await Collides((c, t) => MintItem(c, t, first, "iso:equipped", bag, null));
+        await Collides((c, t) => MintItem(c, t, first, "iso:bag", bag, "weapon"));
+        // definition alone
+        await Collides((c, t) => MintItem(c, t, first, "iso:equipped", bag, "weapon", "item.combat-blade"));
+        await Collides((c, t) => MintItem(c, t, first, "iso:stash", null, null, "item.combat-blade"));
+        // account alone: a stash item has no operative, so another account can mint the same shape (the composite foreign key
+        // makes the same test impossible for a bag item: another account cannot name this account's operative)
+        await Collides((c, t) => MintItem(c, t, second, "iso:stash", null));
+        // the shapes that match exactly are a find, not a collision
+        Assert.Equal(await ScalarAsync<long>("select item_id from item_instances where origin_ref = 'iso:equipped'"),
+            await InTransactionAsync((c, t) => MintItem(c, t, first, "iso:equipped", bag, "weapon")));
+        Assert.Equal(await ScalarAsync<long>("select item_id from item_instances where origin_ref = 'iso:stash'"),
+            await InTransactionAsync((c, t) => MintItem(c, t, first, "iso:stash", null)));
+        Assert.Equal(3L, await ScalarAsync<long>("select count(*) from item_instances"));
     }
 
     [Fact]
