@@ -70,6 +70,7 @@ public static class ServeCommand
         app.UseAuthorization();
         app.MapHealth(catalog.LatestVersion);
         app.MapAuth(auth);
+        app.MapAdmin(auth);
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
     }

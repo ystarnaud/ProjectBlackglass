@@ -1,13 +1,16 @@
+using Blackglass.Accounts.Api.Admin;
+
 namespace Blackglass.Accounts.Api;
 
 public static class Cli
 {
-    public const string Usage = "usage: Accounts.Api [serve | migrate]";
+    public const string Usage = "usage: Accounts.Api [serve | migrate | admin …]";
 
     public static async Task<int> RunAsync(string[] args, IReadOnlyDictionary<string, string?> env, TextWriter output, TextWriter error, CancellationToken ct = default)
     {
         var command = args.Length == 0 ? "serve" : args[0];
-        // Neither command takes arguments. Nothing is forwarded to ASP.NET Core's configuration, so an argument can't
+        if (command == "admin") return await AdminCommand.RunAsync(args[1..], env, output, error, ct);
+        // serve and migrate take no arguments. Nothing is forwarded to ASP.NET Core's configuration, so an argument can't
         // rebind Kestrel (the listen address comes from the environment via ApiHost.ResolveUrls, else the loopback default).
         if (args.Length > 1) { error.WriteLine(Usage); return ExitCodes.Usage; }
         switch (command)
