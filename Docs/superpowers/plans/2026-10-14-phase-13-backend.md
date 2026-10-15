@@ -137,6 +137,8 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 3: accounts and development authentication
 
+**Status: in progress on branch `phase13-stage3` (owner-authorized 2026-10-14).** Detailed plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage3-accounts-dev-auth.md` (revision 2). Account ids are a PostgreSQL-generated `bigint` shown as Base58 (decision 048 amendment, spec revision 2.2); every later stage's account foreign keys are `bigint`.
+
 **Touches:** `Backend/` only.
 
 **Work:**
