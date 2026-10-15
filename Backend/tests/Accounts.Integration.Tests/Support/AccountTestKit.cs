@@ -1,0 +1,43 @@
+using Dapper;
+using Blackglass.Accounts.Persistence.Accounts;
+using Blackglass.Accounts.Persistence.Migrations;
+
+namespace Blackglass.Accounts.IntegrationTests.Support;
+
+public static class AccountTestKit
+{
+    public static OperatorContext Op => OperatorContext.Create("test-operator", "integration test");
+
+    public static async Task<TestDatabase> MigratedAsync()
+    {
+        var db = await (await TestCluster.Instance).CreateDatabaseAsync();
+        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync();
+        return db;
+    }
+
+    /// <summary>Backdates or corrupts rows as the cluster superuser: time is never mocked (spec §18.1).</summary>
+    public static async Task ExecuteAsSuperuserAsync(TestDatabase db, string sql, object? args = null)
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        await conn.ExecuteAsync(sql, args);
+    }
+
+    public static async Task<T> ScalarAsSuperuserAsync<T>(TestDatabase db, string sql, object? args = null)
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        return (await conn.ExecuteScalarAsync<T>(sql, args))!;
+    }
+
+    /// <summary>A live session row for a credential, written directly (for store tests that precede SessionStore).</summary>
+    public static async Task<Guid> InsertSessionAsync(TestDatabase db, long accountId, Guid credentialId)
+    {
+        var sessionId = Guid.CreateVersion7();
+        await ExecuteAsSuperuserAsync(db,
+            "insert into auth_sessions (session_id, account_id, credential_id, token_hash, expires_at) values (@sessionId, @accountId, @credentialId, @hash, now() + interval '1 hour')",
+            new { sessionId, accountId, credentialId, hash = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) });
+        return sessionId;
+    }
+
+    public static Task<IReadOnlyList<string>> InvariantFailuresAsync(TestDatabase db) =>
+        InvariantRunner.RunAsync(db.AsSuperuser(), MigrationCatalog.Embedded.LatestVersion, InvariantRunner.RealDirectory);
+}
