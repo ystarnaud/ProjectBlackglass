@@ -225,6 +225,15 @@ The agent is a .NET 10 worker published self-contained, so the mission VM needs 
 - `POST /v1/auth/dev/login {accountKey}` returns an opaque 256-bit access token (lifetime provisional, 60 min), stored hashed in `auth_sessions`. Tokens are revocable immediately.
 - Every client endpoint takes the account from the token, never from the body.
 - The dev provider and the `/dev/v1/*` admin routes are disabled unless configured on, need a separate admin key, and are reachable on loopback only.
+- **As built in Stage 3:**
+  - **Formats.** Account keys are `dk1_` and tokens `at1_`, each followed by base64url of 32 random bytes; SHA-256 is taken of the raw bytes, and parsing is strict.
+  - **Sessions.** A session is bound to the credential that created it. Rotation revokes the old credential and its sessions and issues one new credential; the database allows one live credential per account. Revoking a credential revokes its sessions. Suspension revokes every session, and reactivation restores none.
+  - **Logout.** `POST /v1/auth/logout` revokes the current session only. A repeat gets the uniform 401, so it is harmless and reveals nothing.
+  - **Failures.** Every authentication failure is one 401: no body, `WWW-Authenticate: Bearer`. A database outage during authentication or login is 503, never 401.
+  - **Locks.** Every lifecycle call locks the account row `FOR UPDATE` first, and login locks it `FOR SHARE` (then the credential), so no ordering leaves a live session on a credential or account revoked after it (§15.3). Rows are stamped with `statement_timestamp()`, so a call that waited for a lock stamps its rows after the change it waited for.
+  - **Operator surfaces.** The CLI is `admin account create [--handle] [--display-name] | credential rotate | credential revoke | sessions revoke | account suspend | account reactivate`, each with `--operator` and `--reason`; accounts are named by their Base58 id. Each change writes an `operator_actions` row with a correlation id in the same transaction.
+  - **Admin route.** `POST /dev/v1/accounts` is rate-limited before the key check and compares exactly one `X-Admin-Key` in constant time before reading the body. "Loopback only" is the API's own `127.0.0.1` publication: inside the container every request comes from the bridge gateway, so an in-app address check would prove nothing.
+  - **Rate limits** (§19) are per presented key plus one global login window, per account for authenticated requests, and one admin window. None is per IP behind the tunnel.
 
 ### 4.3 Mission host and process credentials [P]
 
@@ -1160,35 +1169,37 @@ create table accounts (
   account_id bigint generated always as identity primary key check (account_id > 0),  -- only PostgreSQL mints ids
   status text not null default 'active' check (status in ('active','suspended')),
   display_name text check (display_name is null or (length(display_name) between 1 and 64 and display_name !~ '[[:cntrl:]]')),
-  created_at timestamptz not null default now());
+  created_at timestamptz not null default statement_timestamp());
 create table account_identities (                        -- optional dev handle; at most one per account
   provider text not null check (provider in ('dev')),
   subject text not null check (subject ~ '^[a-z0-9]+([.-][a-z0-9]+)*$' and length(subject) <= 64),
-  account_id bigint not null references accounts, created_at timestamptz not null default now(),
+  account_id bigint not null references accounts, created_at timestamptz not null default statement_timestamp(),
   primary key (provider, subject), unique (provider, account_id));
 create table dev_credentials (
   credential_id uuid primary key, account_id bigint not null references accounts,
   secret_hash bytea not null unique check (length(secret_hash) = 32),
-  created_at timestamptz not null default now(), revoked_at timestamptz,
+  created_at timestamptz not null default statement_timestamp(), revoked_at timestamptz,
   check (revoked_at is null or revoked_at >= created_at), unique (credential_id, account_id));
 create unique index dev_credentials_one_live on dev_credentials (account_id) where revoked_at is null;
 create table auth_sessions (                             -- bound to the credential that created it
   session_id uuid primary key, account_id bigint not null, credential_id uuid not null,
   token_hash bytea not null unique check (length(token_hash) = 32),
-  created_at timestamptz not null default now(), expires_at timestamptz not null, revoked_at timestamptz,
+  created_at timestamptz not null default statement_timestamp(), expires_at timestamptz not null, revoked_at timestamptz,
   check (expires_at > created_at), check (revoked_at is null or revoked_at >= created_at),
   foreign key (credential_id, account_id) references dev_credentials (credential_id, account_id));
 create table operator_actions (                          -- every operator decision, append-only (moved here from 0006)
   id bigint generated always as identity primary key, correlation_id uuid not null,
-  operator text not null check (length(operator) between 1 and 200),
+  operator text not null check (length(operator) between 1 and 200 and operator !~ '[[:cntrl:]]'),
   action text not null check (action in ('account_create','credential_rotate','credential_revoke','sessions_revoke',
                                          'account_suspend','account_reactivate','revalidate','participant_void',
                                          'host_declared_lost','host_drain','host_enable','build_disable','energy_adjust')),
   attempt_id uuid, account_id bigint references accounts, credential_id uuid references dev_credentials, host_id text,
-  reason text not null check (length(reason) between 1 and 1000), checks jsonb not null, result jsonb not null,
-  created_at timestamptz not null default now());
--- accounts_app: column-level INSERT/UPDATE only (it can never choose or change an account id or any key), no DELETE,
--- and operator_actions append-only.
+  reason text not null check (length(reason) between 1 and 1000 and reason !~ '[[:cntrl:]]'), checks jsonb not null, result jsonb not null,
+  created_at timestamptz not null default statement_timestamp());
+-- accounts_app: column-level INSERT of exactly the columns it writes and UPDATE of status, display_name and revoked_at
+-- only; no DELETE, no privilege on the identity sequences, operator_actions append-only. It can never choose an
+-- account or audit id, set a creation time, or change a key, a hash or an owner. Rows are stamped with
+-- statement_timestamp() so a call that waited for a lock stamps after the change it waited for.
 
 -- 0002 operatives and picks
 create table operatives (
@@ -1386,7 +1397,7 @@ Every transaction that touches several of these takes locks in this order:
 5. `insurance_coverages`, ascending `account_id` (activations lock only this row; admission reads it without locking);
 6. item and stack rows (by key, through `DELETE`/`UPDATE … WHERE`).
 
-Admission has no attempt row yet, so it starts at step 3. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries.
+The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for operator changes, `FOR SHARE` for login), then `dev_credentials`, then `auth_sessions`; a later stage that also needs the participant or inventory rows takes the `accounts` row before step 2. Admission has no attempt row yet, so it starts at step 3. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries.
 
 ### 15.4 Migrations and safety (correction 8, D-14)
 
@@ -1408,7 +1419,8 @@ All JSON is camelCase, and errors are RFC 9457 ProblemDetails with a stable `cod
 | Route | Body → response | Errors |
 |---|---|---|
 | `POST /v1/auth/dev/login` | `{accountKey}` → `{accessToken, expiresAt, accountId}` | 401 |
-| `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}` | |
+| `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returns exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data | 401 |
+| `POST /v1/auth/logout` | → 204; revokes the current session only (Stage 3) | 401 (also on a repeat) |
 | `GET /v1/roster` | → operatives with XP, derived rank, pending picks, choices | |
 | `POST /v1/operatives/{id}/choices` | `{choiceId, expectedVersion}` → operative | 409 `VersionMismatch`, `InventoryLocked`; 422 `NoPendingPick`, `UnknownChoice` |
 | `GET /v1/inventory` | → `{version, locked, stash, operatives:[{operativeId, bag, equipment}]}` | |
@@ -1459,7 +1471,7 @@ Idempotency-Key: 6f7c0a52-2d4e-4b3a-9a77-1b1f9d0c2e10
 
 ### 16.4 Admin (admin key, loopback, disabled by default)
 
-- `POST /dev/v1/accounts`, `/energy/grants`, `/insurance/activations` (`{accountId, policyId, policyVersion, durationSeconds, idempotencyKey}`; extends the same benefit; `409 CrossTierDeferred` for a different one), `/hosts`, `/builds`;
+- `POST /dev/v1/accounts` (Stage 3: `{handle?, displayName?, operator, reason}` → 201 `{accountId, credentialId, accountKey}`, `X-Correlation-Id`, `Cache-Control: no-store`; 409 `HandleTaken`, 422 `InvalidHandle`/`InvalidDisplayName`/`InvalidOperator`), `/energy/grants`, `/insurance/activations` (`{accountId, policyId, policyVersion, durationSeconds, idempotencyKey}`; extends the same benefit; `409 CrossTierDeferred` for a different one), `/hosts`, `/builds`;
 - `POST /dev/v1/attempts/{aid}/participants/{acc}/revalidate`: re-runs V1–V14 on the stored original manifest and settles it if it passes (§10.4);
 - `POST /dev/v1/attempts/{aid}/participants/{acc}/void` `{operator, reason, revalidated: true, outboxChecked: true, outboxNote}`: a protective void of a quarantined participant, refused unless the checks are recorded (§10.4);
 - `POST /dev/v1/hosts/{id}/declare-lost` `{operator, reason, outboxUnrecoverable: true}`: disables the host and voids its started, unsettled participants (§11.1);
@@ -1621,7 +1633,7 @@ All are configuration, none is decided, and changing one doesn't need a code cha
 | Outbox disk-usage alert | 80 % of the volume | agent configuration |
 | Process status wait before exit | 120 s | process configuration |
 | Relay backoff | 1 s to 60 s | agent configuration |
-| Rate limits | login 10/min, deploy 6/min, other 120/min | API configuration |
+| Rate limits | login 10/min per presented key plus 60/min for all logins together; deploy 6/min; other 120/min per account; admin 10/min for all admin requests (Stage 3: none per IP behind the tunnel) | API configuration |
 | Anomaly thresholds, drain rule | to be set from measurements | worker configuration |
 | Plausibility tolerance (V13) | to be set from measurements | API configuration |
 | `lock_timeout`, retry count | 5 s, 3 | API configuration |

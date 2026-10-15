@@ -2431,6 +2431,31 @@ The owner approved Stage 3 with Q1–Q3 answered as recommended, and changed the
 
 ---
 
+## As built (2026-10-14)
+
+Branch `phase13-stage3`, from `main` `b6f7e1d`; **not merged, not pushed, live accounts stack not deployed**. Evidence, the SDD ledger and every ruling: `.claude/scratchpad/phase13/stage-03/` (not committed).
+
+**Measured (not predicted):**
+- ALL 530/0 (Domain 191, Integration 339); UNIT 319/0 (Domain 191, Integration 128). The baseline was ALL 177/0, UNIT 139/0.
+- VM, throwaway projects: smoke 28 ok, 0 failures; drill 16 ok, 0 failures; the off-host probe passes (5080, 5432 and 55432 closed, 22 answers); afterwards only `blackglass-testdb` runs and the listeners are unchanged.
+
+**Departures from the listings above** (each in the ledger as a ruling):
+- **Base58.** The codec and converter landed in Task 2.
+- **Handles and names.** The handle and the display name are optional.
+- **Privileges.** `accounts_app` has column-level `INSERT` and `UPDATE` only, and no privilege on the identity sequences.
+- **Credentials.** At most one live credential per account (`dev_credentials_one_live`).
+- **Audit.** `operator_actions` gained `correlation_id`, `credential_id` and FKs, and refuses control characters in operator and reason.
+- **Login.** Login is a locked transaction: the account `FOR SHARE`, then the credential. The plan's single `INSERT … SELECT` failed the deterministic lock test.
+- **Timestamps.** Rows and revocations are stamped with `statement_timestamp()`. With `now()`, a waiting rotation stamped a credential revoked before it was created.
+- **Rate limits.** A separate global login window (`BLACKGLASS_RATE_LOGIN_GLOBAL_PER_MINUTE`) and an admin window (`BLACKGLASS_RATE_ADMIN_PER_MINUTE`). The global window is checked before a per-key limiter is created, so invented keys can't grow memory once it is spent. A rate-limited login gets 429 with `Retry-After`.
+- **Bodies.** Login and the admin route read at most 4 KiB. The admin route reads its body only after the key check, and has no `Location` header.
+- **401.** Login 401s carry the same bare `Bearer` challenge as bearer failures.
+- **Admin CLI service.** Uses `entrypoint: [dotnet, Accounts.Api.dll, admin]` and `logging: driver: none`.
+- **Source audit.** It flags a literal only when SQL opens it or SQL structure follows a statement keyword. The migrator's `lock_timeout` is parameterized.
+- **Review Focus 5.** The rotation-against-suspension case is `Concurrent_lifecycle_calls_on_one_account_serialize_and_each_is_audited`. The deterministic lock-wait tests are `A_lifecycle_call_waits_for_the_account_lock_and_stamps_its_rows_after_the_wait` and `Login_waits_for_an_in_flight_revocation_and_then_fails`.
+
+**Reviews:** A, B and the final review, all independent (see the ledger).
+
 ## Owner questions (answered 2026-10-14: Q1, Q2 and Q3 as recommended)
 
 **Q1. What `GET /v1/me` returns in Stage 3.** Spec §16.1 lists `{accountId, energy, insurance, inventoryVersion, activeAttemptId}`, but energy, insurance, inventory and attempts arrive in Stages 4–7.
