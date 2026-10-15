@@ -1,14 +1,15 @@
 using Blackglass.Accounts.Persistence;
+using Blackglass.Accounts.IntegrationTests.Support;
 
 namespace Blackglass.Accounts.IntegrationTests.Unit;
 
 public class DbSettingsTests : IDisposable
 {
     const string Secret = "s3cret-Value-Never-Printed";
-    readonly string passwordFile = Path.Combine(Path.GetTempPath(), $"bg-pw-{Guid.NewGuid():N}");
+    readonly SecretFile secretFile = SecretFile.Write(Secret + "\n");
+    string passwordFile => secretFile.Path;
 
-    public DbSettingsTests() => File.WriteAllText(passwordFile, Secret + "\n");
-    public void Dispose() => File.Delete(passwordFile);
+    public void Dispose() => secretFile.Dispose();
 
     Dictionary<string, string?> Env() => new()
     {

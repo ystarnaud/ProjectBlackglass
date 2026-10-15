@@ -18,7 +18,7 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 [Trait("Requires", "Postgres")]
 public class AuthorizationTests : IAsyncLifetime
 {
-    const string AdminKey = "admin-key-for-idor-tests-0123456789abcdef";
+    static readonly string AdminKey = NewAdminKey();
     TestDatabase db = null!;
     ApiServer api = null!;
     IssuedCredential a = null!, b = null!;
@@ -27,13 +27,11 @@ public class AuthorizationTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         db = await MigratedAsync();
-        var keyFile = Path.Combine(Path.GetTempPath(), $"bg-test-admin-{Guid.NewGuid():N}");
-        await File.WriteAllTextAsync(keyFile, AdminKey);
         api = await ApiServer.StartAsync(db, new()
         {
-            ["BLACKGLASS_DEV_AUTH"] = "enabled", ["BLACKGLASS_ADMIN_ROUTES"] = "enabled", ["BLACKGLASS_ADMIN_KEY_FILE"] = keyFile,
+            ["BLACKGLASS_DEV_AUTH"] = "enabled", ["BLACKGLASS_ADMIN_ROUTES"] = "enabled",
             ["BLACKGLASS_RATE_ADMIN_PER_MINUTE"] = "1000", // this class sends many refused admin requests on purpose
-        });
+        }, adminKey: AdminKey);
         var admin = new AccountAdminStore(db.AsApp());
         a = await admin.CreateAccountAsync("alice", null, Op);
         b = await admin.CreateAccountAsync("bob", null, Op);

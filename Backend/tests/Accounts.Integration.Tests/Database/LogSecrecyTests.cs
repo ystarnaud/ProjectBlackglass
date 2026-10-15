@@ -15,19 +15,14 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 [Trait("Requires", "Postgres")]
 public class LogSecrecyTests
 {
-    const string AdminKey = "admin-key-for-log-tests-0123456789abcdef";
+    static readonly string AdminKey = NewAdminKey();
 
     [Fact]
     public async Task No_key_token_admin_key_or_full_hash_reaches_any_log_line()
     {
         await using var db = await MigratedAsync();
         var logs = new CapturingLoggerProvider();
-        var keyFile = Path.Combine(Path.GetTempPath(), $"bg-test-admin-{Guid.NewGuid():N}");
-        await File.WriteAllTextAsync(keyFile, AdminKey);
-        var settings = new Dictionary<string, string?>
-        {
-            ["BLACKGLASS_DEV_AUTH"] = "enabled", ["BLACKGLASS_ADMIN_ROUTES"] = "enabled", ["BLACKGLASS_ADMIN_KEY_FILE"] = keyFile,
-        };
+        var settings = new Dictionary<string, string?> { ["BLACKGLASS_DEV_AUTH"] = "enabled", ["BLACKGLASS_ADMIN_ROUTES"] = "enabled" };
         var secrets = new List<string>();
         var hashes = new List<byte[]>();
         await using (var api = await ApiServer.StartAsync(db, settings, b =>
@@ -35,7 +30,7 @@ public class LogSecrecyTests
                          b.Logging.ClearProviders();
                          b.Logging.SetMinimumLevel(LogLevel.Trace);
                          b.Logging.AddProvider(logs);
-                     }))
+                     }, adminKey: AdminKey))
         {
             // An account created through the admin route, and one through the store.
             var create = new HttpRequestMessage(HttpMethod.Post, "/dev/v1/accounts") { Content = JsonContent.Create(new { handle = "logged", @operator = "ops", reason = "log test" }) };
@@ -88,7 +83,6 @@ public class LogSecrecyTests
             }
             Assert.DoesNotContain(db.Password("app"), text);
         }
-        File.Delete(keyFile);
     }
 
     static OpaqueSecret Parse(string text, string prefix = "at1") =>

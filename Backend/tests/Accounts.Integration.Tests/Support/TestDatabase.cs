@@ -8,7 +8,7 @@ public sealed class TestDatabase : IAsyncDisposable
 {
     readonly TestCluster cluster;
     readonly Dictionary<string, NpgsqlDataSource> sources = new();
-    readonly List<string> tempFiles = new();
+    readonly List<SecretFile> passwordFiles = new();
 
     public string Name { get; }
 
@@ -29,26 +29,26 @@ public sealed class TestDatabase : IAsyncDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(role)),
     };
 
-    /// <summary>The BLACKGLASS_DB_* environment the API commands read, with the password in a temp file.</summary>
+    /// <summary>The BLACKGLASS_DB_* environment the API commands read, with the password in a <see cref="SecretFile"/>
+    /// deleted with this database.</summary>
     public Dictionary<string, string?> EnvFor(string role)
     {
-        var file = Path.Combine(Path.GetTempPath(), $"bg-test-pw-{Guid.NewGuid():N}");
-        File.WriteAllText(file, Password(role));
-        tempFiles.Add(file);
+        var file = SecretFile.Write(Password(role));
+        passwordFiles.Add(file);
         return new()
         {
             ["BLACKGLASS_DB_HOST"] = "127.0.0.1",
             ["BLACKGLASS_DB_PORT"] = cluster.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["BLACKGLASS_DB_NAME"] = Name,
             ["BLACKGLASS_DB_USER"] = role == "migrator" ? "accounts_migrator" : "accounts_app",
-            ["BLACKGLASS_DB_PASSWORD_FILE"] = file,
+            ["BLACKGLASS_DB_PASSWORD_FILE"] = file.Path,
         };
     }
 
     public async ValueTask DisposeAsync()
     {
+        foreach (var f in passwordFiles) f.Dispose(); // first: nothing below may leave a password behind
         foreach (var ds in sources.Values) await ds.DisposeAsync();
-        foreach (var f in tempFiles) File.Delete(f);
         await using var admin = cluster.DataSource("postgres", "postgres", cluster.SuperuserPassword);
         await using var conn = await admin.OpenConnectionAsync();
         await conn.ExecuteAsync($"drop database if exists \"{Name}\" with (force)");

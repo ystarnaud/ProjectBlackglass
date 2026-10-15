@@ -15,7 +15,7 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 [Trait("Requires", "Postgres")]
 public class AdminTests : IAsyncLifetime
 {
-    const string AdminKey = "admin-key-for-tests-0123456789abcdef";
+    static readonly string AdminKey = NewAdminKey();
     TestDatabase db = null!;
     public async Task InitializeAsync() => db = await MigratedAsync();
 
@@ -25,16 +25,11 @@ public class AdminTests : IAsyncLifetime
         finally { await db.DisposeAsync(); }
     }
 
-    static Dictionary<string, string?> AdminOn(int perMinute = 100)
+    Task<ApiServer> StartAdminApiAsync(int perMinute = 100) => ApiServer.StartAsync(db, new()
     {
-        var file = Path.Combine(Path.GetTempPath(), $"bg-test-admin-{Guid.NewGuid():N}");
-        File.WriteAllText(file, AdminKey);
-        return new()
-        {
-            ["BLACKGLASS_ADMIN_ROUTES"] = "enabled", ["BLACKGLASS_ADMIN_KEY_FILE"] = file, ["BLACKGLASS_DEV_AUTH"] = "enabled",
-            ["BLACKGLASS_RATE_ADMIN_PER_MINUTE"] = perMinute.ToString(System.Globalization.CultureInfo.InvariantCulture),
-        };
-    }
+        ["BLACKGLASS_ADMIN_ROUTES"] = "enabled", ["BLACKGLASS_DEV_AUTH"] = "enabled",
+        ["BLACKGLASS_RATE_ADMIN_PER_MINUTE"] = perMinute.ToString(System.Globalization.CultureInfo.InvariantCulture),
+    }, adminKey: AdminKey);
 
     async Task<(int Code, string Out, string Err)> CliAsync(params string[] args)
     {
@@ -111,7 +106,7 @@ public class AdminTests : IAsyncLifetime
     [InlineData("admin-key-for-tests-0123456789abcdeF")]
     public async Task A_missing_or_wrong_admin_key_is_401_and_writes_nothing(string? key)
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         var response = await api.Http.SendAsync(CreateRequest(new { handle = "y", @operator = "o", reason = "r" }, key));
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal("", await response.Content.ReadAsStringAsync());
@@ -121,7 +116,7 @@ public class AdminTests : IAsyncLifetime
     [Fact]
     public async Task The_key_is_checked_before_the_body_is_read()
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         var request = new HttpRequestMessage(HttpMethod.Post, "/dev/v1/accounts") { Content = new StringContent("{not json", System.Text.Encoding.UTF8, "application/json") };
         Assert.Equal(HttpStatusCode.Unauthorized, (await api.Http.SendAsync(request)).StatusCode);
     }
@@ -129,7 +124,7 @@ public class AdminTests : IAsyncLifetime
     [Fact]
     public async Task Two_admin_key_headers_are_401()
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         var request = CreateRequest(new { @operator = "o", reason = "r" }, null);
         request.Headers.TryAddWithoutValidation("X-Admin-Key", new[] { AdminKey, AdminKey });
         Assert.Equal(HttpStatusCode.Unauthorized, (await api.Http.SendAsync(request)).StatusCode);
@@ -138,7 +133,7 @@ public class AdminTests : IAsyncLifetime
     [Fact]
     public async Task Two_separate_admin_key_fields_are_401_even_when_both_are_right()
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         const string body = "{\"operator\":\"o\",\"reason\":\"r\"}";
         Assert.Equal(201, await api.SendRawAsync($"POST /dev/v1/accounts HTTP/1.1\nContent-Type: application/json\nX-Admin-Key: {AdminKey}\n", body));
         Assert.Equal(401, await api.SendRawAsync($"POST /dev/v1/accounts HTTP/1.1\nContent-Type: application/json\nX-Admin-Key: {AdminKey}\nX-Admin-Key: {AdminKey}\n", body));
@@ -177,7 +172,7 @@ public class AdminTests : IAsyncLifetime
     [Fact]
     public async Task A_player_token_never_authorizes_an_admin_route()
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         var player = await new AccountAdminStore(db.AsApp()).CreateAccountAsync(null, null, Op);
         var login = await api.Http.PostAsJsonAsync("/v1/auth/dev/login", new { accountKey = player.AccountKey.Text });
         var token = JsonDocument.Parse(await login.Content.ReadAsStringAsync()).RootElement.GetProperty("accessToken").GetString()!;
@@ -192,7 +187,7 @@ public class AdminTests : IAsyncLifetime
     [Fact]
     public async Task The_admin_route_creates_an_account_whose_key_logs_in()
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         var response = await api.Http.SendAsync(CreateRequest(new { handle = "route-1", displayName = "Route One", @operator = "ops", reason = "test" }, AdminKey));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         Assert.True(response.Headers.CacheControl!.NoStore);
@@ -213,7 +208,7 @@ public class AdminTests : IAsyncLifetime
     [InlineData(null, " padded", 422, "InvalidDisplayName")]
     public async Task Bad_create_requests_get_problem_codes(string? handle, string? displayName, int status, string code)
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         await api.Http.SendAsync(CreateRequest(new { handle = "taken", @operator = "ops", reason = "first" }, AdminKey));
         var response = await api.Http.SendAsync(CreateRequest(new { handle, displayName, @operator = "ops", reason = "test" }, AdminKey));
         Assert.Equal(status, (int)response.StatusCode);
@@ -229,7 +224,7 @@ public class AdminTests : IAsyncLifetime
     [InlineData("")]
     public async Task An_unusable_body_with_the_right_key_is_refused_without_writing(string json)
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         var request = new HttpRequestMessage(HttpMethod.Post, "/dev/v1/accounts") { Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json") };
         request.Headers.Add("X-Admin-Key", AdminKey);
         var status = (int)(await api.Http.SendAsync(request)).StatusCode;
@@ -240,7 +235,7 @@ public class AdminTests : IAsyncLifetime
     [Fact]
     public async Task An_oversized_admin_body_is_refused_and_writes_nothing()
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         var response = await api.Http.SendAsync(CreateRequest(new { @operator = "ops", reason = new string('r', 100_000) }, AdminKey));
         Assert.Equal(HttpStatusCode.RequestEntityTooLarge, response.StatusCode);
         Assert.Equal(0L, await AccountCountAsync());
@@ -252,7 +247,7 @@ public class AdminTests : IAsyncLifetime
     [InlineData("ops", "two\nlines")]
     public async Task Control_characters_in_operator_or_reason_are_422_InvalidOperator(string op, string reason)
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn());
+        await using var api = await StartAdminApiAsync();
         var response = await api.Http.SendAsync(CreateRequest(new { @operator = op, reason }, AdminKey));
         Assert.Equal(422, (int)response.StatusCode);
         Assert.Equal("InvalidOperator", JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("code").GetString());
@@ -262,7 +257,7 @@ public class AdminTests : IAsyncLifetime
     [Fact]
     public async Task Admin_requests_are_rate_limited_before_the_key_is_checked()
     {
-        await using var api = await ApiServer.StartAsync(db, AdminOn(perMinute: 2));
+        await using var api = await StartAdminApiAsync(perMinute: 2);
         Assert.Equal(HttpStatusCode.Unauthorized, (await api.Http.SendAsync(CreateRequest(new { @operator = "o", reason = "r" }, "wrong-admin-key-0123456789abcdef0123"))).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await api.Http.SendAsync(CreateRequest(new { @operator = "o", reason = "r" }, "wrong-admin-key-0123456789abcdef0123"))).StatusCode);
         var limited = await api.Http.SendAsync(CreateRequest(new { @operator = "o", reason = "r" }, AdminKey));

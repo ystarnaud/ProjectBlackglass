@@ -1,4 +1,5 @@
 using Blackglass.Accounts.Api.Auth;
+using Blackglass.Accounts.IntegrationTests.Support;
 
 namespace Blackglass.Accounts.IntegrationTests.Unit;
 
@@ -6,12 +7,6 @@ public class AuthSettingsTests
 {
     static Dictionary<string, string?> Env(params (string Key, string? Value)[] pairs) => pairs.ToDictionary(p => p.Key, p => p.Value);
 
-    static string KeyFile(string content)
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"bg-test-admin-{Guid.NewGuid():N}");
-        File.WriteAllText(path, content);
-        return path;
-    }
 
     [Fact]
     public void Everything_is_off_by_default_with_the_spec_defaults()
@@ -51,8 +46,9 @@ public class AuthSettingsTests
     [Fact]
     public void A_short_admin_key_is_refused_without_revealing_it()
     {
+        using var file = SecretFile.Write("short-secret-value");
         var e = Assert.Throws<AuthSettingsException>(() => AuthSettings.FromEnvironment(
-            Env(("BLACKGLASS_ADMIN_ROUTES", "enabled"), ("BLACKGLASS_ADMIN_KEY_FILE", KeyFile("short-secret-value")))));
+            Env(("BLACKGLASS_ADMIN_ROUTES", "enabled"), ("BLACKGLASS_ADMIN_KEY_FILE", file.Path))));
         Assert.DoesNotContain("short-secret-value", e.Message);
     }
 
@@ -60,7 +56,8 @@ public class AuthSettingsTests
     public void The_admin_key_is_kept_only_as_its_hash()
     {
         var key = new string('k', 48);
-        var s = AuthSettings.FromEnvironment(Env(("BLACKGLASS_ADMIN_ROUTES", "enabled"), ("BLACKGLASS_ADMIN_KEY_FILE", KeyFile(key + "\n"))));
+        using var file = SecretFile.Write(key + "\n");
+        var s = AuthSettings.FromEnvironment(Env(("BLACKGLASS_ADMIN_ROUTES", "enabled"), ("BLACKGLASS_ADMIN_KEY_FILE", file.Path)));
         Assert.Equal(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(key)), s.AdminKeyHash);
     }
 

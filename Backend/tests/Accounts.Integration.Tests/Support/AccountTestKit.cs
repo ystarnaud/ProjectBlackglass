@@ -8,6 +8,9 @@ public static class AccountTestKit
 {
     public static OperatorContext Op => OperatorContext.Create("test-operator", "integration test");
 
+    /// <summary>A random admin key for one test class: no test credential is a constant in source or survives the run.</summary>
+    public static string NewAdminKey() => "test-admin-" + Convert.ToHexStringLower(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
+
     public static async Task<TestDatabase> MigratedAsync()
     {
         var db = await (await TestCluster.Instance).CreateDatabaseAsync();

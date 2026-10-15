@@ -10,11 +10,21 @@ public sealed class ApiServer : IAsyncDisposable
     public required WebApplication App { get; init; }
     public required HttpClient Http { get; init; }
 
-    public static async Task<ApiServer> StartAsync(TestDatabase db, Dictionary<string, string?>? settings = null, Action<WebApplicationBuilder>? configure = null)
+    /// <param name="adminKey">Written to a <see cref="SecretFile"/> named by BLACKGLASS_ADMIN_KEY_FILE. serve reads it once,
+    /// at startup, so the file is deleted as soon as startup ends, whether it succeeded or failed.</param>
+    /// <param name="keyFileCreated">Receives the key file's path (for the cleanup tests).</param>
+    public static async Task<ApiServer> StartAsync(TestDatabase db, Dictionary<string, string?>? settings = null, Action<WebApplicationBuilder>? configure = null,
+        string? adminKey = null, Action<string>? keyFileCreated = null)
     {
         var env = db.EnvFor("app");
         env["ASPNETCORE_URLS"] = "http://127.0.0.1:0";
         foreach (var (k, v) in settings ?? new()) env[k] = v;
+        using var keyFile = adminKey is null ? null : SecretFile.Write(adminKey);
+        if (keyFile is not null)
+        {
+            env[Blackglass.Accounts.Api.Auth.AuthSettings.AdminKeyFileVar] = keyFile.Path;
+            keyFileCreated?.Invoke(keyFile.Path);
+        }
         var error = new StringWriter();
         var start = await ServeCommand.StartAsync(env, error, default, configure: configure);
         if (start.App is null) throw new InvalidOperationException($"serve failed ({start.ExitCode}): {error}");
