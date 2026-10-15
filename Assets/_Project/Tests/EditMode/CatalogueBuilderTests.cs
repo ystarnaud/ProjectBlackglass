@@ -28,6 +28,7 @@ namespace Blackglass.Tests
         public readonly OperativeRole Alpha, Beta;
         public readonly OperativeDefinition OperativeOne, OperativeTwo;
         public readonly List<OperativeDefinition> Operatives = new List<OperativeDefinition>();
+        public InventoryRules Rules;
         public ItemCatalogue Items;
         public LootTable Loot;
         public ProgressionTrack Progression;
@@ -42,8 +43,9 @@ namespace Blackglass.Tests
             Vest = Item("item.beta-vest", ItemCategory.Armor, ItemSlot.Armor);
             Boots = Item("item.delta-boots", ItemCategory.Utility, ItemSlot.Utility);
             Kit = Item("item.gamma-kit", ItemCategory.Consumable, ItemSlot.None, 3, 10);
+            Rules = Keep(InventoryRules.Create(6));
             Items = Keep(ItemCatalogue.Create(Kit, Boots, Rifle, Vest));
-            Loot = Keep(LootTable.Create(7, 2, 1, 3, new[] { Entry(Kit, 1, 2, 5), Entry(Rifle, 1, 1, 1) }));
+            Loot =Keep(LootTable.Create(7, 2, 1, 3, new[] { Entry(Kit, 1, 2, 5), Entry(Rifle, 1, 1, 1) }));
             Progression = Keep(ProgressionTrack.Create(new[] { 0, 10, 30 }, new[] { Choice("choice.two"), Choice("choice.one") }, 20, 5));
             AbilityOne = Ability("ability.one");
             AbilityTwo = Ability("ability.two");
@@ -58,7 +60,7 @@ namespace Blackglass.Tests
 
         public CatalogueSources Sources()
         {
-            var sources = new CatalogueSources { Items = Items, LootTable = Loot, Progression = Progression, Starter = Starter };
+            var sources = new CatalogueSources { InventoryRules = Rules, Items = Items, LootTable = Loot, Progression = Progression, Starter = Starter };
             sources.Operatives.AddRange(Operatives);
             return sources;
         }
@@ -165,6 +167,86 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Bag_capacity_is_exported_from_InventoryRules()
+        {
+            a.Rules = a.Keep(InventoryRules.Create(9));
+            var errors = new List<string>();
+            var document = CatalogueBuilder.Build(a.Sources(), errors);
+            Assert.That(document, Is.Not.Null, string.Join("\n", errors));
+            Assert.That(document.Inventory.BagCapacity, Is.EqualTo(9));
+            Assert.That(CanonicalCatalogueWriter.Write(document), Does.Contain("\"inventory\": {\n    \"bagCapacity\": 9\n  },"));
+        }
+
+        [Test]
+        public void A_missing_InventoryRules_asset_refuses_the_export()
+        {
+            a.Rules = null;
+            AssertRefused(a.Sources(), "missing:", CatalogueSources.InventoryRulesPath);
+        }
+
+        [TestCase(0)]
+        [TestCase(-3)]
+        [TestCase(65)]
+        public void A_bag_capacity_outside_1_to_64_refuses_the_export(int capacity)
+        {
+            a.Rules = a.Keep(InventoryRules.Create(capacity));
+            AssertRefused(a.Sources(), "malformed:", $"bag capacity {capacity} is outside 1 to 64");
+        }
+
+        [TestCase(1)]
+        [TestCase(64)]
+        public void The_bag_capacity_limits_are_accepted(int capacity)
+        {
+            a.Rules = a.Keep(InventoryRules.Create(capacity));
+            a.Starter = a.StarterFor(new[] { GoldenAssets.Grant(a.Rifle, 1) }, new StarterGrant[0], a.OperativeOne);
+            var errors = new List<string>();
+            Assert.That(CatalogueBuilder.Build(a.Sources(), errors), Is.Not.Null, string.Join("\n", errors));
+        }
+
+        [Test]
+        public void A_starter_that_does_not_fit_refuses_the_export()
+        {
+            a.Rules = a.Keep(InventoryRules.Create(2));
+            a.Starter = a.StarterFor(new[] { GoldenAssets.Grant(a.Rifle, 1), GoldenAssets.Grant(a.Rifle, 1), GoldenAssets.Grant(a.Rifle, 1) },
+                new StarterGrant[0], a.OperativeOne);
+            AssertRefused(a.Sources(), "incompatible:", "3 bag entries exceed the bag capacity 2");
+        }
+
+        [Test]
+        public void A_starter_that_exactly_fits_is_exported()
+        {
+            a.Rules = a.Keep(InventoryRules.Create(8));
+            var grants = new List<StarterGrant>();
+            for (var i = 0; i < 8; i++)
+                grants.Add(GoldenAssets.Grant(a.Rifle, 1));
+            a.Starter = a.StarterFor(grants.ToArray(), new StarterGrant[0], a.OperativeOne);
+            var errors = new List<string>();
+            Assert.That(CatalogueBuilder.Build(a.Sources(), errors), Is.Not.Null, string.Join("\n", errors));
+        }
+
+        [Test]
+        public void Grants_of_one_stackable_definition_merge_like_ItemInventory_Add()
+        {
+            // 2 + 2 kits with a maximum stack of 3 fill two entries, which a capacity of 2 holds and a capacity of 1 does not.
+            a.Starter = a.StarterFor(new[] { GoldenAssets.Grant(a.Kit, 2), GoldenAssets.Grant(a.Kit, 2) }, new StarterGrant[0], a.OperativeOne);
+            a.Rules = a.Keep(InventoryRules.Create(2));
+            var errors = new List<string>();
+            Assert.That(CatalogueBuilder.Build(a.Sources(), errors), Is.Not.Null, string.Join("\n", errors));
+            a.Rules = a.Keep(InventoryRules.Create(1));
+            AssertRefused(a.Sources(), "incompatible:", "2 bag entries exceed the bag capacity 1");
+        }
+
+        [Test]
+        public void BagEntries_match_what_ItemInventory_Add_produces()
+        {
+            var bag = new ItemInventory();
+            var contents = new List<(ItemDefinition Item, int Quantity)> { (a.Rifle, 1), (a.Kit, 2), (a.Rifle, 1), (a.Kit, 2), (a.Kit, 3) };
+            foreach (var (item, quantity) in contents)
+                Assert.That(bag.Add(item, quantity), Is.EqualTo(0));
+            Assert.That(CatalogueBuilder.BagEntries(contents), Is.EqualTo(bag.Count));
+        }
+
+        [Test]
         public void Build_IgnoresDisplayNames()
         {
             using (var renamed = new GoldenAssets("Renamed "))
@@ -182,7 +264,7 @@ namespace Blackglass.Tests
         {
             var errors = new List<string>();
             Assert.That(CatalogueBuilder.Build(new CatalogueSources(), errors), Is.Null);
-            Assert.That(errors.Count, Is.EqualTo(5), string.Join("\n", errors));
+            Assert.That(errors.Count, Is.EqualTo(6), string.Join("\n", errors));
             Assert.That(errors.TrueForAll(e => e.StartsWith("missing: ", StringComparison.Ordinal)), Is.True);
         }
 

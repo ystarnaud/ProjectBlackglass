@@ -44,6 +44,8 @@ public static partial class CanonicalCatalogueJson
     {
         var root = new Obj()
             .Add("formatVersion", Int(d.FormatVersion))
+            .Add("inventory", new Obj()
+                .Add("bagCapacity", Int(d.Inventory.BagCapacity)))
             .Add("items", Elements(d.Items, item => new Obj()
                 .Add("id", Str(item.Id))
                 .Add("category", Str(Word(item.Category)))

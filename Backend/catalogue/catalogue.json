@@ -1,5 +1,8 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
+  "inventory": {
+    "bagCapacity": 8
+  },
   "items": [
     {
       "id": "item.combat-blade",

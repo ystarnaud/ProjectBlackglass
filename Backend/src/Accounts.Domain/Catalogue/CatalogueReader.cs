@@ -34,16 +34,36 @@ public static class CatalogueReader
         public bool TryDocument(JsonElement e, out CatalogueDocument document)
         {
             document = null!;
-            if (!TryMembers(e, "$", out var m, "formatVersion", "items", "lootTable", "progression", "operatives", "starter"))
+            // Another format has another shape: say so (and how to fix it) instead of listing every member that differs.
+            if (e.ValueKind == JsonValueKind.Object && e.TryGetProperty("formatVersion", out var declared)
+                && declared.ValueKind == JsonValueKind.Number && declared.TryGetInt32(out var declaredFormat)
+                && declaredFormat != CatalogueDocument.SupportedFormatVersion)
+            {
+                errors.Add(CatalogueDocument.UnsupportedFormat(declaredFormat));
+                return false;
+            }
+            if (!TryMembers(e, "$", out var m, "formatVersion", "inventory", "items", "lootTable", "progression", "operatives", "starter"))
                 return false;
             var ok = TryInt(m["formatVersion"], "$.formatVersion", out var format);
+            ok &= TryInventory(m["inventory"], "$.inventory", out var inventory);
             ok &= TryList<CatalogueItem>(m["items"], "$.items", TryItem, out var items);
             ok &= TryLootTable(m["lootTable"], "$.lootTable", out var loot);
             ok &= TryProgression(m["progression"], "$.progression", out var progression);
             ok &= TryList<OperativeDefinition>(m["operatives"], "$.operatives", TryOperative, out var operatives);
             ok &= TryStarter(m["starter"], "$.starter", out var starter);
             if (ok)
-                document = new CatalogueDocument(format, items, loot, progression, operatives, starter);
+                document = new CatalogueDocument(format, inventory, items, loot, progression, operatives, starter);
+            return ok;
+        }
+
+        bool TryInventory(JsonElement e, string path, out InventorySettings inventory)
+        {
+            inventory = null!;
+            if (!TryMembers(e, path, out var m, "bagCapacity"))
+                return false;
+            var ok = TryInt(m["bagCapacity"], path + ".bagCapacity", out var capacity);
+            if (ok)
+                inventory = new InventorySettings(capacity);
             return ok;
         }
 

@@ -1,5 +1,8 @@
 {
-  "formatVersion": 1,
+  "formatVersion": 2,
+  "inventory": {
+    "bagCapacity": 6
+  },
   "items": [
     {
       "id": "item.alpha-rifle",

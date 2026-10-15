@@ -70,6 +70,7 @@ namespace Blackglass.Tests
         static CatalogueDocument GoldenDocument()
         {
             var d = new CatalogueDocument();
+            d.Inventory.BagCapacity = 6;
             d.Items.Add(new CatalogueItem { Id = "item.alpha-rifle", Category = "weapon", Slot = "weapon", MaxStack = 1 });
             d.Items.Add(new CatalogueItem { Id = "item.beta-vest", Category = "armor", Slot = "armor", MaxStack = 1 });
             d.Items.Add(new CatalogueItem { Id = "item.delta-boots", Category = "utility", Slot = "utility", MaxStack = 1 });

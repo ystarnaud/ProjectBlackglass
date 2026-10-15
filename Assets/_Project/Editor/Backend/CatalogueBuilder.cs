@@ -19,6 +19,7 @@ namespace Blackglass.BackendTools
         public static CatalogueDocument Build(CatalogueSources sources, List<string> errors)
         {
             var start = errors.Count;
+            if (sources.InventoryRules == null) errors.Add($"missing: the inventory rules ({CatalogueSources.InventoryRulesPath})");
             if (sources.Items == null) errors.Add($"missing: the item catalogue ({CatalogueSources.ItemCataloguePath})");
             if (sources.LootTable == null) errors.Add($"missing: the loot table ({CatalogueSources.LootTablePath})");
             if (sources.Progression == null) errors.Add($"missing: the progression track ({CatalogueSources.ProgressionPath})");
@@ -28,12 +29,51 @@ namespace Blackglass.BackendTools
                 return null;
 
             var document = new CatalogueDocument();
+            AddInventory(sources.InventoryRules, document, errors);
             var items = AddItems(sources.Items, document, errors);
             AddLootTable(sources.LootTable, items, document, errors);
             AddProgression(sources.Progression, document, errors);
             var operatives = AddOperatives(sources.Operatives, document, errors);
-            AddStarter(sources.Starter, items, operatives, document, errors);
+            AddStarter(sources.Starter, document.Inventory.BagCapacity, items, operatives, document, errors);
             return errors.Count > start ? null : document;
+        }
+
+        static void AddInventory(InventoryRules rules, CatalogueDocument document, List<string> errors)
+        {
+            if (rules.BagCapacity < InventoryRules.MinBagCapacity || rules.BagCapacity > InventoryRules.MaxBagCapacity)
+                errors.Add($"malformed: inventory rules {rules.name}: bag capacity {rules.BagCapacity} is outside {InventoryRules.MinBagCapacity} to {InventoryRules.MaxBagCapacity}");
+            document.Inventory.BagCapacity = rules.BagCapacity;
+        }
+
+        /// <summary>
+        /// The bag entries these contents take, as ItemInventory.Add fills them (open stacks first): one per unit of a
+        /// non-stackable item, and per stackable definition ceil(total quantity / maximum stack). The backend's
+        /// InventoryRules.BagEntries is the same arithmetic.
+        /// </summary>
+        public static int BagEntries(IEnumerable<(ItemDefinition Item, int Quantity)> contents)
+        {
+            long entries = 0;
+            var stackable = new Dictionary<string, long>(StringComparer.Ordinal);
+            var maxStacks = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var (item, quantity) in contents)
+            {
+                if (quantity < 1)
+                    continue;
+                if (!item.IsStackable)
+                {
+                    entries += quantity;
+                    continue;
+                }
+                stackable.TryGetValue(item.Id, out var total);
+                stackable[item.Id] = total + quantity;
+                maxStacks[item.Id] = item.MaxStack;
+            }
+            foreach (var pair in stackable)
+            {
+                var maxStack = Math.Max(1, maxStacks[pair.Key]);
+                entries += (pair.Value + maxStack - 1) / maxStack;
+            }
+            return (int)Math.Min(entries, int.MaxValue);
         }
 
         static Dictionary<string, ItemDefinition> AddItems(ItemCatalogue catalogue, CatalogueDocument document, List<string> errors)
@@ -169,7 +209,7 @@ namespace Blackglass.BackendTools
             return true;
         }
 
-        static void AddStarter(StarterLoadout starter, Dictionary<string, ItemDefinition> items, Dictionary<string, OperativeDefinition> operatives,
+        static void AddStarter(StarterLoadout starter, int bagCapacity, Dictionary<string, ItemDefinition> items, Dictionary<string, OperativeDefinition> operatives,
             CatalogueDocument document, List<string> errors)
         {
             var listed = new HashSet<string>(StringComparer.Ordinal);
@@ -187,6 +227,7 @@ namespace Blackglass.BackendTools
                 if (!listed.Add(operative.Id)) { errors.Add($"duplicate: starter loadout {starter.name} lists operative {operative.name} more than once"); continue; }
                 var row = new CatalogueStarterOperative { OperativeId = operative.Id };
                 var equipped = new HashSet<ItemSlot>();
+                var bagContents = new List<(ItemDefinition Item, int Quantity)>();
                 var grants = entry.items ?? new StarterGrant[0];
                 for (var j = 0; j < grants.Length; j++)
                 {
@@ -194,11 +235,16 @@ namespace Blackglass.BackendTools
                     var where = $"starter loadout {starter.name}, operative {operative.name}, grant {j}";
                     if (!GrantIsUsable(grant.item, grant.quantity, where, items, errors))
                         continue;
+                    bagContents.Add((grant.item, grant.quantity));
                     if (grant.equip && grant.item.Slot == ItemSlot.None) { errors.Add($"incompatible: {where}: item {grant.item.Id} has no equipment slot, so it cannot be equipped"); continue; }
                     if (grant.equip && !equipped.Add(grant.item.Slot)) { errors.Add($"incompatible: {where}: a second item to equip in the {grant.item.Slot} slot"); continue; }
                     row.Grants.Add(new CatalogueGrant { ItemId = grant.item.Id, Quantity = grant.quantity, Equip = grant.equip });
                 }
                 document.Starter.Operatives.Add(row);
+                // SeedStarter adds every grant to the bag first and equips from there, so all of them must fit at once.
+                var bagEntries = BagEntries(bagContents);
+                if (bagEntries > bagCapacity)
+                    errors.Add($"incompatible: starter loadout {starter.name}, operative {operative.name}: {bagEntries} bag entries exceed the bag capacity {bagCapacity}");
             }
             document.Starter.Operatives.Sort((x, y) => string.CompareOrdinal(x.OperativeId, y.OperativeId));
 

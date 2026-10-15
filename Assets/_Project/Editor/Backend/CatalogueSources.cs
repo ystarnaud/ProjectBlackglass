@@ -9,12 +9,14 @@ namespace Blackglass.BackendTools
     /// </summary>
     public sealed class CatalogueSources
     {
+        public const string InventoryRulesPath = "Assets/_Project/Data/Items/InventoryRules.asset";
         public const string ItemCataloguePath = "Assets/_Project/Data/Items/ItemCatalogue.asset";
         public const string LootTablePath = "Assets/_Project/Data/Items/LootTable.asset";
         public const string StarterPath = "Assets/_Project/Data/Items/StarterLoadout.asset";
         public const string ProgressionPath = "Assets/_Project/Data/Operatives/Progression.asset";
         public const string OperativeFolder = "Assets/_Project/Data/Operatives/Definitions";
 
+        public InventoryRules InventoryRules;
         public ItemCatalogue Items;
         public LootTable LootTable;
         public ProgressionTrack Progression;
@@ -25,6 +27,7 @@ namespace Blackglass.BackendTools
         {
             var sources = new CatalogueSources
             {
+                InventoryRules = AssetDatabase.LoadAssetAtPath<InventoryRules>(InventoryRulesPath),
                 Items = AssetDatabase.LoadAssetAtPath<ItemCatalogue>(ItemCataloguePath),
                 LootTable = AssetDatabase.LoadAssetAtPath<LootTable>(LootTablePath),
                 Progression = AssetDatabase.LoadAssetAtPath<ProgressionTrack>(ProgressionPath),

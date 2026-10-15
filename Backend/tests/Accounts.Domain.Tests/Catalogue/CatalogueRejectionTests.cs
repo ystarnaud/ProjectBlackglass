@@ -63,10 +63,12 @@ public class CatalogueRejectionTests
     [InlineData("\"category\": \"armor\"", "\"category\": \"shield\"", "malformed: $.items[1].category must be one of")]
     [InlineData("\"equip\": true", "\"equip\": 1", "malformed: $.starter.operatives[0].grants[0].equip must be true or false")]
     [InlineData("\"weight\": 1\n", "\"weight\": 1,\n", "malformed: not valid JSON")]
-    [InlineData("\"formatVersion\": 1,", "\"formatVersion\":  1,", "malformed: the file is not in canonical form")]
+    [InlineData("\"formatVersion\": 2,", "\"formatVersion\":  2,", "malformed: the file is not in canonical form")]
     [InlineData("\"stackable\": true,\n      \"maxStack\": 3,", "\"maxStack\": 3,\n      \"stackable\": true,", "malformed: the file is not in canonical form")]
     [InlineData("\"id\": \"item.beta-vest\"", "\"id\": \"item.Beta-vest\"", "malformed: items[1].id 'item.Beta-vest' is not a well-formed id")]
-    [InlineData("\"formatVersion\": 1,", "\"formatVersion\": 2,", "incompatible: format version 2 is not supported (this backend reads 1)")]
+    [InlineData("\"formatVersion\": 2,", "\"formatVersion\": 3,", "incompatible: format version 3 is not supported (this backend reads 2)")]
+    [InlineData("\"bagCapacity\": 6", "\"bagCapacity\": 6,\n    \"slots\": 1", "malformed: $.inventory.slots is not a known member")]
+    [InlineData("\"bagCapacity\": 6\n", "\"bagCapacity\": \"6\"\n", "malformed: $.inventory.bagCapacity must be a 32-bit integer")]
     [InlineData("\"roleId\": \"role.beta\"", "\"roleId\": \"Role.Beta\"", "malformed: operatives[1].roleId 'Role.Beta' is not a well-formed id")]
     [InlineData("\"ability.two\",", "\"Ability Two\",", "malformed: operatives[0].abilityIds[0] 'Ability Two' is not a well-formed id")]
     [InlineData("\"choice.two\"", "\"choice..two\"", "malformed: progression.choiceIds[1] 'choice..two' is not a well-formed id")]
@@ -151,6 +153,80 @@ public class CatalogueRejectionTests
         var (mutate, expected) = Mutations[name];
         AssertRejected(CanonicalCatalogueJson.ToBytes(mutate(Golden.Document())), expected);
     }
+
+    const string InventoryBlock = "\n  \"inventory\": {\n    \"bagCapacity\": 6\n  },";
+    const string FormatAndInventory = "\"formatVersion\": 2," + InventoryBlock;
+
+    static CatalogueDocument Bag(CatalogueDocument d, int capacity) => d with { Inventory = new InventorySettings(capacity) };
+
+    static CatalogueDocument WithGrants(CatalogueDocument d, int capacity, params StarterGrant[] grants) =>
+        Bag(Grants(d, _ => grants), capacity);
+
+    static StarterGrant Plain(string itemId, int quantity) => new(itemId, quantity, false);
+
+    [Fact]
+    public void Format_2_round_trips_canonically()
+    {
+        var catalogue = GameCatalogue.Load(Golden.Bytes());
+        Assert.Equal(2, catalogue.Document.FormatVersion);
+        Assert.Equal(6, catalogue.Document.Inventory.BagCapacity);
+        Assert.Equal(Golden.Bytes(), CanonicalCatalogueJson.ToBytes(catalogue.Document));
+    }
+
+    [Fact]
+    public void Format_1_is_refused_with_a_reexport_message()
+    {
+        const string expected = "incompatible: format version 1 is not supported (this backend reads 2); re-export the catalogue from Unity";
+        // A format 2 body that merely says 1, and a genuine format 1 body (no inventory member at all).
+        AssertRejected(Edited("\"formatVersion\": 2,", "\"formatVersion\": 1,"), expected);
+        AssertRejected(Edited(FormatAndInventory, "\"formatVersion\": 1,"), expected);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(65)]
+    [InlineData(-1)]
+    public void Bag_capacity_outside_1_to_64_is_refused(int capacity)
+        => AssertRejected(CanonicalCatalogueJson.ToBytes(Bag(Golden.Document(), capacity)), $"malformed: inventory.bagCapacity {capacity} is outside 1 to 64");
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(64)]
+    public void Bag_capacity_at_the_limits_is_accepted(int capacity)
+        => Assert.Equal(capacity, GameCatalogue.Load(CanonicalCatalogueJson.ToBytes(WithGrants(Golden.Document(), capacity, Plain("item.alpha-rifle", 1)))).Document.Inventory.BagCapacity);
+
+    [Fact]
+    public void A_missing_bag_capacity_member_is_refused()
+    {
+        AssertRejected(Edited(InventoryBlock, ""), "missing: $.inventory");
+        AssertRejected(Edited("\"bagCapacity\": 6", ""), "missing: $.inventory.bagCapacity");
+    }
+
+    [Fact]
+    public void A_starter_that_does_not_fit_the_bag_is_refused()
+        => AssertRejected(CanonicalCatalogueJson.ToBytes(WithGrants(Golden.Document(), 2,
+            Plain("item.alpha-rifle", 1), Plain("item.alpha-rifle", 1), Plain("item.alpha-rifle", 1))),
+            "incompatible: starter.operatives[0]: 3 bag entries exceed the bag capacity 2");
+
+    [Fact]
+    public void A_starter_that_exactly_fits_is_accepted()
+    {
+        var grants = Enumerable.Range(0, 8).Select(_ => Plain("item.alpha-rifle", 1)).ToArray();
+        Assert.Equal(8, GameCatalogue.Load(CanonicalCatalogueJson.ToBytes(WithGrants(Golden.Document(), 8, grants))).Document.Inventory.BagCapacity);
+    }
+
+    [Fact]
+    public void Grants_of_one_stackable_definition_merge_like_ItemInventory_Add()
+    {
+        // 2 + 2 kits with a maximum stack of 3 fill two entries (3 and 1), not the four that one entry per grant would need.
+        Assert.NotNull(GameCatalogue.Load(CanonicalCatalogueJson.ToBytes(WithGrants(Golden.Document(), 2, Plain("item.gamma-kit", 2), Plain("item.gamma-kit", 2)))));
+        AssertRejected(CanonicalCatalogueJson.ToBytes(WithGrants(Golden.Document(), 1, Plain("item.gamma-kit", 2), Plain("item.gamma-kit", 2))),
+            "incompatible: starter.operatives[0]: 2 bag entries exceed the bag capacity 1");
+    }
+
+    [Fact]
+    public void An_equipped_grant_still_takes_a_bag_entry_while_the_starter_is_seeded()
+        => AssertRejected(CanonicalCatalogueJson.ToBytes(Bag(Golden.Document(), 1)), "incompatible: starter.operatives[0]: 2 bag entries exceed the bag capacity 1");
 
     [Fact]
     public void Six_containers_is_the_largest_accepted_count()

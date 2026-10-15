@@ -3,18 +3,24 @@ using System.Collections.Generic;
 namespace Blackglass.BackendTools
 {
     /// <summary>
-    /// The backend catalogue (Backend/catalogue/catalogue.json, format 1) as plain data, in the shape and order it is
+    /// The backend catalogue (Backend/catalogue/catalogue.json, format 2) as plain data, in the shape and order it is
     /// written. Ids and rules only: no display text, presentation or stat values (spec §4.6). Strings are ids or enum
     /// words; CanonicalCatalogueWriter refuses anything else.
     /// </summary>
     public sealed class CatalogueDocument
     {
-        public const int FormatVersion = 1;
+        public const int FormatVersion = 2;
+        public readonly CatalogueInventory Inventory = new CatalogueInventory();
         public readonly List<CatalogueItem> Items = new List<CatalogueItem>();
         public readonly CatalogueLootTable LootTable = new CatalogueLootTable();
         public readonly CatalogueProgression Progression = new CatalogueProgression();
         public readonly List<CatalogueOperative> Operatives = new List<CatalogueOperative>();
         public readonly CatalogueStarter Starter = new CatalogueStarter();
+    }
+
+    public sealed class CatalogueInventory
+    {
+        public int BagCapacity;
     }
 
     public sealed class CatalogueItem

@@ -1,3 +1,5 @@
+using Blackglass.Accounts.Domain.Inventory;
+
 namespace Blackglass.Accounts.Domain.Catalogue;
 
 /// <summary>
@@ -20,14 +22,21 @@ public static class CatalogueValidator
     {
         if (d.FormatVersion != CatalogueDocument.SupportedFormatVersion)
         {
-            errors.Add($"incompatible: format version {d.FormatVersion} is not supported (this backend reads {CatalogueDocument.SupportedFormatVersion})");
+            errors.Add(CatalogueDocument.UnsupportedFormat(d.FormatVersion));
             return; // nothing else can be judged against an unknown format
         }
+        CheckInventory(d.Inventory, errors);
         var items = CheckItems(d.Items, errors);
         CheckLoot(d.LootTable, items, errors);
         CheckProgression(d.Progression, errors);
         var operatives = CheckOperatives(d.Operatives, errors);
-        CheckStarter(d.Starter, items, operatives, errors);
+        CheckStarter(d.Starter, d.Inventory.BagCapacity, items, operatives, errors);
+    }
+
+    static void CheckInventory(InventorySettings inventory, List<string> errors)
+    {
+        if (inventory.BagCapacity is < InventoryRules.MinBagCapacity or > InventoryRules.MaxBagCapacity)
+            errors.Add($"malformed: inventory.bagCapacity {inventory.BagCapacity} is outside {InventoryRules.MinBagCapacity} to {InventoryRules.MaxBagCapacity}");
     }
 
     static Dictionary<string, CatalogueItem> CheckItems(IReadOnlyList<CatalogueItem> items, List<string> errors)
@@ -116,7 +125,7 @@ public static class CatalogueValidator
         return new HashSet<string>(ids, StringComparer.Ordinal);
     }
 
-    static void CheckStarter(Starter starter, Dictionary<string, CatalogueItem> items, HashSet<string> operatives, List<string> errors)
+    static void CheckStarter(Starter starter, int bagCapacity, Dictionary<string, CatalogueItem> items, HashSet<string> operatives, List<string> errors)
     {
         var ids = starter.Operatives.Select(o => o.OperativeId).ToList();
         Unique(ids, "starter.operatives", errors);
@@ -127,15 +136,20 @@ public static class CatalogueValidator
             var path = $"starter.operatives[{i}]";
             if (!operatives.Contains(entry.OperativeId)) errors.Add($"incompatible: {path}: unknown operative '{entry.OperativeId}'");
             var equipped = new HashSet<ItemSlot>();
+            var bagContents = new List<(CatalogueItem Item, int Quantity)>();
             for (var j = 0; j < entry.Grants.Count; j++)
             {
                 var grant = entry.Grants[j];
                 var where = $"{path}.grants[{j}]";
                 var item = CheckGrant(grant.ItemId, grant.Quantity, where, items, errors);
+                if (item is not null) bagContents.Add((item, grant.Quantity));
                 if (!grant.Equip || item is null) continue;
                 if (item.Slot == ItemSlot.None) errors.Add($"incompatible: {where}: item '{item.Id}' has no equipment slot, so it cannot be equipped");
                 else if (!equipped.Add(item.Slot)) errors.Add($"incompatible: {where}: a second item to equip in the {item.Slot} slot");
             }
+            // Seeding adds every grant to the bag first and equips from there, so all of them must fit at once.
+            var bagEntries = InventoryRules.BagEntries(bagContents);
+            if (bagEntries > bagCapacity) errors.Add($"incompatible: {path}: {bagEntries} bag entries exceed the bag capacity {bagCapacity}");
         }
         for (var k = 0; k < starter.Stash.Count; k++)
             CheckGrant(starter.Stash[k].ItemId, starter.Stash[k].Quantity, $"starter.stash[{k}]", items, errors);

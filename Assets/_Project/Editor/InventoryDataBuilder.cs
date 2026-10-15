@@ -61,7 +61,19 @@ namespace Blackglass.EditorTools
             var catalogue = EnsureCatalogue(new[] { rifle, marksman, blade, vest, boots, medkit });
             EnsureStarter(rifle, marksman, vest, boots, blade, medkit);
             EnsureLootTable(rifle, marksman, blade, vest, boots, medkit);
+            EnsureInventoryRules();
             EditorUtility.SetDirty(catalogue);
+        }
+
+        public const string InventoryRulesPath = Root + "/InventoryRules.asset";
+
+        // The authoritative bag capacity the backend catalogue carries (8 entries, the offline scene's value). An existing
+        // asset is kept: its value is hand tuning, and InventoryRulesSceneTests fails if the scene drifts from it.
+        static void EnsureInventoryRules()
+        {
+            if (AssetDatabase.LoadAssetAtPath<InventoryRules>(InventoryRulesPath) != null)
+                return;
+            AssetDatabase.CreateAsset(ScriptableObject.CreateInstance<InventoryRules>(), InventoryRulesPath);
         }
 
         static ItemDefinition Ensure(string file, string id, string displayName, ItemCategory category, ItemSlot slot, int maxStack,

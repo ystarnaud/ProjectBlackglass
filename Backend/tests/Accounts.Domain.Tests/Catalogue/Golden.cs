@@ -13,7 +13,8 @@ internal static class Golden
     public static string Version() => File.ReadAllText(Path.Combine(Folder, "golden-catalogue.version")).Trim();
 
     public static CatalogueDocument Document() => new(
-        FormatVersion: 1,
+        FormatVersion: 2,
+        Inventory: new(6),
         Items:
         [
             new("item.alpha-rifle", ItemCategory.Weapon, ItemSlot.Weapon, false, 1, 0),

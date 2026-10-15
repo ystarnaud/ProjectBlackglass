@@ -26,12 +26,23 @@ public class CatalogueLoadTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void The_committed_catalogue_is_format_2_with_bag_capacity_8()
+    {
+        var document = GameCatalogue.Load(File.ReadAllBytes(Committed)).Document;
+        Assert.Equal(2, document.FormatVersion);
+        Assert.Equal(8, document.Inventory.BagCapacity);
+    }
+
+    [Fact]
     public void The_embedded_catalogue_is_the_committed_file()
         => Assert.Equal(File.ReadAllBytes(Committed), GameCatalogue.EmbeddedBytes());
 
     [Fact]
     public void The_embedded_catalogue_loads()
-        => Assert.Equal(GameCatalogue.Load(File.ReadAllBytes(Committed)).Version, GameCatalogue.Embedded.Version);
+    {
+        Assert.Equal(GameCatalogue.Load(File.ReadAllBytes(Committed)).Version, GameCatalogue.Embedded.Version);
+        output.WriteLine($"catalogueVersion (embedded): {GameCatalogue.Embedded.Version}");
+    }
 
     [Fact]
     public void Lookups_find_items_and_operatives_by_id()
