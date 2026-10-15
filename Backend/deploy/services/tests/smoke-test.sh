@@ -46,7 +46,16 @@ check "GET /v1/me without a token is 401" test "$(http_code http://127.0.0.1:508
 admin_cli() { dc --profile tools run --rm -T admin "$@" 2>&1 | sed -E 's/^accountKey=dk1_.*/accountKey=dk1_[redacted]/'; return "${PIPESTATUS[0]}"; }
 admin_creates_the_first_account() {
   admin_cli account create --handle smoke --operator smoke-test --reason smoke > "$work/admin.out" \
-    && grep -qx 'accountId=2' "$work/admin.out" && grep -qx 'accountKey=dk1_\[redacted\]' "$work/admin.out"
+    && grep -qx 'accountId=2' "$work/admin.out" && grep -qx 'accountKey=dk1_\[redacted\]' "$work/admin.out" \
+    && grep -qx 'starterGranted=granted' "$work/admin.out" \
+    && grep -Eqx 'starterOperatives=[1-9][0-9]*' "$work/admin.out" && grep -Eqx 'starterInstances=[1-9][0-9]*' "$work/admin.out" \
+    && grep -Eqx 'starterStacks=[1-9][0-9]*' "$work/admin.out"
+}
+# Account creation provisioned the starter, so the explicit backfill finds it already granted (exit 0, nothing granted again).
+admin_backfill_finds_the_starter_already() {
+  admin_cli starter backfill --account-base58 2 --operator smoke-test --reason smoke --yes > "$work/backfill.out" \
+    && grep -qx 'accountId=2' "$work/backfill.out" && grep -qx 'starterGranted=already' "$work/backfill.out" \
+    && grep -qx 'target.starterGranted=true' "$work/backfill.out"
 }
 admin_refuses_the_old_flag() {
   local code=0; admin_cli account suspend --account 2 --operator smoke-test --reason smoke > "$work/old-flag.out" || code=$?
@@ -65,7 +74,8 @@ admin_unknown_account_is_65() {
   local code=0; admin_cli account suspend --account-base58 zz --operator smoke-test --reason smoke --yes > /dev/null || code=$?
   test "$code" -eq 65
 }
-check "the admin CLI creates the first account and prints its Base58 id" admin_creates_the_first_account
+check "the admin CLI creates the first account, prints its Base58 id and the granted starter counts" admin_creates_the_first_account
+check "starter backfill on that account exits 0 and says already" admin_backfill_finds_the_starter_already
 check "the old --account flag is refused (64): ids are named by --account-base58" admin_refuses_the_old_flag
 check "suspend without --yes and without a terminal shows the target and changes nothing (64)" admin_shows_the_target_and_changes_nothing_without_yes
 check "suspend with --yes acts on the account the Base58 id names" admin_suspends_with_yes
