@@ -74,6 +74,8 @@ public class ComposeExposureTests
         Assert.Contains("BLACKGLASS_DEV_AUTH: ${BLACKGLASS_DEV_AUTH:-disabled}", api);
         Assert.Contains("BLACKGLASS_ADMIN_ROUTES: ${BLACKGLASS_ADMIN_ROUTES:-disabled}", api);
         Assert.Contains("BLACKGLASS_ADMIN_KEY_FILE: /run/secrets/api_admin_key", api);
+        Assert.Contains("BLACKGLASS_INVENTORY_MAX_OPERATIONS: ${BLACKGLASS_INVENTORY_MAX_OPERATIONS:-}", api); // empty means the built-in default
+        Assert.Contains("BLACKGLASS_INVENTORY_MAX_BODY_BYTES: ${BLACKGLASS_INVENTORY_MAX_BODY_BYTES:-}", api);
         Assert.Contains("- api_admin_key", ComposeText.Block(lines, "services", "api", "secrets").Select(l => l.Trim()));
 
         Assert.Contains("admin", ComposeText.ChildKeys(lines, "services"));

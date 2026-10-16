@@ -22,6 +22,7 @@ public sealed class AuthSettings
     public const string LoginGlobalRateVar = "BLACKGLASS_RATE_LOGIN_GLOBAL_PER_MINUTE";
     public const string AdminRateVar = "BLACKGLASS_RATE_ADMIN_PER_MINUTE";
     public const string InventoryMaxOperationsVar = "BLACKGLASS_INVENTORY_MAX_OPERATIONS";
+    public const string InventoryMaxBodyBytesVar = "BLACKGLASS_INVENTORY_MAX_BODY_BYTES";
     public const int MinAdminKeyLength = 32;
 
     public bool DevAuthEnabled { get; private init; }
@@ -36,6 +37,8 @@ public sealed class AuthSettings
     public int AdminPerMinute { get; private init; }
     /// <summary>The most operations one inventory batch may hold (owner ruling S5-D6, provisional): 1 to 256, default 32.</summary>
     public int InventoryMaxOperations { get; private init; }
+    /// <summary>The largest body POST /v1/inventory/operations reads (owner ruling S5-D6, provisional): 1024 to 1048576 bytes, default 16 KiB.</summary>
+    public int InventoryMaxBodyBytes { get; private init; }
 
     public static AuthSettings FromEnvironment(IReadOnlyDictionary<string, string?> env)
     {
@@ -51,6 +54,7 @@ public sealed class AuthSettings
             LoginGlobalPerMinute = Number(env, LoginGlobalRateVar, 60, 1, 100_000),
             AdminPerMinute = Number(env, AdminRateVar, 10, 1, 1000),
             InventoryMaxOperations = Number(env, InventoryMaxOperationsVar, 32, 1, 256),
+            InventoryMaxBodyBytes = Number(env, InventoryMaxBodyBytesVar, 16 * 1024, 1024, 1024 * 1024),
         };
     }
 

@@ -17,6 +17,7 @@ public class AuthSettingsTests
         Assert.Null(s.AdminKeyHash);
         Assert.Equal((60, 10, 60, 120, 10), (s.TokenLifetimeMinutes, s.LoginPerMinute, s.LoginGlobalPerMinute, s.RequestsPerMinute, s.AdminPerMinute));
         Assert.Equal(32, s.InventoryMaxOperations);
+        Assert.Equal(16384, s.InventoryMaxBodyBytes);
     }
 
     [Theory]
@@ -38,6 +39,12 @@ public class AuthSettingsTests
     [InlineData("BLACKGLASS_INVENTORY_MAX_OPERATIONS", "-1")]
     [InlineData("BLACKGLASS_INVENTORY_MAX_OPERATIONS", "32 ")]
     [InlineData("BLACKGLASS_INVENTORY_MAX_OPERATIONS", "many")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_BODY_BYTES", "0")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_BODY_BYTES", "1023")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_BODY_BYTES", "1048577")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_BODY_BYTES", "-1")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_BODY_BYTES", "16384 ")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_BODY_BYTES", "16k")]
     [InlineData("BLACKGLASS_DEV_AUTH", " enabled")]
     public void A_bad_value_refuses_to_start(string key, string value) =>
         Assert.Throws<AuthSettingsException>(() => AuthSettings.FromEnvironment(Env((key, value))));
@@ -84,6 +91,14 @@ public class AuthSettingsTests
     [InlineData("", 32)]
     public void The_inventory_batch_limit_is_one_to_256_and_defaults_to_32(string value, int expected) =>
         Assert.Equal(expected, AuthSettings.FromEnvironment(Env(("BLACKGLASS_INVENTORY_MAX_OPERATIONS", value))).InventoryMaxOperations);
+
+    [Theory]
+    [InlineData("1024", 1024)]
+    [InlineData("16384", 16384)]
+    [InlineData("1048576", 1048576)]
+    [InlineData("", 16384)]
+    public void The_inventory_body_limit_is_1024_to_1048576_bytes_and_defaults_to_16_KiB(string value, int expected) =>
+        Assert.Equal(expected, AuthSettings.FromEnvironment(Env(("BLACKGLASS_INVENTORY_MAX_BODY_BYTES", value))).InventoryMaxBodyBytes);
 
     [Fact]
     public void An_unreadable_admin_key_file_refuses_to_start() =>

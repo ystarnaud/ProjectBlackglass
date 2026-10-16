@@ -32,7 +32,8 @@ public class PlayerRefusalMappingTests
     [Fact]
     public void An_invariant_failure_and_a_checked_overflow_are_both_server_faults_and_nothing_else_is()
     {
-        // An overflow needs a stack above long.MaxValue units, which no request can build, so the decision is tested directly.
+        // The decision is tested directly. The overflow itself is reachable only from stored state (Stage 5 creates no items): a stash
+        // stack of int.MaxValue plus a bag stack of 1 of one definition, then a toStash of 1. InventoryApiTests drives that end to end.
         Assert.True(PlayerEndpoints.IsInventoryServerFault(new InventoryInvariantException("broken")));
         Assert.True(PlayerEndpoints.IsInventoryServerFault(new OverflowException()));
         Assert.False(PlayerEndpoints.IsInventoryServerFault(new InvalidOperationException()));

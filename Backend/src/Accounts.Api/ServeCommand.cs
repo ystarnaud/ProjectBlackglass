@@ -78,7 +78,7 @@ public static class ServeCommand
         app.MapHealth(catalog.LatestVersion);
         app.MapAuth(auth);
         app.MapAdmin(auth);
-        app.MapPlayer();
+        app.MapPlayer(auth);
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
     }

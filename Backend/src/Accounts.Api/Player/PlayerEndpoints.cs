@@ -19,9 +19,6 @@ namespace Blackglass.Accounts.Api.Player;
 /// </summary>
 public static class PlayerEndpoints
 {
-    /// <summary>The largest body POST /v1/inventory/operations reads (owner ruling S5-D6, provisional): 16 KiB.</summary>
-    public const int InventoryMaxBodyBytes = 16 * 1024;
-
     static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     // Strict numbers: "1" is not an integer version. A member the request type lacks, an account id included, or a member given twice, is a 400.
@@ -32,7 +29,7 @@ public static class PlayerEndpoints
         NumberHandling = JsonNumberHandling.Strict,
     };
 
-    public static void MapPlayer(this WebApplication app)
+    public static void MapPlayer(this WebApplication app, AuthSettings settings)
     {
         app.MapGet("/v1/roster", async (HttpContext http, PlayerReadStore store) =>
         {
@@ -71,7 +68,7 @@ public static class PlayerEndpoints
         // One atomic, version-checked batch (S5-D1, S5-D6): 200 {version, inventory}; 400 for a malformed request, with the
         // operation's index when one operation is malformed; 409 for a stale version, an unprovisioned account or a locked
         // inventory; 422 {code, index} when the rules refuse an operation. The store has refused or applied the whole batch.
-        app.MapPost("/v1/inventory/operations", async (HttpContext http, InventoryEditStore edits, AuthSettings settings, ILoggerFactory logs) =>
+        app.MapPost("/v1/inventory/operations", async (HttpContext http, InventoryEditStore edits, ILoggerFactory logs) =>
         {
             http.Response.Headers.CacheControl = "no-store";
             if (!http.Request.HasJsonContentType()) return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType); // as login does
@@ -79,7 +76,7 @@ public static class PlayerEndpoints
             InventoryOperationsRequest? body;
             try { body = await http.Request.ReadFromJsonAsync<InventoryOperationsRequest>(RequestOptions, http.RequestAborted); }
             catch (Exception e) when (e is JsonException or InvalidOperationException) { body = null; }
-            catch (BadHttpRequestException e) { return Results.StatusCode(e.StatusCode); } // 413 over InventoryMaxBodyBytes
+            catch (BadHttpRequestException e) { return Results.StatusCode(e.StatusCode); } // 413 over settings.InventoryMaxBodyBytes
             if (body is not { ExpectedVersion: { } expectedVersion, Operations: { } requested } || requested.Count == 0)
                 return Problem(StatusCodes.Status400BadRequest, "InvalidBody"); // an empty batch is never a state change
             if (requested.Count > settings.InventoryMaxOperations) return Problem(StatusCodes.Status400BadRequest, "TooManyOperations");
@@ -105,7 +102,7 @@ public static class PlayerEndpoints
                 logs.CreateLogger("Blackglass.Inventory").LogError(e, "Inventory invariant failure for {Path}", http.Request.Path);
                 return Results.StatusCode(StatusCodes.Status500InternalServerError);
             }
-        }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount).WithMetadata(new RequestSizeLimitAttribute(InventoryMaxBodyBytes));
+        }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount).WithMetadata(new RequestSizeLimitAttribute(settings.InventoryMaxBodyBytes));
     }
 
     static IResult Json<T>(T value) => Results.Json(value, Web);

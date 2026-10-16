@@ -421,6 +421,29 @@ public class InventoryApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_body_limit_is_configuration_1024_to_1048576()
+    {
+        var small = await StartAsync(new(DevOn) { ["BLACKGLASS_INVENTORY_MAX_BODY_BYTES"] = "1024" });
+        var p = await NewPlayerAsync(small);
+        var one = EquipOp(p.Operative, p.Rifle);
+        var version = 1L;
+
+        // Exactly the configured size is read; one byte more is 413.
+        var accepted = await SendAsync(small, Edit(p.Token, Batch(version, one).PadRight(1024)));
+        Assert.Equal(HttpStatusCode.OK, accepted.Status);
+        Assert.Equal(++version, Parse(accepted.Body).GetProperty("version").GetInt64());
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, (await SendAsync(small, Edit(p.Token, Batch(version, one).PadRight(1025)))).Status);
+        Assert.Equal(version, await VersionAsync(p.Account));
+
+        // A larger configured limit admits what the default would refuse, and still stops at its own size.
+        var large = await StartAsync(new(DevOn) { ["BLACKGLASS_INVENTORY_MAX_BODY_BYTES"] = "65536" });
+        var okLarge = await SendAsync(large, Edit(p.Token, Batch(version, one).PadRight(20_000)));
+        Assert.Equal(HttpStatusCode.OK, okLarge.Status);
+        Assert.Equal(++version, Parse(okLarge.Body).GetProperty("version").GetInt64());
+        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, (await SendAsync(large, Edit(p.Token, Batch(version, one).PadRight(65_537)))).Status);
+    }
+
+    [Fact]
     public async Task Every_inventory_route_without_a_token_is_the_uniform_401()
     {
         var api = await StartAsync();
@@ -490,6 +513,30 @@ public class InventoryApiTests : IAsyncLifetime
         Assert.Equal(snapshot, await SnapshotAsync(p.Account));
         var text = logs.Text;
         Assert.Contains("Inventory invariant", text);
+        Assert.DoesNotContain(p.Token[4..], text);
+    }
+
+    [Fact]
+    public async Task A_stack_merge_overflow_is_a_500_with_a_safe_log_line_and_nothing_is_written()
+    {
+        var logs = new CapturingLoggerProvider();
+        var api = await StartAsync(DevOn, b => { b.Logging.ClearProviders(); b.Logging.SetMinimumLevel(LogLevel.Trace); b.Logging.AddProvider(logs); });
+        var p = await NewPlayerAsync(api);
+
+        // A legal stored state (quantity is an integer column): a stash stack at int.MaxValue and a bag stack of 1 of the same
+        // definition. Moving the bag unit to the stash makes the merge's checked addition overflow.
+        await ExecuteAsSuperuserAsync(db, "update item_stacks set quantity = 2147483647 where account_id = @account and operative_id is null and definition_id = @medkit", new { account = p.Account, medkit = Medkit });
+        await ExecuteAsSuperuserAsync(db, "update item_stacks set quantity = 1 where account_id = @account and operative_id is not null and definition_id = @medkit", new { account = p.Account, medkit = Medkit });
+        var snapshot = await SnapshotAsync(p.Account);
+
+        var response = await api.Http.SendAsync(Edit(p.Token, Batch(1, StackOp("toStash", p.Operative, Medkit, 1))));
+
+        Assert.Equal(HttpStatusCode.InternalServerError, response.StatusCode);
+        Assert.Equal("", await response.Content.ReadAsStringAsync());
+        Assert.Equal(snapshot, await SnapshotAsync(p.Account)); // no row rewritten (xmin) and the version unchanged
+        var text = logs.Text;
+        Assert.Contains("Blackglass.Inventory", text);
+        Assert.Contains("Inventory invariant failure", text);
         Assert.DoesNotContain(p.Token[4..], text);
     }
 }
