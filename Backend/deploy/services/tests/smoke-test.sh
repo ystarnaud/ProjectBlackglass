@@ -3,6 +3,10 @@
 # stop API -> backup -> migrate -> start in order, health answers on loopback, a second deploy stops and restarts the
 # API and migrates nothing, a failed backup stops the deploy and leaves the API stopped, and the exposure check passes.
 # Stage 3: dev login and admin routes are off by default, /v1/me needs a token, and the admin CLI works in the image.
+# Stage 5: with dev login enabled only for that section, a new account's starter weapon is unequipped and re-equipped in
+# one POST /v1/inventory/operations batch (200, version up by one), and replaying the same body with the old version is
+# 409 VersionMismatch, once, never retried. The account key and the access token stay in shell variables: never printed,
+# never on a command line, never in a file.
 # Throwaway project bg-smoke; removed at the end.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -56,7 +60,9 @@ admin_creates_the_first_account() {
 admin_backfill_finds_the_starter_already() {
   admin_cli starter backfill --account-base58 2 --operator smoke-test --reason smoke --yes > "$work/backfill.out" \
     && grep -qx 'accountId=2' "$work/backfill.out" && grep -qx 'starterGranted=already' "$work/backfill.out" \
-    && grep -qx 'target.starterGranted=true' "$work/backfill.out"     && grep -Eqx 'catalogueVersion=sha256:.+' "$work/backfill.out"     && ! grep -Eq '^(operatives|instances|stacks)=' "$work/backfill.out"
+    && grep -qx 'target.starterGranted=true' "$work/backfill.out" \
+    && grep -Eqx 'catalogueVersion=sha256:.+' "$work/backfill.out" \
+    && ! grep -Eq '^(operatives|instances|stacks)=' "$work/backfill.out"
 }
 admin_refuses_the_old_flag() {
   local code=0; admin_cli account suspend --account 2 --operator smoke-test --reason smoke > "$work/old-flag.out" || code=$?
@@ -87,6 +93,75 @@ for ip in $(hostname -I); do
   check "5432 refused on host address #$n" not timeout 2 bash -c "exec 2>/dev/null; </dev/tcp/$ip/5432"
   [[ "$ip" == 127.* ]] || check "5080 refused on host address #$n" not timeout 2 bash -c "exec 2>/dev/null; </dev/tcp/$ip/5080"
 done
+
+# Stage 5: the inventory batch round trip. Dev login is enabled by recreating the API for this section only, then put back.
+# Secrets rule: the account key (dk1_) and the access token (at1_) live in shell variables alone. They are never echoed,
+# never an argument of any command (argv shows in ps; printf is a builtin, so a pipe carries them), and never in a file.
+api_url=http://127.0.0.1:5080
+inv_key= inv_token= inv_body= inv_status= inv_version= inv_operative= inv_weapon=
+wait_for_health() { local i; for i in $(seq 1 30); do curl -sf --max-time 2 "$api_url/health" -o /dev/null && return 0; sleep 1; done; return 1; }
+# Recreates the API from the current environment (the compose default for BLACKGLASS_DEV_AUTH is disabled).
+api_recreate() { dc up -d --wait api > "$work/api-recreate.log" 2>&1 && wait_for_health; }
+api_with_dev_auth_enabled() { BLACKGLASS_DEV_AUTH=enabled api_recreate; }
+# The unredacted create output stays in a variable; only the key line is kept, in inv_key.
+inv_creates_an_account() {
+  local out
+  out="$(dc --profile tools run --rm -T admin account create --handle inventory --operator smoke-test --reason smoke 2>&1)" || return 1
+  inv_key="$(printf '%s\n' "$out" | sed -n 's/^accountKey=\(dk1_.*\)$/\1/p')"
+  out=
+  [[ "$inv_key" == dk1_* ]]
+}
+# The login body travels on stdin; the token is taken from the response and kept in inv_token.
+inv_logs_in() {
+  local resp
+  resp="$(printf '{"accountKey":"%s"}' "$inv_key" | curl -s --max-time 5 -X POST -H 'Content-Type: application/json' --data-binary @- "$api_url/v1/auth/dev/login")" || return 1
+  inv_token="$(printf '%s' "$resp" | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')"
+  resp=
+  [[ "$inv_token" == at1_* ]]
+}
+# An authenticated request: the bearer header and the url come from a config on stdin, never from the command line. The
+# first argument is the path, the rest are curl options (a data file for a POST). Sets inv_status and inv_body.
+inv_call() {
+  local path="$1" resp; shift
+  resp="$({ printf 'header = "Authorization: Bearer %s"\n' "$inv_token"; printf 'url = "%s%s"\n' "$api_url" "$path"; } \
+    | curl -s --max-time 5 --config - -w '\n%{http_code}' "$@")" || resp=$'\n000'
+  inv_status="${resp##*$'\n'}"; inv_body="${resp%$'\n'*}"
+}
+# GET /v1/inventory: the version, and the first operative that has a weapon equipped, with that weapon's item id. Compact
+# JSON, split at each operative: {"version":N,...,"operatives":[{"operativeId":"..","bag":{..},"equipment":{"weapon":"..",..}}]}.
+inv_reads_the_starter_weapon() {
+  inv_call /v1/inventory && [[ "$inv_status" == 200 ]] || return 1
+  local bag
+  bag="$(printf '%s' "$inv_body" | sed 's/{"operativeId"/\n&/g' \
+    | grep -E -m 1 '^\{"operativeId":"[1-9A-HJ-NP-Za-km-z]+".*"equipment":\{"weapon":"[1-9A-HJ-NP-Za-km-z]+"')" || return 1
+  inv_version="$(printf '%s' "$inv_body" | sed -n 's/^{"version":\([0-9][0-9]*\),.*/\1/p')"
+  inv_operative="$(printf '%s' "$bag" | sed -n 's/^{"operativeId":"\([^"]*\)".*/\1/p')"
+  inv_weapon="$(printf '%s' "$bag" | sed -n 's/.*"equipment":{"weapon":"\([^"]*\)".*/\1/p')"
+  [[ -n "$inv_version" && -n "$inv_operative" && -n "$inv_weapon" ]]
+}
+# One batch: unequip the weapon slot, then equip the same item. The body holds ids and a version only, so it may be a file.
+inv_batch_round_trips() {
+  printf '{"expectedVersion":%s,"operations":[{"op":"unequip","operativeId":"%s","slot":"weapon"},{"op":"equip","operativeId":"%s","itemId":"%s"}]}' \
+    "$inv_version" "$inv_operative" "$inv_operative" "$inv_weapon" > "$work/inventory-batch.json"
+  inv_call /v1/inventory/operations -H 'Content-Type: application/json' --data-binary "@$work/inventory-batch.json" \
+    && [[ "$inv_status" == 200 ]] \
+    && [[ "$(printf '%s' "$inv_body" | sed -n 's/^{"version":\([0-9][0-9]*\),.*/\1/p')" == "$((inv_version + 1))" ]]
+}
+# The same file again: its expectedVersion is now one behind. One attempt; no refresh of the version, no retry.
+inv_replay_is_a_version_mismatch() {
+  inv_call /v1/inventory/operations -H 'Content-Type: application/json' --data-binary "@$work/inventory-batch.json" \
+    && [[ "$inv_status" == 409 ]] && printf '%s' "$inv_body" | grep -q '"code":"VersionMismatch"'
+}
+check "the API is recreated with dev login enabled for the inventory checks" api_with_dev_auth_enabled
+check "the admin CLI creates a second account and prints its key once (kept in memory only)" inv_creates_an_account
+check "that account logs in and receives an access token (kept in memory only)" inv_logs_in
+check "GET /v1/inventory shows the starter weapon equipped, and the version" inv_reads_the_starter_weapon
+check "one batch unequips and re-equips the starter weapon: 200 and the version is up by one" inv_batch_round_trips
+check "replaying that body with the old version is 409 VersionMismatch (once, not retried)" inv_replay_is_a_version_mismatch
+unset inv_key inv_token inv_body
+api_with_default_auth() { ( unset BLACKGLASS_DEV_AUTH; api_recreate ); }
+check "the API is recreated with the stack's default again" api_with_default_auth
+check "dev login is off again by default (404)" test "$(http_code -X POST -H 'Content-Type: application/json' -d '{}' "$api_url/v1/auth/dev/login")" = 404
 
 before="$(api_started_at)"
 check "a second deploy applies nothing and passes health and exposure" bash -c "bash '$here/deploy.sh' > '$work/deploy2.log' 2>&1 && grep -q 'nothing applied' '$work/deploy2.log' && grep -q 'EXPOSURE PASS' '$work/deploy2.log'"
