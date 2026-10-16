@@ -1,6 +1,6 @@
 # Phase 13A: backend architecture and persistent mission settlement (design)
 
-Date: 2026-10-14. **Revision 2.5** (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
+Date: 2026-10-14. **Revision 2.6** (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
 
 "Project Blackglass" is an internal codename. No identifier, table, route, credential or claim introduced here carries the product name, apart from the C# namespace and repository paths that already exist. Player-facing names live in data (`display_name`), never in keys.
 
@@ -113,6 +113,40 @@ Migration numbering: `0005` is now `0005_inventory_edits`; the later migrations 
 - **Body limit.** The 16 KiB limit is configuration, `BLACKGLASS_INVENTORY_MAX_BODY_BYTES`, like `BLACKGLASS_INVENTORY_MAX_OPERATIONS` (§19).
 - **Overflow.** A stack merge past 2,147,483,647 units (reachable only from stored state; nothing creates items in Stage 5) is a 500 with a rollback and a safe log line; whether it becomes a refusal is for the stage that first creates items.
 - **Stage 7 obligation.** The stores default a missing `IInventoryLock` to the always-unlocked `NoParticipationsYet`; production wiring passes the registered one. Stage 7 must make the lock required at every construction site when it connects participation records, before live mission admission.
+
+### 0.6 Revision 2.6 (Stage 6 owner rulings E1–E7, 2026-10-16)
+
+The detailed plan is `Docs/superpowers/plans/2026-10-16-phase-13-stage6-energy.md` (revision 2, §A). These rulings amend §6.1, §15.1, §15.3, §16.1, §16.4 and §19 wherever they differ.
+
+| Ruling | Decision |
+|---|---|
+| E1 initial energy | A new account's wallet opens full: the active policy's `opening_balance` (version 1: 50 = the cap), in the same transaction as the account and its starter, with an `open` ledger entry |
+| E2 policy transitions | **Non-retroactive.** Each version has a database-set `effective_at`. Regeneration is computed under the old version up to the new one's `effective_at`, and under the new one only afterwards. Partial progress is carried across proportionally (`floor(progress × new interval / old interval)`). Balances are preserved, including above a lower cap. Materializing early or late gives the same result. Versions are immutable |
+| E3 existing accounts | An explicit, audited, idempotent operator verb `energy open`. No GET creates a wallet; an account without one reads `energy: null`, never zero |
+| E4 reconciliation | Periodic in the API process (`BLACKGLASS_ENERGY_RECONCILE_SECONDS`, default 3600) and on demand (`energy reconcile`). Read-only on balances; one outstanding anomaly per finding, even with concurrent sweeps; startup never waits for it |
+| E5 development grants | Operator CLI only (`energy grant`); the `/dev/v1/energy/grants` route is deferred. Each grant is confirmed and audited, and takes an idempotency key that is unique across accounts. A reuse with other parameters is refused. Bounded by `BLACKGLASS_ENERGY_GRANT_MAX` and by integer overflow |
+| E6 above the cap | The cap limits regeneration only. Grants (and later refunds) may exceed it; regeneration pauses at or above it; nothing is discarded |
+| E7 policy version 1 | Seeded by `0006_energy`: cap 50, opening balance 50, 1 per 10 minutes, void refund 100 % (provisional). Later versions only through the audited `energy policy publish`, with no code or schema change |
+
+**Technical rules (owner requirements, revision 2.6):**
+- **Clock.** Regeneration reads PostgreSQL's `clock_timestamp()` after its wallet row lock and the shared policy lock; never `transaction_timestamp()`, which can predate a lock wait.
+- **Wallet state.**
+  - `regen_anchor` is the time up to which regeneration is accounted, and only moves forward.
+  - `regen_progress_us` holds the partial interval. This replaces §6.1's "anchor + n × interval", so a proportional transition never moves the anchor back.
+  - A `regen` entry is keyed by the anchor it consumed; anchors strictly increase between gains.
+- **Policy lock.**
+  - Publication takes a transaction advisory lock exclusively. Every materialization and projection takes it shared, as the last lock before reading the clock.
+  - `effective_at` is set by a trigger to `greatest(clock_timestamp(), previous + 1 µs)` under that lock, so no reader can read a `now` later than a version it did not see.
+- **Ledger.**
+  - A deferred constraint trigger fails any commit where a wallet's balance differs from its latest ledger entry's `balance_after`.
+  - Development grant keys are unique globally.
+- **No automatic retry** of energy transactions.
+- **Schema departures from the §15.1 sketch:**
+  - `energy_policies` gains `opening_balance` and `effective_at`, and its version is an identity;
+  - `energy_wallets` gains `regen_progress_us`;
+  - `energy_ledger.account_id` references the wallet;
+  - `anomaly_events` gains `dedupe_key`, with a partial unique index over outstanding rows;
+  - insurance moves to Stage 7's `0007`.
 
 ---
 
@@ -467,7 +501,7 @@ Stackable lines mint no ids; they add to `item_stacks`.
 
 ### 6.1 Energy [P] [A-20]
 
-All amounts are versioned configuration (`energy_policies`), provisional (§19).
+All amounts are versioned configuration (`energy_policies`), provisional (§19). **Revision 2.6 (§0.6):** policy changes are non-retroactive with database-set effective times; partial progress is a stored `regen_progress_us` (the anchor only moves forward); regeneration reads `clock_timestamp()` after its locks. The pseudocode below is the single-policy case.
 
 **Lazy regeneration** happens under the wallet row lock, using the database clock, inside whatever transaction is about to read or change the balance (admission, start, settlement, void, grant):
 ```
@@ -1320,6 +1354,7 @@ create trigger auth_sessions_revocation_is_final before update on auth_sessions 
 -- Invariants: db/invariants/0004_inventory_consistency.sql (one row per violation; zero rows = holds).
 
 -- Revision 2.5: 0005 is 0005_inventory_edits (Stage 5, §0.5); the sketches below shift by one when planned.
+-- Revision 2.6: energy is 0006_energy (Stage 6, §0.6, with the schema departures listed there); insurance moves to 0007.
 -- 0005 energy and insurance
 create table energy_policies (
   version integer primary key, cap integer not null check (cap > 0),
@@ -1488,7 +1523,7 @@ Every transaction that touches several of these takes locks in this order:
 5. `insurance_coverages`, ascending `account_id` (activations lock only this row; admission reads it without locking);
 6. item and stack rows (by key, through `DELETE`/`UPDATE … WHERE`).
 
-The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for operator changes, `FOR SHARE` for login), then `dev_credentials`, then `auth_sessions`; a later stage that also needs the participant or inventory rows takes the `accounts` row before step 2. Admission has no attempt row yet, so it starts at step 3. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries.
+The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for operator changes, `FOR SHARE` for login), then `dev_credentials`, then `auth_sessions`; a later stage that also needs the participant or inventory rows takes the `accounts` row before step 2. Admission has no attempt row yet, so it starts at step 3. **Revision 2.6:** the energy policy advisory lock (shared for materialization and projection, exclusive for publication) is a leaf taken after step 4 and before reading the clock; publication takes nothing else. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries.
 
 **As built (Stage 3, revision 2.3).**
 - **Bounds.** Every connection of the API's and the admin CLI's data sources carries `lock_timeout` (5 s) and `statement_timeout` (15 s), set by `BLACKGLASS_DB_LOCK_TIMEOUT_MS` and `BLACKGLASS_DB_STATEMENT_TIMEOUT_MS`. The migrator keeps its own `lock_timeout` and has no statement bound.
@@ -1520,7 +1555,7 @@ All JSON is camelCase, and errors are RFC 9457 ProblemDetails with a stable `cod
 | Route | Body → response | Errors |
 |---|---|---|
 | `POST /v1/auth/dev/login` | `{accountKey}` → `{accessToken, expiresAt, accountId}` | 401 (uniform); 429 with `Retry-After`; 503 when the database is unavailable, 503 with `Retry-After` when it is busy (a lock or statement timeout); 500 for any other database error; 400, 413 (over 4 KiB) or 415 for an unusable body |
-| `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returned exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data. **As built, Stage 4 returns exactly `{accountId, inventoryVersion}`** (`inventoryVersion` is the shared `inventories.version`, null for an unprovisioned account; the response is `Cache-Control: no-store`) | 401; 503 when the database is unavailable, 503 with `Retry-After` when busy; 500 for any other database error; 429 per account |
+| `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returned exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data. **Stage 6 (revision 2.6) adds `energy`: `{balance, cap, nextRegenAt}`, projected read-only, or null for an account without a wallet.** **As built, Stage 4 returns exactly `{accountId, inventoryVersion}`** (`inventoryVersion` is the shared `inventories.version`, null for an unprovisioned account; the response is `Cache-Control: no-store`) | 401; 503 when the database is unavailable, 503 with `Retry-After` when busy; 500 for any other database error; 429 per account |
 | `POST /v1/auth/logout` | → 204; revokes the current session only (Stage 3) | 401 (also on a repeat); 503 unavailable, 503 with `Retry-After` busy (it locks its session row); 500 for any other database error; 429 per account |
 | `GET /v1/roster` | → `{version, operatives:[{operativeId, definitionId, definitionKnown, experience, rank, pendingPicks, choices:[choiceId]}]}`; owned ids Base58 strings (Stage 4, as built). `definitionKnown` is false for an operative whose definition the current catalogue no longer lists | 409 `NotProvisioned` (reads never write); `Cache-Control: no-store` |
 | `POST /v1/operatives/{id}/choices` | `{choiceId, expectedVersion}` → `{version, operative}` (the updated operative, shaped like a roster row); `{id}` is the Base58 operative id; both members are required and an unknown member (an account id included) is refused. Stage 4, as built | 400 `InvalidOperativeId` (malformed id), 400 `InvalidBody` (missing, null, mistyped, unknown or duplicated member), 415 for a non-JSON content type (revision 2.5, as built; Stage 4 answered 400), 413 over 4 KiB; 404 `OperativeNotFound` (also for another account's id, identical answer); 409 `VersionMismatch`, `NotProvisioned`, `InventoryLocked` (revision 2.5: checked under the row lock before the version; the source arrives with participations); 422 `NoPendingPick`, `UnknownChoice`. A pick is allowed for an operative whose definition the catalogue no longer knows (picks depend only on XP and the track) |
@@ -1572,7 +1607,7 @@ Idempotency-Key: 6f7c0a52-2d4e-4b3a-9a77-1b1f9d0c2e10
 
 ### 16.4 Admin (admin key, loopback, disabled by default)
 
-- `POST /dev/v1/accounts` (Stage 3: `{handle?, displayName?, operator, reason}` → 201 `{accountId, credentialId, accountKey}`, `X-Correlation-Id`, `Cache-Control: no-store`; 409 `HandleTaken`, 422 `InvalidHandle`/`InvalidDisplayName`/`InvalidOperator`), `/energy/grants`, `/insurance/activations` (`{accountId, policyId, policyVersion, durationSeconds, idempotencyKey}`; extends the same benefit; `409 CrossTierDeferred` for a different one), `/hosts`, `/builds`;
+- `POST /dev/v1/accounts` (Stage 3: `{handle?, displayName?, operator, reason}` → 201 `{accountId, credentialId, accountKey}`, `X-Correlation-Id`, `Cache-Control: no-store`; 409 `HandleTaken`, 422 `InvalidHandle`/`InvalidDisplayName`/`InvalidOperator`), `/energy/grants` (deferred by revision 2.6, E5: development grants are the CLI verb `energy grant`), `/insurance/activations` (`{accountId, policyId, policyVersion, durationSeconds, idempotencyKey}`; extends the same benefit; `409 CrossTierDeferred` for a different one), `/hosts`, `/builds`;
 - **Stage 4:** `POST /dev/v1/accounts` (and the operator CLI's `account create`) now provisions the starter in the same transaction as the account, so a failure rolls the account back with it; the response keeps exactly `{accountId, credentialId, accountKey}`. The CLI also prints `starterGranted=granted` and `starterOperatives=`, `starterInstances=`, `starterStacks=` counts. The CLI verb `admin starter backfill --account-base58 <id>` grants the starter to an earlier account (spec §5.4);
 - `POST /dev/v1/attempts/{aid}/participants/{acc}/revalidate`: re-runs V1–V14 on the stored original manifest and settles it if it passes (§10.4);
 - `POST /dev/v1/attempts/{aid}/participants/{acc}/void` `{operator, reason, revalidated: true, outboxChecked: true, outboxNote}`: a protective void of a quarantined participant, refused unless the checks are recorded (§10.4);
@@ -1715,6 +1750,8 @@ All are configuration, none is decided, and changing one doesn't need a code cha
 | Value | Initial test value | Where configured |
 |---|---|---|
 | Energy cap, regeneration interval and amount | 50, 10 min, 1 | `energy_policies` row (versioned) |
+| Opening energy balance (revision 2.6, E1) | 50 | `energy_policies.opening_balance` |
+| Largest development grant (revision 2.6, E5) | 1000 | `BLACKGLASS_ENERGY_GRANT_MAX` (1..1,000,000) |
 | Mission energy cost per template | 10 | template configuration |
 | Infrastructure void refund | 100 % | `energy_policies.void_refund_pct` |
 | Insurance coverage, refund %, retention entries and units, eligible categories, category priority, progress XP % | §6.2 example | `insurance_policies.terms` (versioned) |
@@ -1730,7 +1767,7 @@ All are configuration, none is decided, and changing one doesn't need a code cha
 | Hard duration cap | 2 h | template configuration |
 | Unresponsive alert, repeat | 10 min, then every 1 h | worker configuration |
 | Quarantine escalation, repeat | 24 h, then every 24 h (alerts only) | worker configuration |
-| Wallet and ledger reconciliation interval | 1 h | worker configuration |
+| Wallet and ledger reconciliation interval | 1 h | `BLACKGLASS_ENERGY_RECONCILE_SECONDS` (0 = off, else 60..86400; revision 2.6, E4) |
 | Resume token lifetime | the process's lifetime, rotated on each use | process configuration |
 | Backend-unreachable threshold (process) | 30 s without a successful call | process configuration |
 | Outbox disk-usage alert | 80 % of the volume | agent configuration |

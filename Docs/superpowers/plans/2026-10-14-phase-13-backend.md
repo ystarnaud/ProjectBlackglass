@@ -210,7 +210,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 6: energy
 
-**Status: detailed plan proposed, awaiting the owner's rulings E1–E7 and go-ahead; nothing implemented.** Detailed plan: `Docs/superpowers/plans/2026-10-16-phase-13-stage6-energy.md`.
+**Status: authorized by the owner on 2026-10-16 with rulings E1–E7 (spec revision 2.6, §0.6); in progress on branch `phase13-stage6`.** Detailed plan: `Docs/superpowers/plans/2026-10-16-phase-13-stage6-energy.md` (revision 2). It supersedes the work list below where they differ: non-retroactive policy versions with database-set effective times, a stored partial-progress column, the explicit `energy open` verb, CLI-only grants, and the reconciliation hosted service.
 
 **Touches:** `Backend/` only.
 
