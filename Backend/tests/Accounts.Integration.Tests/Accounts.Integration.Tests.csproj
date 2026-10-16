@@ -26,6 +26,8 @@
     <None Include="Seeds\*.sql" CopyToOutputDirectory="PreserveNewest" />
     <!-- src/ for the string-built-SQL source audit (SqlSourceAuditTests). -->
     <None Include="..\..\src\**\*.cs" Exclude="..\..\src\**\obj\**;..\..\src\**\bin\**" Link="source\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The shared inventory vectors, replayed against PostgreSQL by InventoryEditStoreTests. -->
+    <None Include="..\..\contracts\inventory\*" Link="contracts\inventory\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\deploy\services\compose*.yaml" Link="compose\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

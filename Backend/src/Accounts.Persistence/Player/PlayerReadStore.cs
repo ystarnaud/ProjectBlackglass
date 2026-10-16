@@ -56,30 +56,7 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogu
         await using var tx = await BeginSnapshotAsync(conn, ct);
         var version = await ReadVersionAsync(conn, tx, accountId, ct) ?? throw NotProvisioned();
         var locked = await mission.IsLockedAsync(conn, tx, accountId, ct);
-        var operatives = await ReadOperativesAsync(known, conn, tx, accountId, null, ct);
-        var instances = (await conn.QueryAsync<InstanceRow>(new CommandDefinition(
-            """
-            select item_id as ItemId, definition_id as DefinitionId, operative_id as OperativeId, equipped_slot as EquippedSlot
-            from item_instances where account_id = @accountId order by item_id
-            """, new { accountId }, tx, cancellationToken: ct))).ToList();
-        var stacks = (await conn.QueryAsync<StackRow>(new CommandDefinition(
-            """
-            select operative_id as OperativeId, definition_id as DefinitionId, quantity as Quantity
-            from item_stacks where account_id = @accountId order by definition_id collate "C"
-            """, new { accountId }, tx, cancellationToken: ct))).ToList();
-
-        LocationView Location(long? operativeId) => new(
-            instances.Where(i => i.OperativeId == operativeId).Select(i => new InstanceView(i.ItemId, i.DefinitionId, known.FindItem(i.DefinitionId) is not null)).ToList(),
-            stacks.Where(s => s.OperativeId == operativeId).Select(s => new StackView(s.DefinitionId, known.FindItem(s.DefinitionId) is not null, s.Quantity)).ToList());
-
-        long? InSlot(long operativeId, string slot) =>
-            instances.FirstOrDefault(i => i.OperativeId == operativeId && i.EquippedSlot == slot)?.ItemId;
-
-        var bags = operatives
-            .Select(o => new BagView(o.OperativeId, Location(o.OperativeId),
-                new EquipmentView(InSlot(o.OperativeId, "weapon"), InSlot(o.OperativeId, "armor"), InSlot(o.OperativeId, "utility"))))
-            .ToList();
-        return new InventoryView(version, locked, Location(null), bags);
+        return await InventoryViewReader.ReadAsync(known, conn, tx, accountId, version, locked, ct);
     }
 
     static PlayerException NotProvisioned() =>
@@ -122,6 +99,4 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogu
 
     sealed record OperativeRow(long OperativeId, string DefinitionId, int Experience);
     sealed record ChoiceRow(long OperativeId, string ChoiceId);
-    sealed record InstanceRow(long ItemId, string DefinitionId, long? OperativeId, string? EquippedSlot);
-    sealed record StackRow(long? OperativeId, string DefinitionId, int Quantity);
 }

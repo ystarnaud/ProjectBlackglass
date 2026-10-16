@@ -62,6 +62,7 @@ public static class ServeCommand
         builder.Services.AddSingleton<IInventoryLock, NoParticipationsYet>(); // Stage 7 connects this to the participation records
         builder.Services.AddSingleton(sp => new PlayerReadStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
         builder.Services.AddSingleton(sp => new PickStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
+        builder.Services.AddSingleton(sp => new InventoryEditStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
         builder.Services.AddSingleton<LoginThrottle>();
         builder.Services.AddAuthentication(AccountClaims.Scheme)
             .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null);
