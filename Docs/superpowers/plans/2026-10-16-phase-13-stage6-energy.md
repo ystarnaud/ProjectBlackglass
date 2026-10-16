@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Date: 2026-10-16. **Revision 2, 2026-10-16: authorized by the owner with rulings E1–E7 (§A), which supersede revision 1's proposals.** Base: `main` @ `62cbfcf` (Stage 5 merged and pushed; schema version 5; backend ALL 1250/0, Domain 460 and Integration 790). Branch: `phase13-stage6`. Execution: subagent-driven, integrated by the primary session, with three independent review checkpoints: after Task 2 (the pure rules and `0006`), after Task 6 (persistence, operator verbs, reconciliation, API) and over the whole branch.
+Date: 2026-10-16. **Revision 2, 2026-10-16: authorized by the owner with rulings E1–E7 (§A), which supersede revision 1's proposals. Status: implemented on branch `phase13-stage6`, awaiting the owner's review; implementation commits not pushed, not merged, not deployed. Measured results: "As built" at the end.** Base: `main` @ `62cbfcf` (Stage 5 merged and pushed; schema version 5; backend ALL 1250/0, Domain 460 and Integration 790). Branch: `phase13-stage6`. Execution: subagent-driven, integrated by the primary session, with three independent review checkpoints: after Task 2 (the pure rules and `0006`), after Task 6 (persistence, operator verbs, reconciliation, API) and over the whole branch.
 
 **Goal:** every account has a persistent energy wallet that only the server changes.
 - **Regeneration.** The balance regenerates lazily against PostgreSQL's clock, up to the cap of a versioned, immutable policy. A new policy version is never retroactive. Each regeneration is recorded once in an append-only ledger.
@@ -650,3 +650,126 @@ public sealed record MeView(long? InventoryVersion, EnergyView? Energy);
 - Purchases, premium currency, trading, and any acquisition of energy other than regeneration and development grants.
 - Automatic retry of any energy transaction.
 - Any Unity change.
+
+---
+
+## As built (2026-10-16)
+
+**Branch `phase13-stage6`.**
+- **Pushed:** the documentation baseline, up to `b4bbd5b` (owner-authorized).
+- **Not pushed:** the implementation commits `6af495a..e89842e` (21 commits on top of the baseline).
+- **Schema version 6** (`0006_energy`). Migrations 0000–0005 are byte-identical to `main` (`62cbfcf`).
+
+**Tasks and commits**
+
+| Task | Commits |
+|---|---|
+| 0 rulings | `7dd420b`, `6b0a7f6` (pre-authorization docs), `b4bbd5b` |
+| 1 `EnergyMath` | `6af495a`, `fe54f59`, `1ef778e` |
+| 2 `0006_energy` | `98472c9`, `c1ed25f`, `d3b7624`, `c653774` (comment) |
+| 3 opening and materialization | `04d72ac`, `ca3436b` |
+| 4 operator verbs | `6f20d94`, `dde35a1`, `e4b03ba` |
+| 5 reconciliation | `d8e4d77`, plus `842cd97` (Checkpoint 2) |
+| 6 `GET /v1/me` | `a742bff`, `f626a26` |
+| 7 smoke | `3761f09`, plus the pattern fix in `e89842e` |
+| 8 docs | `305d4e7`, `59aac9c`, `e45b72c`, `e89842e` |
+
+**Measured** (low-memory recipe: `-m:1` build, then each test project with MaxCpuCount 1 and xUnit MaxParallelThreads 2; no Unity running):
+
+| Where | Domain | Integration | Total |
+|---|---|---|---|
+| Final, at `e45b72c` (`e89842e` changes only docs and the smoke script) | 500/0 | 1055/0 (34 m 43 s) | **1555/0**, exit 0 |
+| Stage 5 base | 460 | 790 | 1250 |
+| Added by Stage 6 | +40 | +265 | +305 |
+
+Checkpoint suites:
+- At `c1ed25f`: Domain 500/0, Integration 883/1. The one failure was a trigger-list pin missing 0006, fixed in `d3b7624`.
+- At `d8e4d77`: 500/0 and 1051/0.
+
+The owner rulings' tests are named in the Checkpoint 3 acceptance table. Among them:
+- a microsecond-by-microsecond oracle (1500 cases) and two path-independence property sweeps (4000 cases each);
+- ten concurrent materializations giving one entry;
+- 20 concurrent same-key grants crediting once;
+- a concurrent first use of one key on two accounts;
+- a queued publication draining with in-flight holders and new requesters, with no deadlock;
+- injected failures at the ledger insert, the audit insert, the wallet insert at account creation and the anomaly insert;
+- lock timeouts on a grant, on account creation and on a publication;
+- a terminated connection;
+- two concurrent sweeps;
+- reconciliation during 20 grants;
+- `/v1/me` proven read-only on a read-write source.
+
+Mutation checks proved that each concurrency and ordering test fails when its protection is removed. A leaf violation surfaced as 40P01.
+
+**VM** (`bg-dev-services01`, throwaway projects only):
+- **At `59aac9c`:**
+  - smoke 46 ok / 0 FAIL, exit 0, including the five energy checks;
+  - off-host probe: 5080, 5432 and 55432 closed, 22 answers;
+  - restore drill 16 ok, `DRILL PASS`, 4 invariant files held at schema 6, exit 0.
+- **At `e89842e`:** smoke 46 ok / 0 FAIL, exit 0, and the probe the same.
+- **Hygiene:** no key or token in any transcript. After the runs only `blackglass-testdb` remains, with listeners on 22 and loopback.
+- **Evidence:** `.claude/scratchpad/phase13/stage-06/` (local, not committed).
+
+**Unity suites not run.** `git diff --name-only 62cbfcf..e89842e` lists no `Assets/`, `ProjectSettings/`, `Packages/` or `UserSettings/` path: no Unity runtime, editor, scene, asset or test path changed (owner condition). The owner's two settings files are unchanged and unstaged (diff hash identical before and after); `.claude/` was never staged.
+
+**Reviews**
+
+| Review | Model | Scope | Verdict |
+|---|---|---|---|
+| Task 1 | Sonnet | `EnergyMath` | Approved: 0 Critical / 0 Important / 4 Minor. Two fixed: an independent oracle, `NextRegenAt` saturation |
+| Checkpoint 1 | Opus, independent | Tasks 1–2 | Approved with fixes: 0 / 1 / 10. I1 (ledger chain at insert) and S1–S5 fixed in `d3b7624`. Re-review approved; N1 fixed as a comment |
+| Task 3 | Sonnet | | Approved: 0 / 1 / 4. I1 (clock after the policy lock) fixed and mutation-checked |
+| Task 4 | Sonnet | | Approved: 0 / 0 / 5. Four fixed |
+| Task 6 | Sonnet | | Pass: 0 / 0 / 5. Four fixed |
+| Checkpoint 2 | Opus, independent | Tasks 3–6, and Task 5's review | Approved with fixes: 0 / 0 / 7. All fixed (code, tests, docs) |
+| Checkpoint 3 | Opus, independent | Whole branch | **Ready to merge**: 0 / 0 / 5. M1–M4 fixed in `e89842e` |
+
+**Rulings** (each with what it costs if wrong):
+1. `NextRegenAt` counts from `max(now, anchor)`. Cost: one line.
+2. The ledger key CHECK is strict, using `starts_with` and then per-kind patterns. Cost: none, since 0006 was applied only to test databases.
+3. Deferred consistency checks are enforced on both sides, wallet and ledger. Cost: one trigger per ledger insert.
+4. `anomaly_events.reviewed_at` stays unwritable by the app until anomaly review exists. Cost: one grant later.
+5. Checkpoints 1 and 2 serve as the task reviews for Tasks 2 and 5. Cost: none; the checkpoints are stricter.
+6. The chain trigger's comment states what a writer outside the wallet lock voids; there is no in-trigger lock, which would add a deadlock path. Cost: a later migration adds the lock.
+7. The grant audit records the idempotency key. Cost: one field.
+8. `serve` validates both energy settings. Cost: `serve` refuses a setting it doesn't use.
+9. `energy reconcile` names each finding (`mismatch=<Base58>:<rule>`). Cost: extra output lines.
+10. On-demand reconcile writes no audit row. Cost: a later migration adds an action value.
+11. A sweep's anomalies stay all-or-nothing, and the foreign-key key-share is documented in §15.3. Cost: a sweep may wait behind an operator command and retry an hour later.
+12. A lowered `BLACKGLASS_ENERGY_GRANT_MAX` refuses a same-key retry with exit 64 before the replay lookup. This is harmless (no double grant) and left as is. Cost: an operator raises the limit to replay.
+
+**Departures from revision 2's text** (all strengthenings, recorded in spec §0.6 "As built"):
+- Each change below is enforced by the database:
+  - `energy_ledger_chain`;
+  - the ledger-side commit check;
+  - per-kind key patterns;
+  - the publication lock taken inside the `effective_at` trigger;
+  - no year or month part in intervals;
+  - a progress bound on write;
+  - no TRUNCATE.
+- The anomaly dedupe key is `<Base58>:<rule>`.
+- `energy open` prints `advisory=true` for an existing wallet.
+- Grants give unknown-outcome guidance.
+- One internal reader serves the clock and the policies; `EnergyReader` serves `/v1/me`.
+
+**Deferred minors:**
+- Task 1:
+  - a trivial micro-to-week assertion;
+  - `VoidRefundPct` is not validated in the domain (the database CHECK covers it).
+- Checkpoint 1 S3 nit: `regen:` admits non-canonical digits. Harmless, given the forward-only anchor and the chain.
+- Task 4 M5: two publishers can confirm against the same preview. Both are audited.
+- Checkpoint 3 M5: the HTTP route's 503 behind a held publication lock is pinned at the store and the CLI only.
+
+**Residual risks** (Checkpoint 3):
+- A stalled publication queues `/v1/me`, account creation, grants and opens for up to `lock_timeout`; publish at quiet times.
+- Grants hold the `accounts` row, so logins and edits on that account wait behind them.
+- Reconciliation does full-table sweeps under the 15 s `statement_timeout` (Phase 14: incremental reconciliation).
+- One database role serves both the API and the admin CLI.
+- Earlier accounts need `energy open` one by hand after a deployment.
+
+**Stage 7 obligations** (recorded in spec §0.6 and §15.3, `CLAUDE.md` and the stage plan):
+- one global unique key per transaction after the energy policy lock;
+- steps 5–6 of the §15.3 order may only read without locking after it;
+- every energy writer locks the wallet before inserting entries;
+- no automatic retry of energy transactions;
+- `InventoryLocked` must become a mandatory, fail-closed, database-backed check before admission is enabled.
