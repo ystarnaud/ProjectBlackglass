@@ -658,6 +658,59 @@ public class InventoryEditStoreTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task An_edit_waits_behind_an_operator_lock_on_the_account_and_writes_nothing()
+    {
+        var a = await NewAccountAsync();
+        var op0 = a.Ops[0];
+        var (version, _) = await edits.ApplyAsync(a.Id, 1, [new MoveStack(op0, Medkit, 2, Destination.Stash)]); // op0 has no medkit row now
+        var before = await SnapshotAsync(a.Id);
+        var bounded = new InventoryEditStore(db.AsAppWith(Short));
+        await using var holder = await db.AsSuperuser().OpenConnectionAsync();
+        await using var tx = await holder.BeginTransactionAsync();
+        await holder.ExecuteAsync("select 1 from accounts where account_id = @account for update", new { account = a.Id }, tx); // an operator lifecycle lock
+
+        // The batch inserts a stack row into op0's bag.
+        var e = await Assert.ThrowsAsync<PostgresException>(() =>
+            bounded.ApplyAsync(a.Id, version, [new MoveStack(op0, Medkit, 1, Destination.Bag)]).WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Equal(PostgresErrorCodes.LockNotAvailable, e.SqlState);
+        await tx.RollbackAsync();
+        Assert.Equal(before, await SnapshotAsync(a.Id));
+    }
+
+    [Fact]
+    public async Task An_edit_and_a_backfill_on_one_account_do_not_deadlock()
+    {
+        var a = await NewAccountAsync();
+        var op0 = a.Ops[0];
+        var (version, _) = await edits.ApplyAsync(a.Id, 1, [new MoveStack(op0, Medkit, 2, Destination.Stash)]); // the next batch inserts a row
+        await using var holder = await db.AsSuperuser().OpenConnectionAsync();
+        await using var tx = await holder.BeginTransactionAsync();
+        await holder.ExecuteAsync("set local lock_timeout = '5s'", transaction: tx); // a deadlock or a wait fails fast instead of hanging
+        await holder.ExecuteAsync("select 1 from accounts where account_id = @account for update", new { account = a.Id }, tx); // backfill's first lock
+
+        var batch = Task.Run(() => edits.ApplyAsync(a.Id, version, [new MoveStack(op0, Medkit, 1, Destination.Bag)]));
+        await WaitForWaitersAsync(db, 1); // the batch queues
+
+        // ...on the accounts row: it holds no inventories lock yet, so another connection can still take that row NOWAIT.
+        await using (var probe = await db.AsSuperuser().OpenConnectionAsync())
+        {
+            await using var probeTx = await probe.BeginTransactionAsync();
+            await probe.ExecuteAsync("select 1 from inventories where account_id = @account for update nowait", new { account = a.Id }, probeTx);
+            await probeTx.RollbackAsync();
+        }
+
+        // Backfill's second lock, in the documented order: granted at once, no deadlock.
+        await holder.ExecuteAsync("select 1 from inventories where account_id = @account for update", new { account = a.Id }, tx);
+        Assert.False(batch.IsCompleted);
+        await tx.RollbackAsync();
+
+        var (after, view) = await batch.WaitAsync(TimeSpan.FromSeconds(15));
+        Assert.Equal(version + 1, after);
+        Assert.Equal(1, await StackAsync(a.Id, op0, Medkit));
+        Assert.Equal([new StackView(Medkit, true, 1)], view.Operatives.Single(o => o.OperativeId == op0).Bag.Stacks);
+    }
+
+    [Fact]
     public async Task Concurrent_batches_conserve_units()
     {
         const int Rounds = 4;

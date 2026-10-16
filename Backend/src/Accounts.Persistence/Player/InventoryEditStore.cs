@@ -8,11 +8,14 @@ using static Blackglass.Accounts.Persistence.Player.InventoryViewReader;
 namespace Blackglass.Accounts.Persistence.Player;
 
 /// <summary>
-/// An atomic, version-checked inventory batch (owner rulings S5-D1 to S5-D8), in one READ COMMITTED transaction under the
-/// account's inventories row lock (lock order: inventories, then owned rows; every writer of owned rows holds that lock, so
-/// the rows read under it cannot change before commit).
+/// An atomic, version-checked inventory batch (owner rulings S5-D1 to S5-D8), in one READ COMMITTED transaction. Lock order
+/// (the documented accounts, inventories, owned rows): first the accounts row FOR KEY SHARE, which conflicts only with an
+/// operator lifecycle lock (FOR UPDATE, as the starter backfill takes before its inventories lock) and is needed because the
+/// item_stacks insert's foreign-key check would otherwise take it after the inventories lock; then the inventories row FOR
+/// UPDATE; then the owned rows. Every writer of owned rows holds the inventories lock, so the rows read under it cannot
+/// change before commit.
 /// <list type="number">
-/// <item>Lock the row, then refuse in this order: <see cref="PlayerError.NotProvisioned"/>, <see cref="PlayerError.InventoryLocked"/>
+/// <item>Lock the accounts row (key share) and the inventories row, then refuse in this order: <see cref="PlayerError.NotProvisioned"/>, <see cref="PlayerError.InventoryLocked"/>
 /// (the <see cref="IInventoryLock"/> seam, asked under the lock), <see cref="PlayerError.VersionMismatch"/>.</item>
 /// <item>Load every operative, instance and stack of the account (only <c>account_id = @a</c> rows, so the queries never
 /// depend on whether a guessed id exists in another account) and replay the batch with <see cref="InventoryEditor"/>. A
@@ -42,10 +45,15 @@ public sealed class InventoryEditStore(NpgsqlDataSource db, GameCatalogue? catal
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
 
+        // The documented lock order starts at accounts. The stack insert's foreign-key check on item_stacks.account_id takes
+        // FOR KEY SHARE on the accounts row; taken there it would follow the inventories lock, the reverse of the starter
+        // backfill (accounts FOR UPDATE, then inventories). So it is taken first, on every call, refused ones included.
+        var account = await conn.QuerySingleOrDefaultAsync<int?>(new CommandDefinition(
+            "select 1 from accounts where account_id = @accountId for key share", new { accountId }, tx, cancellationToken: ct));
+        if (account is null) throw NotProvisioned(); // defensive: accounts are never deleted, and no account has no inventory either
         var inventory = await conn.QuerySingleOrDefaultAsync<(long Version, bool StarterGranted)?>(new CommandDefinition(
             "select version, starter_granted from inventories where account_id = @accountId for update", new { accountId }, tx, cancellationToken: ct));
-        if (inventory is not { StarterGranted: true })
-            throw new PlayerException(PlayerError.NotProvisioned, "The account has no starter roster or inventory yet.");
+        if (inventory is not { StarterGranted: true }) throw NotProvisioned();
         if (await mission.IsLockedAsync(conn, tx, accountId, ct)) // while the row lock is held, so the answer cannot change under the batch
             throw new PlayerException(PlayerError.InventoryLocked, "The account is in a mission; its inventory cannot change.");
         if (inventory.Value.Version != expectedVersion)
@@ -67,6 +75,9 @@ public sealed class InventoryEditStore(NpgsqlDataSource db, GameCatalogue? catal
         await tx.CommitAsync(ct);
         return (version, view);
     }
+
+    static PlayerException NotProvisioned() =>
+        new(PlayerError.NotProvisioned, "The account has no starter roster or inventory yet.");
 
     /// <summary>Every operative, instance and stack of the account: an omitted operative would make its rows look foreign.</summary>
     static async Task<InventoryModel> LoadAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, CancellationToken ct)
