@@ -148,6 +148,23 @@ The detailed plan is `Docs/superpowers/plans/2026-10-16-phase-13-stage6-energy.m
   - `anomaly_events` gains `dedupe_key`, with a partial unique index over outstanding rows;
   - insurance moves to Stage 7's `0007`.
 
+**As built (2026-10-16, branch `phase13-stage6`; amendment, nothing above is removed).** Schema version 6. Measured counts are in the detailed plan's "As built". Departures and precisions, all recorded there:
+- **Enforced by the database, beyond the plan's first sketch** (Checkpoint 1):
+  - `energy_ledger_chain`: every entry continues its account's chain, and `open` is first and only first;
+  - per-kind key formats;
+  - the publication lock taken inside the `effective_at` trigger itself;
+  - no year or month part in `regen_interval`;
+  - progress bounded by its policy's interval;
+  - no TRUNCATE on the ledger or the policies.
+- **The commit check works both ways.** Two deferred constraint triggers check the wallet against its latest entry, one on wallet writes and one on ledger inserts.
+- **Grants.** The audit row records the idempotency key. On an unknown outcome the CLI tells the operator to retry with the same key.
+- **`energy reconcile`** names each finding (`mismatch=<Base58>:<rule>`) and writes no audit row (it changes no state).
+- **Anomalies.** The dedupe key is `<Base58>:<rule>`; the numbers are in `detail`. `anomaly_events.reviewed_at` is not writable by the app until a stage adds anomaly review.
+- **`serve`** validates both energy settings at startup.
+- **Stage 7 obligations:**
+  - keep "one global unique key per transaction" for any keyed write taken after the policy lock (§15.3);
+  - never wrap an energy transaction in the planned deadlock retry.
+
 ---
 
 ## 1. Goal, scope and starting point
@@ -1523,7 +1540,7 @@ Every transaction that touches several of these takes locks in this order:
 5. `insurance_coverages`, ascending `account_id` (activations lock only this row; admission reads it without locking);
 6. item and stack rows (by key, through `DELETE`/`UPDATE … WHERE`).
 
-The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for operator changes, `FOR SHARE` for login), then `dev_credentials`, then `auth_sessions`; a later stage that also needs the participant or inventory rows takes the `accounts` row before step 2. Admission has no attempt row yet, so it starts at step 3. **Revision 2.6:** the energy policy advisory lock (shared for materialization and projection, exclusive for publication) is a leaf taken after step 4 and before reading the clock; publication takes nothing else. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries.
+The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for operator changes, `FOR SHARE` for login), then `dev_credentials`, then `auth_sessions`; a later stage that also needs the participant or inventory rows takes the `accounts` row before step 2. Admission has no attempt row yet, so it starts at step 3. **Revision 2.6:** the energy policy advisory lock (shared for materialization and projection, exclusive for publication) is a leaf taken after step 4 and before reading the clock; publication takes nothing else. All transactions run at READ COMMITTED with explicit `FOR UPDATE`. Deadlock (`40P01`) or serialization (`40001`) errors are retried up to 3 times, except inventory mutations (revision 2.5) and energy transactions (revision 2.6), which are never retried automatically. `lock_timeout` is provisionally 5 s, and a timeout returns 503 so the caller retries.
 
 **As built (Stage 3, revision 2.3).**
 - **Bounds.** Every connection of the API's and the admin CLI's data sources carries `lock_timeout` (5 s) and `statement_timeout` (15 s), set by `BLACKGLASS_DB_LOCK_TIMEOUT_MS` and `BLACKGLASS_DB_STATEMENT_TIMEOUT_MS`. The migrator keeps its own `lock_timeout` and has no statement bound.
@@ -1534,6 +1551,21 @@ The account lifecycle (Stage 3) locks the `accounts` row first (`FOR UPDATE` for
 **As built (Stage 5, revision 2.5).**
 - **Inventory edits** lock `accounts` `FOR KEY SHARE`, then `inventories` `FOR UPDATE`, then touch owned rows. The key-share step exists because inserting a stash `item_stacks` row checks its `account_id` foreign key, which takes `FOR KEY SHARE` on the account; taken late, it would invert the order against `starter backfill` (`accounts` `FOR UPDATE`, then `inventories`). `FOR KEY SHARE` conflicts only with an operator lifecycle command's `FOR UPDATE`, so an edit can wait behind one, bounded by `lock_timeout` (503). Picks touch no account row (`operative_choices` references `operatives` only) and keep `inventories` → owned rows.
 - **No retry for inventory mutations.** Edits and picks are never retried or replayed by the server, whatever the failure (owner ruling S5-D6); a client re-reads and decides.
+
+**As built (Stage 6, revision 2.6).**
+- **The energy policy advisory lock.** It is a transaction advisory lock, shared for materialization, opening and `GET /v1/me`, and exclusive for publication. Publication takes nothing else.
+  - After taking it shared, a transaction waits only on (a) its own rows, (b) policy rows (never write-locked), or (c) a transaction that already holds the shared lock and has no further waits.
+  - (c) is a concurrent first use of one development-grant key at the global unique index. Each grant inserts exactly one such key, so (c) has depth 1.
+  - It never waits on a transaction not yet granted the lock, so a queued publisher can never close a cycle. A deterministic test drains a queued publication with in-flight holders and new requesters.
+  - **A later writer with several global unique keys after this lock (Stage 7's attempt-keyed charges) must keep one per transaction, or it can deadlock.**
+- **Order:**
+  - operator energy verbs: `accounts` `FOR UPDATE` → `energy_wallets` `FOR UPDATE` → the policy lock → `clock_timestamp()`;
+  - account creation: the new `accounts` row → `inventories` → the policy lock → the wallet insert;
+  - `GET /v1/me`: the policy lock, then one statement (READ COMMITTED, read only).
+  - Every ledger entry is inserted while its wallet row is held. Every energy transaction is READ COMMITTED.
+- **Reconciliation's anomaly write** takes `accounts` `FOR KEY SHARE` through `anomaly_events.account_id`'s foreign key, in ascending `account_id` order. It holds no other lock, but it can wait behind an operator command on one of those accounts (bounded by `lock_timeout`; the sweep is then retried an hour later). All of a sweep's anomalies commit together or not at all.
+- **No retry.** Energy transactions are never retried automatically. A 23514 from an energy constraint is an internal error (500, or exit 1), never busy.
+- **Scale note for Phase 14.** Each sweep reads every wallet and the whole ledger in one snapshot under the 15 s `statement_timeout`. At a large ledger it would fail with 57014 every hour, so Phase 14 needs incremental or paged reconciliation.
 
 ### 15.4 Migrations and safety (correction 8, D-14)
 

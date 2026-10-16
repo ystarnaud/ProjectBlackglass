@@ -1,4 +1,4 @@
-# Blackglass backend (Phase 13, Stages 1–5: foundation, catalogue, accounts and development authentication, operatives and inventory, inventory operations)
+# Blackglass backend (Phase 13, Stages 1–6: foundation, catalogue, accounts and development authentication, operatives and inventory, inventory operations, energy accounting)
 
 ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loopback only; the VM is reached by SSH alias `bg-dev-services01-admin` (user `admin`, `sudo -n`; root SSH login is disabled).
 
@@ -54,7 +54,9 @@ Order: `make-secrets.sh <dir>` (once), then `deploy.sh` = build, database up, st
    - `0001` also revokes the global `PUBLIC` `EXECUTE` default on the migrator's future functions.
    - `0002_revocation_is_final` makes a revocation permanent. A trigger on `dev_credentials` and `auth_sessions` refuses any update that clears or changes a set `revoked_at` (23514, constraint `revocation_is_final`). `accounts_app` can't disable, drop or replace it (it owns nothing) or skip it with `session_replication_role` (superuser only).
    - `0003_operatives_and_picks` and `0004_inventory` (Stage 4) revoke the default privileges on their tables and grant `accounts_app` column-level `INSERT` only (never `operative_id` or `item_id`), plus, on `inventories`, `UPDATE` of `version` and the three `starter_*` columns. No `DELETE`, no `UPDATE` of operatives or choices, no privilege on the identity sequences.
-   - `0005_inventory_edits` (Stage 5) grants exactly the inventory edits: `UPDATE (operative_id, equipped_slot)` on `item_instances`, and `UPDATE (quantity)` and `DELETE` on `item_stacks` (an emptied stack row is deleted; no zero row remains). Never `DELETE` on `item_instances`, never an update of an identity, definition, account or origin column; still nothing on the identity sequences. `InventoryPrivilegeTests` pins the exact effective privileges. The trigger `inventories_forward_only` (0004) makes a granted starter record final and keeps `version` from decreasing (constraints `starter_grant_is_final`, `inventory_version_never_decreases`); `0004` also adds `starter_backfill` to the `operator_actions` action list.
+   - `0005_inventory_edits` (Stage 5) grants exactly the inventory edits: `UPDATE (operative_id, equipped_slot)` on `item_instances`, and `UPDATE (quantity)` and `DELETE` on `item_stacks` (an emptied stack row is deleted; no zero row remains). Never `DELETE` on `item_instances`, never an update of an identity, definition, account or origin column; still nothing on the identity sequences. `InventoryPrivilegeTests` pins the exact effective privileges.
+   - `0006_energy` (Stage 6): `SELECT` on the four energy tables; `INSERT (cap, opening_balance, regen_interval, regen_amount, void_refund_pct)` on `energy_policies` (never `effective_at`); `INSERT (account_id, balance, regen_anchor, regen_progress_us, policy_version)` and `UPDATE` of those but `account_id` on `energy_wallets`; `INSERT (account_id, attempt_id, kind, delta, balance_after, idempotency_key)` on `energy_ledger`; `INSERT (kind, account_id, host_id, build_revision, attempt_id, dedupe_key, detail)` on `anomaly_events`. No `UPDATE`/`DELETE` on the ledger, policies or anomalies, no `DELETE` on wallets, nothing on the identity sequences. `EnergyPrivilegeTests` pins them; the 0006 triggers make the ledger append-only and chained, policies immutable, wallet anchors and versions forward-only and progress bounded. `0006` adds `energy_open`, `energy_grant` and `energy_policy_publish` to the `operator_actions` action list.
+   - The trigger `inventories_forward_only` (0004) makes a granted starter record final and keeps `version` from decreasing (constraints `starter_grant_is_final`, `inventory_version_never_decreases`); `0004` also adds `starter_backfill` to the `operator_actions` action list.
    - `AccountsSchemaTests` and `PlayerSchemaTests` pin the app's exact privilege set.
 4. **The API runs as `accounts_app`.** It owns nothing and has no `CREATE` on the schema or `TEMPORARY` on the database, so it has **no DDL**: no `CREATE`, `ALTER`, `DROP` or `TRUNCATE`.
 5. **The superuser is used only** by the image's init, and by `backup.sh` and `restore-drill.sh` through `docker exec` over the container's local socket. No service connects as it.
@@ -95,11 +97,13 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 | `BLACKGLASS_DB_LOCK_TIMEOUT_MS` | 1–60000, `lock_timeout` on every API and admin CLI connection; at most the statement bound | 5000 |
 | `BLACKGLASS_INVENTORY_MAX_OPERATIONS` | 1–256, operations per inventory batch (Stage 5, provisional). A batch must also fit the body limit below: at 16 KiB, about 128 operations is the practical ceiling | 32 |
 | `BLACKGLASS_INVENTORY_MAX_BODY_BYTES` | 1024–1048576, the inventory batch body limit (Stage 5, provisional) | 16384 |
+| `BLACKGLASS_ENERGY_RECONCILE_SECONDS` | 0 = off, else 60–86400; the reconciliation sweep interval in `serve` (Stage 6, provisional) | 3600 |
+| `BLACKGLASS_ENERGY_GRANT_MAX` | 1–1000000; the largest single development grant (`admin energy grant`; also validated by `serve`) | 1000 |
 | `BLACKGLASS_DB_STATEMENT_TIMEOUT_MS` | 1–600000, `statement_timeout` on the same connections (the migrator has neither: it sets its own `lock_timeout`) | 15000 |
 
 **Routes.**
 - `POST /v1/auth/dev/login {accountKey}` → `{accessToken, expiresAt, accountId}`, with `Cache-Control: no-store`.
-- `GET /v1/me` → `{accountId, inventoryVersion}` (Stage 4; `inventoryVersion` is the shared inventory version, null for an account without a starter).
+- `GET /v1/me` → `{accountId, inventoryVersion, energy}` (Stage 4; `inventoryVersion` is the shared inventory version, null for an account without a starter). Stage 6: `energy` is `{balance, cap, nextRegenAt}` projected read-only (`nextRegenAt` UTC ISO-8601 with `Z`, null at or above the cap), or `null` for an account without a wallet, never zero.
 - `POST /v1/auth/logout` → 204. It revokes the current session only. A repeat gets the same 401 as any unknown token.
 - `POST /dev/v1/accounts` with header `X-Admin-Key` and body `{handle?, displayName?, operator, reason}` → 201 `{accountId, credentialId, accountKey}`, with `X-Correlation-Id`.
 
@@ -130,7 +134,7 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 sudo -n docker compose -p blackglass-accounts -f compose.yaml --profile tools run --rm -T admin account create [--handle <h>] [--display-name <name>] --operator <name> --reason <text>
 … admin credential rotate --account-base58 <id> | credential revoke --credential <uuid> | sessions revoke --account-base58 <id> | account suspend --account-base58 <id> | account reactivate --account-base58 <id>   (each with --operator and --reason, and --yes to confirm without a terminal)
 ```
-- `create` and `rotate` print `accountId=`, `credentialId=`, `accountKey=` (once) and `correlationId=`. `create` also prints `starterGranted=granted` and `starterOperatives=`, `starterInstances=`, `starterStacks=` (the counts it provisioned) before `correlationId=`.
+- `create` and `rotate` print `accountId=`, `credentialId=`, `accountKey=` (once) and `correlationId=`. `create` also prints `starterGranted=granted` and `starterOperatives=`, `starterInstances=`, `starterStacks=` (the counts it provisioned), then `energyOpened=opened` and `energyBalance=` (Stage 6), before `correlationId=`.
 - **Confirmation.** Every command but `create` first prints its target as `target.*` lines: the canonical Base58 id, status, handle, display name, creation time, live credential and live sessions, plus the credential for `credential revoke`. It then acts only when confirmed: either type that Base58 id at a terminal (run without `-T`), or add `--yes`. Without either it changes nothing. Running it without `--yes` and without a terminal is a dry run that shows the target.
 - Exit codes:
   - 0: ok.
@@ -207,6 +211,64 @@ Ids are canonical Base58 strings; numbers are strict; an unknown or duplicated m
 **Starter grant versus current holdings.** The `inventories.starter_*` columns, each instance's `origin`/`origin_ref` and the `account_create`/`starter_backfill` audit rows record the original grant and never change; instance locations and stack quantities are current holdings. No output labels current holdings as the starter.
 
 **Contract vectors.** `contracts/inventory/vectors.json`: `shared` cases run in xUnit and in Unity EditMode against `InventorySession`; `backend` cases (strict quantities, partial room, unknown operatives on transfers, retired items, over-capacity bags) run in xUnit only.
+
+## Energy accounting (Stage 6)
+
+Schema version 6 (`0006_energy`). Owner rulings E1–E7 (spec revision 2.6, §0.6). Accounting only: no admission, reservations, charges, refunds or insurance.
+
+**Model.**
+- `energy_policies`: immutable, versioned. PostgreSQL mints `version` and sets `effective_at` itself (`greatest(clock_timestamp(), previous + 1 µs)`, under the publication lock). Version 1 is seeded: cap 50, opening balance 50, 1 per 10 minutes, void refund 100 % (all provisional).
+- `energy_wallets`: one per account, with `balance` (≥ 0, may exceed the cap), `regen_anchor` (time accounted up to; never moves back), `regen_progress_us` (the partial interval, below the policy's interval) and `policy_version` (never moves back).
+- `energy_ledger`: append-only, even for the owner (UPDATE, DELETE and TRUNCATE are refused).
+  - Every entry continues its account's chain (`balance_after` = previous + `delta`; the first and only first entry is `open`).
+  - At commit, every wallet equals its latest entry, so the balance is always the sum of the deltas.
+  - Keys:
+    - `open`;
+    - `regen:<consumed anchor, µs since the epoch>`;
+    - `dev_grant:<lower-case UUID>`, unique across all accounts.
+- `anomaly_events`: one outstanding (unreviewed) row per `(kind, dedupe_key)`.
+
+**Regeneration** is lazy, under the wallet row lock, from PostgreSQL's `clock_timestamp()` read after the locks.
+- Time before a newer policy's `effective_at` is credited under the older one. Partial progress carries across proportionally (floored to the µs).
+- At or above the cap, regeneration pauses and progress resets; a balance is never lowered.
+- Materializing early or late gives the same result. Each gain writes one `regen` entry; a clock behind the anchor changes nothing.
+- `GET /v1/me` projects the same computation without writing.
+
+**Wallets.**
+- Account creation opens a full wallet (the applicable policy's opening balance) in its own transaction, with an `open` entry; a failure rolls the account back.
+- Accounts created before `0006` have no wallet until an operator runs `energy open`. Until then `GET /v1/me` shows `energy: null`, never zero, and nothing creates one implicitly.
+
+**Operator CLI** (each needs `--operator`/`--reason`; `open`, `grant` and `publish` show their target and need `--yes` or typing the Base58 id, or `publish`):
+```
+… admin energy open --account-base58 <id>
+… admin energy grant --account-base58 <id> --amount <n> --idempotency-key <uuid>
+… admin energy policy publish --cap <n> --opening-balance <n> --interval-seconds <s> --amount <n> --void-refund-pct <p>
+… admin energy reconcile
+```
+- **`open`** prints `energyOpened=opened|already`, `balance=` and `policyVersion=`, plus `advisory=true` when already opened (an unlocked read).
+- **`grant`** prints `amount=`, `balanceAfter=`, `regenerated=` and `replayed=true|false`.
+  - A grant is idempotent per key. The same key with the same account and amount replays the stored result and credits nothing; any other use is refused (66) with nothing written.
+  - The amount is 1..`BLACKGLASS_ENERGY_GRANT_MAX`. A grant may exceed the cap; a result above 2,147,483,647 is refused (64).
+  - On an unknown outcome (69 or 1) it says to retry with the same key, never a new one. The audit row records the key.
+- **`policy publish`** prints `policyVersion=`, `effectiveAt=` and the values.
+  - The confirmation happens before its transaction. It holds the exclusive publication lock only for the insert and the audit.
+  - Account creation, materializations and `GET /v1/me` wait behind it, bounded by `lock_timeout`.
+- **`reconcile`** prints `walletsChecked=`, `mismatches=`, `anomaliesRecorded=` and one `mismatch=<Base58>:<rule>` per finding. It exits 0 even with mismatches.
+- Exit codes as above: 65 no wallet (with a hint to run `energy open`) or no account; 64 invalid amount, policy or limit; 75 busy, nothing changed.
+
+**Reconciliation** compares every wallet with its ledger in one read-only snapshot, using the six rules of `db/invariants/0006_energy_ledger.sql`.
+- It records `energy_ledger_mismatch` anomalies keyed `<Base58>:<rule>`; the numbers go in `detail`. It never corrects a balance, and concurrent sweeps record one outstanding row per finding.
+- It runs every `BLACKGLASS_ENERGY_RECONCILE_SECONDS` in the API process, the first sweep one interval after start (startup never waits), and on demand through `admin energy reconcile`.
+- Failures are logged with the SQLSTATE only, and the next sweep still runs.
+
+**Locks.**
+- The order:
+  - operator verbs: `accounts` `FOR UPDATE` → `energy_wallets` `FOR UPDATE` → the policy advisory lock (shared) → clock;
+  - account creation: new `accounts` row → `inventories` → the policy lock → wallet insert;
+  - publication: the policy lock (exclusive) only;
+  - `GET /v1/me`: the policy lock, then one statement.
+- Every energy transaction is READ COMMITTED; no energy transaction is ever retried automatically.
+- A 23514 from an energy constraint is a bug (500, or exit 1), never "busy".
 
 **Rate limits behind the tunnel.** Every request reaches the container from the Docker bridge address, so no limit is per IP. Login is limited per presented key, plus a global window that fabricated keys can't get around. Authenticated requests are limited per account. Per-IP limits wait for Phase 14's HAProxy.
 
