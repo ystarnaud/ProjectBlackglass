@@ -123,6 +123,19 @@ public class EnergyMathTests
         Assert.Equal(T0 + Min(30), EnergyMath.NextRegenAt(materialized, V1, T0 + Min(25)));
     }
 
+    [Fact]
+    public void NextRegenAt_with_the_clock_behind_the_anchor_counts_from_the_anchor()
+    {
+        var wallet = Wallet(10, progress: Min(3));
+        var behind = T0 - TimeSpan.FromHours(1);
+
+        // Materializing behind the anchor changes nothing, so the next unit still lands 7 minutes after the anchor.
+        var materialized = EnergyMath.Materialize(wallet, [V1], behind).After;
+        Assert.Equal(T0 + Min(7), EnergyMath.NextRegenAt(materialized, V1, behind));
+        Assert.Equal(T0 + Min(7), EnergyMath.NextRegenAt(wallet, V1, T0 - OneMicro));
+        Assert.Null(EnergyMath.NextRegenAt(Wallet(50), V1, behind));
+    }
+
     // ---- Transitions (E2) ----
 
     [Fact]

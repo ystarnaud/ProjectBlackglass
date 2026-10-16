@@ -75,12 +75,14 @@ public static class EnergyMath
 
     /// <summary>
     /// For a wallet just materialized at `now` under `current` (its own version): when the next unit lands,
-    /// now + (interval − progress), or null at or above the cap, where regeneration is paused.
+    /// max(now, anchor) + (interval − progress), or null at or above the cap, where regeneration is paused. The anchor
+    /// equals `now` whenever time advanced; with the clock behind the anchor, nothing accrues until the clock passes it.
     /// </summary>
     public static DateTime? NextRegenAt(WalletState materialized, EnergyPolicy current, DateTime now)
     {
         ArgumentNullException.ThrowIfNull(materialized);
         var nowMicros = Micros(now, nameof(now));
+        var anchorMicros = Micros(materialized.RegenAnchor, nameof(materialized));
         ValidatePolicy(current, nameof(current));
         if (materialized.PolicyVersion != current.Version)
             throw new ArgumentException($"The wallet is measured under version {materialized.PolicyVersion}, not {current.Version}.", nameof(current));
@@ -89,7 +91,7 @@ public static class EnergyMath
             throw new ArgumentException("Wallet progress must be at least 0 and below its policy's interval.", nameof(materialized));
 
         if (materialized.Balance >= current.Cap) return null;
-        return FromMicros(nowMicros + interval - materialized.ProgressMicros);
+        return FromMicros(Math.Max(nowMicros, anchorMicros) + interval - materialized.ProgressMicros);
     }
 
     /// <summary>"regen:" + the consumed anchor in microseconds since 1970-01-01T00:00:00Z, invariant digits ('-' before 1970).</summary>
