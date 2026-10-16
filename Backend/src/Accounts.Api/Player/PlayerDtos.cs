@@ -48,3 +48,17 @@ public sealed record InventoryResponse(long Version, bool Locked, LocationDto St
     public static InventoryResponse From(InventoryView v) => new(v.Version, v.Locked, LocationDto.From(v.Stash),
         v.Operatives.Select(o => new BagDto(o.OperativeId, LocationDto.From(o.Bag), new EquipmentDto(o.Equipment.Weapon, o.Equipment.Armor, o.Equipment.Utility))).ToList());
 }
+
+/// <summary>
+/// The body of POST /v1/inventory/operations. Both members are required; unknown members are refused. Ids stay strings
+/// here (canonical Base58) so a bad one can be refused with the index of its operation.
+/// </summary>
+public sealed record InventoryOperationsRequest(long? ExpectedVersion, IReadOnlyList<OperationDto?>? Operations);
+
+/// <summary>
+/// One operation of a batch. Each <c>op</c> takes exactly its members: equip, equipFromStash (operativeId, itemId); unequip
+/// (operativeId, slot: weapon, armor or utility); toStash, toBag (operativeId and either itemId, or definitionId and quantity).
+/// </summary>
+public sealed record OperationDto(string? Op, string? OperativeId, string? ItemId, string? Slot, string? DefinitionId, int? Quantity);
+
+public sealed record InventoryOperationsResponse(long Version, InventoryResponse Inventory);

@@ -136,4 +136,134 @@ public class PlayerAuthorizationTests : IAsyncLifetime
         }
         Assert.Equal((2L, 1L, 1L, 0L), (await VersionOfAsync(a), await VersionOfAsync(b), await PicksOfAsync(operativeA), await PicksOfAsync(operativeB)));
     }
+
+    // ---- inventory edits (Stage 5): the same guarantees for POST /v1/inventory/operations ----
+
+    static string Edits(long expectedVersion, params string[] operations) =>
+        $"{{\"expectedVersion\":{expectedVersion},\"operations\":[{string.Join(",", operations)}]}}";
+
+    static HttpRequestMessage Edit(string token, string json, string path = "/v1/inventory/operations") => As(token, HttpMethod.Post, path, json);
+
+    async Task<long[]> ItemsOfAsync(IssuedCredential account)
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        return (await Dapper.SqlMapper.QueryAsync<long>(conn, "select item_id from item_instances where account_id = @a order by item_id", new { a = account.AccountId })).ToArray();
+    }
+
+    Task<long> RifleOfAsync(long operative) =>
+        ScalarAsSuperuserAsync<long>(db, "select item_id from item_instances where operative_id = @operative and equipped_slot = 'weapon'", new { operative });
+
+    /// <summary>Every inventory row of both accounts and their versions, with xmin: equal snapshots mean nothing was written.</summary>
+    Task<string> InventoriesSnapshotAsync() => ScalarAsSuperuserAsync<string>(db,
+        """
+        select concat_ws(E'\n',
+          (select json_agg(json_build_object('xmin', i.xmin::text, 'row', row_to_json(i)) order by i.item_id)::text from item_instances i),
+          (select json_agg(json_build_object('xmin', s.xmin::text, 'row', row_to_json(s)) order by s.operative_id nulls first, s.account_id, s.definition_id collate "C")::text from item_stacks s),
+          (select json_agg(json_build_object('xmin', v.xmin::text, 'row', row_to_json(v)) order by v.account_id)::text from inventories v))
+        """);
+
+    static string CodeAndIndex(string body)
+    {
+        var json = JsonDocument.Parse(body).RootElement;
+        return $"{json.GetProperty("code").GetString()}@{json.GetProperty("index").GetInt32()}";
+    }
+
+    [Fact]
+    public async Task A_guessed_neighbouring_item_or_operative_id_is_the_same_422_as_an_unknown_one()
+    {
+        var itemsA = await ItemsOfAsync(a);
+        var itemsB = await ItemsOfAsync(b);
+        var opsA = await OperativesOfAsync(a);
+        var opsB = await OperativesOfAsync(b);
+        var ghostItem = Base58Id.Format(itemsA.Concat(itemsB).Max() + 1000);
+        var ghostOperative = Base58Id.Format(opsA.Concat(opsB).Max() + 1000);
+        var snapshot = await InventoriesSnapshotAsync();
+
+        // Each way round: the attacker names the victim's ids (every one, and the ones either side of them) and a nonexistent id.
+        foreach (var (token, own, ownItems, ownOps, foreignItems, foreignOps) in new[]
+                 {
+                     (tokenB, opsB[0], itemsB, opsB, itemsA, opsA),
+                     (tokenA, opsA[0], itemsA, opsA, itemsB, opsB),
+                 })
+        {
+            var guessedItems = foreignItems.SelectMany(i => new[] { i - 1, i, i + 1 }).Where(i => i > 0 && !ownItems.Contains(i)).Distinct().Select(Base58Id.Format).ToList();
+            var guessedOps = foreignOps.SelectMany(o => new[] { o - 1, o, o + 1 }).Where(o => o > 0 && !ownOps.Contains(o)).Distinct().Select(Base58Id.Format).ToList();
+            Assert.Contains(Base58Id.Format(foreignItems[0]), guessedItems);
+            Assert.Contains(Base58Id.Format(foreignOps[0]), guessedOps);
+            var ownId = Base58Id.Format(own);
+            var ownRifle = Base58Id.Format(await RifleOfAsync(own));
+            var version = await VersionOfAsync(token == tokenB ? b : a);
+
+            // Item ids, in each place an item id is accepted.
+            foreach (var shape in new Func<string, string>[]
+                     {
+                         item => $"{{\"op\":\"equip\",\"operativeId\":\"{ownId}\",\"itemId\":\"{item}\"}}",
+                         item => $"{{\"op\":\"toBag\",\"operativeId\":\"{ownId}\",\"itemId\":\"{item}\"}}",
+                         item => $"{{\"op\":\"toStash\",\"operativeId\":\"{ownId}\",\"itemId\":\"{item}\"}}",
+                         item => $"{{\"op\":\"equipFromStash\",\"operativeId\":\"{ownId}\",\"itemId\":\"{item}\"}}",
+                     })
+            {
+                var unknown = await SendAsync(Edit(token, Edits(version, shape(ghostItem))));
+                Assert.Equal(HttpStatusCode.UnprocessableEntity, unknown.Status);
+                Assert.Equal("NotFound@0", CodeAndIndex(unknown.Body));
+                foreach (var guess in guessedItems)
+                    Assert.Equal(unknown, await SendAsync(Edit(token, Edits(version, shape(guess))))); // status and the whole body, byte for byte
+            }
+
+            // Operative ids.
+            foreach (var shape in new Func<string, string>[]
+                     {
+                         op => $"{{\"op\":\"equip\",\"operativeId\":\"{op}\",\"itemId\":\"{ownRifle}\"}}",
+                         op => $"{{\"op\":\"unequip\",\"operativeId\":\"{op}\",\"slot\":\"weapon\"}}",
+                         op => $"{{\"op\":\"toBag\",\"operativeId\":\"{op}\",\"definitionId\":\"item.medkit\",\"quantity\":1}}",
+                         op => $"{{\"op\":\"toStash\",\"operativeId\":\"{op}\",\"definitionId\":\"item.medkit\",\"quantity\":1}}",
+                     })
+            {
+                var unknown = await SendAsync(Edit(token, Edits(version, shape(ghostOperative))));
+                Assert.Equal(HttpStatusCode.UnprocessableEntity, unknown.Status);
+                Assert.Equal("UnknownOperative@0", CodeAndIndex(unknown.Body));
+                foreach (var guess in guessedOps)
+                    Assert.Equal(unknown, await SendAsync(Edit(token, Edits(version, shape(guess)))));
+            }
+        }
+
+        // Nothing was written for either account, and each owner's own edit still works.
+        Assert.Equal(snapshot, await InventoriesSnapshotAsync());
+        var own1 = $"{{\"op\":\"equip\",\"operativeId\":\"{Base58Id.Format(operativeB)}\",\"itemId\":\"{Base58Id.Format(await RifleOfAsync(operativeB))}\"}}";
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(Edit(tokenB, Edits(1, own1)))).Status);
+        Assert.Equal((1L, 2L), (await VersionOfAsync(a), await VersionOfAsync(b)));
+    }
+
+    [Fact]
+    public async Task An_account_id_anywhere_in_the_request_changes_nothing()
+    {
+        var idB = AccountId.Format(b.AccountId);
+        var opA = Base58Id.Format(operativeA);
+        var rifleA = Base58Id.Format(await RifleOfAsync(operativeA));
+        var operation = $"{{\"op\":\"equip\",\"operativeId\":\"{opA}\",\"itemId\":\"{rifleA}\"}}";
+        var valid = Edits(1, operation);
+        const string rowsOfB = "select concat_ws(E'\\n', (select json_agg(row_to_json(i) order by item_id)::text from item_instances i where account_id = @b), (select version::text from inventories where account_id = @b))";
+        var snapshotB = await ScalarAsSuperuserAsync<string>(db, rowsOfB, new { b = b.AccountId });
+
+        // A body that names an account is refused outright: no request type has such a member (top level or in an operation).
+        foreach (var member in new[] { $"\"accountId\":\"{idB}\"", $"\"account_id\":{b.AccountId}", $"\"AccountId\":\"{idB}\"", "\"accountId\":null" })
+        {
+            var top = $"{{\"expectedVersion\":1,{member},\"operations\":[{operation}]}}";
+            var inner = $"{{\"expectedVersion\":1,\"operations\":[{operation.TrimEnd('}')},{member}}}]}}";
+            foreach (var body in new[] { top, inner })
+            {
+                var (status, text) = await SendAsync(Edit(tokenA, body));
+                Assert.Equal(HttpStatusCode.BadRequest, status);
+                Assert.Equal("InvalidBody", JsonDocument.Parse(text).RootElement.GetProperty("code").GetString());
+            }
+        }
+        Assert.Equal((1L, 1L), (await VersionOfAsync(a), await VersionOfAsync(b)));
+
+        // A query or a header naming B's account is ignored: A's own session decides, so A's edit applies to A alone.
+        var request = Edit(tokenA, valid, $"/v1/inventory/operations?accountId={idB}&account_id={b.AccountId}&operativeId={Base58Id.Format(operativeB)}");
+        request.Headers.Add("X-Account-Id", idB);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(request)).Status);
+        Assert.Equal((2L, 1L), (await VersionOfAsync(a), await VersionOfAsync(b)));
+        Assert.Equal(snapshotB, await ScalarAsSuperuserAsync<string>(db, rowsOfB, new { b = b.AccountId }));
+    }
 }

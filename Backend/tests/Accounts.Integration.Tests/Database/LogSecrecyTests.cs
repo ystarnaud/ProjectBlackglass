@@ -65,6 +65,22 @@ public class LogSecrecyTests
                     pick.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
                     await api.Http.SendAsync(pick);
                 }
+                // The inventory edit route (Stage 5): refused by the rules, by the body, by the content type and by the token.
+                foreach (var (body, type) in new[]
+                         {
+                             ("{\"expectedVersion\":1,\"operations\":[{\"op\":\"equip\",\"operativeId\":\"2\",\"itemId\":\"3\"}]}", "application/json"),
+                             ("{\"expectedVersion\":9,\"operations\":[{\"op\":\"equip\",\"operativeId\":\"2\",\"itemId\":\"3\"}]}", "application/json"),
+                             ("{\"expectedVersion\":1,\"operations\":[{\"op\":\"equip\",\"operativeId\":\"2\",\"itemId\":\"3\"}],\"accountId\":\"2\"}", "application/json"),
+                             ("{\"expectedVersion\":1,\"operations\":[{\"op\":\"nope\"}]}", "application/json"),
+                             ("{\"expectedVersion\":1,\"operations\":[]}", "application/json"),
+                             ("{not json", "application/json"),
+                             ("{\"expectedVersion\":1,\"operations\":[]}", "text/plain"),
+                         })
+                {
+                    var edit = Bearer(HttpMethod.Post, "/v1/inventory/operations", bearer);
+                    edit.Content = new StringContent(body, System.Text.Encoding.UTF8, type);
+                    await api.Http.SendAsync(edit);
+                }
             }
             await api.Http.SendAsync(Bearer(HttpMethod.Post, "/v1/auth/logout", token));
             await api.Http.SendAsync(Bearer(HttpMethod.Post, "/v1/auth/logout", token)); // the repeat

@@ -21,6 +21,7 @@ public sealed class AuthSettings
     public const string RequestRateVar = "BLACKGLASS_RATE_REQUESTS_PER_MINUTE";
     public const string LoginGlobalRateVar = "BLACKGLASS_RATE_LOGIN_GLOBAL_PER_MINUTE";
     public const string AdminRateVar = "BLACKGLASS_RATE_ADMIN_PER_MINUTE";
+    public const string InventoryMaxOperationsVar = "BLACKGLASS_INVENTORY_MAX_OPERATIONS";
     public const int MinAdminKeyLength = 32;
 
     public bool DevAuthEnabled { get; private init; }
@@ -33,6 +34,8 @@ public sealed class AuthSettings
     public int LoginGlobalPerMinute { get; private init; }
     /// <summary>All /dev/v1 admin requests together, checked before the admin key.</summary>
     public int AdminPerMinute { get; private init; }
+    /// <summary>The most operations one inventory batch may hold (owner ruling S5-D6, provisional): 1 to 256, default 32.</summary>
+    public int InventoryMaxOperations { get; private init; }
 
     public static AuthSettings FromEnvironment(IReadOnlyDictionary<string, string?> env)
     {
@@ -47,6 +50,7 @@ public sealed class AuthSettings
             RequestsPerMinute = Number(env, RequestRateVar, 120, 1, 100_000),
             LoginGlobalPerMinute = Number(env, LoginGlobalRateVar, 60, 1, 100_000),
             AdminPerMinute = Number(env, AdminRateVar, 10, 1, 1000),
+            InventoryMaxOperations = Number(env, InventoryMaxOperationsVar, 32, 1, 256),
         };
     }
 

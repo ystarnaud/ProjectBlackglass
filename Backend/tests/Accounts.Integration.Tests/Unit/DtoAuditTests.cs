@@ -23,6 +23,7 @@ public class DtoAuditTests
         var requests = ApiTypes("Request").Where(t => t.DeclaringType != typeof(AdminEndpoints)).ToList();
         Assert.NotEmpty(requests);
         Assert.Contains(requests, t => t == typeof(PickChoiceRequest)); // the player routes are audited too
+        Assert.Contains(requests, t => t == typeof(InventoryOperationsRequest));
         foreach (var type in requests)
             Assert.DoesNotContain(type.GetProperties(BindingFlags.Public | BindingFlags.Instance),
                 p => p.Name.Contains("Account", StringComparison.OrdinalIgnoreCase) && !p.Name.Equals("AccountKey", StringComparison.Ordinal));
@@ -48,6 +49,8 @@ public class DtoAuditTests
         Assert.Contains(typeof(RosterResponse), types);
         Assert.Contains(typeof(InventoryResponse), types);
         Assert.Contains(typeof(PickChoiceResponse), types);
+        Assert.Contains(typeof(InventoryOperationsResponse), types);
+        Assert.Contains(typeof(OperationDto), types);
         foreach (var p in types.SelectMany(t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)))
         {
             Assert.DoesNotContain("Account", p.Name, StringComparison.OrdinalIgnoreCase);
@@ -70,6 +73,26 @@ public class DtoAuditTests
         Assert.Contains($"\"operativeId\":\"{Base58Id.Format(id)}\"", text);
         Assert.Contains($"\"itemId\":\"{Base58Id.Format(id + 1)}\"", text);
         Assert.Contains($"\"weapon\":\"{Base58Id.Format(id + 1)}\",\"armor\":null,\"utility\":null", text);
+    }
+
+    [Fact]
+    public void The_inventory_edit_request_takes_ids_as_strings_and_no_number_is_an_id()
+    {
+        // Ids arrive as Base58 strings (parsed and refused with the operation's index), never as JSON numbers.
+        var operation = typeof(OperationDto).GetProperties(BindingFlags.Public | BindingFlags.Instance).ToDictionary(p => p.Name, p => p.PropertyType);
+        Assert.Equal(typeof(string), operation["OperativeId"]);
+        Assert.Equal(typeof(string), operation["ItemId"]);
+        Assert.Equal(typeof(string), operation["DefinitionId"]);
+        Assert.Equal(typeof(int?), operation["Quantity"]);
+        Assert.Equal(["ExpectedVersion", "Operations"], typeof(InventoryOperationsRequest).GetProperties().Select(p => p.Name).Order().ToArray());
+
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        const long id = 9007199254740993;
+        var location = new LocationDto([new InstanceDto(id, "item", true)], []);
+        var inventory = new InventoryResponse(5, false, location, []);
+        var text = JsonSerializer.Serialize(new InventoryOperationsResponse(5, inventory), web);
+        Assert.Equal($"{{\"version\":5,\"inventory\":{JsonSerializer.Serialize(inventory, web)}}}", text);
+        Assert.Contains($"\"itemId\":\"{Base58Id.Format(id)}\"", text);
     }
 
     [Fact]

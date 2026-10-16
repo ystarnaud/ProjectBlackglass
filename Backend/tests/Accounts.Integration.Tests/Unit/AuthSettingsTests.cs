@@ -16,6 +16,7 @@ public class AuthSettingsTests
         Assert.False(s.AdminRoutesEnabled);
         Assert.Null(s.AdminKeyHash);
         Assert.Equal((60, 10, 60, 120, 10), (s.TokenLifetimeMinutes, s.LoginPerMinute, s.LoginGlobalPerMinute, s.RequestsPerMinute, s.AdminPerMinute));
+        Assert.Equal(32, s.InventoryMaxOperations);
     }
 
     [Theory]
@@ -32,6 +33,11 @@ public class AuthSettingsTests
     [InlineData("BLACKGLASS_RATE_ADMIN_PER_MINUTE", "0")]
     [InlineData("BLACKGLASS_RATE_ADMIN_PER_MINUTE", "1001")]
     [InlineData("BLACKGLASS_RATE_ADMIN_PER_MINUTE", " 5")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_OPERATIONS", "0")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_OPERATIONS", "257")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_OPERATIONS", "-1")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_OPERATIONS", "32 ")]
+    [InlineData("BLACKGLASS_INVENTORY_MAX_OPERATIONS", "many")]
     [InlineData("BLACKGLASS_DEV_AUTH", " enabled")]
     public void A_bad_value_refuses_to_start(string key, string value) =>
         Assert.Throws<AuthSettingsException>(() => AuthSettings.FromEnvironment(Env((key, value))));
@@ -70,6 +76,14 @@ public class AuthSettingsTests
         Assert.True(s.DevAuthEnabled);
         Assert.Equal((5, 2, 4, 3, 6), (s.TokenLifetimeMinutes, s.LoginPerMinute, s.LoginGlobalPerMinute, s.RequestsPerMinute, s.AdminPerMinute));
     }
+
+    [Theory]
+    [InlineData("1", 1)]
+    [InlineData("32", 32)]
+    [InlineData("256", 256)]
+    [InlineData("", 32)]
+    public void The_inventory_batch_limit_is_one_to_256_and_defaults_to_32(string value, int expected) =>
+        Assert.Equal(expected, AuthSettings.FromEnvironment(Env(("BLACKGLASS_INVENTORY_MAX_OPERATIONS", value))).InventoryMaxOperations);
 
     [Fact]
     public void An_unreadable_admin_key_file_refuses_to_start() =>

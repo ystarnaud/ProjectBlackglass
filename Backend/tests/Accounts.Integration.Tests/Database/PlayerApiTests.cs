@@ -265,9 +265,8 @@ public class PlayerApiTests : IAsyncLifetime
             Assert.True(HttpStatusCode.BadRequest == response.StatusCode, $"{body} -> {(int)response.StatusCode}");
             Assert.Equal("InvalidBody", CodeOf(text));
         }
-        var (notJson, notJsonText) = await SendAsync(api.Http, As(token, HttpMethod.Post, $"/v1/operatives/{id}/choices", "{\"choiceId\":\"combat\",\"expectedVersion\":1}", "text/plain"));
-        Assert.Equal(HttpStatusCode.BadRequest, notJson.StatusCode);
-        Assert.Equal("InvalidBody", CodeOf(notJsonText));
+        var (notJson, _) = await SendAsync(api.Http, As(token, HttpMethod.Post, $"/v1/operatives/{id}/choices", "{\"choiceId\":\"combat\",\"expectedVersion\":1}", "text/plain"));
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, notJson.StatusCode); // aligned with login: not JSON is 415 (Stage 5 Task 7; it was 400 InvalidBody)
 
         // A path id must be the canonical Base58 spelling: no leading '1' (the zero digit), no 0, O, I or l, 1 to 11 characters, within long.
         foreach (var badId in new[] { "1", "1" + id, "0", "O", "I", "l", "2l", "zzzzzzzzzzz", "222222222222", "-2", "%20", "2%20", "٣" })
