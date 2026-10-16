@@ -78,7 +78,7 @@ public class AuthApiTests : IAsyncLifetime
 
         var me = await api.Http.SendAsync(Me(token));
         Assert.Equal(HttpStatusCode.OK, me.StatusCode);
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account.AccountId)}\",\"inventoryVersion\":1}}", await me.Content.ReadAsStringAsync());
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account.AccountId)}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}}}}", await me.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -273,6 +273,6 @@ public class AuthApiTests : IAsyncLifetime
         var token = await TokenAsync(api.Http, mine.AccountKey);
         var request = Me(token);
         request.RequestUri = new Uri($"/v1/me?accountId={AccountId.Format(other.AccountId)}", UriKind.Relative);
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(mine.AccountId)}\",\"inventoryVersion\":1}}", await (await api.Http.SendAsync(request)).Content.ReadAsStringAsync());
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(mine.AccountId)}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}}}}", await (await api.Http.SendAsync(request)).Content.ReadAsStringAsync());
     }
 }

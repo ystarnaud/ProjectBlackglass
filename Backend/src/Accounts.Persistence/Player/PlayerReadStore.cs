@@ -3,6 +3,7 @@ using Dapper;
 using Npgsql;
 using Blackglass.Accounts.Domain.Advancement;
 using Blackglass.Accounts.Domain.Catalogue;
+using Blackglass.Accounts.Persistence.Energy;
 
 namespace Blackglass.Accounts.Persistence.Player;
 
@@ -19,12 +20,15 @@ public sealed record EquipmentView(long? Weapon, long? Armor, long? Utility);
 public sealed record BagView(long OperativeId, LocationView Bag, EquipmentView Equipment);
 
 /// <param name="Locked">Whether the account is in a mission (the <see cref="IInventoryLock"/> seam; never true until Stage 7 connects participations).</param>
+/// <param name="Energy">The projected wallet, or null when the account has none (owner ruling E3), never a zero balance.</param>
+public sealed record MeView(long? InventoryVersion, EnergyView? Energy);
 public sealed record InventoryView(long Version, bool Locked, LocationView Stash, IReadOnlyList<BagView> Operatives);
 
 /// <summary>
 /// The player's roster and inventory, scoped to the account (owner ruling D4: a GET never mutates persistent state). Every
 /// read is one <c>repeatable read, read only</c> transaction, so the version and every row come from one snapshot and no
-/// statement can write. An account with no inventories row, or one whose starter is not granted, is
+/// statement can write (<see cref="GetMeAsync"/> alone is <c>read committed, read only</c>, with its reads in one statement
+/// after the energy policy lock). An account with no inventories row, or one whose starter is not granted, is
 /// <see cref="PlayerError.NotProvisioned"/>: provisioning happens at account creation or by the operator's backfill, never
 /// here. A stored definition id the catalogue does not know is returned with its Known flag false, never an error: a
 /// later catalogue can retire an id the database still holds.
@@ -40,6 +44,22 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogu
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await BeginSnapshotAsync(conn, ct);
         return await ReadVersionAsync(conn, tx, accountId, ct);
+    }
+
+    /// <summary>
+    /// <c>GET /v1/me</c>: the inventory version and the projected energy (null without a wallet, E3; nothing is created). Unlike
+    /// the other reads this is a <c>read committed, read only</c> transaction, never <see cref="BeginSnapshotAsync"/>: the
+    /// shared policy lock comes first, then one statement, whose snapshot is taken after the lock (a REPEATABLE READ snapshot
+    /// would predate the lock wait; <see cref="EnergyReader.LockSharedAndReadMeAsync"/>). The projection is in memory only.
+    /// </summary>
+    public async Task<MeView> GetMeAsync(long accountId, CancellationToken ct = default)
+    {
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        await conn.ExecuteAsync(new CommandDefinition("set transaction read only", transaction: tx, cancellationToken: ct));
+        var read = await EnergyReader.LockSharedAndReadMeAsync(conn, tx, accountId, ct);
+        var energy = read.Wallet is null ? null : EnergyReader.Project(read.Wallet, read.Policies, read.Now);
+        return new MeView(read.InventoryVersion, energy);
     }
 
     public async Task<RosterView> GetRosterAsync(long accountId, CancellationToken ct = default)

@@ -16,7 +16,12 @@ public static class AuthEndpoints
     public sealed record LoginResponse(string AccessToken, DateTimeOffset ExpiresAt,
         [property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId);
 
-    public sealed record MeResponse([property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId, long? InventoryVersion);
+    /// <param name="Energy">The projected energy balance; null when the account has no wallet yet (owner ruling E3), never a zero balance.</param>
+    public sealed record MeResponse([property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId, long? InventoryVersion, EnergyDto? Energy);
+
+    /// <summary>A wallet projected to the database clock (Stage 6): the balance (which may exceed the cap, E6), the cap of the
+    /// policy it is measured under, and when the next unit lands (UTC, ISO-8601 with 'Z'), or null at or above the cap.</summary>
+    public sealed record EnergyDto(int Balance, int Cap, DateTime? NextRegenAt);
 
     /// <summary>The largest body login or the admin routes read: a key is 47 characters, an admin request a few hundred.</summary>
     public const int MaxBodyBytes = 4096;
@@ -60,7 +65,9 @@ public static class AuthEndpoints
         {
             http.Response.Headers.CacheControl = "no-store";
             var account = AccountClaims.AccountOf(http.User);
-            return Results.Ok(new MeResponse(account, await players.GetInventoryVersionAsync(account, http.RequestAborted)));
+            var me = await players.GetMeAsync(account, http.RequestAborted);
+            var energy = me.Energy is { } e ? new EnergyDto(e.Balance, e.Cap, e.NextRegenAt) : null;
+            return Results.Ok(new MeResponse(account, me.InventoryVersion, energy));
         }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
     }
 

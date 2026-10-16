@@ -339,10 +339,10 @@ public class PlayerApiTests : IAsyncLifetime
         var (response, text) = await SendAsync(api.Http, As(token, HttpMethod.Get, "/v1/me"));
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.True(response.Headers.CacheControl!.NoStore);
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account.AccountId)}\",\"inventoryVersion\":1}}", text);
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account.AccountId)}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}}}}", text);
 
         await ExecuteAsSuperuserAsync(db, "update inventories set version = 41 where account_id = @a", new { a = account.AccountId });
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account.AccountId)}\",\"inventoryVersion\":41}}", (await SendAsync(api.Http, As(token, HttpMethod.Get, "/v1/me"))).Text);
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account.AccountId)}\",\"inventoryVersion\":41,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}}}}", (await SendAsync(api.Http, As(token, HttpMethod.Get, "/v1/me"))).Text);
     }
 
     [Fact]
@@ -367,7 +367,7 @@ public class PlayerApiTests : IAsyncLifetime
             var (pick, pickText) = await SendAsync(api.Http, Pick(token, "2", "{\"choiceId\":\"combat\",\"expectedVersion\":1}"));
             Assert.Equal(HttpStatusCode.Conflict, pick.StatusCode);
             Assert.Equal("NotProvisioned", CodeOf(pickText));
-            Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account)}\",\"inventoryVersion\":null}}", (await SendAsync(api.Http, As(token, HttpMethod.Get, "/v1/me"))).Text);
+            Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account)}\",\"inventoryVersion\":null,\"energy\":null}}", (await SendAsync(api.Http, As(token, HttpMethod.Get, "/v1/me"))).Text);
 
             foreach (var table in new[] { "inventories", "operatives", "item_instances", "item_stacks", "operative_choices" })
                 Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(old, $"select count(*) from {table}"));
