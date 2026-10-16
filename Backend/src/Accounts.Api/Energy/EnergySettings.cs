@@ -6,7 +6,8 @@ public sealed class EnergySettingsException(string message) : Exception(message)
 
 /// <summary>
 /// Energy settings from the environment (Stage 6; every value provisional, spec §19), read by the admin CLI's energy verbs
-/// (and by serve once the reconciliation runs there). Unset or empty means the default; anything else outside its bounds
+/// and by serve, which schedules the reconciliation from <see cref="ReconcileSeconds"/> and validates both values at startup
+/// (a bad <see cref="GrantMaxVar"/> refuses to serve too). Unset or empty means the default; anything else outside its bounds
 /// refuses to run. A refusal names the setting and never echoes its value.
 /// </summary>
 public sealed class EnergySettings

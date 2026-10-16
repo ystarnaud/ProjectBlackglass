@@ -11,8 +11,13 @@ namespace Blackglass.Accounts.Persistence.Energy;
 /// itself before it reads the clock for <c>effective_at</c>); every materialization and projection takes it shared, after its
 /// wallet lock, in a READ COMMITTED transaction, and only then reads the clock and the policies, in one later statement. Every
 /// publication that committed before the shared lock was granted is then visible to that statement, and none can commit
-/// while the lock is held, so no reader ever sees a <c>now</c> later than a version it did not see. The lock is a leaf: a
-/// holder takes no further lock that a queued publisher or another shared holder could hold.
+/// while the lock is held, so no reader ever sees a <c>now</c> later than a version it did not see.
+/// <para>The lock is a leaf in this sense: after taking the shared lock, a transaction waits only on (a) its own rows, (b)
+/// policy rows (never write-locked), or (c) a transaction that already holds the shared lock and has no further waits (a
+/// concurrent first use of one grant key). It never waits on a transaction that has not yet been granted the lock, so a queued
+/// publisher, which holds nothing, can never close a cycle. Case (c) stays depth 1 only because each grant inserts exactly one
+/// global key: a later writer with global unique keys (Stage 7's charges keyed by attempt) must keep one key per transaction,
+/// or two shared holders can wait on each other.</para>
 /// </summary>
 public static class EnergyPolicies
 {

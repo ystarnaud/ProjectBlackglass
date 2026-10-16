@@ -19,9 +19,9 @@ public sealed record EquipmentView(long? Weapon, long? Armor, long? Utility);
 /// <summary>An operative's carried items (equipped ones included) and which of them sit in each slot.</summary>
 public sealed record BagView(long OperativeId, LocationView Bag, EquipmentView Equipment);
 
-/// <param name="Locked">Whether the account is in a mission (the <see cref="IInventoryLock"/> seam; never true until Stage 7 connects participations).</param>
 /// <param name="Energy">The projected wallet, or null when the account has none (owner ruling E3), never a zero balance.</param>
 public sealed record MeView(long? InventoryVersion, EnergyView? Energy);
+/// <param name="Locked">Whether the account is in a mission (the <see cref="IInventoryLock"/> seam; never true until Stage 7 connects participations).</param>
 public sealed record InventoryView(long Version, bool Locked, LocationView Stash, IReadOnlyList<BagView> Operatives);
 
 /// <summary>

@@ -14,6 +14,10 @@ public sealed record Materialized(WalletState Wallet, EnergyPolicy Current, Date
 /// <list type="bullet">
 /// <item>Lock the wallet row FOR UPDATE first, then take the shared policy lock, then read the clock and the policies in one
 /// later statement: no regeneration uses a clock read before a lock wait, or a policy set that could still change.</item>
+/// <item>After taking the shared policy lock, wait only on (a) the transaction's own rows, (b) policy rows (never
+/// write-locked), or (c) a transaction that already holds the shared lock and has no further waits (a concurrent first use of
+/// one grant key); never on a transaction that has not yet been granted the lock. Each grant inserts exactly one global key,
+/// which keeps (c) at depth 1; a writer that inserts several global keys after the lock could deadlock with another holder.</item>
 /// <item>Insert ledger entries only while holding the wallet row lock: the chain trigger and the commit check compare with the
 /// account's latest entry, which is exact only when entry ids follow that lock.</item>
 /// <item>Write a wallet's balance, anchor, progress and version together, in one UPDATE (the progress trigger checks the
