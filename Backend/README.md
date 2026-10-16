@@ -1,4 +1,4 @@
-# Blackglass backend (Phase 13, Stages 1–4: foundation, catalogue, accounts and development authentication, operatives and inventory)
+# Blackglass backend (Phase 13, Stages 1–5: foundation, catalogue, accounts and development authentication, operatives and inventory, inventory operations)
 
 ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loopback only; the VM is reached by SSH alias `bg-dev-services01-admin` (user `admin`, `sudo -n`; root SSH login is disabled).
 
@@ -53,7 +53,8 @@ Order: `make-secrets.sh <dir>` (once), then `deploy.sh` = build, database up, st
    - `0001_accounts_and_auth` narrows that for its tables. `accounts_app` gets column-level `INSERT` and `UPDATE` for exactly the columns it writes, no `DELETE`, and no privilege on the identity sequences. So it can never choose an account or audit id (not even with `OVERRIDING SYSTEM VALUE`), set a creation time, change a key or a stored hash, or re-point a row.
    - `0001` also revokes the global `PUBLIC` `EXECUTE` default on the migrator's future functions.
    - `0002_revocation_is_final` makes a revocation permanent. A trigger on `dev_credentials` and `auth_sessions` refuses any update that clears or changes a set `revoked_at` (23514, constraint `revocation_is_final`). `accounts_app` can't disable, drop or replace it (it owns nothing) or skip it with `session_replication_role` (superuser only).
-   - `0003_operatives_and_picks` and `0004_inventory` (Stage 4) revoke the default privileges on their tables and grant `accounts_app` column-level `INSERT` only (never `operative_id` or `item_id`), plus, on `inventories`, `UPDATE` of `version` and the three `starter_*` columns. No `DELETE`, no `UPDATE` of operatives, choices, instances or stacks (Stage 5's grant migration adds the inventory edits), no privilege on the identity sequences. The trigger `inventories_forward_only` (0004) makes a granted starter record final and keeps `version` from decreasing (constraints `starter_grant_is_final`, `inventory_version_never_decreases`); `0004` also adds `starter_backfill` to the `operator_actions` action list.
+   - `0003_operatives_and_picks` and `0004_inventory` (Stage 4) revoke the default privileges on their tables and grant `accounts_app` column-level `INSERT` only (never `operative_id` or `item_id`), plus, on `inventories`, `UPDATE` of `version` and the three `starter_*` columns. No `DELETE`, no `UPDATE` of operatives or choices, no privilege on the identity sequences.
+   - `0005_inventory_edits` (Stage 5) grants exactly the inventory edits: `UPDATE (operative_id, equipped_slot)` on `item_instances`, and `UPDATE (quantity)` and `DELETE` on `item_stacks` (an emptied stack row is deleted; no zero row remains). Never `DELETE` on `item_instances`, never an update of an identity, definition, account or origin column; still nothing on the identity sequences. `InventoryPrivilegeTests` pins the exact effective privileges. The trigger `inventories_forward_only` (0004) makes a granted starter record final and keeps `version` from decreasing (constraints `starter_grant_is_final`, `inventory_version_never_decreases`); `0004` also adds `starter_backfill` to the `operator_actions` action list.
    - `AccountsSchemaTests` and `PlayerSchemaTests` pin the app's exact privilege set.
 4. **The API runs as `accounts_app`.** It owns nothing and has no `CREATE` on the schema or `TEMPORARY` on the database, so it has **no DDL**: no `CREATE`, `ALTER`, `DROP` or `TRUNCATE`.
 5. **The superuser is used only** by the image's init, and by `backup.sh` and `restore-drill.sh` through `docker exec` over the container's local socket. No service connects as it.
@@ -92,6 +93,8 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 | `BLACKGLASS_RATE_REQUESTS_PER_MINUTE` | 1–100000, per account | 120 |
 | `BLACKGLASS_RATE_ADMIN_PER_MINUTE` | 1–1000, all admin requests together, before the key check | 10 |
 | `BLACKGLASS_DB_LOCK_TIMEOUT_MS` | 1–60000, `lock_timeout` on every API and admin CLI connection; at most the statement bound | 5000 |
+| `BLACKGLASS_INVENTORY_MAX_OPERATIONS` | 1–256, operations per inventory batch (Stage 5, provisional). A batch must also fit the body limit below: at 16 KiB, about 128 operations is the practical ceiling | 32 |
+| `BLACKGLASS_INVENTORY_MAX_BODY_BYTES` | 1024–1048576, the inventory batch body limit (Stage 5, provisional) | 16384 |
 | `BLACKGLASS_DB_STATEMENT_TIMEOUT_MS` | 1–600000, `statement_timeout` on the same connections (the migrator has neither: it sets its own `lock_timeout`) | 15000 |
 
 **Routes.**
@@ -151,7 +154,7 @@ Schema version 4. Owned ids (operatives and item instances) are PostgreSQL `bigi
 - `GET /v1/roster` → `{version, operatives:[{operativeId, definitionId, definitionKnown, experience, rank, pendingPicks, choices:[choiceId]}]}`.
 - `GET /v1/inventory` → `{version, locked, stash:{instances:[{itemId, definitionId, definitionKnown}], stacks:[{definitionId, definitionKnown, quantity}]}, operatives:[{operativeId, bag:{instances, stacks}, equipment:{weapon, armor, utility}}]}`. `bag.instances` includes the equipped items; `equipment` gives the item id per slot or null; `locked` is false until participations exist.
 - `POST /v1/operatives/{operativeId}/choices {choiceId, expectedVersion}` → `{version, operative}`. It follows `PersistentOperativeState.TryPickChoice` (a pending pick and a known choice) under the inventory row lock and bumps the shared inventory version.
-- Errors: 400 `InvalidOperativeId` or `InvalidBody` (a wrong content type is also 400 here, where login's is 415), 413 over 4 KiB, 404 `OperativeNotFound` (unknown and another account's operative are the same answer), 409 `VersionMismatch` or `NotProvisioned`, 422 `NoPendingPick` or `UnknownChoice`. Reads never write: an account without a starter gets 409 `NotProvisioned` (nobody is provisioned by looking). A pick is allowed for an operative whose definition the catalogue no longer knows.
+- Errors: 400 `InvalidOperativeId` or `InvalidBody`, 415 for a non-JSON content type (Stage 5; it was 400 in Stage 4), 413 over 4 KiB, 404 `OperativeNotFound` (unknown and another account's operative are the same answer), 409 `VersionMismatch`, `NotProvisioned` or `InventoryLocked` (Stage 5: checked under the inventory row lock after `NotProvisioned` and before the version), 422 `NoPendingPick` or `UnknownChoice`. Reads never write: an account without a starter gets 409 `NotProvisioned` (nobody is provisioned by looking). A pick is allowed for an operative whose definition the catalogue no longer knows.
 
 **Provisioning.** `account create` (CLI and `POST /dev/v1/accounts`) creates the account, its credential and its starter (operatives, instances equipped as authored, stacks, the `inventories` row and the starter's catalogue version) in one transaction with its audit row: a failure anywhere leaves nothing. Every operative and item is minted by `INSERT … ON CONFLICT (origin, origin_ref) DO NOTHING RETURNING`, or found by that reference, so a retry or a concurrent mint never makes a second row. A later catalogue never re-grants or replaces a starter.
 
@@ -164,6 +167,46 @@ Schema version 4. Owned ids (operatives and item instances) are PostgreSQL `bigi
 - It prints `accountId=`, `starterGranted=granted|already`, `catalogueVersion=` (the grant's, or the recorded one when already granted), then `operatives=`, `instances=` and `stacks=` only for a grant, and `correlationId=`. Exit codes are the CLI's: 0 ok (including `already`), 3, 64, 65 (no such account), 67, 69, 75. An invalid or missing catalogue refuses this verb and `account create` with exit 4, writing nothing. The account-security verbs (`credential rotate`, `credential revoke`, `sessions revoke`, `account suspend`, `account reactivate`) never load the catalogue, so they still work when a build ships with a bad one.
 
 **Schema objects** (`0003`, `0004`): `operatives`, `operative_choices`, `inventories`, `item_instances`, `item_stacks`, the trigger `inventories_forward_only`, and the extended `operator_actions` action list. Invariants: `db/invariants/0004_inventory_consistency.sql` (one row per violation).
+
+## Inventory operations (Stage 5)
+
+Schema version 5 (`0005_inventory_edits`). Owner rulings S5-D1–S5-D8 (spec revision 2.5, §0.5).
+
+**Route.** `POST /v1/inventory/operations {expectedVersion, operations:[…]}` → `{version, inventory}` (`inventory` is shaped like `GET /v1/inventory`). Session only, per-account rate limit, `Cache-Control: no-store`, the uniform 401. No member names an account.
+
+| Operation | Members (exactly) |
+|---|---|
+| `equip`, `equipFromStash` | `operativeId`, `itemId` |
+| `unequip` | `operativeId`, `slot` (`weapon`, `armor` or `utility`) |
+| `toStash`, `toBag` | `operativeId`, and either `itemId` or `definitionId` plus `quantity` |
+
+Ids are canonical Base58 strings; numbers are strict; an unknown or duplicated member is refused.
+
+| Status | Body | When |
+|---|---|---|
+| 200 | `{version, inventory}` | the whole batch applied; the version went up by exactly one |
+| 400 | `{code:"InvalidBody"}` | malformed JSON, a missing, unknown or duplicated member, a wrong type, an empty `operations` list |
+| 400 | `{code:"TooManyOperations"}` | more than `BLACKGLASS_INVENTORY_MAX_OPERATIONS` (default 32) |
+| 400 | `{code:"InvalidOperation", index}` | an operation with the wrong members, an unknown `op`, a bad slot or a non-canonical id |
+| 413 / 415 | empty | a body over `BLACKGLASS_INVENTORY_MAX_BODY_BYTES` (16 KiB) / a non-JSON content type |
+| 409 | `{code}` | `NotProvisioned`, `InventoryLocked`, `VersionMismatch` (checked in that order under the row lock) |
+| 422 | `{code, index}` | the first refused operation: `UnknownOperative`, `NotFound`, `UnknownItem`, `NotEquippable`, `NothingEquipped`, `Equipped`, `DestinationFull`, `InvalidQuantity`, `InsufficientQuantity` |
+| 500 | empty | a broken invariant (a bug) or a stack merge past 2,147,483,647 units: rolled back, one token-free log line on `Blackglass.Inventory` |
+| 503 | empty | the database is unavailable, or busy (with `Retry-After`) |
+
+**Rules.**
+- Five operations only; moves between operatives go through the stash in one batch. Each operation sees the state the earlier ones left; the final state is validated (equipment consistency, one item per slot, no zero stacks, a bag grows only within the catalogue's `inventory.bagCapacity`, units and instance ids conserved).
+- **Exact and atomic:** an operation moves exactly its quantity or the batch is refused, nothing written, version unchanged. Unity's offline partial transfers are deliberately not ported (they are unchanged in the game).
+- Stacks have no ids: a stack operation names a location and a definition; part of a stack splits it, arriving units merge. Bag entries are `ceil(quantity / maxStack)` per definition.
+- **Retired items** (definition no longer in the catalogue) can be unequipped and moved to the stash, never equipped or moved back to a bag (`UnknownItem`); their ids, origin and quantities are kept.
+- **Information safety:** a foreign, nonexistent or misplaced item id is the same `422 NotFound`, byte for byte; a foreign or nonexistent operative the same `UnknownOperative`. Every statement is scoped to the session's account.
+- **No replay.** The server never refreshes the version and re-applies a batch, and never retries one after a busy or unavailable database. A client re-reads `GET /v1/inventory` and decides.
+- **Locks:** `accounts` `FOR KEY SHARE` (so the stack insert's foreign-key check never takes it after the next lock), then `inventories` `FOR UPDATE`, then owned rows. An edit can wait behind an operator lifecycle command on the same account, bounded by `lock_timeout` (503).
+- **`InventoryLocked`** comes from a seam (`IInventoryLock`) that always answers unlocked until Stage 7 connects it to participation records; picks and `GET /v1/inventory`'s `locked` use the same seam.
+
+**Starter grant versus current holdings.** The `inventories.starter_*` columns, each instance's `origin`/`origin_ref` and the `account_create`/`starter_backfill` audit rows record the original grant and never change; instance locations and stack quantities are current holdings. No output labels current holdings as the starter.
+
+**Contract vectors.** `contracts/inventory/vectors.json`: `shared` cases run in xUnit and in Unity EditMode against `InventorySession`; `backend` cases (strict quantities, partial room, unknown operatives on transfers, retired items, over-capacity bags) run in xUnit only.
 
 **Rate limits behind the tunnel.** Every request reaches the container from the Docker bridge address, so no limit is per IP. Login is limited per presented key, plus a global window that fabricated keys can't get around. Authenticated requests are limited per account. Per-IP limits wait for Phase 14's HAProxy.
 

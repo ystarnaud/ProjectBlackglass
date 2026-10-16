@@ -181,7 +181,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 5: inventory operations
 
-**Status: authorized by the owner on 2026-10-16 with rulings S5-D1–S5-D8 (spec revision 2.5, §0.5); in progress on branch `phase13-stage5`.** Detailed plan: `Docs/superpowers/plans/2026-10-15-phase-13-stage5-inventory-operations.md` (revision 2). It supersedes the work list below where they differ: migration `0005_inventory_edits` (so energy's migration becomes `0006`), the `IInventoryLock` seam for picks and edits, vectors at `Backend/contracts/inventory/vectors.json` with `shared` and `backend` scopes, and the backfill's starter-versus-holdings correction.
+**Status: implemented on branch `phase13-stage5` (code complete at `6a487cc`, plus the as-built docs commit), awaiting the owner's review; not merged, pushed or deployed.** Authorized by the owner on 2026-10-16 with rulings S5-D1–S5-D8 (spec revision 2.5, §0.5). Measured: backend ALL 1250/0 (Domain 460, Integration 790) at `6a487cc`; Unity EditMode 1579/0 (1524 + 54 shared inventory cases + 1 guard), PlayMode 1434/0. VM smoke, probe and drill passed; see the detailed plan's "As built". Detailed plan: `Docs/superpowers/plans/2026-10-15-phase-13-stage5-inventory-operations.md` (revision 2). It supersedes the work list below where they differ: migration `0005_inventory_edits` (so energy's migration becomes `0006`), the `IInventoryLock` seam for picks and edits, vectors at `Backend/contracts/inventory/vectors.json` with `shared` and `backend` scopes, and the backfill's starter-versus-holdings correction.
 
 **Touches:**
 - `Backend/`;

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Date: 2026-10-15; revision 2, 2026-10-16. **Status: authorized for implementation by the owner on 2026-10-16, with rulings S5-D1 to S5-D8 (§A).** Every count below is a prediction until the as-built section records it. Base: `main` @ `f3cada4` (Stage 4 merged and pushed; schema version 4; backend ALL 1001/0, UNIT 488/0; Unity EditMode 1524/0, PlayMode 1434/0). Branch: `phase13-stage5`. Execution: subagent-driven, with three independent review checkpoints (after Task 3, after Task 7, and over the whole branch).
+Date: 2026-10-15; revision 2, 2026-10-16. **Status: implemented on branch `phase13-stage5` (code complete at `6a487cc`, plus the as-built docs commit), awaiting the owner's review; not merged, pushed or deployed.** Authorized on 2026-10-16 with rulings S5-D1 to S5-D8 (§A). Measured counts and every departure are in "As built" at the end. Base: `main` @ `f3cada4` (Stage 4 merged and pushed; schema version 4; backend ALL 1001/0, UNIT 488/0; Unity EditMode 1524/0, PlayMode 1434/0). Branch: `phase13-stage5`. Execution: subagent-driven, with three independent review checkpoints (after Task 3, after Task 7, and over the whole branch).
 
 **Goal:** a player can rearrange their own persistent inventory through one atomic, version-checked batch endpoint. The batch can equip and unequip, move non-stackables and consumable quantities between the stash and an operative's bag, and equip straight from the stash. The rules match Unity's `InventorySession` wherever the two agree, proven by shared vectors run in both xUnit and Unity EditMode. Where the owner ruled the backend stricter (exact quantities, no partial moves) or different (retired items can leave a bag), backend-only tests pin it. Edits are refused with `409 InventoryLocked` while the account is in a mission; the lock source arrives with participations in Stage 7, but the check, its place under the row lock and its HTTP mapping are built and tested now.
 
@@ -89,7 +89,7 @@ Consequences built into Stage 5:
   - Mission attempts stay UUIDv7; sessions and credentials keep their UUIDs; stacks get no ids.
   - **No request carries an account id.** The account comes from the session (`AccountClaims.AccountOf`).
 - **Locking (documented lock order):** `accounts` → `inventories` → owned rows (`operatives`, `item_instances`, `item_stacks`).
-  - Edits and picks lock only the account's `inventories` row `FOR UPDATE` (the order minus its first step) and touch owned rows only while holding it.
+  - Picks lock only the account's `inventories` row `FOR UPDATE` and touch owned rows only while holding it. **As built:** edits first take `accounts` `FOR KEY SHARE` (ruling R7 in "As built"), then the same.
   - Every writer of owned rows holds that lock: provisioning, backfill, picks, edits, and later settlement.
   - Waits are bounded by the connection timeouts; a timeout is 503 busy with nothing written, and is never retried by the server.
 - **App role privileges:** exactly the grants in S5-D4. Still no privilege on identity sequences, no `DELETE` on `item_instances`, no update of any definition, account, origin or identity column.
@@ -514,3 +514,42 @@ public sealed class NoParticipationsYet : IInventoryLock { public Task<bool> IsL
 - The participation source behind `InventoryLocked` (Stage 7).
 - Wiring the offline client or `SquadInventory` to the backend; any change to Unity's offline transfer rules.
 - Live deployment.
+
+## As built (2026-10-16)
+
+Branch `phase13-stage5` from `main` @ `f3cada4`, code complete at `6a487cc` (the as-built docs commit follows). Not merged, pushed or deployed.
+
+**Measured.** backend ALL 1250/0 (Domain 460, Integration 790) at `6a487cc`; Unity EditMode 1579/0 (1524 + 54 shared inventory cases + 1 guard), PlayMode 1434/0. Contract vectors: 89 cases, 54 `shared` (xUnit and Unity EditMode) and 35 `backend` (xUnit only), with the counts pinned in both runners. Migrations 0000–0004 are byte-identical to `f3cada4`; `0005_inventory_edits` is the S5-D4 grants verbatim.
+
+**VM (at `c6bb9c6`, and again at `6a487cc` after the Compose change; throwaway projects only).** Smoke 41 ok / 0 failures at schema 0005, including the inventory round trip (200, version +1) and the replay (409 `VersionMismatch`, once), with dev login 404 before and after its section and no key or token in the transcript; the off-host probe during the hold found 5080, 5432 and 55432 closed and 22 answering; the drill passed (16 ok, 3 invariants held); afterwards only `blackglass-testdb` ran and the containers, listeners and volumes were as before. Evidence: `.claude/scratchpad/phase13/stage-05/` (not committed).
+
+**Reviews.** Per-task reviews (sonnet; opus for Task 6) and the owner's three checkpoints (opus): checkpoint 1 (Tasks 1–3) 0 Critical / 0 Important; checkpoint 2 (Tasks 4–7) 0 / 0; checkpoint 3 (whole branch) 0 / 0, "ready to merge with fixes" (docs, a test comment), all applied. One Important finding during the task reviews (Task 6, the lock-order inversion) was fixed and re-reviewed.
+
+**Rulings made during execution** (the controller's, with what each costs if wrong):
+- R1: `HeldInstance.Equipped` is null when not equipped, never `ItemSlot.None` (the column is null or a real slot). Cost: a mapping change.
+- R2: `InventoryEditStore` takes the catalogue through its constructor so the vector replay can supply each case's items. Cost: fixture rework.
+- R3: per-task reviews on sonnet (opus for Task 6), checkpoints on opus. Cost: a finding caught one checkpoint later.
+- R4: `ValidateFinal` does not re-judge an unchanged equipped item whose definition was retired or whose slot changed, so legacy state never turns unrelated edits into 500s (S5-D7). Cost: a weaker invariant on legacy state only.
+- R5, R10, R11: the reviews of Tasks 3, 7 and 9 were folded into checkpoints 1, 2 and 3. Cost: none beyond a combined report.
+- R6: an `item_id` update asserts 428C9 (PostgreSQL refuses a `GENERATED ALWAYS` identity before the privilege check); `set item_id = default` reaches 42501 and is asserted too, and the exact-privileges test pins no `UPDATE` on `item_id`. Cost: none.
+- R7: edits take `accounts` `FOR KEY SHARE` before `inventories` `FOR UPDATE` (the stack insert's foreign-key check would otherwise take it after, inverting the order against backfill); changing backfill's `FOR UPDATE` to `FOR NO KEY UPDATE` was rejected as a Stage 3 change. Cost: an edit can wait behind an operator lifecycle command, bounded by `lock_timeout`.
+- R8: an over-limit batch is 400 `TooManyOperations`, an empty one 400 `InvalidBody`. Cost: one code string.
+- R9: Task 7's red state was a compile failure, not a captured run; the checkpoint confirmed its tests assert real behaviour. Cost: none found.
+- R12: the 16 KiB body limit became configuration (`BLACKGLASS_INVENTORY_MAX_BODY_BYTES`), as S5-D6 says. Cost: one more setting.
+- R13: a stack merge past `int` range (reachable only from stored state) is a 500 with rollback, tested end to end; making it a refusal is left to the first stage that creates items. Cost: that stage revisits it.
+
+**Departures from this plan's text.**
+- Over-capacity, retired and unknown-operative-transfer cases are `backend` scope: `InventorySession.Session` has no public setter, so Unity's public API cannot install an over-capacity state, and the owner ruled retired handling backend-only. No Unity runtime code changed.
+- The Unity runner addresses stack operations to stackable entries only (last entry first) and fails a case on any partial transfer, so a misclassified shared case cannot pass.
+- `StarterProvisioner` returns no counts when the starter was already granted (they were current holdings), so no caller can mislabel them.
+- Duplicate JSON members are refused on the pick and edit routes; the pick route's non-JSON content type is 415.
+- `BLACKGLASS_INVENTORY_MAX_OPERATIONS` and `BLACKGLASS_INVENTORY_MAX_BODY_BYTES` are passed through the services Compose file (environment lines only).
+
+**Deferred minors (not fixed; none blocks merge per checkpoint 3).**
+- `ValidateFinal`'s theory asserts only the exception type (each row checked by hand).
+- The API pick-lock test uses a fresh version (the store test covers the order); `AlwaysLocked.Calls` is not atomic (single-threaded use).
+- The isolation test proves "not locked or written"; "not read" rests on the account-scoped SQL.
+- The instance update has no prior-state predicate (the row lock and the database conservation re-check cover it).
+- `TestDatabase.Source` is a plain dictionary first touched before the vector fan-out (deterministic; a `ConcurrentDictionary` would be tidier).
+- An explicit JSON `null` member counts as absent; 503 and 500 answers lose `Cache-Control: no-store` (empty bodies, pre-existing); the no-replay API test relies on the code having no retry (verified); no per-account rate-limit test on the new route (same attachment as Stage 4).
+- **Stage 7 obligation:** make `IInventoryLock` required at every store construction site when participation records are connected, before live mission admission.
