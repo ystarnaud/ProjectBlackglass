@@ -25,16 +25,29 @@ public static class AdminCommand
         AdminArguments a;
         try { a = AdminArguments.Parse(args); }
         catch (AdminUsageException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
-        // The catalogue comes before the database, as for serve: account creation grants its starter.
-        GameCatalogue catalogue;
-        try { catalogue = (loadCatalogue ?? (() => GameCatalogue.Embedded))(); }
-        catch (CatalogueException e) { error.WriteLine($"Refusing to run: {e.Message}"); return ExitCodes.InvalidCatalogue; }
+        // Only the verbs that grant a starter load the catalogue, and before the database, as for serve: an invalid or
+        // missing one refuses them (exit 4) with nothing written. Account-security verbs never load it, so an operator can
+        // still revoke, suspend, reactivate and rotate when a bad build ships.
+        var load = loadCatalogue ?? (() => GameCatalogue.Embedded);
+        GameCatalogue? catalogue = null;
+        if (a.NeedsCatalogue)
+        {
+            try { catalogue = load(); }
+            catch (Exception e) when (e is CatalogueException or InvalidOperationException) // InvalidOperation: no embedded resource
+            {
+                error.WriteLine($"Refusing to run: {e.Message}");
+                return ExitCodes.InvalidCatalogue;
+            }
+        }
         DbSettings settings;
         DbTimeouts timeouts;
         try { (settings, timeouts) = (DbSettings.FromEnvironment(env), DbTimeouts.FromEnvironment(env)); }
         catch (DbSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return ExitCodes.Failure; }
         await using var dataSource = settings.CreateDataSource("blackglass-admin", maxPoolSize: 2, timeouts: timeouts);
-        var store = new AccountAdminStore(dataSource, catalogue);
+        // Without a loaded catalogue the store gets one that refuses: no security verb may come to depend on it unnoticed.
+        var store = catalogue is not null
+            ? new AccountAdminStore(dataSource, catalogue)
+            : new AccountAdminStore(dataSource, () => throw new InvalidOperationException($"admin {a.Verb} does not load the catalogue."));
         try
         {
             // The same schema policy as serve (Stage 1 ruling 4): behind, drifted or ahead, the CLI writes nothing.

@@ -440,7 +440,7 @@ The implementer must confirm the real name of 0001's action check constraint, `o
 **Files:**
 - Create `src/Accounts.Persistence/Player/StarterProvisioner.cs`.
 - Modify `Accounts/AccountAdminStore.cs`: constructor `AccountAdminStore(NpgsqlDataSource db, GameCatalogue? catalogue = null)`, defaulting to `GameCatalogue.Embedded`; `CreateAccountAsync` provisions in its own transaction.
-- Modify `Accounts.Api/ServeCommand.cs` (pass the loaded catalogue) and `Admin/AdminCommand.cs` (load `GameCatalogue.Embedded` before touching the database; an invalid catalogue is exit 4 `InvalidCatalogue`, as for `serve`).
+- Modify `Accounts.Api/ServeCommand.cs` (pass the loaded catalogue) and `Admin/AdminCommand.cs` (load `GameCatalogue.Embedded` before touching the database; an invalid catalogue is exit 4 `InvalidCatalogue`, as for `serve`). *Superseded by the 2026-10-15 owner correction: only `account create` and `starter backfill` load it; see "Owner correction before merge" below.*
 - Test `tests/Accounts.Integration.Tests/Database/ProvisioningTests.cs`; extend `AccountAdminStoreTests` and `AdminTests`.
 
 **Interfaces:**
@@ -664,7 +664,7 @@ public sealed record InventoryView(long Version, bool Locked, LocationView Stash
 
 ## As built (2026-10-15)
 
-**Status:** implemented on branch `phase13-stage4`; awaiting the owner's review; not merged, not pushed, the live accounts stack not deployed.
+**Status:** implemented on branch `phase13-stage4`; approved by the owner on 2026-10-15 for merge after the correction below; the live accounts stack is not deployed.
 
 **Measured** (predictions were backend ALL about 669 + 140 and Unity EditMode about +12):
 
@@ -722,5 +722,28 @@ All three were independent reviews on the most capable model. The task reviews b
 - Task 7: `WaitUntilBackendsWaitOnLocksAsync` is duplicated in `BackfillTests`, `ProvisioningTests` and `AccountTestKit`; the account-first lock order is not pinned by a `FOR NO KEY UPDATE` holder; the hard-coded 5 waiters equal the test pool size; a long doc-comment line in `AdminCommand`.
 - Task 8: `Reads_write_nothing` cannot catch a dropped `set transaction read only` without an added write (inherent to the ruling; the data-source layer is covered by mutation); the utility slot is never exercised; per-operative list filtering is O(n·m); the transaction is not disposed if `set transaction read only` throws (the connection is).
 - Task 9: no null `choiceId` case in `PickStoreTests` (the route rejects it as `InvalidBody`, tested at the route); the ordinal cast overflow is unreachable; the timeout test cannot tell which statement waited (the race test pins the lock).
-- Checkpoint 2: `PlayerEndpoints`' refusal switch `_ => 422` would mis-map a future `InventoryLocked` (409); an already-granted `ProvisionResult` reports current holdings under the starter-count labels (identical in Stage 4, diverges from Stage 5 in backfill audits and CLI lines); the origin-reference collision exception is unmapped in the CLI and route (unreachable today); no 429 or unavailable-503 test on the new routes (shared middleware); an invalid catalogue blocks every admin verb including security revocations (exit 4): owner awareness.
+- Checkpoint 2: `PlayerEndpoints`' refusal switch `_ => 422` would mis-map a future `InventoryLocked` (409); an already-granted `ProvisionResult` reports current holdings under the starter-count labels (identical in Stage 4, diverges from Stage 5 in backfill audits and CLI lines); the origin-reference collision exception is unmapped in the CLI and route (unreachable today); no 429 or unavailable-503 test on the new routes (shared middleware); an invalid catalogue blocks every admin verb including security revocations (exit 4): owner awareness (*resolved by the owner correction below*).
 - Task 11: the Unity runners' case-count guards are lower bounds (30 and 10), not exactly 32 and 17; one test per runner (the first failing case hides the rest); the JSON reader is lenient on `+1`, leading zeros and raw control characters.
+
+## Owner correction before merge (2026-10-15)
+
+The owner provisionally accepted Stage 4 at `cb44edd` and required one correction before the merge: emergency account-security administration must not depend on a valid embedded catalogue.
+
+- **Change.**
+  - `AdminArguments`' verb table now declares, for every verb, whether it needs the catalogue. Only `account create` and `starter backfill` do.
+  - `AdminCommand` loads the catalogue for those two verbs only, before the database. An invalid one (`CatalogueException`) or a missing one (the `InvalidOperationException` of `GameCatalogue.EmbeddedBytes`) refuses them with exit 4, and nothing is written.
+  - `credential rotate`, `credential revoke`, `sessions revoke`, `account suspend` and `account reactivate` never load it. They keep the schema check, confirmation, locks, atomic audit and secret handling.
+  - `AccountAdminStore` takes a `Func<GameCatalogue>`, called first in `CreateAccountAsync` and `BackfillStarterAsync`, before a connection opens. Before, its field initializer evaluated `GameCatalogue.Embedded` at construction. For security verbs the CLI hands it a loader that throws, so a security verb that came to need the catalogue would fail loudly.
+  - `serve` is unchanged: it refuses to start on an invalid catalogue (exit 4).
+- **Tests:**
+  - `AdminCatalogueBoundaryTests` (19 cases): each security verb with an invalid and a missing catalogue succeeds, is audited and never calls the loader; confirmation and the schema check still refuse; create and backfill refuse with exit 4 and write nothing; at store level, the catalogue is read only to grant a starter, before the database.
+  - `AdminArgumentsTests` (8 cases): the classification of every verb.
+  - Before the fix, 16 of the 18 first-written cases failed.
+- **Measured:** backend ALL **1001/0** (Domain 292, Integration 709); UNIT **488/0**. Migrations 0000–0004 are byte-unchanged (`git diff cb44edd -- Backend/db` is empty).
+- **Review:** an independent review (most capable model) found 0 Critical, 0 Important and 6 Minor, and judged it ready to merge.
+  - **Applied:** M2 (classification in the verb table, with an exhaustive test), M3 (the store-level test), M5 (exactly one key line, `try`/`finally`) and M6 (README legend, spec verb list, superseded notes here). M4 is applied as a note in the test's summary.
+  - **Deferred (owner's call, outside the admin boundary):** M1. `serve` still exits with an unhandled exception, not 4, when the embedded resource is missing (fail closed; unreachable while the csproj names the file).
+- **Rulings:**
+  - The "missing" case is the `InvalidOperationException` that `EmbeddedBytes` throws, caught only around the loader call in `AdminCommand`; `Accounts.Domain` and `serve` are left unchanged, to keep the fix at the admin boundary. *Cost if wrong:* the two commands report a missing resource differently (M1).
+  - Store constructors keep `(db, GameCatalogue? = null)` (null = embedded, now lazy) and gain `(db, Func<GameCatalogue>)`. *Cost if wrong:* one constructor more than strictly needed.
+

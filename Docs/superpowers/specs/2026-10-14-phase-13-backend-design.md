@@ -266,10 +266,11 @@ The agent is a .NET 10 worker published self-contained, so the mission VM needs 
     - Every wait is bounded (§15.3).
     - A revocation is permanent (`0002`).
   - **Operator surfaces.**
-    - The CLI is `admin account create [--handle] [--display-name] | credential rotate | credential revoke | sessions revoke | account suspend | account reactivate`, each with `--operator` and `--reason`.
+    - The CLI is `admin account create [--handle] [--display-name] | credential rotate | credential revoke | sessions revoke | account suspend | account reactivate | starter backfill`, each with `--operator` and `--reason`.
     - Accounts are named by `--account-base58 <id>`, always the Base58 id, even when it is all digits.
     - Every command but `create` first prints its target: canonical id, status, handle, display name, creation time, live credential and sessions. It acts only when confirmed: the operator types the Base58 id at a terminal, or passes `--yes`. Otherwise nothing changes.
     - Each change writes an `operator_actions` row with a correlation id in the same transaction.
+    - **Catalogue boundary (owner correction, 2026-10-15).** Only `account create` and `starter backfill` load the game catalogue, before the database; an invalid or missing one refuses them with exit 4 and nothing written. The account-security verbs (rotate, credential revoke, sessions revoke, suspend, reactivate) never load it, so emergency security administration works even when a build ships a bad catalogue. They keep the schema check, confirmation, locks and atomic audit. `serve` still refuses to start on an invalid catalogue.
   - **Admin route.** `POST /dev/v1/accounts` is rate-limited before the key check and compares exactly one `X-Admin-Key` in constant time before reading the body. "Loopback only" is the API's own `127.0.0.1` publication: inside the container every request comes from the bridge gateway, so an in-app address check would prove nothing.
   - **Rate limits** (§19) are per presented key plus one global login window, per account for authenticated requests, and one admin window. None is per IP behind the tunnel.
 

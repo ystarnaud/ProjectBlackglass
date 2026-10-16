@@ -30,10 +30,14 @@ public sealed record CredentialSummary(Guid CredentialId, long AccountId, bool L
 /// an earlier statement (the account lock, then FOR UPDATE on the credentials and sessions; a concurrent logout holds a
 /// session row). greatest(…, created_at) keeps a revocation possible even after the clock steps back: a security action
 /// never fails on time.
+/// The catalogue is read only by the calls that grant a starter (account creation and the backfill), first, before they
+/// open a connection: the account-security calls never touch it, so they work whatever state it is in.
 /// </summary>
-public sealed class AccountAdminStore(NpgsqlDataSource db, GameCatalogue? catalogue = null)
+public sealed class AccountAdminStore(NpgsqlDataSource db, Func<GameCatalogue> loadStarterCatalogue)
 {
-    readonly GameCatalogue starterCatalogue = catalogue ?? GameCatalogue.Embedded;
+    /// <param name="catalogue">The catalogue starters are granted from; null means the embedded one, loaded when first needed.</param>
+    public AccountAdminStore(NpgsqlDataSource db, GameCatalogue? catalogue = null)
+        : this(db, catalogue is null ? static () => GameCatalogue.Embedded : () => catalogue) { }
 
     const string LockSessionsOfCredentials =
         "select session_id from auth_sessions where revoked_at is null and credential_id = any(@credentials) order by session_id for update";
@@ -46,6 +50,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, GameCatalogue? catalo
             throw new AccountAdminException(AccountAdminError.InvalidHandle, "A handle must be lowercase letters and digits separated by single '.' or '-', at most 64 characters.");
         if (displayName is not null && !DisplayName.IsValid(displayName))
             throw new AccountAdminException(AccountAdminError.InvalidDisplayName, "A display name must be 1 to 64 characters, without control characters or surrounding spaces.");
+        var starterCatalogue = loadStarterCatalogue();
         var credentialId = Guid.CreateVersion7();
         var key = OpaqueSecret.New(OpaqueSecret.AccountKeyPrefix);
         await using var conn = await DbFailure.OpenAsync(db, ct);
@@ -171,6 +176,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, GameCatalogue? catalo
     /// </summary>
     public async Task<BackfillResult> BackfillStarterAsync(long accountId, OperatorContext op, CancellationToken ct = default)
     {
+        var starterCatalogue = loadStarterCatalogue();
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await LockAccountAsync(conn, tx, accountId, ct);

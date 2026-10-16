@@ -57,6 +57,23 @@ public class AdminArgumentsTests
         Assert.True(Parse(line.Replace(" --operator", " --yes --operator", StringComparison.Ordinal)).Confirmed); // anywhere among the flags
     }
 
+    [Theory]
+    [InlineData("account create --operator o --reason r", true)]
+    [InlineData("starter backfill --account-base58 BukQL --operator o --reason r", true)]
+    [InlineData("credential rotate --account-base58 BukQL --operator o --reason r", false)]
+    [InlineData("credential revoke --credential 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r", false)]
+    [InlineData("sessions revoke --account-base58 BukQL --operator o --reason r", false)]
+    [InlineData("account suspend --account-base58 BukQL --operator o --reason r", false)]
+    [InlineData("account reactivate --account-base58 BukQL --operator o --reason r", false)]
+    public void Only_the_starter_granting_verbs_need_the_catalogue(string line, bool needs) =>
+        Assert.Equal(needs, Parse(line).NeedsCatalogue);
+
+    [Fact]
+    public void Every_verb_is_classified_and_only_the_starter_granting_ones_need_the_catalogue() =>
+        // A new verb fails this until it is listed here and classified in the theory above (security administration, or needing game definitions).
+        Assert.Equal(new SortedSet<string>(["account-create", "account-reactivate", "account-suspend", "credential-revoke", "credential-rotate", "sessions-revoke", "starter-backfill"]),
+            new SortedSet<string>(AdminArguments.KnownVerbs));
+
     [Fact]
     public void Credential_revocation_takes_a_uuid()
     {

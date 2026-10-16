@@ -26,19 +26,28 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         "An account id is always Base58 (as printed, e.g. BukQL or 2), never decimal. Every command but create shows its " +
         "target and acts only when confirmed: type the Base58 account id at the terminal, or add --yes.";
 
-    static readonly Dictionary<string, (string[] Required, string[] Optional)> Verbs = new()
+    // NeedsCatalogue: whether the verb reads game definitions (only the starter-granting ones). Every verb declares it here,
+    // so a new verb can't be added without deciding whether an invalid catalogue may block it.
+    static readonly Dictionary<string, (string[] Required, string[] Optional, bool NeedsCatalogue)> Verbs = new()
     {
-        ["account-create"] = ([], ["--handle", "--display-name"]),
-        ["credential-rotate"] = ([AccountFlag], []),
-        ["credential-revoke"] = (["--credential"], []),
-        ["sessions-revoke"] = ([AccountFlag], []),
-        ["account-suspend"] = ([AccountFlag], []),
-        ["account-reactivate"] = ([AccountFlag], []),
-        ["starter-backfill"] = ([AccountFlag], []),
+        ["account-create"] = ([], ["--handle", "--display-name"], true),
+        ["credential-rotate"] = ([AccountFlag], [], false),
+        ["credential-revoke"] = (["--credential"], [], false),
+        ["sessions-revoke"] = ([AccountFlag], [], false),
+        ["account-suspend"] = ([AccountFlag], [], false),
+        ["account-reactivate"] = ([AccountFlag], [], false),
+        ["starter-backfill"] = ([AccountFlag], [], true),
     };
+
+    /// <summary>Every verb ("noun-verb") the CLI knows.</summary>
+    public static IReadOnlyCollection<string> KnownVerbs => Verbs.Keys;
 
     /// <summary>Every verb but account create changes an existing account and needs confirmation.</summary>
     public bool ChangesAnExistingAccount => Verb != "account-create";
+
+    /// <summary>Only the verbs that grant a starter read game definitions. Account-security administration (rotate, revoke a
+    /// credential, revoke sessions, suspend, reactivate) never loads the catalogue, so it works whatever state that is in.</summary>
+    public bool NeedsCatalogue => Verbs[Verb].NeedsCatalogue;
 
     public static AdminArguments Parse(IReadOnlyList<string> args)
     {
