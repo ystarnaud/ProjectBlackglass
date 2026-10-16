@@ -1,11 +1,11 @@
 using System.Data;
-using System.Text.Json;
 using Dapper;
 using Npgsql;
 using Blackglass.Accounts.Domain.Auth;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Persistence.Energy;
 using Blackglass.Accounts.Persistence.Player;
+using static Blackglass.Accounts.Persistence.Accounts.OperatorAudit;
 
 namespace Blackglass.Accounts.Persistence.Accounts;
 
@@ -237,7 +237,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, Func<GameCatalogue> l
             new { credentialId }, cancellationToken: ct));
     }
 
-    static async Task LockAccountAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, CancellationToken ct)
+    internal static async Task LockAccountAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, CancellationToken ct)
     {
         var found = await conn.ExecuteScalarAsync<long?>(new CommandDefinition(
             "select account_id from accounts where account_id = @accountId for update", new { accountId }, tx, cancellationToken: ct));
@@ -256,23 +256,4 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, Func<GameCatalogue> l
         conn.ExecuteAsync(new CommandDefinition(
             "insert into dev_credentials (credential_id, account_id, secret_hash) values (@credentialId, @accountId, @hash)",
             new { credentialId, accountId, hash = key.Hash() }, tx, cancellationToken: ct));
-
-    static async Task AuditAsync(NpgsqlConnection conn, NpgsqlTransaction tx, OperatorContext op, string action, long accountId, Guid? credentialId, object result, CancellationToken ct)
-    {
-        try
-        {
-            await conn.ExecuteAsync(new CommandDefinition(
-                """
-                insert into operator_actions (correlation_id, operator, action, account_id, credential_id, reason, checks, result)
-                values (@correlationId, @operator, @action, @accountId, @credentialId, @reason, '{}'::jsonb, @result::jsonb)
-                """,
-                new { correlationId = op.CorrelationId, @operator = op.Operator, action, accountId, credentialId, reason = op.Reason, result = JsonSerializer.Serialize(result) },
-                tx, cancellationToken: ct));
-        }
-        catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.CheckViolation && e.ConstraintName is "operator_actions_operator_check" or "operator_actions_reason_check")
-        {
-            // OperatorContext.Create and the column checks should agree; where they don't, it's bad input and the change rolls back.
-            throw new AccountAdminException(AccountAdminError.InvalidOperator, "The database refused that operator name or reason.");
-        }
-    }
 }
