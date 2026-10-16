@@ -112,8 +112,9 @@ advance(state, P, until U):
   - `energy open`: `accounts` `FOR UPDATE` → the policy advisory lock (shared) → `energy_wallets` (insert … on conflict do nothing).
   - Policy publication: the policy advisory lock (exclusive) only.
   - `GET /v1/me`: the policy advisory lock (shared), then one statement.
-  - Later stages: `inventories` → `energy_wallets` → the policy advisory lock → `insurance_coverages`; the advisory lock is always last.
+  - Later stages: `inventories` → `energy_wallets` → the policy advisory lock (shared). The advisory lock is a **leaf**: once a transaction holds it, it takes no lock that a queued publisher or another shared holder could hold (insurance activations lock only `insurance_coverages` and never take it; admission reads coverages without locking). A publication begins its transaction only after the operator confirms, and holds it only for the insert and the audit.
   - Waits are bounded by the connection timeouts. A timeout is busy (503 or exit 75), nothing written, never retried by the server.
+  - Every ledger entry is inserted while holding its wallet row lock, in a READ COMMITTED transaction (the chain trigger and the advisory-lock protocol both depend on it). A 23514 from an energy constraint is an internal error (500, or exit 1) with the constraint name logged, never busy and never retried.
 - **Ledger:**
   - Append-only (triggers and privileges). Every balance change writes exactly one entry in the same transaction, enforced at commit by `energy_wallet_matches_ledger`.
   - Keys:
@@ -536,7 +537,7 @@ public sealed class EnergyReconciler(NpgsqlDataSource db)
 {
     /// One repeatable-read, read-only snapshot over every wallet and its ledger (a concurrent grant is seen whole or not
     /// at all). Applies the 0006 invariant rules. Then, in a separate short transaction, inserts per mismatch one
-    /// anomaly_events row (kind 'energy_ledger_mismatch', dedupe_key '<account>:<rule>:<balance>:<ledgerSum>:<last>',
+    /// anomaly_events row (kind 'energy_ledger_mismatch', dedupe_key '<account>:<rule>' (Checkpoint 1 F4: the numbers go in detail, so a moving balance doesn't open a new anomaly each sweep),
     /// detail {rule, balance, ledgerSum, lastBalanceAfter}) with ON CONFLICT DO NOTHING on anomaly_one_outstanding, so
     /// concurrent sweeps and repeated runs record one outstanding row per finding. Never updates a wallet or the ledger.
     public Task<ReconcileReport> RunAsync(CancellationToken ct = default);
