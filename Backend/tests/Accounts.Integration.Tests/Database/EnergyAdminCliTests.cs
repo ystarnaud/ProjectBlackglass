@@ -114,11 +114,13 @@ public class EnergyAdminCliTests : IAsyncLifetime
                 Assert.Equal((id, "7", "57", "0", "false"), (Field(output, "accountId"), Field(output, "amount"), Field(output, "balanceAfter"), Field(output, "regenerated"), Field(output, "replayed")));
                 Assert.Equal(await LastCorrelationAsync(), Guid.Parse(Field(output, "correlationId")));
                 if (scenario == "grant") break;
+                auditRows = await CountAsync("operator_actions");
                 var replay = await CliAsync(null, null, Grant(account, 7, key, "--yes"));
                 Assert.Equal(ExitCodes.Ok, replay.Code);
                 Assert.Equal("57", Field(replay.Out, "target.energyBalance"));
                 Assert.Equal(("7", "57", "0", "true"), (Field(replay.Out, "amount"), Field(replay.Out, "balanceAfter"), Field(replay.Out, "regenerated"), Field(replay.Out, "replayed")));
                 Assert.Equal(2L, await CountAsync("energy_ledger"));
+                Assert.Equal(auditRows, await CountAsync("operator_actions")); // a replay writes no audit row
                 break;
             }
             case "grant-reused":
@@ -159,12 +161,26 @@ public class EnergyAdminCliTests : IAsyncLifetime
                 Assert.Equal(ExitCodes.Ok, (await CliAsync(null, env, Grant(account, 10, Guid.CreateVersion7(), "--yes"))).Code);
                 Assert.Equal(ExitCodes.Ok, (await CliAsync(null, null, Grant(account, 1000, Guid.CreateVersion7(), "--yes"))).Code); // the default maximum
                 auditRows = await CountAsync("operator_actions");
-                foreach (var (amount, max, settings) in new[] { (11, "1 to 10", env), (0, "1 to 10", env), (-1, "1 to 10", env), (1001, "1 to 1000", null) })
+                var ledger = await CountAsync("energy_ledger");
+                // Below 1: refused before the target is even described.
+                foreach (var amount in new[] { 0, -1 })
+                {
+                    var (code, output, error) = await CliAsync(null, env, Grant(account, amount, Guid.CreateVersion7(), "--yes"));
+                    Assert.Equal((ExitCodes.Usage, ""), (code, output));
+                    Assert.Contains("at least 1", error);
+                }
+                // Above the configured maximum: a new key is refused inside the grant's transaction, after its key lookup (a replay
+                // is matched before the limit), so the target was described; still 64 with nothing written.
+                foreach (var (amount, max, settings) in new[] { (11, "1 to 10", env), (1001, "1 to 1000", null) })
                 {
                     var (code, output, error) = await CliAsync(null, settings, Grant(account, amount, Guid.CreateVersion7(), "--yes"));
-                    Assert.Equal((ExitCodes.Usage, ""), (code, output)); // refused before the target is even described
+                    Assert.Equal(ExitCodes.Usage, code);
+                    Assert.Equal(id, Field(output, "target.accountId"));
+                    Assert.DoesNotContain("correlationId=", output);
                     Assert.Contains(max, error);
+                    Assert.Contains("BLACKGLASS_ENERGY_GRANT_MAX", error);
                 }
+                Assert.Equal(ledger, await CountAsync("energy_ledger"));
                 break;
             }
             case "grant-overflow":
@@ -349,6 +365,35 @@ public class EnergyAdminCliTests : IAsyncLifetime
         Assert.Equal((ExitCodes.Ok, "true", "55"), (replay.Code, Field(replay.Out, "replayed"), Field(replay.Out, "balanceAfter")));
         await using var su = await db.AsSuperuser().OpenConnectionAsync();
         Assert.Equal(["dev_grant:" + key.ToString("D")], (await su.QueryAsync<string>("select idempotency_key from energy_ledger where kind = 'dev_grant'")).ToList());
+    }
+
+    [Fact]
+    public async Task A_cli_replay_after_the_maximum_is_lowered_replays()
+    {
+        var account = (await store.CreateAccountAsync(null, null, Op)).AccountId; // opened full, at the cap: no regeneration
+        var key = Guid.CreateVersion7();
+        var high = db.EnvFor("app");
+        high["BLACKGLASS_ENERGY_GRANT_MAX"] = "1000";
+        var first = await CliAsync(null, high, Grant(account, 500, key, "--yes"));
+        Assert.Equal((ExitCodes.Ok, "false", "550"), (first.Code, Field(first.Out, "replayed"), Field(first.Out, "balanceAfter")));
+
+        // The operator lowers the maximum, then reruns the same command: it replays, and writes nothing.
+        var low = db.EnvFor("app");
+        low["BLACKGLASS_ENERGY_GRANT_MAX"] = "100";
+        Task<string> RowAsync() => ScalarAsSuperuserAsync<string>(db, "select xmin::text from energy_wallets where account_id = @account", new { account });
+        var (ledger, audits, row) = (await CountAsync("energy_ledger"), await CountAsync("operator_actions"), await RowAsync());
+        var replay = await CliAsync(null, low, Grant(account, 500, key, "--yes"));
+        Assert.Equal((ExitCodes.Ok, "true", "550", "0", "500"),
+            (replay.Code, Field(replay.Out, "replayed"), Field(replay.Out, "balanceAfter"), Field(replay.Out, "regenerated"), Field(replay.Out, "amount")));
+        Assert.Equal((ledger, audits, row), (await CountAsync("energy_ledger"), await CountAsync("operator_actions"), await RowAsync()));
+
+        // A new grant over the lowered maximum is refused (64), with nothing written.
+        var over = await CliAsync(null, low, Grant(account, 101, Guid.CreateVersion7(), "--yes"));
+        Assert.Equal(ExitCodes.Usage, over.Code);
+        Assert.Contains("1 to 100", over.Err);
+        Assert.Contains("BLACKGLASS_ENERGY_GRANT_MAX", over.Err);
+        Assert.DoesNotContain("correlationId=", over.Out);
+        Assert.Equal((ledger, audits, row), (await CountAsync("energy_ledger"), await CountAsync("operator_actions"), await RowAsync()));
     }
 
     [Fact]

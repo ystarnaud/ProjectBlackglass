@@ -14,7 +14,8 @@ namespace Blackglass.Accounts.Api.Admin;
 /// The operator CLI on bg-dev-services01 (spec §4.2), run with `docker compose run --rm admin …` as accounts_app. A new
 /// key is printed once, on stdout, to the operator who asked for it; nothing else ever shows it. Every command prints
 /// the Base58 account id it acted on (when it acted on one) and the correlation id of its audit row (energy reconcile,
-/// which changes no account, writes no audit row: its correlation id is only printed; it prints one
+/// which changes no account, and a replayed energy grant, which writes nothing, write no audit row: their correlation id is
+/// only printed; energy reconcile prints one
 /// "mismatch=&lt;Base58 account id&gt;:&lt;rule&gt;" line per finding, after its counts).
 /// A change to an existing account first prints its target ("target.*" lines: the canonical Base58 id, status, handle,
 /// display name, creation time, live credential and sessions, and whether its starter is granted; for the energy verbs also
@@ -55,10 +56,12 @@ public static class AdminCommand
         {
             try { energySettings = EnergySettings.FromEnvironment(env); }
             catch (EnergySettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return ExitCodes.Failure; }
-            // The values are checked before any connection: an out-of-bounds grant or policy never reaches the database.
+            // The values are checked before any connection: an out-of-bounds policy or a grant below 1 never reaches the
+            // database. A grant's configurable maximum is not: it applies to a new key only, inside the grant's transaction
+            // after its key lookup, so rerunning a grant after BLACKGLASS_ENERGY_GRANT_MAX was lowered still replays it.
             try
             {
-                if (a.Amount is { } amount) EnergyAdminStore.ValidateGrantAmount(amount, energySettings.GrantMax);
+                if (a.Amount is { } amount) EnergyAdminStore.ValidateGrantAmount(amount);
                 if (a.Policy is { } p) EnergyAdminStore.ValidatePolicy(p.Cap, p.OpeningBalance, TimeSpan.FromSeconds(p.IntervalSeconds), p.Amount, p.VoidRefundPct);
             }
             catch (EnergyException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }

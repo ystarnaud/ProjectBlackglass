@@ -8,8 +8,8 @@ using static Blackglass.Accounts.Persistence.Accounts.OperatorAudit;
 namespace Blackglass.Accounts.Persistence.Energy;
 
 /// <param name="Regenerated">What the materialization before the credit added (0 for a replay).</param>
-/// <param name="Replayed">True when the idempotency key had already granted this amount to this account: nothing was written
-/// but the audit, and BalanceAfter is the balance that first grant left.</param>
+/// <param name="Replayed">True when the idempotency key had already granted this amount to this account: nothing at all was
+/// written (no wallet change, no ledger entry, no audit row), and BalanceAfter is the balance that first grant left.</param>
 public sealed record GrantResult(int Amount, int BalanceAfter, int Regenerated, bool Replayed);
 
 /// <summary>
@@ -17,7 +17,8 @@ public sealed record GrantResult(int Amount, int BalanceAfter, int Regenerated, 
 /// is one READ COMMITTED transaction (the advisory-lock protocol and the ledger chain need it) that appends one
 /// operator_actions row; a failed audit rolls everything back. Lock order: the accounts row FOR UPDATE, then the wallet FOR
 /// UPDATE (grants), then the shared policy lock (inside <see cref="EnergyLedgerWriter"/> and <see cref="EnergyProvisioner"/>);
-/// a publication takes only the exclusive policy lock. Values are checked before any connection is opened. A 23514 from an
+/// a publication takes only the exclusive policy lock. Values are checked before any connection is opened, except a grant's
+/// configurable maximum, which applies only to a new key and is checked after the key lookup. A 23514 from an
 /// energy constraint is a bug and propagates unchanged; nothing here retries (a grant's idempotency key makes an operator's
 /// retry safe). A suspended account is served like any other: energy is property, not access.
 /// </summary>
@@ -28,11 +29,20 @@ public sealed class EnergyAdminStore(NpgsqlDataSource db, int grantMax)
 
     readonly int grantMax = grantMax >= 1 ? grantMax : throw new ArgumentOutOfRangeException(nameof(grantMax), "The largest grant must be at least 1.");
 
-    /// <summary>InvalidAmount unless 1 &lt;= amount &lt;= grantMax.</summary>
-    public static void ValidateGrantAmount(int amount, int grantMax)
+    /// <summary>InvalidAmount unless amount &gt;= 1: the structural check, independent of configuration, made before any
+    /// connection. The configurable maximum is not checked here: it applies only to a new key, inside the grant's transaction
+    /// (a replay of a grant made under a higher maximum must still replay).</summary>
+    public static void ValidateGrantAmount(int amount)
     {
-        if (amount < 1 || amount > grantMax)
-            throw new EnergyException(EnergyError.InvalidAmount, $"The amount must be a whole number 1 to {grantMax} (BLACKGLASS_ENERGY_GRANT_MAX); nothing was changed.");
+        if (amount < 1)
+            throw new EnergyException(EnergyError.InvalidAmount, "The amount must be a whole number of at least 1; nothing was changed.");
+    }
+
+    /// <summary>InvalidAmount unless amount &lt;= grantMax (BLACKGLASS_ENERGY_GRANT_MAX), for a new key only.</summary>
+    static void RequireWithinGrantMax(int amount, int grantMax)
+    {
+        if (amount > grantMax)
+            throw new EnergyException(EnergyError.InvalidAmount, $"The amount must be a whole number 1 to {grantMax} (BLACKGLASS_ENERGY_GRANT_MAX) for a new grant; nothing was changed.");
     }
 
     /// <summary>InvalidPolicy unless the values pass 0006's CHECKs: cap &gt; 0, 0 &lt;= opening balance &lt;= cap, an interval of
@@ -73,14 +83,17 @@ public sealed class EnergyAdminStore(NpgsqlDataSource db, int grantMax)
     }
 
     /// <summary>
-    /// A development grant (E5). amount is 1..grantMax (InvalidAmount, before any connection). One transaction:
+    /// A development grant (E5). amount &gt;= 1 (InvalidAmount, before any connection). One transaction:
     /// <list type="number">
     /// <item>the accounts row FOR UPDATE (NotFound), then the wallet FOR UPDATE (NoWallet);</item>
-    /// <item>the key looked up across every account: the same account and amount is a replay (the stored balance_after, a
-    /// replay audit, nothing else written); anything else is IdempotencyKeyReused, with nothing written;</item>
-    /// <item><see cref="EnergyLedgerWriter.MaterializeLockedAsync"/>, then <see cref="EnergyMath.Credit"/> (BalanceLimit), one
-    /// wallet update of the balance, the <c>dev_grant</c> entry and the audit <c>energy_grant</c> {amount, balanceAfter,
-    /// regenerated, replayed: false, idempotencyKey} (the replay audit carries the same keys, replayed: true).</item>
+    /// <item>the key looked up across every account, before any limit meant for new grants: the same account and amount is a
+    /// replay (the stored balance_after, Regenerated 0, nothing written at all: no wallet change, no entry, no audit row), even
+    /// when BLACKGLASS_ENERGY_GRANT_MAX has since been lowered below the amount; anything else is IdempotencyKeyReused, with
+    /// nothing written;</item>
+    /// <item>for a new key only: amount &lt;= grantMax (InvalidAmount, before the materialization, so nothing is written), then
+    /// <see cref="EnergyLedgerWriter.MaterializeLockedAsync"/>, <see cref="EnergyMath.Credit"/> (BalanceLimit), one wallet
+    /// update of the balance, the <c>dev_grant</c> entry and the audit <c>energy_grant</c> {amount, balanceAfter, regenerated,
+    /// replayed: false, idempotencyKey}.</item>
     /// </list>
     /// A concurrent first use of one key for two accounts: the second cannot see the first's uncommitted entry, so its insert
     /// waits on the global unique index and fails once the first commits; that is IdempotencyKeyReused, rolled back. The
@@ -88,7 +101,7 @@ public sealed class EnergyAdminStore(NpgsqlDataSource db, int grantMax)
     /// </summary>
     public async Task<GrantResult> GrantAsync(long accountId, int amount, Guid idempotencyKey, OperatorContext op, CancellationToken ct = default)
     {
-        ValidateGrantAmount(amount, grantMax);
+        ValidateGrantAmount(amount);
         var key = DevGrantKey(idempotencyKey);
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
@@ -106,10 +119,12 @@ public sealed class EnergyAdminStore(NpgsqlDataSource db, int grantMax)
         if (prior is not null)
         {
             if (prior.AccountId != accountId || prior.Delta != amount) throw KeyReused();
-            await AuditAsync(conn, tx, op, "energy_grant", accountId, null, new { amount, balanceAfter = prior.BalanceAfter, regenerated = 0, replayed = true, idempotencyKey = idempotencyKey.ToString("D") }, ct);
-            await tx.CommitAsync(ct);
+            await tx.RollbackAsync(ct); // a replay writes nothing: it only releases the two row locks
             return new GrantResult(amount, prior.BalanceAfter, 0, true);
         }
+
+        // A new key: the current maximum applies, before the materialization, so a refusal writes nothing (not even a regen entry).
+        RequireWithinGrantMax(amount, grantMax);
 
         var materialized = await EnergyLedgerWriter.MaterializeLockedAsync(conn, tx, accountId, ct)
             ?? throw new InvalidOperationException("The locked energy wallet was not found again.");

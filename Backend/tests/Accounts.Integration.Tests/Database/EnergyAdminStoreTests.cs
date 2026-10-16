@@ -79,6 +79,24 @@ public class EnergyAdminStoreTests : IAsyncLifetime
         return rows.Select(r => new Audit(r.Action, r.AccountId, r.CorrelationId, r.Operator, r.Reason, JsonDocument.Parse(r.Result).RootElement.Clone())).ToList();
     }
 
+    /// <summary>Everything a grant could write for this account: its wallet (state and row version) and ledger, and the
+    /// operator_actions table as a whole (its row count and last id).</summary>
+    async Task<(WalletState Wallet, string Row, List<Entry> Entries, long Audits, long LastAudit)> StateAsync(long account) =>
+        (await WalletAsync(account), await WalletRowVersionAsync(account), await EntriesAsync(account),
+            await ScalarAsync<long>("select count(*) from operator_actions"), await ScalarAsync<long>("select coalesce(max(id), 0)::bigint from operator_actions"));
+
+    async Task AssertUnchangedAsync(long account, (WalletState Wallet, string Row, List<Entry> Entries, long Audits, long LastAudit) before)
+    {
+        var after = await StateAsync(account);
+        Assert.Equal(before.Wallet, after.Wallet);
+        Assert.Equal(before.Row, after.Row); // not even materialized: the row was never rewritten
+        Assert.Equal(before.Entries, after.Entries);
+        Assert.Equal((before.Audits, before.LastAudit), (after.Audits, after.LastAudit));
+    }
+
+    /// <summary>The store after an operator lowered BLACKGLASS_ENERGY_GRANT_MAX from 1000 to 100.</summary>
+    EnergyAdminStore Lowered(NpgsqlDataSource? source = null) => new(source ?? db.AsApp(), grantMax: 100);
+
     /// <summary>A jsonb object's keys, sorted (jsonb keeps its own key order, not the writer's).</summary>
     static string[] Names(JsonElement e) => e.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).ToArray();
     static string[] Keys(params string[] names) => names.Order(StringComparer.Ordinal).ToArray();
@@ -181,20 +199,16 @@ public class EnergyAdminStoreTests : IAsyncLifetime
         var first = await energy.GrantAsync(account, 5, key, Op);
         // Time to regenerate again: a replay that materialized would write a regen entry and move the wallet.
         await AsReplicaAsync("update energy_wallets set regen_anchor = regen_anchor - interval '35 minutes' where account_id = @account", new { account });
-        var (wallet, row, entries) = (await WalletAsync(account), await WalletRowVersionAsync(account), await EntriesAsync(account));
+        var before = await StateAsync(account);
 
         var replay = await energy.GrantAsync(account, 5, key, Op);
 
         Assert.Equal(new GrantResult(5, first.BalanceAfter, 0, true), replay);
-        Assert.Equal(entries, await EntriesAsync(account));
-        Assert.Equal(wallet, await WalletAsync(account));
-        Assert.Equal(row, await WalletRowVersionAsync(account)); // not even rewritten
-        var audits = await AuditsAsync("energy_grant");
-        Assert.Equal(2, audits.Count);
-        Assert.Equal(Keys("amount", "balanceAfter", "regenerated", "replayed", "idempotencyKey"), Names(audits[1].Result));
-        Assert.All(audits, a => Assert.Equal(key.ToString("D"), a.Result.GetProperty("idempotencyKey").GetString())); // both name the key
-        Assert.Equal((5, first.BalanceAfter, 0, true), (audits[1].Result.GetProperty("amount").GetInt32(), audits[1].Result.GetProperty("balanceAfter").GetInt32(),
-            audits[1].Result.GetProperty("regenerated").GetInt32(), audits[1].Result.GetProperty("replayed").GetBoolean()));
+        await AssertUnchangedAsync(account, before); // the wallet not even rewritten, no entry, and no audit row: a replay writes nothing
+        var audit = Assert.Single(await AuditsAsync("energy_grant")); // the first grant's only
+        Assert.Equal(key.ToString("D"), audit.Result.GetProperty("idempotencyKey").GetString());
+        Assert.Equal((5, first.BalanceAfter, false), (audit.Result.GetProperty("amount").GetInt32(), audit.Result.GetProperty("balanceAfter").GetInt32(),
+            audit.Result.GetProperty("replayed").GetBoolean()));
     }
 
     [Fact]
@@ -279,9 +293,8 @@ public class EnergyAdminStoreTests : IAsyncLifetime
         Assert.Equal(3, results.Sum(r => r.Regenerated));
         Assert.Equal(["open", "regen", "dev_grant"], (await EntriesAsync(account)).Select(e => e.Kind));
         Assert.Equal(18, (await WalletAsync(account)).Balance);
-        var audits = await AuditsAsync("energy_grant");
-        Assert.Equal(Callers, audits.Count);
-        Assert.Single(audits, a => !a.Result.GetProperty("replayed").GetBoolean());
+        var audit = Assert.Single(await AuditsAsync("energy_grant")); // the one grant's: the nineteen replays wrote nothing
+        Assert.False(audit.Result.GetProperty("replayed").GetBoolean());
     }
 
     [Fact]
@@ -349,17 +362,131 @@ public class EnergyAdminStoreTests : IAsyncLifetime
     {
         var account = await NewWalletAsync(10, TimeSpan.Zero);
         var bounded = new EnergyAdminStore(db.AsApp(), grantMax: 100);
-        // Refused before any connection: a store that cannot reach a database refuses the same way.
+        var before = await StateAsync(account);
+        foreach (var amount in new[] { 101, 0, -1, int.MaxValue, int.MinValue })
+            Assert.Equal(EnergyError.InvalidAmount, (await Assert.ThrowsAsync<EnergyException>(() => bounded.GrantAsync(account, amount, Guid.CreateVersion7(), Op))).Error);
+        await AssertUnchangedAsync(account, before);
+
+        // Below 1 is refused before any connection: a store that cannot reach a database refuses the same way. The configured
+        // maximum is checked only inside the transaction, after the key lookup (a replay is matched before it), so above it an
+        // unreachable store fails to connect instead.
         await using var nowhere = NpgsqlDataSource.Create("Host=127.0.0.1;Port=1;Database=none;Username=none;Password=none;Timeout=1");
         var unreachable = new EnergyAdminStore(nowhere, grantMax: 100);
-        foreach (var amount in new[] { 101, 0, -1, int.MaxValue, int.MinValue })
-        {
-            Assert.Equal(EnergyError.InvalidAmount, (await Assert.ThrowsAsync<EnergyException>(() => bounded.GrantAsync(account, amount, Guid.CreateVersion7(), Op))).Error);
+        foreach (var amount in new[] { 0, -1, int.MinValue })
             Assert.Equal(EnergyError.InvalidAmount, (await Assert.ThrowsAsync<EnergyException>(() => unreachable.GrantAsync(account, amount, Guid.CreateVersion7(), Op))).Error);
-        }
-        Assert.Single(await EntriesAsync(account));
+        foreach (var amount in new[] { 101, int.MaxValue })
+            await Assert.ThrowsAsync<DatabaseUnavailableException>(() => unreachable.GrantAsync(account, amount, Guid.CreateVersion7(), Op));
+
         Assert.Equal(110, (await bounded.GrantAsync(account, 100, Guid.CreateVersion7(), Op)).BalanceAfter); // the maximum itself is allowed
         Assert.Throws<ArgumentOutOfRangeException>(() => new EnergyAdminStore(db.AsApp(), grantMax: 0));
+    }
+
+    // ---- a lowered BLACKGLASS_ENERGY_GRANT_MAX: the key is matched before the limit for new grants ----
+
+    [Fact]
+    public async Task A_replay_after_the_maximum_is_lowered_returns_the_original_result()
+    {
+        var account = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        var key = Guid.CreateVersion7();
+        var first = await energy.GrantAsync(account, 500, key, Op); // under the maximum of 1000
+        Assert.Equal(new GrantResult(500, 513, 3, false), first);
+        // An hour later (a replay that materialized would rewrite the wallet's anchor), the operator lowers the maximum to 100.
+        await AsReplicaAsync("update energy_wallets set regen_anchor = regen_anchor - interval '1 hour' where account_id = @account", new { account });
+        var before = await StateAsync(account);
+
+        var replay = await Lowered().GrantAsync(account, 500, key, OperatorContext.Create("retrier", "retry after lowering"));
+
+        Assert.Equal(new GrantResult(500, first.BalanceAfter, 0, true), replay);
+        await AssertUnchangedAsync(account, before); // wallet, ledger and audit records
+        Assert.Single(await AuditsAsync("energy_grant"));
+    }
+
+    [Fact]
+    public async Task A_new_grant_over_the_lowered_maximum_is_refused_and_writes_nothing()
+    {
+        // Regeneration is due: a grant that materialized before checking the maximum would leave a regen entry behind.
+        var account = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        var before = await StateAsync(account);
+        var key = Guid.CreateVersion7();
+
+        var e = await Assert.ThrowsAsync<EnergyException>(() => Lowered().GrantAsync(account, 101, key, Op));
+
+        Assert.Equal(EnergyError.InvalidAmount, e.Error);
+        Assert.Contains("1 to 100", e.Message);
+        Assert.Contains("BLACKGLASS_ENERGY_GRANT_MAX", e.Message);
+        await AssertUnchangedAsync(account, before); // not even materialized: the row version is the same
+        Assert.Equal(new GrantResult(100, 113, 3, false), await Lowered().GrantAsync(account, 100, key, Op)); // the key was never recorded
+    }
+
+    [Fact]
+    public async Task A_conflicting_reuse_of_the_original_key_is_refused_after_the_maximum_is_lowered()
+    {
+        var account = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        var other = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        var key = Guid.CreateVersion7();
+        await energy.GrantAsync(account, 500, key, Op);
+        await AsReplicaAsync("update energy_wallets set regen_anchor = regen_anchor - interval '1 hour' where account_id = @account", new { account });
+        var (beforeAccount, beforeOther) = (await StateAsync(account), await StateAsync(other));
+        var lowered = Lowered();
+
+        // Another amount above and below the new maximum, and another account with the original and an in-limit amount: the key
+        // is matched first, so each is IdempotencyKeyReused (never InvalidAmount).
+        foreach (var (target, amount) in new[] { (account, 501), (account, 50), (account, 100), (other, 500), (other, 50) })
+            Assert.Equal(EnergyError.IdempotencyKeyReused, (await Assert.ThrowsAsync<EnergyException>(() => lowered.GrantAsync(target, amount, key, Op))).Error);
+
+        await AssertUnchangedAsync(account, beforeAccount);
+        await AssertUnchangedAsync(other, beforeOther);
+    }
+
+    [Fact]
+    public async Task Concurrent_replays_after_the_maximum_is_lowered_change_nothing()
+    {
+        const int Callers = 20;
+        var account = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        var key = Guid.CreateVersion7();
+        var first = await energy.GrantAsync(account, 500, key, Op);
+        await AsReplicaAsync("update energy_wallets set regen_anchor = regen_anchor - interval '1 hour' where account_id = @account", new { account });
+        var before = await StateAsync(account);
+        await using var wide = Wide(Callers + 1);
+        var racing = Lowered(wide);
+
+        // The start barrier: the account row is held, so all twenty reach its lock on distinct connections before any proceeds.
+        await using (var holder = await db.AsApp().OpenConnectionAsync())
+        {
+            await using var holderTx = await holder.BeginTransactionAsync();
+            await holder.ExecuteAsync("select 1 from accounts where account_id = @account for update", new { account }, holderTx);
+            var callers = Enumerable.Range(0, Callers).Select(i => Task.Run(() => racing.GrantAsync(account, 500, key, OperatorContext.Create("racer", $"replay {i}")))).ToArray();
+            await WaitForLockWaitersAsync(Callers);
+            await holderTx.CommitAsync();
+
+            var results = await Task.WhenAll(callers);
+            Assert.All(results, r => Assert.Equal(new GrantResult(500, first.BalanceAfter, 0, true), r));
+        }
+
+        await AssertUnchangedAsync(account, before);
+    }
+
+    [Fact]
+    public async Task A_failure_during_a_new_grant_under_the_lowered_maximum_rolls_back()
+    {
+        var account = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        var before = await StateAsync(account);
+        await ExecuteAsSuperuserAsync(db,
+            """
+            create function refuse_grant_audit() returns trigger language plpgsql as $$ begin raise exception 'audit failed on purpose'; end $$;
+            create trigger refuse_grant_audit before insert on operator_actions for each row when (new.action = 'energy_grant') execute function refuse_grant_audit();
+            """);
+        var key = Guid.CreateVersion7();
+
+        var failure = await Assert.ThrowsAsync<PostgresException>(() => Lowered().GrantAsync(account, 50, key, Op)); // within the new maximum
+
+        Assert.Contains("audit failed on purpose", failure.MessageText);
+        await AssertUnchangedAsync(account, before); // the materialization, the credit and both entries rolled back
+        await ExecuteAsSuperuserAsync(db, "drop trigger refuse_grant_audit on operator_actions; drop function refuse_grant_audit()");
+        Assert.Equal(new GrantResult(50, 63, 3, false), await Lowered().GrantAsync(account, 50, key, Op)); // the retry grants once
+        Assert.Equal(new GrantResult(50, 63, 0, true), await Lowered().GrantAsync(account, 50, key, Op)); // and then replays
+        Assert.Equal(["open", "regen", "dev_grant"], (await EntriesAsync(account)).Select(e => e.Kind));
+        Assert.Single(await AuditsAsync("energy_grant"));
     }
 
     [Fact]
