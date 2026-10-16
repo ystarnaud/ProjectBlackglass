@@ -135,15 +135,15 @@ sudo -n docker compose -p blackglass-accounts -f compose.yaml --profile tools ru
 … admin credential rotate --account-base58 <id> | credential revoke --credential <uuid> | sessions revoke --account-base58 <id> | account suspend --account-base58 <id> | account reactivate --account-base58 <id>   (each with --operator and --reason, and --yes to confirm without a terminal)
 ```
 - `create` and `rotate` print `accountId=`, `credentialId=`, `accountKey=` (once) and `correlationId=`. `create` also prints `starterGranted=granted` and `starterOperatives=`, `starterInstances=`, `starterStacks=` (the counts it provisioned), then `energyOpened=opened` and `energyBalance=` (Stage 6), before `correlationId=`.
-- **Confirmation.** Every command but `create` first prints its target as `target.*` lines: the canonical Base58 id, status, handle, display name, creation time, live credential and live sessions, plus the credential for `credential revoke`. It then acts only when confirmed: either type that Base58 id at a terminal (run without `-T`), or add `--yes`. Without either it changes nothing. Running it without `--yes` and without a terminal is a dry run that shows the target.
+- **Confirmation.** Every command but `create` (and `energy reconcile`, which changes nothing; `energy policy publish` shows `target.policy*` lines and is confirmed by typing `publish`: see Energy accounting) first prints its target as `target.*` lines: the canonical Base58 id, status, handle, display name, creation time, live credential and live sessions, plus the credential for `credential revoke`. It then acts only when confirmed: either type that Base58 id at a terminal (run without `-T`), or add `--yes`. Without either it changes nothing. Running it without `--yes` and without a terminal is a dry run that shows the target.
 - Exit codes:
   - 0: ok.
-  - 1: unexpected failure.
+  - 1: unexpected failure, or an invalid energy setting for an energy verb (`Configuration error`).
   - 3: schema not current (the same policy as `serve`; nothing is written).
   - 4: the embedded catalogue is invalid (checked before the database; nothing is touched; every verb, as for `serve`).
-  - 64: usage error, including a malformed id, or not confirmed with no terminal.
-  - 65: not found.
-  - 66: handle taken.
+  - 64: usage error, including a malformed id, or not confirmed with no terminal; for energy verbs also an invalid grant amount, policy or balance limit.
+  - 65: not found (for energy verbs also: no wallet; run `energy open`).
+  - 66: handle taken, or a development-grant key reused with other parameters.
   - 67: the typed id didn't match.
   - 69: database unavailable.
   - 75: database busy (a lock or statement timeout); nothing was changed, retry.
@@ -263,10 +263,13 @@ Schema version 6 (`0006_energy`). Owner rulings E1–E7 (spec revision 2.6, §0.
 
 **Locks.**
 - The order:
-  - operator verbs: `accounts` `FOR UPDATE` → `energy_wallets` `FOR UPDATE` → the policy advisory lock (shared) → clock;
+  - `energy grant`: `accounts` `FOR UPDATE` → `energy_wallets` `FOR UPDATE` → the policy advisory lock (shared) → clock;
+  - `energy open`: `accounts` `FOR UPDATE` → the policy lock → clock → wallet `insert … on conflict do nothing` (no wallet row lock; an existing wallet is read unlocked, hence `advisory=true`);
   - account creation: new `accounts` row → `inventories` → the policy lock → wallet insert;
   - publication: the policy lock (exclusive) only;
-  - `GET /v1/me`: the policy lock, then one statement.
+  - `GET /v1/me`: the policy lock, then one statement;
+  - reconciliation: no advisory lock; its anomaly write takes `accounts` `FOR KEY SHARE` (foreign key), ascending, all of a sweep's anomalies in one transaction.
+- After the policy lock a transaction waits only on its own rows, policy rows, or a concurrent first use of one grant key (each grant inserts exactly one global key).
 - Every energy transaction is READ COMMITTED; no energy transaction is ever retried automatically.
 - A 23514 from an energy constraint is a bug (500, or exit 1), never "busy".
 

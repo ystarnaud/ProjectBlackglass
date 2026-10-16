@@ -177,7 +177,7 @@ energy_grant_replay_is_stored() {
 }
 energy_reconcile_is_clean() {
   admin_cli energy reconcile --operator smoke-test --reason smoke > "$work/reconcile.out" \
-    && grep -Eqx 'walletsChecked=[2-9][0-9]*' "$work/reconcile.out" && grep -qx 'mismatches=0' "$work/reconcile.out" \
+    && grep -Eqx 'walletsChecked=([2-9]|[1-9][0-9]+)' "$work/reconcile.out" && grep -qx 'mismatches=0' "$work/reconcile.out" \
     && ! grep -q '^mismatch=' "$work/reconcile.out"
 }
 check "GET /v1/me shows the full wallet opened with the account (50, cap 50, no next regeneration)" me_energy_is '{"balance":50,"cap":50,"nextRegenAt":null}'
