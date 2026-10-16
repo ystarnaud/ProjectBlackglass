@@ -27,6 +27,16 @@ This is a stage-level plan. Each stage gets its own detailed, test-first task pl
 
 ---
 
+## Standing obligation: `InventoryLocked` before mission admission (owner, 2026-10-16)
+
+**`InventoryLocked` must become a mandatory, fail-closed, database-backed check against active mission participations before mission admission is enabled.**
+- It applies to **both inventory mutations (`POST /v1/inventory/operations`) and advancement picks (`POST /v1/operatives/{id}/choices`)**, and to `GET /v1/inventory`'s `locked`.
+- The current always-unlocked development fallback (`NoParticipationsYet`, and the stores' optional `IInventoryLock` parameter that defaults to it) **must not remain reachable in production**. The lock becomes a required dependency of every store that uses it.
+- "Fail-closed": if the participation query fails or cannot run, the mutation is refused (a database failure, never a silent "unlocked").
+- Stage 7 cannot be accepted, and no admission route may be enabled, until this holds. See Stage 7's acceptance criteria.
+
+---
+
 ## Stage 0: decisions and authorization (docs only, owner-driven)
 
 **Inputs (received 2026-10-14):**
@@ -181,7 +191,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 5: inventory operations
 
-**Status: implemented on branch `phase13-stage5` (code complete at `6a487cc`, plus the as-built docs commit), awaiting the owner's review; not merged, pushed or deployed.** Authorized by the owner on 2026-10-16 with rulings S5-D1–S5-D8 (spec revision 2.5, §0.5). Measured: backend ALL 1250/0 (Domain 460, Integration 790) at `6a487cc`; Unity EditMode 1579/0 (1524 + 54 shared inventory cases + 1 guard), PlayMode 1434/0. VM smoke, probe and drill passed; see the detailed plan's "As built". Detailed plan: `Docs/superpowers/plans/2026-10-15-phase-13-stage5-inventory-operations.md` (revision 2). It supersedes the work list below where they differ: migration `0005_inventory_edits` (so energy's migration becomes `0006`), the `IInventoryLock` seam for picks and edits, vectors at `Backend/contracts/inventory/vectors.json` with `shared` and `backend` scopes, and the backfill's starter-versus-holdings correction.
+**Status: done, merged into `main` and pushed (`62cbfcf`, 2026-10-16; live stack not deployed).** Authorized by the owner on 2026-10-16 with rulings S5-D1–S5-D8 (spec revision 2.5, §0.5). Measured: backend ALL 1250/0 (Domain 460, Integration 790) at `6a487cc` and again at the merged head `62cbfcf`; Unity EditMode 1579/0 (1524 + 54 shared inventory cases + 1 guard), PlayMode 1434/0. VM smoke, probe and drill passed; see the detailed plan's "As built". Detailed plan: `Docs/superpowers/plans/2026-10-15-phase-13-stage5-inventory-operations.md` (revision 2). It supersedes the work list below where they differ: migration `0005_inventory_edits` (so energy's migration becomes `0006`), the `IInventoryLock` seam for picks and edits, vectors at `Backend/contracts/inventory/vectors.json` with `shared` and `backend` scopes, and the backfill's starter-versus-holdings correction.
 
 **Touches:**
 - `Backend/`;
@@ -199,6 +209,8 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Evidence:** counts on both sides. Covers spec B4 (the lock half arrives in stage 7).
 
 ## Stage 6: energy
+
+**Status: detailed plan proposed, awaiting the owner's rulings E1–E7 and go-ahead; nothing implemented.** Detailed plan: `Docs/superpowers/plans/2026-10-16-phase-13-stage6-energy.md`.
 
 **Touches:** `Backend/` only.
 
@@ -225,7 +237,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 **Work:**
 - insurance policies, coverage and activations: the same policy **extends** (`greatest(expires_at, now) + duration`), a different policy while active is refused (`409 CrossTierDeferred`), an idempotency key is honoured once; immutability triggers;
-- migration `0006` (attempts, participants with the `one_active_participation` partial unique index, holds, snapshots, tickets, deploy requests, hosts, builds);
+- migration `0007` (insurance, attempts, participants with the `one_active_participation` partial unique index, holds, snapshots, tickets, deploy requests, hosts, builds);
 - `POST /v1/attempts`, following the spec's §7.3 and the §15.3 lock order;
 - the service-health admission check, with a host-health seam until stage 8;
 - `GET /v1/attempts/{id}` and `cancel`;
@@ -245,6 +257,15 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - co-op-shaped data (two participants, direct SQL) keeps holds and snapshots independent.
 
 **Evidence:** test counts; the concurrency test logs. Covers spec B5 (admission half) and B6 (snapshot half).
+
+**Acceptance criteria (mandatory; Stage 7 is not accepted, and admission is not enabled, until all hold):**
+- **`InventoryLocked` is a mandatory, fail-closed, database-backed check** against active participations (`one_active_participation`'s rows) under the `inventories` row lock, for inventory mutations **and** advancement picks (the standing obligation above). Tests:
+  - an account with an active participation gets `409 InventoryLocked` on an edit and on a pick, with nothing written and the version unchanged;
+  - the same account after its participation ends can edit and pick again;
+  - a failing participation query refuses the mutation (never answers unlocked);
+  - `NoParticipationsYet` and every optional or defaulted `IInventoryLock` parameter are deleted, or unreachable from `serve`. A test resolves the stores from `serve`'s container and asserts the database-backed implementation;
+  - `GET /v1/inventory` reports `locked: true` during a participation.
+- Every test listed above passes against the real PostgreSQL 17 test cluster.
 
 ## Stage 8: hosts, claim, process sessions, ready, tickets and start (backend side)
 
