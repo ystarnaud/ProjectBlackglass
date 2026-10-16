@@ -139,8 +139,12 @@ public class AccountsSchemaTests : IAsyncLifetime
         {
             "account_identities:SELECT",
             "accounts:SELECT",
+            "anomaly_events:SELECT",
             "auth_sessions:SELECT",
             "dev_credentials:SELECT",
+            "energy_ledger:SELECT",
+            "energy_policies:SELECT",
+            "energy_wallets:SELECT",
             "inventories:SELECT",
             "item_instances:SELECT",
             "item_stacks:DELETE,SELECT",
@@ -166,6 +170,13 @@ public class AccountsSchemaTests : IAsyncLifetime
             "account_identities.subject:INSERT",
             "accounts.display_name:INSERT,UPDATE",
             "accounts.status:INSERT,UPDATE",
+            "anomaly_events.account_id:INSERT",
+            "anomaly_events.attempt_id:INSERT",
+            "anomaly_events.build_revision:INSERT",
+            "anomaly_events.dedupe_key:INSERT",
+            "anomaly_events.detail:INSERT",
+            "anomaly_events.host_id:INSERT",
+            "anomaly_events.kind:INSERT",
             "auth_sessions.account_id:INSERT",
             "auth_sessions.credential_id:INSERT",
             "auth_sessions.expires_at:INSERT",
@@ -176,6 +187,22 @@ public class AccountsSchemaTests : IAsyncLifetime
             "dev_credentials.credential_id:INSERT",
             "dev_credentials.revoked_at:UPDATE",
             "dev_credentials.secret_hash:INSERT",
+            "energy_ledger.account_id:INSERT",
+            "energy_ledger.attempt_id:INSERT",
+            "energy_ledger.balance_after:INSERT",
+            "energy_ledger.delta:INSERT",
+            "energy_ledger.idempotency_key:INSERT",
+            "energy_ledger.kind:INSERT",
+            "energy_policies.cap:INSERT",
+            "energy_policies.opening_balance:INSERT",
+            "energy_policies.regen_amount:INSERT",
+            "energy_policies.regen_interval:INSERT",
+            "energy_policies.void_refund_pct:INSERT",
+            "energy_wallets.account_id:INSERT",
+            "energy_wallets.balance:INSERT,UPDATE",
+            "energy_wallets.policy_version:INSERT,UPDATE",
+            "energy_wallets.regen_anchor:INSERT,UPDATE",
+            "energy_wallets.regen_progress_us:INSERT,UPDATE",
             "inventories.account_id:INSERT",
             "inventories.starter_catalogue_version:UPDATE",
             "inventories.starter_granted:UPDATE",
@@ -212,7 +239,7 @@ public class AccountsSchemaTests : IAsyncLifetime
         // Identity sequences need no privilege for inserts; the app holds none, so it can't burn or reset ids.
         Assert.Empty(await conn.QueryAsync<string>(
             "select relname::text from pg_class where case when relkind = 'S' then has_sequence_privilege('accounts_app', oid, 'USAGE, SELECT, UPDATE') else false end"));
-        Assert.Equal(4L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'"));
+        Assert.Equal(7L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'")); // 0006 adds three
     }
 
     [Fact]
@@ -233,8 +260,9 @@ public class AccountsSchemaTests : IAsyncLifetime
             "select table_name || '=' || column_default from information_schema.columns where table_schema = 'public' and column_name = 'created_at' and table_name <> 'schema_migrations' order by 1")).ToList();
         Assert.Equal(new[]
         {
-            "account_identities=statement_timestamp()", "accounts=statement_timestamp()", "auth_sessions=statement_timestamp()",
-            "dev_credentials=statement_timestamp()", "item_instances=statement_timestamp()", "operatives=statement_timestamp()",
+            "account_identities=statement_timestamp()", "accounts=statement_timestamp()", "anomaly_events=statement_timestamp()",
+            "auth_sessions=statement_timestamp()", "dev_credentials=statement_timestamp()", "energy_ledger=statement_timestamp()",
+            "energy_policies=statement_timestamp()", "item_instances=statement_timestamp()", "operatives=statement_timestamp()",
             "operator_actions=statement_timestamp()",
         }, defaults.OrderBy(d => d, StringComparer.Ordinal));
     }
@@ -251,7 +279,7 @@ public class AccountsSchemaTests : IAsyncLifetime
         string[] bigintColumns = ["account_id", "operative_id", "item_id"];
         Assert.All(types.Where(t => bigintColumns.Contains(t.Column)), t => Assert.Equal("bigint", t.Type));
         Assert.All(types.Where(t => !bigintColumns.Contains(t.Column)), t => Assert.Equal("uuid", t.Type));
-        Assert.Equal(["account_identities", "accounts", "auth_sessions", "dev_credentials", "inventories", "item_instances", "item_stacks", "operatives", "operator_actions"],
+        Assert.Equal(["account_identities", "accounts", "anomaly_events", "auth_sessions", "dev_credentials", "energy_ledger", "energy_wallets", "inventories", "item_instances", "item_stacks", "operatives", "operator_actions"],
             types.Where(t => t.Column == "account_id").Select(t => t.Table).Order(StringComparer.Ordinal).ToArray());
         // Operative and item ids are bigint identities; stack and choice rows carry them as bigint references.
         Assert.Equal(["item_instances.item_id", "item_instances.operative_id", "item_stacks.operative_id", "operative_choices.operative_id", "operatives.operative_id"],

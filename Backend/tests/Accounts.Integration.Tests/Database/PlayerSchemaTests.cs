@@ -432,7 +432,7 @@ public class PlayerSchemaTests : IAsyncLifetime
         // No sequence privilege at all: identities are minted by inserts, which need none.
         Assert.Empty(await conn.QueryAsync<string>(
             "select relname::text from pg_class where case when relkind = 'S' then has_sequence_privilege('accounts_app', oid, 'USAGE, SELECT, UPDATE') else false end"));
-        Assert.Equal(4L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'"));
+        Assert.Equal(7L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'")); // 0006 adds three
     }
 
     [Theory]
@@ -624,7 +624,7 @@ public class PlayerSchemaTests : IAsyncLifetime
             // The account has no inventory row yet: it needs the backfill, and has no owned rows to violate the invariant.
             Assert.Equal(0L, await conn.ExecuteScalarAsync<long>("select count(*) from inventories"));
         }
-        Assert.Empty(await AccountTestKit.InvariantFailuresAsync(upgrade));
+        Assert.Empty(await InvariantRunner.RunAsync(upgrade.AsSuperuser(), 4, InvariantRunner.RealDirectory));   // every invariant that holds at version 4
 
         // The migrated database accepts the Stage 4 writes for that account, then the backfill audit action.
         await using (var conn = await upgrade.AsApp().OpenConnectionAsync())

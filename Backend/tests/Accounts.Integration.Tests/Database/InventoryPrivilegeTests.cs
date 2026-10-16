@@ -267,7 +267,7 @@ public class InventoryPrivilegeTests : IAsyncLifetime
             Assert.Equal(("weapon", operative), await conn.QuerySingleAsync<(string, long)>("select equipped_slot, operative_id from item_instances where item_id = @equipped", new { equipped }));
             Assert.Equal(5, await conn.ExecuteScalarAsync<int>("select quantity from item_stacks where account_id = @account", new { account }));
         }
-        Assert.Empty(await AccountTestKit.InvariantFailuresAsync(upgrade));
+        Assert.Empty(await InvariantRunner.RunAsync(upgrade.AsSuperuser(), 5, InvariantRunner.RealDirectory));   // every invariant that holds at version 5
 
         // The upgraded database accepts the edits the grants now allow, and keeps its invariants.
         await using (var conn = await upgrade.AsApp().OpenConnectionAsync())
@@ -277,7 +277,7 @@ public class InventoryPrivilegeTests : IAsyncLifetime
             await conn.ExecuteAsync("update item_stacks set quantity = 4 where account_id = @account", new { account });
             await conn.ExecuteAsync("delete from item_stacks where account_id = @account", new { account });
         }
-        Assert.Empty(await AccountTestKit.InvariantFailuresAsync(upgrade));
+        Assert.Empty(await InvariantRunner.RunAsync(upgrade.AsSuperuser(), 5, InvariantRunner.RealDirectory));   // every invariant that holds at version 5
     }
 
     [Theory]
