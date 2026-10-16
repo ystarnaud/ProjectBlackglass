@@ -284,6 +284,7 @@ public class EnergyPrivilegeTests : IAsyncLifetime
         Assert.Equal(new[]
         {
             "energy_ledger.energy_ledger_is_append_only:O:immediate",
+            "energy_ledger.energy_ledger_matches_wallet:O:deferrable",
             "energy_policies.energy_policy_effective_at:O:immediate",
             "energy_policies.energy_policy_is_immutable:O:immediate",
             "energy_wallets.energy_wallet_forward_only:O:immediate",

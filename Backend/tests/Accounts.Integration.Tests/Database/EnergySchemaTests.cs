@@ -69,15 +69,18 @@ public class EnergySchemaTests : IAsyncLifetime
     }
 
     /// <summary>A development grant as the app would write it: the wallet and its entry in one transaction.</summary>
-    async Task GrantAsync(long account, int amount)
+    Task GrantAsync(long account, int amount) => CreditAsync(account, "dev_grant", amount, "dev_grant:" + Guid.NewGuid());
+
+    /// <summary>A credit of any kind as the app would write it: the wallet and its entry in one transaction.</summary>
+    async Task CreditAsync(long account, string kind, int amount, string key)
     {
         await using var conn = await db.AsApp().OpenConnectionAsync();
         await using var tx = await conn.BeginTransactionAsync();
         var after = await conn.ExecuteScalarAsync<int>(
             "update energy_wallets set balance = balance + @amount where account_id = @account returning balance", new { account, amount }, tx);
         await conn.ExecuteAsync(
-            "insert into energy_ledger (account_id, kind, delta, balance_after, idempotency_key) values (@account, 'dev_grant', @amount, @after, @key)",
-            new { account, amount, after, key = "dev_grant:" + Guid.NewGuid() }, tx);
+            "insert into energy_ledger (account_id, kind, delta, balance_after, idempotency_key) values (@account, @kind, @amount, @after, @key)",
+            new { account, kind, amount, after, key }, tx);
         await tx.CommitAsync();
     }
 
@@ -145,6 +148,9 @@ public class EnergySchemaTests : IAsyncLifetime
     [InlineData("'regen', 1, 51, 'regen:1' || chr(1)", "energy_ledger_idempotency_key_check", null)]            // a control character
     [InlineData("'regen', 1, 51, 'dev_grant:1'", "energy_ledger_idempotency_key_check", null)]                  // another kind's prefix
     [InlineData("'regen', 1, 51, 'regen:'", "energy_ledger_idempotency_key_check", null)]                       // an empty suffix
+    [InlineData("'dev_grant', 1, 51, 'devXgrant:1'", "energy_ledger_idempotency_key_check", null)]              // '_' is not a wildcard
+    [InlineData("'void_refund', 1, 51, 'voidXrefund:1'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'dev_grant', 1, 51, 'devXgrant'", "energy_ledger_idempotency_key_check", null)]
     [InlineData("'regen', 1, 51, 'regen1'", "energy_ledger_idempotency_key_check", null)]                       // no separator
     [InlineData("'regen', 1, 51, ''", "energy_ledger_idempotency_key_check", null)]
     // Every kind outside the list also fails the sign CHECK (which names the kinds); dropping it in the rolled-back
@@ -212,16 +218,14 @@ public class EnergySchemaTests : IAsyncLifetime
     public async Task A_duplicate_ledger_key_fails_on_the_unique_constraint()
     {
         var account = await NewWalletAsync();
-        await using (var conn = await db.AsApp().OpenConnectionAsync())
-            await conn.ExecuteAsync(InsertEntry + "'regen', 1, 51, 'regen:1')", new { account });
+        await CreditAsync(account, "regen", 1, "regen:1");
         var e = await FailureOf(db.AsApp(), InsertEntry + "'regen', 2, 52, 'regen:1')", new { account });
         Assert.Equal(("23505", "energy_ledger_account_id_idempotency_key_key"), (e.SqlState, e.ConstraintName));
         e = await FailureOf(db.AsApp(), InsertEntry + "'open', 0, 50, 'open')", new { account });   // open is once per account
         Assert.Equal(("23505", "energy_ledger_account_id_idempotency_key_key"), (e.SqlState, e.ConstraintName));
         // Another account may use the same regen key.
         var other = await NewWalletAsync();
-        await using (var conn = await db.AsApp().OpenConnectionAsync())
-            await conn.ExecuteAsync(InsertEntry + "'regen', 1, 51, 'regen:1')", new { account = other });
+        await CreditAsync(other, "regen", 1, "regen:1");
     }
 
     [Fact]
@@ -230,8 +234,7 @@ public class EnergySchemaTests : IAsyncLifetime
         var first = await NewWalletAsync();
         var second = await NewWalletAsync();
         var key = "dev_grant:" + Guid.NewGuid();
-        await using (var conn = await db.AsApp().OpenConnectionAsync())
-            await conn.ExecuteAsync(InsertEntry + "'dev_grant', 1, 51, @key)", new { account = first, key });
+        await CreditAsync(first, "dev_grant", 1, key);
         var e = await FailureOf(db.AsApp(), InsertEntry + "'dev_grant', 1, 51, @key)", new { account = second, key });
         Assert.Equal(("23505", "energy_dev_grant_key_global"), (e.SqlState, e.ConstraintName));
         Assert.Equal(1L, await SuperScalarAsync<long>("select count(*) from energy_ledger where kind = 'dev_grant'"));
@@ -395,6 +398,45 @@ public class EnergySchemaTests : IAsyncLifetime
             Assert.Equal("energy_wallet_matches_ledger", e.ConstraintName);
         }
         Assert.Equal(55, await SuperScalarAsync<int>("select balance from energy_wallets where account_id = @account", new { account }));
+    }
+
+    [Fact]
+    public async Task A_ledger_entry_without_its_wallet_balance_fails_at_commit()
+    {
+        // An entry whose balance_after the wallet never reaches, with the wallet untouched.
+        var account = await NewWalletAsync();
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            await using var tx = await conn.BeginTransactionAsync();
+            await conn.ExecuteAsync(InsertEntry + "'dev_grant', 5, 55, @key)", new { account, key = "dev_grant:" + Guid.NewGuid() }, tx);
+            var e = await Assert.ThrowsAsync<PostgresException>(() => tx.CommitAsync());
+            Assert.Equal(("23514", "energy_ledger_matches_wallet"), (e.SqlState, e.ConstraintName));
+        }
+        // The entry first, then a wallet update that disagrees: the entry's check (queued first) refuses it.
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            await using var tx = await conn.BeginTransactionAsync();
+            await conn.ExecuteAsync(InsertEntry + "'dev_grant', 5, 55, @key)", new { account, key = "dev_grant:" + Guid.NewGuid() }, tx);
+            await conn.ExecuteAsync("update energy_wallets set balance = 56 where account_id = @account", new { account }, tx);
+            var e = await Assert.ThrowsAsync<PostgresException>(() => tx.CommitAsync());
+            Assert.Equal(("23514", "energy_ledger_matches_wallet"), (e.SqlState, e.ConstraintName));
+        }
+        // An autocommitted entry alone fails the same way.
+        var alone = await FailureOf(db.AsApp(), InsertEntry + "'regen', 1, 51, 'regen:1')", new { account });
+        Assert.Equal(("23514", "energy_ledger_matches_wallet"), (alone.SqlState, alone.ConstraintName));
+        Assert.Equal((50, 1L), await SingleAsync<(int, long)>(db.AsSuperuser(),
+            "select (select balance from energy_wallets where account_id = @account), (select count(*) from energy_ledger where account_id = @account)", new { account }));
+
+        // In either order, an entry and the wallet reaching its balance_after commit together.
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            await using var tx = await conn.BeginTransactionAsync();
+            await conn.ExecuteAsync(InsertEntry + "'dev_grant', 5, 55, @key)", new { account, key = "dev_grant:" + Guid.NewGuid() }, tx);
+            await conn.ExecuteAsync("update energy_wallets set balance = 55 where account_id = @account", new { account }, tx);
+            await tx.CommitAsync();
+        }
+        Assert.Equal(55, await SuperScalarAsync<int>("select balance from energy_wallets where account_id = @account", new { account }));
+        Assert.Empty(await AccountTestKit.InvariantFailuresAsync(db));
     }
 
     // ---- seed ----

@@ -60,6 +60,8 @@ create table energy_wallets (
 -- Every balance change, append-only. Keys: 'open' (once per account), 'regen:<consumed anchor, µs since the Unix epoch>',
 -- 'dev_grant:<operator uuid>' (also unique across accounts). Each kind's delta sign is a CHECK. attempt_id is unused until
 -- Stage 7. The two CHECKs that read two columns are named (PostgreSQL would call them energy_ledger_check and _check1).
+-- A key is the bare kind or the kind, ':' and a non-empty suffix; starts_with, not LIKE, whose '_' would match any
+-- character in 'dev_grant' and 'void_refund'.
 create table energy_ledger (
   entry_id bigint generated always as identity primary key,
   account_id bigint not null references energy_wallets,
@@ -69,7 +71,8 @@ create table energy_ledger (
   balance_after integer not null check (balance_after >= 0),
   idempotency_key text not null
     constraint energy_ledger_idempotency_key_check check (length(idempotency_key) <= 200 and idempotency_key !~ '[[:space:][:cntrl:]]'
-                                                          and (idempotency_key = kind or idempotency_key like kind || ':_%')),
+                                                          and (idempotency_key = kind or (starts_with(idempotency_key, kind || ':')
+                                                                                          and length(idempotency_key) > length(kind) + 1))),
   created_at timestamptz not null default statement_timestamp(),
   constraint energy_ledger_delta_sign_check check ((kind = 'open' and delta >= 0) or (kind in ('regen', 'dev_grant', 'release', 'void_refund') and delta > 0)
       or (kind = 'reserve' and delta < 0) or (kind in ('charge', 'settle') and delta = 0) or (kind = 'adjust' and delta <> 0)),
@@ -122,9 +125,11 @@ create trigger energy_wallet_forward_only before update on energy_wallets
   for each row execute function energy_wallet_forward_only();
 
 -- Every balance change has its ledger entry in the same transaction (owner requirement 4): at commit, a wallet that was
--- inserted or updated must hold the balance_after of its latest entry (by entry_id); a wallet with no entry fails. It
--- re-reads the wallet rather than trusting NEW, since one transaction may update the row several times (each queues an
--- event, all judged on the final row).
+-- inserted or updated, or that received a ledger entry, must hold the balance_after of its latest entry (by entry_id); a
+-- wallet with no entry fails. So neither a wallet write without its entry nor an entry without its wallet write commits.
+-- One function serves both constraint triggers and names the failing one (TG_NAME). It re-reads the wallet rather than
+-- trusting NEW, since one transaction may write the row several times (each queues an event, all judged on the final
+-- rows).
 create function energy_wallet_matches_ledger() returns trigger language plpgsql as $$
 declare
   wallet_balance integer;
@@ -137,12 +142,16 @@ begin
   select balance_after into ledger_balance from energy_ledger where account_id = new.account_id order by entry_id desc limit 1;
   if ledger_balance is distinct from wallet_balance then
     raise exception 'an energy wallet balance must equal the balance_after of its latest ledger entry'
-      using errcode = 'check_violation', constraint = 'energy_wallet_matches_ledger';
+      using errcode = 'check_violation', constraint = tg_name;
   end if;
   return null;
 end $$;
 
 create constraint trigger energy_wallet_matches_ledger after insert or update on energy_wallets
+  deferrable initially deferred
+  for each row execute function energy_wallet_matches_ledger();
+
+create constraint trigger energy_ledger_matches_wallet after insert on energy_ledger
   deferrable initially deferred
   for each row execute function energy_wallet_matches_ledger();
 
