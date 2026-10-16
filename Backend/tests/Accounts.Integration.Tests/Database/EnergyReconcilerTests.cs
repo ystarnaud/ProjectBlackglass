@@ -454,15 +454,14 @@ public class EnergyReconcilerTests : IAsyncLifetime
         var logs = new CapturingLoggerProvider();
         using var factory = LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Trace).AddProvider(logs));
         var sweeps = 0;
-        var service = new EnergyReconcileService(async ct =>
+        var service = new EnergyReconcileService(ct =>
         {
-            var report = await reconciler.RunAsync(ct);
-            Interlocked.Increment(ref sweeps);
-            return report;
+            Interlocked.Increment(ref sweeps); // on entry, before any database work
+            return reconciler.RunAsync(ct);
         }, TimeSpan.FromMilliseconds(200), factory);
 
         await service.StartAsync(default);
-        Assert.Equal(0, Volatile.Read(ref sweeps)); // never during startup: the first sweep waits one interval
+        Assert.Equal(0, Volatile.Read(ref sweeps)); // never during startup (The_first_sweep_waits_one_whole_interval pins the wait itself)
         await WaitUntilAsync(() => Occurrences(logs.Text, "Energy reconciliation checked") >= 2, "two sweeps");
         await service.StopAsync(default);
         Assert.True(service.ExecuteTask!.IsCompletedSuccessfully); // cancellation ends it cleanly
@@ -475,6 +474,28 @@ public class EnergyReconcilerTests : IAsyncLifetime
         Assert.DoesNotContain(db.Password("app"), text);
         Assert.DoesNotContain("Password", text, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(db.Name, text); // no connection details at all
+    }
+
+    [Fact]
+    public async Task The_first_sweep_waits_one_whole_interval()
+    {
+        // Counted on entry, so a sweep started at startup is seen at once, before any database round trip; the interval is
+        // long enough that no tick can fall inside the settle.
+        var sweeps = 0;
+        using var factory = LoggerFactory.Create(b => b.AddProvider(new CapturingLoggerProvider()));
+        var service = new EnergyReconcileService(_ =>
+        {
+            Interlocked.Increment(ref sweeps);
+            return Task.FromResult(new ReconcileReport(0, [], 0));
+        }, TimeSpan.FromSeconds(10), factory);
+
+        await service.StartAsync(default);
+        await Task.Delay(TimeSpan.FromMilliseconds(300));
+        var early = Volatile.Read(ref sweeps);
+        await service.StopAsync(default);
+
+        Assert.Equal(0, early);
+        Assert.True(service.ExecuteTask!.IsCompletedSuccessfully);
     }
 
     [Fact]
@@ -570,10 +591,6 @@ public class EnergyReconcilerTests : IAsyncLifetime
     [Fact]
     public async Task Energy_reconcile_prints_counts_and_exits_zero_with_mismatches()
     {
-        await NewWalletAsync();
-        var account = await CorruptedBalanceAsync();
-        var stored = await StoredAsync();
-        var audits = await ScalarAsSuperuserAsync<long>(db, "select count(*) from operator_actions");
         var loads = 0;
         async Task<(int Code, string Out, string Err)> ReconcileAsync(Dictionary<string, string?>? env = null)
         {
@@ -583,18 +600,40 @@ public class EnergyReconcilerTests : IAsyncLifetime
             return (code, output.ToString(), error.ToString());
         }
         static string Field(string output, string name) => Regex.Match(output, $"(?m)^{Regex.Escape(name)}=(.*)$").Groups[1].Value.TrimEnd('\r');
-        static string[] Names(string output) => output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r').Split('=')[0]).ToArray();
+        static string[] Lines(string output) => output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r')).ToArray();
+        static string[] Names(string output) => Lines(output).Select(l => l.Split('=')[0]).ToArray();
+        static string[] MismatchLines(string output) => Lines(output).Where(l => l.StartsWith("mismatch=", StringComparison.Ordinal)).ToArray();
+
+        // A clean database: the counts, and no mismatch line at all.
+        await NewWalletAsync();
+        var clean = await ReconcileAsync();
+        Assert.Equal(ExitCodes.Ok, clean.Code);
+        Assert.Equal(["walletsChecked", "mismatches", "anomaliesRecorded", "correlationId"], Names(clean.Out));
+        Assert.Equal(("1", "0", "0"), (Field(clean.Out, "walletsChecked"), Field(clean.Out, "mismatches"), Field(clean.Out, "anomaliesRecorded")));
+        Assert.Empty(MismatchLines(clean.Out));
+
+        // Two corrupted wallets: two findings on the first, one on the second.
+        var account = await CorruptedBalanceAsync();
+        var later = await OneFindingAsync();
+        var stored = await StoredAsync();
+        var audits = await ScalarAsSuperuserAsync<long>(db, "select count(*) from operator_actions");
 
         var first = await ReconcileAsync();
         var second = await ReconcileAsync();
 
         Assert.Equal(ExitCodes.Ok, first.Code); // the anomaly is the signal, not the exit code
-        Assert.Equal(["walletsChecked", "mismatches", "anomaliesRecorded", "correlationId"], Names(first.Out));
-        Assert.Equal(("2", "2", "2"), (Field(first.Out, "walletsChecked"), Field(first.Out, "mismatches"), Field(first.Out, "anomaliesRecorded")));
+        // One line per finding, after the counts and before the correlation id, in the reconciler's order (account, then rule).
+        Assert.Equal(["walletsChecked", "mismatches", "anomaliesRecorded", "mismatch", "mismatch", "mismatch", "correlationId"], Names(first.Out));
+        string[] expected =
+            [$"mismatch={AccountId.Format(account)}:balance_vs_last_entry", $"mismatch={AccountId.Format(account)}:balance_vs_sum",
+                $"mismatch={AccountId.Format(later)}:progress_not_below_interval"];
+        Assert.Equal(expected, MismatchLines(first.Out));
+        Assert.Equal(("3", "3", "3"), (Field(first.Out, "walletsChecked"), Field(first.Out, "mismatches"), Field(first.Out, "anomaliesRecorded")));
         Assert.True(Guid.TryParseExact(Field(first.Out, "correlationId"), "D", out _));
-        Assert.Equal((ExitCodes.Ok, "2", "0"), (second.Code, Field(second.Out, "mismatches"), Field(second.Out, "anomaliesRecorded")));
+        Assert.Equal((ExitCodes.Ok, "3", "0"), (second.Code, Field(second.Out, "mismatches"), Field(second.Out, "anomaliesRecorded")));
+        Assert.Equal(expected, MismatchLines(second.Out)); // every finding is named, whether this run recorded it or not
         Assert.NotEqual(Field(first.Out, "correlationId"), Field(second.Out, "correlationId"));
-        Assert.Equal(2, (await AnomaliesAsync()).Count);
+        Assert.Equal(3, (await AnomaliesAsync()).Count);
         Assert.Equal(stored, await StoredAsync());
         Assert.Equal(audits, await ScalarAsSuperuserAsync<long>(db, "select count(*) from operator_actions")); // it changes no account: nothing is audited
         Assert.Equal(0, loads);
@@ -611,6 +650,6 @@ public class EnergyReconcilerTests : IAsyncLifetime
         var unreachable = db.EnvFor("app");
         unreachable[DbSettings.PortVar] = "1";
         Assert.Equal(ExitCodes.Unavailable, (await ReconcileAsync(unreachable)).Code);
-        Assert.Equal(2, (await AnomaliesAsync()).Count);
+        Assert.Equal(3, (await AnomaliesAsync()).Count);
     }
 }

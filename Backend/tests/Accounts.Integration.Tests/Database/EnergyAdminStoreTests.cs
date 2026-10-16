@@ -11,6 +11,7 @@ using Blackglass.Accounts.IntegrationTests.Support;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
 using Blackglass.Accounts.Persistence.Energy;
+using Blackglass.Accounts.Persistence.Player;
 using static Blackglass.Accounts.IntegrationTests.Support.AccountTestKit;
 
 namespace Blackglass.Accounts.IntegrationTests.Database;
@@ -532,6 +533,156 @@ public class EnergyAdminStoreTests : IAsyncLifetime
         Assert.Equal(Rounds, (await EntriesAsync(account)).Count(e => e.Kind == "dev_grant"));
         Assert.Equal(1 + Rounds, await ScalarAsync<long>("select count(*) from energy_wallets"));
         Assert.Equal(2, await ScalarAsync<int>("select max(version) from energy_policies"));
+    }
+
+    [Fact]
+    public async Task A_queued_publication_drains_with_shared_holders_and_new_requesters_without_deadlock()
+    {
+        // The owner's question 1, built deterministically: shared holder H is in flight, publisher P is queued behind it, and
+        // new shared requesters (a grant on another account, an account creation, a /v1/me read) queue behind P while holding
+        // their own row locks. Then H needs more (its audit) and everything must drain. The pool has no lock_timeout, so a
+        // real cycle surfaces as 40P01, not as a timeout.
+        var held = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        var other = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        var reader = await accounts.CreateAccountAsync(null, null, Op);
+        await using var wide = Wide(8);
+        var racingEnergy = new EnergyAdminStore(wide, GrantMax);
+        var racingAccounts = new AccountAdminStore(wide);
+        var reads = new PlayerReadStore(wide);
+        const string AdvisoryWaiters = "select count(*) from pg_stat_activity where datname = current_database() and wait_event = 'advisory'";
+        const string SharedPolicyHolders =
+            "select count(*) from pg_locks where locktype = 'advisory' and mode = 'ShareLock' and granted and database = (select oid from pg_database where datname = current_database())";
+
+        await InstallAuditGateAsync();
+        Task<GrantResult> h, r;
+        Task<EnergyPolicy> p;
+        Task<IssuedCredential> created;
+        Task<MeView> me;
+        await using (var gate = await db.AsSuperuser().OpenConnectionAsync())
+        {
+            await using var gateTx = await gate.BeginTransactionAsync();
+            await gate.ExecuteAsync("select pg_advisory_xact_lock(@key)", new { key = GateKey }, gateTx);
+
+            // H: materialized and credited under the shared lock, its entries written, then held at its audit.
+            h = Task.Run(() => racingEnergy.GrantAsync(held, 5, Guid.CreateVersion7(), Op));
+            await WaitForLockWaitersAsync(1);
+            Assert.Equal(1L, await ScalarAsync<long>(SharedPolicyHolders));
+
+            // P: queued for the exclusive lock behind H.
+            p = Task.Run(() => racingEnergy.PublishPolicyAsync(40, 40, TimeSpan.FromMinutes(5), 2, 100, Op));
+            await WaitForLockWaitersAsync(2);
+            Assert.Equal(2L, await ScalarAsync<long>(AdvisoryWaiters)); // H at the gate, P on the policy lock
+
+            // New shared requesters: each queues behind P (a shared request never jumps a queued exclusive one).
+            r = Task.Run(() => racingEnergy.GrantAsync(other, 3, Guid.CreateVersion7(), Op));
+            created = Task.Run(() => racingAccounts.CreateAccountAsync(null, null, Op));
+            me = Task.Run(() => reads.GetMeAsync(reader.AccountId));
+            await WaitForLockWaitersAsync(5);
+            Assert.Equal(5L, await ScalarAsync<long>(AdvisoryWaiters));
+            Assert.Equal(1L, await ScalarAsync<long>(SharedPolicyHolders)); // still H alone
+            Assert.False(p.IsCompleted || r.IsCompleted || created.IsCompleted || me.IsCompleted);
+
+            await gateTx.CommitAsync();
+            await Task.WhenAll(h, p, r, created, me).WaitAsync(TimeSpan.FromSeconds(60)); // no 40P01, no other failure, no hang
+        }
+        await RemoveAuditGateAsync();
+
+        var policy = await p;
+        Assert.Equal(2, policy.Version);
+        // H read its clock before P was granted; its materialization moved its anchor to that clock and stayed on version 1.
+        var heldWallet = await WalletAsync(held);
+        Assert.Equal((false, 18, 1), ((await h).Replayed, (await h).BalanceAfter, heldWallet.PolicyVersion));
+        Assert.True(policy.EffectiveAt > heldWallet.RegenAnchor, $"{policy.EffectiveAt:O} should be after H's clock {heldWallet.RegenAnchor:O}");
+        // The requesters queued behind P all saw version 2: the grant's materialization lands on it, the new wallet opens
+        // under it, and /v1/me projects with its cap.
+        var otherWallet = await WalletAsync(other);
+        Assert.Equal(2, otherWallet.PolicyVersion);
+        Assert.True(otherWallet.RegenAnchor > policy.EffectiveAt);
+        Assert.False((await r).Replayed);
+        Assert.Equal(new WalletOpen(true, 40, 2), (await created).Energy);
+        Assert.Equal(40, (await me).Energy!.Cap);
+    }
+
+    [Fact]
+    public async Task Account_creation_behind_a_held_publication_lock_times_out_busy_and_writes_nothing()
+    {
+        string[] tables =
+            ["accounts", "account_identities", "dev_credentials", "inventories", "operatives", "item_instances", "item_stacks", "energy_wallets", "energy_ledger", "operator_actions"];
+        async Task<string> CountsAsync()
+        {
+            var counts = new List<string>();
+            foreach (var table in tables) counts.Add($"{table}={await ScalarAsync<long>($"select count(*) from {table}")}");
+            return string.Join(' ', counts);
+        }
+        await accounts.CreateAccountAsync("before", null, Op); // a starting point that is not empty
+        var before = await CountsAsync();
+        var bounded = new AccountAdminStore(db.AsAppWith(Short));
+        var env = db.EnvFor("app");
+        env[DbTimeouts.LockTimeoutVar] = "300";
+
+        await using (var holder = await db.AsSuperuser().OpenConnectionAsync())
+        {
+            await using var holderTx = await holder.BeginTransactionAsync();
+            await holder.ExecuteAsync("select pg_advisory_xact_lock(@key)", new { key = EnergyPolicies.PublicationLockKey }, holderTx);
+
+            // The store: the account, identity, credential and starter are written, then the wallet waits on the policy lock.
+            var clock = Stopwatch.StartNew();
+            var e = await Assert.ThrowsAsync<PostgresException>(() => bounded.CreateAccountAsync("blocked", "Blocked", Op).WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(8), $"the creation waited {clock.Elapsed}");
+            Assert.Equal(PostgresErrorCodes.LockNotAvailable, e.SqlState);
+            Assert.Equal(DbFailureKind.Busy, DbFailure.Classify(e));
+            Assert.Equal(before, await CountsAsync());
+
+            // The CLI: busy (exit 75), and no key or account printed.
+            var (output, error) = (new StringWriter(), new StringWriter());
+            var code = await Cli.RunAsync(["admin", "account", "create", "--handle", "blocked-cli", "--operator", "ops", "--reason", "busy"], env, output, error)
+                .WaitAsync(TimeSpan.FromSeconds(20));
+            Assert.Equal(ExitCodes.Busy, code);
+            Assert.Contains("nothing was changed", error.ToString());
+            Assert.Equal("", output.ToString());
+            Assert.Equal(before, await CountsAsync());
+            await holderTx.RollbackAsync();
+        }
+
+        Assert.Equal(before, await CountsAsync());
+        // Nothing was kept: both handles are still free once the lock is gone.
+        Assert.Equal(new WalletOpen(true, 50, 1), (await bounded.CreateAccountAsync("blocked", "Blocked", Op)).Energy);
+        Assert.NotNull((await bounded.CreateAccountAsync("blocked-cli", null, Op)).Energy);
+    }
+
+    [Fact]
+    public async Task A_publication_behind_a_held_shared_lock_times_out_busy_and_publishes_nothing()
+    {
+        var bounded = new EnergyAdminStore(db.AsAppWith(Short), GrantMax);
+        var env = db.EnvFor("app");
+        env[DbTimeouts.LockTimeoutVar] = "300";
+
+        await using (var holder = await db.AsSuperuser().OpenConnectionAsync())
+        {
+            await using var holderTx = await holder.BeginTransactionAsync();
+            await holder.ExecuteAsync("select pg_advisory_xact_lock_shared(@key)", new { key = EnergyPolicies.PublicationLockKey }, holderTx);
+
+            var clock = Stopwatch.StartNew();
+            var e = await Assert.ThrowsAsync<PostgresException>(() =>
+                bounded.PublishPolicyAsync(60, 60, TimeSpan.FromMinutes(10), 1, 100, Op).WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds(8), $"the publication waited {clock.Elapsed}");
+            Assert.Equal(PostgresErrorCodes.LockNotAvailable, e.SqlState);
+            Assert.Equal(DbFailureKind.Busy, DbFailure.Classify(e));
+
+            // The CLI, confirmed: its unlocked preview, then busy (exit 75), with no version printed.
+            var (output, error) = (new StringWriter(), new StringWriter());
+            var code = await Cli.RunAsync(["admin", "energy", "policy", "publish", "--cap", "60", "--opening-balance", "60", "--interval-seconds", "600", "--amount", "1",
+                "--void-refund-pct", "100", "--operator", "ops", "--reason", "busy", "--yes"], env, output, error).WaitAsync(TimeSpan.FromSeconds(20));
+            Assert.Equal(ExitCodes.Busy, code);
+            Assert.Contains("nothing was changed", error.ToString());
+            Assert.DoesNotContain("policyVersion=", output.ToString());
+            Assert.DoesNotContain("correlationId=", output.ToString());
+            await holderTx.RollbackAsync();
+        }
+
+        Assert.Equal(1, await ScalarAsync<int>("select max(version) from energy_policies"));
+        Assert.Equal(1L, await ScalarAsync<long>("select last_value from energy_policies_version_seq")); // the insert was never reached
+        Assert.Empty(await AuditsAsync("energy_policy_publish"));
     }
 
     // ---- opening and policies ----
