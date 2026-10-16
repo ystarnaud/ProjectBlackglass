@@ -61,11 +61,12 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void The_file_has_known_scopes_and_enough_shared_cases()
+        public void The_file_has_known_scopes_and_the_pinned_case_counts()
         {
             var cases = AllCases();
             var names = new HashSet<string>();
             var shared = 0;
+            var backend = 0;
             foreach (var c in cases)
             {
                 var name = Str(c["name"]);
@@ -75,8 +76,13 @@ namespace Blackglass.Tests
                 Assert.That(scope, Is.EqualTo(ScopeShared).Or.EqualTo(ScopeBackend), name + ": scope must be shared or backend");
                 if (scope == ScopeShared)
                     shared++;
+                else
+                    backend++;
             }
-            Assert.That(shared, Is.GreaterThanOrEqualTo(30), "the shared vector set lost cases (a mass reclassification?)");
+            // Exact pins: moving a case between scopes, or adding or removing one, must update these numbers (and the same
+            // pins in the backend InventoryVectorTests) deliberately, in the same change.
+            Assert.That(shared, Is.EqualTo(54), "the shared vector count changed: a reclassification or an added or removed case must update this pin deliberately");
+            Assert.That(backend, Is.EqualTo(35), "the backend-only vector count changed: a reclassification or an added or removed case must update this pin deliberately");
         }
 
         [TestCaseSource(nameof(SharedCases))]
@@ -231,6 +237,11 @@ namespace Blackglass.Tests
         /// </summary>
         string MoveStack(bool toStash, string operative, string definitionId, int quantity)
         {
+            // A stack operation addresses stackable definitions only, as the backend does: a non-stackable definition is moved by
+            // its item id, so LastEntry below can never pick up an instance entry.
+            Assert.That(definitions.TryGetValue(definitionId, out var stackDefinition) && stackDefinition.IsStackable, Is.True,
+                $"{caseName}: a stack operation names {definitionId}, which is not a stackable definition (misclassified vector)");
+
             var loadout = session.Session.Loadout(operative);
             var source = toStash ? loadout?.Bag : session.Session.Stash;
 

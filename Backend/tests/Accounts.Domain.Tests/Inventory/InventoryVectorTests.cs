@@ -68,14 +68,15 @@ public class InventoryVectorTests
     public void The_file_has_enough_cases_and_covers_every_refusal()
     {
         var cases = RawCases.ToList();
-        Assert.True(cases.Count >= 40, "the vector file lost cases");
+        Assert.True(cases.Count == 89, "the vector file lost or gained cases: update the pinned counts here and in Unity InventoryContractTests deliberately");
         var names = cases.Select(c => c.GetProperty("name").GetString()!).ToList();
         Assert.Equal(names.Count, names.Distinct().Count());
         Assert.All(names, n => Assert.Matches("^[a-z0-9]+(-[a-z0-9]+)*$", n));
 
         var built = cases.Select(Build).ToList();   // fails on a missing or unknown scope, or a malformed case
-        Assert.Contains(built, b => b.Scope == "shared");
-        Assert.Contains(built, b => b.Scope == "backend");
+        // Exact pins (the same numbers Unity's InventoryContractTests pins): a reclassification must update both deliberately.
+        Assert.True(built.Count(b => b.Scope == "shared") == 54, "the shared vector count changed: a reclassification or an added or removed case must update this pin deliberately");
+        Assert.True(built.Count(b => b.Scope == "backend") == 35, "the backend-only vector count changed: a reclassification or an added or removed case must update this pin deliberately");
 
         var covered = built.Where(b => b.ExpectedRefusal is not null).Select(b => b.ExpectedRefusal!.Code).ToHashSet();
         foreach (var refusal in Enum.GetValues<InventoryRefusal>())
