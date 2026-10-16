@@ -48,7 +48,8 @@ public static class InventoryEditor
     /// stack definition; every stack at least 1 and unique per location and definition; at most one item per operative
     /// and slot; every equipped item in an operative's bag, with a known definition of that slot; and no bag that grew
     /// past capacity (a bag already over capacity may stay over). An equipped item that did not change is not re-judged,
-    /// so a definition the catalogue has since retired cannot make an unrelated edit fail.
+    /// so neither a definition the catalogue has since retired nor a known definition whose catalogue slot changed since it
+    /// was equipped can make an unrelated edit fail.
     /// </summary>
     public static void ValidateFinal(InventoryModel before, InventoryModel after, CatalogueDocument catalogue)
     {

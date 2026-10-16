@@ -49,6 +49,22 @@ public class InventoryVectorTests
     }
 
     [Fact]
+    public void The_shared_guard_tolerates_operations_after_the_refused_one()
+    {
+        var medkit = new CatalogueItem("item.medkit", ItemCategory.Consumable, ItemSlot.None, true, 3, 25);
+        var catalogue = new CatalogueDocument(CatalogueDocument.SupportedFormatVersion, new InventorySettings(8), [medkit],
+            new LootTable(1, 1, 1, 1, []), new Blackglass.Accounts.Domain.Catalogue.Progression([0, 100], 10, []), [], new Starter([], []));
+        var initial = new InventoryModel([1], [], [new HeldStack(null, "item.medkit", 2)]);
+        IReadOnlyList<InventoryOperation> operations =
+            [new Equip(1, GhostItem), new MoveStack(1, "item.medkit", 1, Destination.Bag), new MoveStack(1, "item.medkit", 1, Destination.Bag)];
+        var built = new Built("crafted", "shared", null, catalogue, initial, operations, null, new Refusal(0, "NotFound"),
+            new Dictionary<string, long>(), new Dictionary<string, long> { ["op1"] = 1 });
+
+        Assert.False(InventoryEditor.Apply(initial, catalogue, operations).Applied);
+        Assert.Null(Record.Exception(() => AssertSharedStaysInsideUnity(built)));
+    }
+
+    [Fact]
     public void The_file_has_enough_cases_and_covers_every_refusal()
     {
         var cases = RawCases.ToList();
@@ -90,6 +106,7 @@ public class InventoryVectorTests
             if (op is MoveInstance or MoveStack)
                 Assert.NotEqual(UnknownOperativeId, op.OperativeId);   // Unity reports NotFound there; the backend says UnknownOperative
 
+            if (b.ExpectedRefusal is { } refused && i > refused.Index) continue;   // a refused batch never runs these, and the prefix before them has no state
             if (op is not MoveStack move || move.Quantity < 1) continue;
             var before = i == 0 ? b.Initial : InventoryEditor.Apply(b.Initial, b.Catalogue, b.Operations.Take(i).ToList()).After!;
             var source = before.Stacks.FirstOrDefault(s => s.OperativeId == (move.To == Destination.Stash ? move.OperativeId : null) && s.DefinitionId == move.DefinitionId);
@@ -132,11 +149,14 @@ public class InventoryVectorTests
             var slot = item.Category switch { ItemCategory.Weapon => ItemSlot.Weapon, ItemCategory.Armor => ItemSlot.Armor, ItemCategory.Utility => ItemSlot.Utility, _ => ItemSlot.None };
             Assert.True(item.Slot == slot, $"{name}: {item.Id} slot does not match its category");
         }
-        var catalogue = new CatalogueDocument(CatalogueDocument.SupportedFormatVersion, new InventorySettings(c.GetProperty("bagCapacity").GetInt32()), items,
+        var bagCapacity = c.GetProperty("bagCapacity").GetInt32();
+        Assert.True(bagCapacity >= 1, $"{name}: bagCapacity must be at least 1 (Unity reads 0 as uncapped, the backend as zero)");
+        var catalogue = new CatalogueDocument(CatalogueDocument.SupportedFormatVersion, new InventorySettings(bagCapacity), items,
             new LootTable(1, 1, 1, 1, []), new Blackglass.Accounts.Domain.Catalogue.Progression([0, 100], 10, []), [], new Starter([], []));
 
         var operativeLabels = c.GetProperty("operatives").EnumerateArray().Select(o => o.GetString()!).ToList();
         Assert.Equal(operativeLabels.Count, operativeLabels.Distinct().Count());
+        foreach (var label in operativeLabels) Assert.True(label is not ("ghost" or "opX"), $"{name}: operative label {label} is reserved");
         var operatives = new Dictionary<string, long>();
         foreach (var label in operativeLabels) operatives[label] = operatives.Count + 1;
 

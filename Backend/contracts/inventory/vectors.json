@@ -646,7 +646,7 @@
     },
     {
       "name": "strict-a-stack-needing-one-more-entry-than-free-is-refused", "scope": "backend",
-      "why": "S5-D1: Unity would move the 9 units that fit and leave 1 in the stash; the backend refuses the whole request",
+      "why": "S5-D1: the bag has 2 free entries of 3, so Unity would move the 6 units that fit and leave 4 in the stash; the backend refuses the whole request",
       "bagCapacity": 4,
       "items": [
         { "id": "item.rifle", "category": "weapon", "slot": "weapon", "stackable": false, "maxStack": 1, "healAmount": 0 },
@@ -728,7 +728,7 @@
     },
     {
       "name": "to-bag-a-negative-quantity-is-invalid", "scope": "backend",
-      "why": "the backend API carries a signed quantity from JSON; Unity's runner only ever passes the shared cases' non-negative values",
+      "why": "pins the backend's handling of a negative quantity, an input the API's request validation would normally refuse earlier; Unity's own handling (InvalidQuantity for any value below 1) is covered by the shared case to-stash-quantity-zero-is-invalid",
       "bagCapacity": 8,
       "items": [ { "id": "item.medkit", "category": "consumable", "slot": "none", "stackable": true, "maxStack": 3, "healAmount": 25 } ],
       "operatives": ["op1"],
