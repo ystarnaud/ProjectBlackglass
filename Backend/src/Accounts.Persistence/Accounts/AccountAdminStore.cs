@@ -13,8 +13,16 @@ public sealed record IssuedCredential(long AccountId, Guid CredentialId, OpaqueS
 /// <summary>What an operator is about to change (the admin CLI shows it before asking for confirmation).</summary>
 public sealed record AccountSummary(long AccountId, string Status, string? Handle, string? DisplayName, DateTime CreatedAt, Guid? LiveCredentialId, int LiveSessions, bool StarterGranted);
 
-/// <summary>The outcome of a starter backfill: whether this call granted, and the account's starter state as it now stands.</summary>
-public sealed record BackfillResult(bool Granted, ProvisionResult State);
+/// <summary>What one starter grant inserted. It is the grant itself, never a count of what the account holds now.</summary>
+public sealed record StarterGrant(int Operatives, int Instances, int Stacks);
+
+/// <summary>
+/// The outcome of a starter backfill. <see cref="CatalogueVersion"/> is the version this call granted from, or, when the
+/// account already had its starter, the version recorded at that first grant. <see cref="Grant"/> is what this call
+/// inserted and is null when it granted nothing: current holdings change with every inventory edit and are never reported
+/// as the starter.
+/// </summary>
+public sealed record BackfillResult(bool Granted, string CatalogueVersion, StarterGrant? Grant);
 
 public sealed record CredentialSummary(Guid CredentialId, long AccountId, bool Live);
 
@@ -171,7 +179,8 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, Func<GameCatalogue> l
     /// (inside <see cref="StarterProvisioner"/>), so concurrent backfills, and account creation, serialize: one grants, the
     /// rest find it granted. An account that already has its starter is left exactly as it is, whatever catalogue this
     /// store holds: a later catalogue never grants again or replaces a starter. The audit row is written either way
-    /// (granted true or false, the recorded catalogue version and the counts); a failure anywhere rolls everything back.
+    /// (granted true with the catalogue version and the grant's counts; or granted false with the recorded catalogue version and
+    /// no counts, since the account's current holdings are not the grant); a failure anywhere rolls everything back.
     /// A suspended account is backfilled too: the starter is property, not access.
     /// </summary>
     public async Task<BackfillResult> BackfillStarterAsync(long accountId, OperatorContext op, CancellationToken ct = default)
@@ -180,11 +189,18 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, Func<GameCatalogue> l
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await LockAccountAsync(conn, tx, accountId, ct);
+        // When already granted, the provisioner returns the version recorded in the inventories row it holds FOR UPDATE; the
+        // counts it also returns then describe current holdings, so they are dropped here and never reach a result or the audit.
         var state = await StarterProvisioner.ProvisionAsync(conn, tx, accountId, starterCatalogue, ct);
+        var result = state.Granted
+            ? new BackfillResult(true, state.CatalogueVersion, new StarterGrant(state.Operatives, state.Instances, state.Stacks))
+            : new BackfillResult(false, state.CatalogueVersion, null);
         await AuditAsync(conn, tx, op, "starter_backfill", accountId, null,
-            new { granted = state.Granted, catalogueVersion = state.CatalogueVersion, operatives = state.Operatives, instances = state.Instances, stacks = state.Stacks }, ct);
+            result.Grant is { } grant
+                ? (object)new { granted = true, catalogueVersion = result.CatalogueVersion, operatives = grant.Operatives, instances = grant.Instances, stacks = grant.Stacks }
+                : new { granted = false, catalogueVersion = result.CatalogueVersion }, ct);
         await tx.CommitAsync(ct);
-        return new BackfillResult(state.Granted, state);
+        return result;
     }
 
     /// <summary>Read only: the account an operator names, or null.</summary>

@@ -52,10 +52,11 @@ admin_creates_the_first_account() {
     && grep -Eqx 'starterStacks=[1-9][0-9]*' "$work/admin.out"
 }
 # Account creation provisioned the starter, so the explicit backfill finds it already granted (exit 0, nothing granted again).
+# It reports the recorded catalogue version and no counts: current holdings are never printed as the starter.
 admin_backfill_finds_the_starter_already() {
   admin_cli starter backfill --account-base58 2 --operator smoke-test --reason smoke --yes > "$work/backfill.out" \
     && grep -qx 'accountId=2' "$work/backfill.out" && grep -qx 'starterGranted=already' "$work/backfill.out" \
-    && grep -qx 'target.starterGranted=true' "$work/backfill.out"
+    && grep -qx 'target.starterGranted=true' "$work/backfill.out"     && grep -Eqx 'catalogueVersion=sha256:.+' "$work/backfill.out"     && ! grep -Eq '^(operatives|instances|stacks)=' "$work/backfill.out"
 }
 admin_refuses_the_old_flag() {
   local code=0; admin_cli account suspend --account 2 --operator smoke-test --reason smoke > "$work/old-flag.out" || code=$?
@@ -75,7 +76,7 @@ admin_unknown_account_is_65() {
   test "$code" -eq 65
 }
 check "the admin CLI creates the first account, prints its Base58 id and the granted starter counts" admin_creates_the_first_account
-check "starter backfill on that account exits 0 and says already" admin_backfill_finds_the_starter_already
+check "starter backfill on that account exits 0, says already, and reports the recorded version and no counts" admin_backfill_finds_the_starter_already
 check "the old --account flag is refused (64): ids are named by --account-base58" admin_refuses_the_old_flag
 check "suspend without --yes and without a terminal shows the target and changes nothing (64)" admin_shows_the_target_and_changes_nothing_without_yes
 check "suspend with --yes acts on the account the Base58 id names" admin_suspends_with_yes

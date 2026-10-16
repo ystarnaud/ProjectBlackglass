@@ -83,12 +83,19 @@ public class BackfillTests : IAsyncLifetime
             await conn.QuerySingleAsync<(bool, string, long)>("select starter_granted, starter_catalogue_version, version from inventories where account_id = @account", new { account }));
     }
 
-    static void AssertAudit(AuditRow row, bool granted, long account, string catalogueVersion, (long Operatives, long Instances, long Stacks) counts)
+    /// <summary>A granting row carries the grant's counts; an already row (counts null) carries exactly granted and catalogueVersion.</summary>
+    static void AssertAudit(AuditRow row, bool granted, long account, string catalogueVersion, (long Operatives, long Instances, long Stacks)? counts)
     {
         Assert.Equal(account, row.AccountId);
         Assert.Equal(granted, row.Result.GetProperty("granted").GetBoolean());
         Assert.Equal(catalogueVersion, row.Result.GetProperty("catalogueVersion").GetString());
-        Assert.Equal(counts, (row.Result.GetProperty("operatives").GetInt64(), row.Result.GetProperty("instances").GetInt64(), row.Result.GetProperty("stacks").GetInt64()));
+        if (counts is null)
+        {
+            Assert.Equal(["catalogueVersion", "granted"], row.Result.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal));
+            Assert.False(granted);
+        }
+        else
+            Assert.Equal(counts, (row.Result.GetProperty("operatives").GetInt64(), row.Result.GetProperty("instances").GetInt64(), row.Result.GetProperty("stacks").GetInt64()));
     }
 
     [Fact]
@@ -99,20 +106,21 @@ public class BackfillTests : IAsyncLifetime
 
         var first = await store.BackfillStarterAsync(account, op);
         Assert.True(first.Granted);
-        Assert.Equal(Planned(account), (first.State.Operatives, first.State.Instances, first.State.Stacks));
-        Assert.Equal(Catalogue.Version, first.State.CatalogueVersion);
+        Assert.Equal(Planned(account), (first.Grant!.Operatives, first.Grant.Instances, first.Grant.Stacks));
+        Assert.Equal(Catalogue.Version, first.CatalogueVersion);
         await AssertGrantedOnceAsync(account);
 
         var second = await store.BackfillStarterAsync(account, OperatorContext.Create("backfill-op", "again"));
         Assert.False(second.Granted);
-        Assert.Equal(first.State with { Granted = false }, second.State);
+        Assert.Equal(Catalogue.Version, second.CatalogueVersion);
+        Assert.Null(second.Grant);
         await AssertGrantedOnceAsync(account);
         Assert.Equal(Planned(account), await RowCountsAsync(account));
 
         var audit = await AuditAsync(account);
         Assert.Equal(2, audit.Count);
         AssertAudit(audit[0], true, account, Catalogue.Version, Planned(account));
-        AssertAudit(audit[1], false, account, Catalogue.Version, Planned(account));
+        AssertAudit(audit[1], false, account, Catalogue.Version, null);
         Assert.Equal(("backfill-op", "grant the starter to a pre-Stage-4 account", op.CorrelationId), (audit[0].Operator, audit[0].Reason, audit[0].CorrelationId));
         Assert.Equal("again", audit[1].Reason);
     }
@@ -155,7 +163,8 @@ public class BackfillTests : IAsyncLifetime
         var results = await Task.WhenAll(calls); // none throws
         Assert.Equal(1, results.Count(r => r.Granted));
         Assert.Equal(Callers - 1, results.Count(r => !r.Granted));
-        Assert.Single(results.Select(r => r.State with { Granted = false }).Distinct());
+        Assert.All(results.Where(r => !r.Granted), r => Assert.Null(r.Grant));
+        Assert.Single(results.Select(r => r.CatalogueVersion).Distinct());
         await AssertGrantedOnceAsync(account);
         Assert.Equal(Planned(account), await RowCountsAsync(account));
         var audit = await AuditAsync(account);
@@ -203,11 +212,12 @@ public class BackfillTests : IAsyncLifetime
 
         var result = await store.BackfillStarterAsync(created.AccountId, Op);
         Assert.False(result.Granted);
-        Assert.Equal(Planned(created.AccountId), (result.State.Operatives, result.State.Instances, result.State.Stacks));
+        Assert.Null(result.Grant); // nothing was granted by this call, so there is nothing to count
+        Assert.Equal(Catalogue.Version, result.CatalogueVersion);
         Assert.Equal(before, await RowCountsAsync(created.AccountId));
         await AssertGrantedOnceAsync(created.AccountId);
         var audit = Assert.Single(await AuditAsync(created.AccountId));
-        AssertAudit(audit, false, created.AccountId, Catalogue.Version, Planned(created.AccountId));
+        AssertAudit(audit, false, created.AccountId, Catalogue.Version, null);
     }
 
     [Fact]
@@ -268,12 +278,12 @@ public class BackfillTests : IAsyncLifetime
 
         var later = await changedStore.BackfillStarterAsync(account, Op);
         Assert.False(later.Granted);
-        Assert.Equal(Catalogue.Version, later.State.CatalogueVersion); // as granted, not the catalogue this store holds
+        Assert.Equal(Catalogue.Version, later.CatalogueVersion); // as granted, not the catalogue this store holds
         Assert.Equal(rows, await RowCountsAsync(account));
         Assert.Equal(Catalogue.Version, await ScalarAsync<string>("select starter_catalogue_version from inventories where account_id = @account", new { account }));
         await AssertGrantedOnceAsync(account);
         var audit = await AuditAsync(account);
-        AssertAudit(audit[1], false, account, Catalogue.Version, Planned(account));
+        AssertAudit(audit[1], false, account, Catalogue.Version, null);
     }
 
     [Fact]
@@ -283,7 +293,7 @@ public class BackfillTests : IAsyncLifetime
         var changed = ChangedCatalogue();
         var granted = await new AccountAdminStore(db.AsApp(), changed).BackfillStarterAsync(account, Op);
         Assert.True(granted.Granted);
-        Assert.Equal(changed.Version, granted.State.CatalogueVersion);
+        Assert.Equal(changed.Version, granted.CatalogueVersion);
         Assert.Equal(changed.Version, await ScalarAsync<string>("select starter_catalogue_version from inventories where account_id = @account", new { account }));
         Assert.Equal(StarterPlanner.For(account, changed.Document).Operatives.Count, (int)await ScalarAsync<long>("select count(*) from operatives where account_id = @account", new { account }));
 
@@ -303,6 +313,68 @@ public class BackfillTests : IAsyncLifetime
         Assert.True((await store.DescribeAccountAsync(created.AccountId))!.StarterGranted);
     }
 
+    /// <summary>
+    /// Moves one operative's medkit stack to the stash (a batch through the edit store), so the account's current stack rows
+    /// no longer equal what the starter granted; returns the grant's stack count and the current one.
+    /// </summary>
+    async Task<(long Granted, long Now)> DivergeFromTheGrantAsync(long account, GameCatalogue forEdits)
+    {
+        var granted = Planned(account).Item3;
+        var operative = await ScalarAsync<long>("select min(operative_id) from operatives where account_id = @account", new { account });
+        var quantity = await ScalarAsync<int>("select quantity from item_stacks where account_id = @account and operative_id = @operative and definition_id = 'item.medkit'", new { account, operative });
+        var edits = new Blackglass.Accounts.Persistence.Player.InventoryEditStore(db.AsApp(), forEdits);
+        await edits.ApplyAsync(account, 1, [new MoveStack(operative, "item.medkit", quantity, Destination.Stash)]);
+        var now = (await RowCountsAsync(account)).Stacks;
+        Assert.NotEqual(granted, now);
+        return (granted, now);
+    }
+
+    [Fact]
+    public async Task The_already_audit_row_has_no_holdings_counts()
+    {
+        var account = await PreStage4AccountAsync();
+        await store.BackfillStarterAsync(account, Op);
+        await DivergeFromTheGrantAsync(account, Catalogue);
+
+        await store.BackfillStarterAsync(account, OperatorContext.Create("backfill-op", "again after an edit"));
+
+        var audit = await AuditAsync(account);
+        Assert.Equal(2, audit.Count);
+        AssertAudit(audit[0], true, account, Catalogue.Version, Planned(account)); // what was granted, still the audited record
+        AssertAudit(audit[1], false, account, Catalogue.Version, null);            // exactly granted and catalogueVersion
+    }
+
+    [Fact]
+    public async Task A_granting_backfill_still_reports_the_grant_counts()
+    {
+        var account = await PreStage4AccountAsync();
+        var changed = ChangedCatalogue();
+        var result = await new AccountAdminStore(db.AsApp(), changed).BackfillStarterAsync(account, Op);
+
+        Assert.True(result.Granted);
+        Assert.Equal(changed.Version, result.CatalogueVersion);
+        var plan = StarterPlanner.For(account, changed.Document);
+        Assert.Equal((plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count), (result.Grant!.Operatives, result.Grant.Instances, result.Grant.Stacks));
+        AssertAudit(Assert.Single(await AuditAsync(account)), true, account, changed.Version, (plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count));
+    }
+
+    [Fact]
+    public async Task An_already_granted_backfill_reports_the_recorded_version_and_no_counts()
+    {
+        var account = await PreStage4AccountAsync();
+        var changed = ChangedCatalogue();
+        Assert.True((await new AccountAdminStore(db.AsApp(), changed).BackfillStarterAsync(account, Op)).Granted); // the recorded version is changed's
+        var (granted, now) = await DivergeFromTheGrantAsync(account, changed);
+        Assert.NotEqual(Catalogue.Version, changed.Version);
+
+        var later = await store.BackfillStarterAsync(account, Op); // this store holds the embedded catalogue and the account has since changed
+        Assert.False(later.Granted);
+        Assert.Equal(changed.Version, later.CatalogueVersion); // the recorded version, not this store's catalogue
+        Assert.Equal(changed.Version, await ScalarAsync<string>("select starter_catalogue_version from inventories where account_id = @account", new { account }));
+        Assert.Null(later.Grant); // and no counts: neither the grant's nor the current holdings (which now differ from it)
+        Assert.NotEqual(granted, now);
+    }
+
     // --- the CLI ---------------------------------------------------------------------------------------------------------
 
     async Task<(int Code, string Out, string Err)> CliAsync(string? typed, Dictionary<string, string?>? env, params string[] args)
@@ -314,6 +386,13 @@ public class BackfillTests : IAsyncLifetime
     }
 
     static string Field(string output, string name) => Regex.Match(output, $"(?m)^{Regex.Escape(name)}=(.*)$").Groups[1].Value.TrimEnd('\r');
+
+    /// <summary>The already output names no counts at all: current holdings are never printed under the grant's labels.</summary>
+    static void AssertNoHoldingsLines(string output)
+    {
+        foreach (var name in new[] { "operatives", "instances", "stacks", "starterOperatives", "starterInstances", "starterStacks" })
+            Assert.DoesNotMatch($"(?m)^{name}=", output);
+    }
 
     static string[] Backfill(long account, params string[] more) =>
         ["starter", "backfill", "--account-base58", AccountId.Format(account), "--operator", "ops", "--reason", "backfill test", .. more];
@@ -366,7 +445,8 @@ public class BackfillTests : IAsyncLifetime
         Assert.Equal(ExitCodes.Ok, second.Code);
         Assert.Equal("true", Field(second.Out, "target.starterGranted"));
         Assert.Equal("already", Field(second.Out, "starterGranted"));
-        Assert.Equal(plan.Item1.ToString(), Field(second.Out, "operatives"));
+        Assert.Equal(Catalogue.Version, Field(second.Out, "catalogueVersion")); // the recorded one
+        AssertNoHoldingsLines(second.Out);
         await AssertGrantedOnceAsync(account);
         Assert.Equal(2, (await AuditAsync(account)).Count);
     }

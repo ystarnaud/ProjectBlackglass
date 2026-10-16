@@ -5,7 +5,7 @@ using Blackglass.Accounts.Domain.Inventory;
 
 namespace Blackglass.Accounts.Persistence.Player;
 
-/// <param name="Granted">True when this call granted the starter; false when it found it already granted (then the rest is the current state, as granted).</param>
+/// <param name="Granted">True when this call granted the starter; false when it found it already granted (then CatalogueVersion is the recorded one and the counts are the account's current holdings, not the grant: callers must not report them as the starter).</param>
 public sealed record ProvisionResult(long InventoryVersion, int Operatives, int Instances, int Stacks, string CatalogueVersion, bool Granted);
 
 /// <summary>
@@ -31,7 +31,7 @@ public static class StarterProvisioner
             new { accountId }, tx, cancellationToken: ct));
         if (state.StarterGranted)
         {
-            // Already granted: the current state, as granted (the caller decides whether that is success).
+            // Already granted: the recorded version, and the current holdings (the caller decides whether that is success).
             var counts = await conn.QuerySingleAsync<Counts>(new CommandDefinition(
                 """
                 select (select count(*)::int from operatives where account_id = @accountId) as Operatives,

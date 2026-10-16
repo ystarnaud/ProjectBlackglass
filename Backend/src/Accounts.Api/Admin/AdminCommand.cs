@@ -99,10 +99,15 @@ public static class AdminCommand
                     var backfill = await store.BackfillStarterAsync(a.Account!.Value, a.Operator, ct);
                     output.WriteLine($"accountId={AccountId.Format(a.Account.Value)}");
                     output.WriteLine($"starterGranted={(backfill.Granted ? "granted" : "already")}");
-                    output.WriteLine($"catalogueVersion={backfill.State.CatalogueVersion}");
-                    output.WriteLine($"operatives={backfill.State.Operatives}");
-                    output.WriteLine($"instances={backfill.State.Instances}");
-                    output.WriteLine($"stacks={backfill.State.Stacks}");
+                    // The grant's version and counts when this call granted; only the recorded version when it was already granted:
+                    // the account's current holdings are never printed under the grant's labels.
+                    output.WriteLine($"catalogueVersion={backfill.CatalogueVersion}");
+                    if (backfill.Grant is { } grant)
+                    {
+                        output.WriteLine($"operatives={grant.Operatives}");
+                        output.WriteLine($"instances={grant.Instances}");
+                        output.WriteLine($"stacks={grant.Stacks}");
+                    }
                     break;
             }
             output.WriteLine($"correlationId={a.Operator.CorrelationId}");
