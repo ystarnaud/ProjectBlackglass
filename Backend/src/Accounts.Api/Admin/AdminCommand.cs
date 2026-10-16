@@ -148,9 +148,11 @@ public static class AdminCommand
                     var wallet = await energy!.OpenAsync(a.Account!.Value, a.Operator, ct);
                     output.WriteLine($"accountId={AccountId.Format(a.Account.Value)}");
                     output.WriteLine($"energyOpened={(wallet.Opened ? "opened" : "already")}");
-                    // For an existing wallet these are read without its row lock: what it held then, not a materialized balance.
+                    // For an existing wallet these are read without its row lock: what it held then, not a materialized balance
+                    // (so advisory=true follows them).
                     output.WriteLine($"balance={wallet.Balance}");
                     output.WriteLine($"policyVersion={wallet.PolicyVersion}");
+                    if (!wallet.Opened) output.WriteLine("advisory=true");
                     break;
                 case "energy-grant":
                     var granted = await energy!.GrantAsync(a.Account!.Value, a.Amount!.Value, a.IdempotencyKey!.Value, a.Operator, ct);
@@ -195,9 +197,11 @@ public static class AdminCommand
                     return ExitCodes.Busy;
                 case DbFailureKind.Unavailable:
                     error.WriteLine($"The database is unavailable ({settings}): {DbFailure.SafeDescription(e)}");
+                    WriteGrantOutcomeUnknown(a, error);
                     return ExitCodes.Unavailable;
                 default:
                     error.WriteLine($"Unexpected database error: {DbFailure.SafeDescription(e)}");
+                    WriteGrantOutcomeUnknown(a, error);
                     return ExitCodes.Failure;
             }
         }
@@ -278,6 +282,14 @@ public static class AdminCommand
         if (typed == "publish") return null;
         error.WriteLine("Not confirmed, so nothing was changed.");
         return ExitCodes.NotConfirmed;
+    }
+
+    /// <summary>A grant whose connection broke (or failed oddly) may have committed before the failure was seen: a retry with a
+    /// new key could grant twice, while the same key replays or grants once.</summary>
+    static void WriteGrantOutcomeUnknown(AdminArguments a, TextWriter error)
+    {
+        if (a.Verb == "energy-grant")
+            error.WriteLine($"The grant may or may not have committed: retry with the same --idempotency-key {a.IdempotencyKey!.Value:D}, never a new one.");
     }
 
     /// <summary>A database time, UTC, to the microsecond.</summary>

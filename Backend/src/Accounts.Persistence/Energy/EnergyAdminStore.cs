@@ -80,7 +80,7 @@ public sealed class EnergyAdminStore(NpgsqlDataSource db, int grantMax)
     /// replay audit, nothing else written); anything else is IdempotencyKeyReused, with nothing written;</item>
     /// <item><see cref="EnergyLedgerWriter.MaterializeLockedAsync"/>, then <see cref="EnergyMath.Credit"/> (BalanceLimit), one
     /// wallet update of the balance, the <c>dev_grant</c> entry and the audit <c>energy_grant</c> {amount, balanceAfter,
-    /// regenerated, replayed: false}.</item>
+    /// regenerated, replayed: false, idempotencyKey} (the replay audit carries the same keys, replayed: true).</item>
     /// </list>
     /// A concurrent first use of one key for two accounts: the second cannot see the first's uncommitted entry, so its insert
     /// waits on the global unique index and fails once the first commits; that is IdempotencyKeyReused, rolled back. The
@@ -106,7 +106,7 @@ public sealed class EnergyAdminStore(NpgsqlDataSource db, int grantMax)
         if (prior is not null)
         {
             if (prior.AccountId != accountId || prior.Delta != amount) throw KeyReused();
-            await AuditAsync(conn, tx, op, "energy_grant", accountId, null, new { amount, balanceAfter = prior.BalanceAfter, regenerated = 0, replayed = true }, ct);
+            await AuditAsync(conn, tx, op, "energy_grant", accountId, null, new { amount, balanceAfter = prior.BalanceAfter, regenerated = 0, replayed = true, idempotencyKey = idempotencyKey.ToString("D") }, ct);
             await tx.CommitAsync(ct);
             return new GrantResult(amount, prior.BalanceAfter, 0, true);
         }
@@ -117,6 +117,8 @@ public sealed class EnergyAdminStore(NpgsqlDataSource db, int grantMax)
         try { balanceAfter = EnergyMath.Credit(materialized.Wallet.Balance, amount); }
         catch (EnergyLimitException e) { throw new EnergyException(EnergyError.BalanceLimit, e.Message + " Nothing was changed."); }
 
+        // Deliberately a second wallet UPDATE when regeneration accrued: the materialization wrote its own (Task 3's API); the
+        // chain trigger sees the regen entry first and the deferred commit check judges the final row.
         var updated = await conn.ExecuteAsync(new CommandDefinition(
             "update energy_wallets set balance = @balanceAfter where account_id = @accountId", new { accountId, balanceAfter }, tx, cancellationToken: ct));
         if (updated != 1) throw new InvalidOperationException("The locked energy wallet was not updated exactly once.");
@@ -130,7 +132,7 @@ public sealed class EnergyAdminStore(NpgsqlDataSource db, int grantMax)
         {
             throw KeyReused(); // disposing the transaction rolls back the materialization and the credit
         }
-        await AuditAsync(conn, tx, op, "energy_grant", accountId, null, new { amount, balanceAfter, regenerated = materialized.Gained, replayed = false }, ct);
+        await AuditAsync(conn, tx, op, "energy_grant", accountId, null, new { amount, balanceAfter, regenerated = materialized.Gained, replayed = false, idempotencyKey = idempotencyKey.ToString("D") }, ct);
         await tx.CommitAsync(ct);
         return new GrantResult(amount, balanceAfter, materialized.Gained, false);
     }

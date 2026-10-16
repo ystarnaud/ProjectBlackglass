@@ -166,7 +166,8 @@ public class EnergyAdminStoreTests : IAsyncLifetime
 
         var audit = Assert.Single(await AuditsAsync("energy_grant"));
         Assert.Equal((account, op.CorrelationId, "granter", "grant test"), (audit.AccountId!.Value, audit.CorrelationId, audit.Operator, audit.Reason));
-        Assert.Equal(Keys("amount", "balanceAfter", "regenerated", "replayed"), Names(audit.Result));
+        Assert.Equal(Keys("amount", "balanceAfter", "regenerated", "replayed", "idempotencyKey"), Names(audit.Result));
+        Assert.Equal(key.ToString("D"), audit.Result.GetProperty("idempotencyKey").GetString());
         Assert.Equal((5, 18, 3, false), (audit.Result.GetProperty("amount").GetInt32(), audit.Result.GetProperty("balanceAfter").GetInt32(),
             audit.Result.GetProperty("regenerated").GetInt32(), audit.Result.GetProperty("replayed").GetBoolean()));
     }
@@ -189,7 +190,8 @@ public class EnergyAdminStoreTests : IAsyncLifetime
         Assert.Equal(row, await WalletRowVersionAsync(account)); // not even rewritten
         var audits = await AuditsAsync("energy_grant");
         Assert.Equal(2, audits.Count);
-        Assert.Equal(Keys("amount", "balanceAfter", "regenerated", "replayed"), Names(audits[1].Result));
+        Assert.Equal(Keys("amount", "balanceAfter", "regenerated", "replayed", "idempotencyKey"), Names(audits[1].Result));
+        Assert.All(audits, a => Assert.Equal(key.ToString("D"), a.Result.GetProperty("idempotencyKey").GetString())); // both name the key
         Assert.Equal((5, first.BalanceAfter, 0, true), (audits[1].Result.GetProperty("amount").GetInt32(), audits[1].Result.GetProperty("balanceAfter").GetInt32(),
             audits[1].Result.GetProperty("regenerated").GetInt32(), audits[1].Result.GetProperty("replayed").GetBoolean()));
     }
@@ -375,6 +377,31 @@ public class EnergyAdminStoreTests : IAsyncLifetime
         var e = await Assert.ThrowsAsync<AccountAdminException>(() => energy.GrantAsync(987654, 5, Guid.CreateVersion7(), Op));
         Assert.Equal(AccountAdminError.NotFound, e.Error);
         Assert.Equal(0L, await ScalarAsync<long>("select count(*) from operator_actions"));
+    }
+
+    [Fact]
+    public async Task A_unique_violation_from_another_constraint_propagates_as_is()
+    {
+        // Only a 23505 on energy_dev_grant_key_global means "the key was used elsewhere"; one from any other constraint (here
+        // the per-account key constraint, raised by a fixture trigger) is a bug and propagates unmapped, with nothing written.
+        var account = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        var (row, entries) = (await WalletRowVersionAsync(account), await EntriesAsync(account));
+        await ExecuteAsSuperuserAsync(db,
+            """
+            create function fake_duplicate() returns trigger language plpgsql as $$ begin
+              raise exception 'duplicate on purpose' using errcode = 'unique_violation', constraint = 'energy_ledger_account_id_idempotency_key_key'; end $$;
+            create trigger fake_duplicate before insert on energy_ledger for each row when (new.kind = 'dev_grant') execute function fake_duplicate();
+            """);
+        Assert.Equal(1L, await ScalarAsync<long>("select count(*) from pg_constraint where conname = 'energy_ledger_account_id_idempotency_key_key'")); // a real name
+
+        var e = await Assert.ThrowsAsync<PostgresException>(() => energy.GrantAsync(account, 5, Guid.CreateVersion7(), Op));
+
+        Assert.Equal((PostgresErrorCodes.UniqueViolation, "energy_ledger_account_id_idempotency_key_key"), (e.SqlState, e.ConstraintName));
+        Assert.Equal(DbFailureKind.Unexpected, DbFailure.Classify(e));
+        Assert.Equal(row, await WalletRowVersionAsync(account));
+        Assert.Equal(entries, await EntriesAsync(account));
+        Assert.Empty(await AuditsAsync("energy_grant"));
+        await ExecuteAsSuperuserAsync(db, "drop trigger fake_duplicate on energy_ledger; drop function fake_duplicate()");
     }
 
     [Fact]

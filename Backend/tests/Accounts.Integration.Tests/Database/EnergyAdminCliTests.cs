@@ -100,7 +100,9 @@ public class EnergyAdminCliTests : IAsyncLifetime
             {
                 var (code, output, _) = await CliAsync(null, null, Open(account, "--yes"));
                 Assert.Equal(ExitCodes.Ok, code);
-                Assert.Equal((id, "already", "50", "1"), (Field(output, "accountId"), Field(output, "energyOpened"), Field(output, "balance"), Field(output, "policyVersion")));
+                Assert.Equal(["accountId", "energyOpened", "balance", "policyVersion", "advisory", "correlationId"], Without(Names(output), "target."));
+                Assert.Equal((id, "already", "50", "1", "true"),
+                    (Field(output, "accountId"), Field(output, "energyOpened"), Field(output, "balance"), Field(output, "policyVersion"), Field(output, "advisory")));
                 Assert.Equal(1L, await CountAsync("energy_ledger"));
                 break;
             }
@@ -326,6 +328,62 @@ public class EnergyAdminCliTests : IAsyncLifetime
         Assert.DoesNotContain(Convert.ToHexString(hash)[..9], text);
         Assert.DoesNotContain(Convert.ToBase64String(hash)[..12], text);
         Assert.DoesNotContain(db.Password("app"), text);
+    }
+
+    [Fact]
+    public async Task An_upper_case_key_replays_the_grant_made_with_its_lower_case_form()
+    {
+        var account = (await store.CreateAccountAsync(null, null, Op)).AccountId;
+        var key = Guid.CreateVersion7();
+        var first = await CliAsync(null, null, Grant(account, 5, key, "--yes"));
+        Assert.Equal((ExitCodes.Ok, "false"), (first.Code, Field(first.Out, "replayed")));
+
+        var upper = Grant(account, 5, key, "--yes");
+        upper[Array.IndexOf(upper, "--idempotency-key") + 1] = key.ToString("D").ToUpperInvariant();
+        Assert.NotEqual(key.ToString("D"), upper[Array.IndexOf(upper, "--idempotency-key") + 1]);
+        var replay = await CliAsync(null, null, upper);
+
+        Assert.Equal((ExitCodes.Ok, "true", "55"), (replay.Code, Field(replay.Out, "replayed"), Field(replay.Out, "balanceAfter")));
+        await using var su = await db.AsSuperuser().OpenConnectionAsync();
+        Assert.Equal(["dev_grant:" + key.ToString("D")], (await su.QueryAsync<string>("select idempotency_key from energy_ledger where kind = 'dev_grant'")).ToList());
+    }
+
+    [Fact]
+    public async Task An_unknown_grant_outcome_tells_the_operator_to_retry_with_the_same_key()
+    {
+        var account = (await store.CreateAccountAsync(null, null, Op)).AccountId;
+        var key = Guid.CreateVersion7();
+        var guidance = $"The grant may or may not have committed: retry with the same --idempotency-key {key:D}, never a new one.";
+
+        // Unexpected (exit 1): a failure the CLI cannot classify.
+        await ExecuteAsSuperuserAsync(db,
+            """
+            create function fake_duplicate() returns trigger language plpgsql as $$ begin
+              raise exception 'duplicate on purpose' using errcode = 'unique_violation', constraint = 'energy_ledger_account_id_idempotency_key_key'; end $$;
+            create trigger fake_duplicate before insert on energy_ledger for each row when (new.kind = 'dev_grant') execute function fake_duplicate();
+            """);
+        var unexpected = await CliAsync(null, null, Grant(account, 5, key, "--yes"));
+        await ExecuteAsSuperuserAsync(db, "drop trigger fake_duplicate on energy_ledger; drop function fake_duplicate()");
+        Assert.Equal(ExitCodes.Failure, unexpected.Code);
+        Assert.Contains("Unexpected database error", unexpected.Err);
+        Assert.Contains(guidance, unexpected.Err);
+        Assert.DoesNotContain("correlationId=", unexpected.Out);
+        Assert.Equal(1L, await CountAsync("energy_ledger")); // the open entry only
+
+        // Unavailable (exit 69): the connection fails.
+        var unreachable = db.EnvFor("app");
+        unreachable["BLACKGLASS_DB_PORT"] = "1";
+        var unavailable = await CliAsync(null, unreachable, Grant(account, 5, key, "--yes"));
+        Assert.Equal(ExitCodes.Unavailable, unavailable.Code);
+        Assert.Contains(guidance, unavailable.Err);
+        // Only a grant gets the guidance: an open has no idempotency key to retry with.
+        var openUnavailable = await CliAsync(null, unreachable, Open(account, "--yes"));
+        Assert.Equal(ExitCodes.Unavailable, openUnavailable.Code);
+        Assert.DoesNotContain("may or may not", openUnavailable.Err);
+
+        // And the operator's retry with the same key grants once.
+        var retry = await CliAsync(null, null, Grant(account, 5, key, "--yes"));
+        Assert.Equal((ExitCodes.Ok, "false", "55"), (retry.Code, Field(retry.Out, "replayed"), Field(retry.Out, "balanceAfter")));
     }
 
     [Fact]
