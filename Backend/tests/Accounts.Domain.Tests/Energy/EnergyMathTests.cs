@@ -136,6 +136,21 @@ public class EnergyMathTests
         Assert.Null(EnergyMath.NextRegenAt(Wallet(50), V1, behind));
     }
 
+    [Fact]
+    public void NextRegenAt_saturates_at_the_end_of_the_DateTime_range()
+    {
+        // DateTime.MaxValue is …59.9999999; the last whole microsecond is …59.999999.
+        var last = new DateTime(DateTime.MaxValue.Ticks / 10 * 10, DateTimeKind.Utc);
+
+        Assert.Equal(last, EnergyMath.NextRegenAt(Wallet(0, anchor: last - Min(10)), V1, last - Min(10)));
+        Assert.Equal(last, EnergyMath.NextRegenAt(Wallet(0, anchor: last - Min(1)), V1, last - Min(1)));
+        Assert.Equal(last, EnergyMath.NextRegenAt(Wallet(0, anchor: last), V1, last));
+        // With the clock behind an anchor at the end of the range, too.
+        Assert.Equal(last, EnergyMath.NextRegenAt(Wallet(0, anchor: last, progress: Min(9)), V1, T0));
+        var weekly = Policy(1, interval: Week);
+        Assert.Equal(last, EnergyMath.NextRegenAt(Wallet(0, anchor: last), weekly, last));
+    }
+
     // ---- Transitions (E2) ----
 
     [Fact]
@@ -300,6 +315,80 @@ public class EnergyMathTests
             Assert.True(first.After == again.After, context);
             Assert.True(again.Gained == 0, context);
             Assert.True(again.ConsumedAnchor is null, context);
+        }
+    }
+
+    [Fact]
+    public void Materialize_matches_a_microsecond_by_microsecond_simulation()
+    {
+        var random = new Random(6008);
+        for (var i = 0; i < 1500; i++)
+        {
+            // Small integer-microsecond scales, offsets from T0: intervals 1..50 µs, spans of a few thousand µs.
+            var count = random.Next(1, 7);
+            var policies = new EnergyPolicy[count];
+            var version = random.Next(1, 4);
+            long effective = random.Next(-600, 600);
+            for (var p = 0; p < count; p++)
+            {
+                var cap = random.Next(0, 301);
+                policies[p] = new EnergyPolicy(version, cap, random.Next(0, cap + 1), OneMicro * random.Next(1, 51), random.Next(1, 51), 100, At(effective));
+                version += random.Next(1, 3);
+                effective += random.Next(1, 500);
+            }
+
+            var firstCap = policies[0].Cap;
+            var balance = random.Next(4) == 0 ? firstCap + random.Next(0, 200) : random.Next(0, firstCap + 1);
+            long anchor = random.Next(-400, 900);
+            var wallet = new WalletState(balance, At(anchor), random.NextInt64(0, Us(policies[0].RegenInterval)), policies[0].Version);
+            long now = random.Next(-500, 3000);
+
+            var expected = Simulate(wallet, anchor, policies, now);
+            var actual = EnergyMath.Materialize(wallet, policies, At(now));
+
+            var context = $"case {i}: {wallet} now={now} policies={string.Join("; ", policies)}";
+            Assert.True(expected.After == actual.After, $"{context}\n simulated={expected.After}\n materialized={actual.After}");
+            Assert.True(expected.Gained == actual.Gained, $"{context}\n simulated gain={expected.Gained} materialized gain={actual.Gained}");
+            Assert.True(expected.ConsumedAnchor == actual.ConsumedAnchor, context);
+        }
+
+        static DateTime At(long micros) => T0 + OneMicro * micros;
+
+        // An independent naive reading of E2: walk the clock one microsecond at a time from the anchor. At each point,
+        // switch to every version effective by then (and by `now`), rescaling progress with a floor; each elapsed
+        // microsecond pauses (and resets progress) at or above the cap, else adds 1 µs of progress and gains a unit,
+        // capped, when progress reaches the interval.
+        static Regeneration Simulate(WalletState wallet, long anchor, EnergyPolicy[] policies, long now)
+        {
+            long Offset(DateTime t) => (t - T0).Ticks / 10;
+            long IntervalOf(EnergyPolicy p) => p.RegenInterval.Ticks / 10;
+
+            var index = 0;
+            var balance = wallet.Balance;
+            var progress = wallet.ProgressMicros;
+            var gained = 0;
+            var end = Math.Max(anchor, now);
+            for (var t = anchor; t <= end; t++)
+            {
+                while (index + 1 < policies.Length && Offset(policies[index + 1].EffectiveAt) <= Math.Min(t, now))
+                {
+                    progress = progress * IntervalOf(policies[index + 1]) / IntervalOf(policies[index]);
+                    index++;
+                }
+                if (t >= now) continue;
+
+                var policy = policies[index];
+                if (balance >= policy.Cap) { progress = 0; continue; }
+                progress++;
+                if (progress < IntervalOf(policy)) continue;
+                progress = 0;
+                var unit = Math.Min(policy.RegenAmount, policy.Cap - balance);
+                balance += unit;
+                gained += unit;
+            }
+
+            var after = new WalletState(balance, At(end), progress, policies[index].Version);
+            return new Regeneration(after, gained, gained > 0 ? wallet.RegenAnchor : null);
         }
     }
 
@@ -484,7 +573,7 @@ public class EnergyMathTests
         TimeSpan[] units = [OneMicro, TimeSpan.FromMilliseconds(1), TimeSpan.FromSeconds(1), Min(1)];
         var unit = units[random.Next(units.Length)];
 
-        var count = random.Next(1, 5);
+        var count = random.Next(1, 7);
         var policies = new EnergyPolicy[count];
         var version = random.Next(1, 6);
         var effective = T0 + unit * random.Next(-200, 100) + OneMicro * random.Next(0, 1000);
@@ -492,13 +581,13 @@ public class EnergyMathTests
         {
             var interval = random.Next(10) == 0 ? Week : unit * random.Next(1, 61) + OneMicro * random.Next(0, 3);
             if (interval > Week) interval = Week;
-            var cap = random.Next(0, 101);
-            policies[i] = new EnergyPolicy(version, cap, random.Next(0, cap + 1), interval, random.Next(1, 6), 100, effective);
+            var cap = random.Next(0, 301);
+            policies[i] = new EnergyPolicy(version, cap, random.Next(0, cap + 1), interval, random.Next(1, 51), 100, effective);
             version += random.Next(1, 4);
             effective += unit * random.Next(0, 120) + OneMicro * random.Next(1, 1000);
         }
 
-        var balance = random.Next(4) == 0 ? random.Next(100, 200) : random.Next(0, 101);
+        var balance = random.Next(4) == 0 ? random.Next(300, 500) : random.Next(0, 301);
         var progress = random.NextInt64(0, Us(policies[0].RegenInterval));
         var wallet = new WalletState(balance, RandomTime(random, unit), progress, policies[0].Version);
         return (wallet, policies, unit);

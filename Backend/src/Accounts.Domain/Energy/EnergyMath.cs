@@ -77,6 +77,7 @@ public static class EnergyMath
     /// For a wallet just materialized at `now` under `current` (its own version): when the next unit lands,
     /// max(now, anchor) + (interval − progress), or null at or above the cap, where regeneration is paused. The anchor
     /// equals `now` whenever time advanced; with the clock behind the anchor, nothing accrues until the clock passes it.
+    /// A time past the end of the DateTime range saturates at its last whole microsecond, 9999-12-31T23:59:59.999999.
     /// </summary>
     public static DateTime? NextRegenAt(WalletState materialized, EnergyPolicy current, DateTime now)
     {
@@ -91,7 +92,8 @@ public static class EnergyMath
             throw new ArgumentException("Wallet progress must be at least 0 and below its policy's interval.", nameof(materialized));
 
         if (materialized.Balance >= current.Cap) return null;
-        return FromMicros(Math.Max(nowMicros, anchorMicros) + interval - materialized.ProgressMicros);
+        // Cannot overflow long (DateTime ends near 3.2e17 µs, an interval is at most 6.1e11 µs); saturates at the end of DateTime.
+        return FromMicros(Math.Min(Math.Max(nowMicros, anchorMicros) + interval - materialized.ProgressMicros, LastMicros));
     }
 
     /// <summary>"regen:" + the consumed anchor in microseconds since 1970-01-01T00:00:00Z, invariant digits ('-' before 1970).</summary>
@@ -149,6 +151,9 @@ public static class EnergyMath
     }
 
     static readonly long UnixEpochMicros = DateTime.UnixEpoch.Ticks / TicksPerMicro;
+
+    /// <summary>The last whole microsecond DateTime can hold (9999-12-31T23:59:59.999999).</summary>
+    static readonly long LastMicros = DateTime.MaxValue.Ticks / TicksPerMicro;
 
     static long IntervalMicros(EnergyPolicy policy) => policy.RegenInterval.Ticks / TicksPerMicro;
 
