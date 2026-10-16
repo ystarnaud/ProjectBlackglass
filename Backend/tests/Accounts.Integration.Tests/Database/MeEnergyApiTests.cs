@@ -220,6 +220,33 @@ public class MeEnergyApiTests : IAsyncLifetime
         await tx.CommitAsync();
         Assert.Equal((28, 2, 60), (materialized.Wallet.Balance, materialized.Wallet.PolicyVersion, materialized.Current.Cap));
         Assert.Equal(EnergyMath.NextRegenAt(materialized.Wallet, materialized.Current, materialized.Now), projected);
+
+        // The stored wallet is now on version 2, so the read takes the policies from version 2 (Materialize refuses a list
+        // that does not start at the wallet's version): the same projection, and still nothing written.
+        Assert.Equal(2, (await WalletAsync(account)).PolicyVersion);
+        var onVersion2 = await FootprintAsync(account);
+        var again = EnergyOf(await MeTextAsync(api, token));
+        Assert.Equal((28, 60), (again.GetProperty("balance").GetInt32(), again.GetProperty("cap").GetInt32()));
+        Assert.Equal(projected, NextRegenAtOf(again));
+        Assert.Equal(onVersion2, await FootprintAsync(account));
+    }
+
+    [Fact]
+    public async Task Me_with_the_clock_behind_the_anchor_shows_the_wallet_unchanged()
+    {
+        // An anchor an hour ahead of the database clock (a step back, or an anchor written ahead): no time is accounted, and
+        // the next unit lands one interval minus the carried progress after the anchor, not after now.
+        await using var api = await ApiServer.StartAsync(db, DevOn);
+        var (account, token) = await PlayerAsync(api);
+        await SetWalletAsync(account, 10, TimeSpan.Zero, progress: 61_000_000, anchorSql: "clock_timestamp() + interval '1 hour'");
+        var before = await WalletAsync(account);
+        var footprint = await FootprintAsync(account);
+
+        var energy = EnergyOf(await MeTextAsync(api, token));
+        Assert.Equal((10, 50), (energy.GetProperty("balance").GetInt32(), energy.GetProperty("cap").GetInt32()));
+        Assert.Equal(before.RegenAnchor.AddMinutes(10).AddSeconds(-61), NextRegenAtOf(energy));
+        Assert.Equal(footprint, await FootprintAsync(account));
+        Assert.Equal(before, await WalletAsync(account));
     }
 
     [Fact]
@@ -282,9 +309,10 @@ public class MeEnergyApiTests : IAsyncLifetime
     public async Task Me_reads_inventory_and_energy_from_one_snapshot()
     {
         // A grant-like write bumps the inventory version (1 → 2) and grants 5 energy (50 → 55, with its dev_grant entry) in
-        // one transaction. /v1/me must show (1, 50) or (2, 55), never a mix. The write does not take the policy lock, so it
-        // can commit while /v1/me waits on that lock: the held-lock pattern. A snapshot taken at (or before) the lock
-        // statement would miss it after the wait, and a read split across statements could mix the two.
+        // one transaction. /v1/me must show (1, 50) or (2, 55). The write does not take the policy lock, so it can commit
+        // while /v1/me waits on that lock: the held-lock pattern. This proves the read's snapshot is taken after the lock (a
+        // snapshot taken at, or before, the lock statement would miss the write after the wait). That the inventory version
+        // and the wallet come from one statement is guarded by EnergyReader's doc comment and code review, not by this test.
         await using var api = await ApiServer.StartAsync(db, DevOn);
         var (account, token) = await PlayerAsync(api);
 
@@ -367,6 +395,36 @@ public class MeEnergyApiTests : IAsyncLifetime
 
         var nobody = await new PlayerReadStore(db.AsApp()).GetMeAsync(424242, default);
         Assert.Equal(new MeView(null, null), nobody);
+    }
+
+    [Fact]
+    public async Task GetMe_sets_its_transaction_read_only_on_a_read_write_source()
+    {
+        // A row-level security policy lets the app role see energy policies only inside a read-only transaction. On the
+        // ordinary (read-write) app source, a plain transaction then sees none, while GetMeAsync, whose first statement is
+        // `set transaction read only`, sees them and projects. Without that statement it would find its wallet's version
+        // missing and throw.
+        var issued = await admin.CreateAccountAsync(null, null, Op);
+        await SetWalletAsync(issued.AccountId, 10, TimeSpan.FromMinutes(35));
+        await ExecuteAsSuperuserAsync(db,
+            """
+            alter table energy_policies enable row level security;
+            alter table energy_policies force row level security;
+            create policy bg_test_read_only_only on energy_policies for select to accounts_app using (current_setting('transaction_read_only') = 'on');
+            """);
+
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        await using (var tx = await conn.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted))
+        {
+            Assert.Equal("off", await conn.ExecuteScalarAsync<string>("show transaction_read_only", transaction: tx));
+            Assert.Equal(0L, await conn.ExecuteScalarAsync<long>("select count(*) from energy_policies", transaction: tx));
+        }
+
+        var me = await new PlayerReadStore(db.AsApp()).GetMeAsync(issued.AccountId, default);
+        Assert.Equal((13, 50), (me.Energy!.Balance, me.Energy.Cap));
+
+        await ExecuteAsSuperuserAsync(db,
+            "drop policy bg_test_read_only_only on energy_policies; alter table energy_policies no force row level security; alter table energy_policies disable row level security");
     }
 
     // ---- headers and failures, as before ----
