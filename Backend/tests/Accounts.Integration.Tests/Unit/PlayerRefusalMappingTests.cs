@@ -1,3 +1,4 @@
+using Blackglass.Accounts.Domain.Inventory;
 using Blackglass.Accounts.Api.Player;
 using Blackglass.Accounts.Persistence.Player;
 
@@ -26,6 +27,16 @@ public class PlayerRefusalMappingTests
         Assert.Equal(all.Order(), Expected.Keys.Order()); // a new member must be given its expected status here too
         foreach (var error in all) Assert.Equal(Expected[error], PlayerEndpoints.StatusFor(error));
         Assert.Equal(409, PlayerEndpoints.StatusFor(PlayerError.InventoryLocked));
+    }
+
+    [Fact]
+    public void An_invariant_failure_and_a_checked_overflow_are_both_server_faults_and_nothing_else_is()
+    {
+        // An overflow needs a stack above long.MaxValue units, which no request can build, so the decision is tested directly.
+        Assert.True(PlayerEndpoints.IsInventoryServerFault(new InventoryInvariantException("broken")));
+        Assert.True(PlayerEndpoints.IsInventoryServerFault(new OverflowException()));
+        Assert.False(PlayerEndpoints.IsInventoryServerFault(new InvalidOperationException()));
+        Assert.False(PlayerEndpoints.IsInventoryServerFault(new OperationCanceledException()));
     }
 
     [Fact]

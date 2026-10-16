@@ -5,8 +5,11 @@ using Blackglass.Accounts.Domain.Inventory;
 
 namespace Blackglass.Accounts.Persistence.Player;
 
-/// <param name="Granted">True when this call granted the starter; false when it found it already granted (then CatalogueVersion is the recorded one and the counts are the account's current holdings, not the grant: callers must not report them as the starter).</param>
-public sealed record ProvisionResult(long InventoryVersion, int Operatives, int Instances, int Stacks, string CatalogueVersion, bool Granted);
+/// <param name="Granted">True when this call granted the starter; false when it found it already granted (then CatalogueVersion is the recorded one).</param>
+/// <param name="Operatives">The starter operatives this call granted; null when Granted is false. Current holdings are never reported as a grant.</param>
+/// <param name="Instances">The starter item instances this call granted; null when Granted is false.</param>
+/// <param name="Stacks">The starter stacks this call granted; null when Granted is false.</param>
+public sealed record ProvisionResult(long InventoryVersion, int? Operatives, int? Instances, int? Stacks, string CatalogueVersion, bool Granted);
 
 /// <summary>
 /// Creates an account's starter operatives, items and stacks from the catalogue (owner ruling D4), inside the caller's
@@ -31,14 +34,8 @@ public static class StarterProvisioner
             new { accountId }, tx, cancellationToken: ct));
         if (state.StarterGranted)
         {
-            // Already granted: the recorded version, and the current holdings (the caller decides whether that is success).
-            var counts = await conn.QuerySingleAsync<Counts>(new CommandDefinition(
-                """
-                select (select count(*)::int from operatives where account_id = @accountId) as Operatives,
-                       (select count(*)::int from item_instances where account_id = @accountId) as Instances,
-                       (select count(*)::int from item_stacks where account_id = @accountId) as Stacks
-                """, new { accountId }, tx, cancellationToken: ct));
-            return new ProvisionResult(state.Version, counts.Operatives, counts.Instances, counts.Stacks, state.CatalogueVersion!, Granted: false);
+            // Already granted: only the recorded version and catalogue version (the caller decides whether that is success).
+            return new ProvisionResult(state.Version, null, null, null, state.CatalogueVersion!, Granted: false);
         }
 
         var plan = StarterPlanner.For(accountId, catalogue.Document);
@@ -105,7 +102,6 @@ public static class StarterProvisioner
         return found.ItemId;
     }
 
-    sealed record Counts(int Operatives, int Instances, int Stacks);
     sealed record InventoryState(bool StarterGranted, long Version, string? CatalogueVersion);
     sealed record FoundOperative(long OperativeId, long AccountId, string DefinitionId);
     sealed record FoundItem(long ItemId, long AccountId, string DefinitionId, long? OperativeId, string? EquippedSlot);

@@ -85,9 +85,10 @@ public class InventoryPrivilegeTests : IAsyncLifetime
             "update item_instances set operative_id = null, origin_ref = 'changed' where item_id = @Item",   // one forbidden column spoils the statement
         })
             Assert.Equal("42501", await SqlStateOf(db.AsApp(), sql, new { s.Item }));
-        // The identity is GENERATED ALWAYS: PostgreSQL refuses to set it (428C9) before it even checks privileges, and the
-        // app holds no UPDATE on item_id either way (The_grants_are_exactly_these).
+        // The identity is GENERATED ALWAYS: PostgreSQL refuses to set a value (428C9) before it checks privileges, but for
+        // "= default" it reaches the privilege check, and the app holds no UPDATE on item_id (The_grants_are_exactly_these).
         Assert.Equal("428C9", await SqlStateOf(db.AsApp(), "update item_instances set item_id = 999 where item_id = @Item", new { s.Item }));
+        Assert.Equal("42501", await SqlStateOf(db.AsApp(), "update item_instances set item_id = default where item_id = @Item", new { s.Item }));
     }
 
     [Fact]
@@ -257,7 +258,7 @@ public class InventoryPrivilegeTests : IAsyncLifetime
             Assert.Equal("42501", await SqlStateOf(upgrade.AsApp(), "delete from item_stacks"));
         }
 
-        Assert.Equal([5], (await migrator.MigrateAsync()).Applied);
+        Assert.Equal([5], (await migrator.MigrateAsync(5)).Applied);
 
         await using (var conn = await upgrade.AsSuperuser().OpenConnectionAsync())
         {

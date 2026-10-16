@@ -189,11 +189,11 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, Func<GameCatalogue> l
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(ct);
         await LockAccountAsync(conn, tx, accountId, ct);
-        // When already granted, the provisioner returns the version recorded in the inventories row it holds FOR UPDATE; the
-        // counts it also returns then describe current holdings, so they are dropped here and never reach a result or the audit.
+        // When already granted, the provisioner returns the version recorded in the inventories row it holds FOR UPDATE and no
+        // counts at all (current holdings are never a grant), so none reaches a result or the audit.
         var state = await StarterProvisioner.ProvisionAsync(conn, tx, accountId, starterCatalogue, ct);
         var result = state.Granted
-            ? new BackfillResult(true, state.CatalogueVersion, new StarterGrant(state.Operatives, state.Instances, state.Stacks))
+            ? new BackfillResult(true, state.CatalogueVersion, new StarterGrant(state.Operatives!.Value, state.Instances!.Value, state.Stacks!.Value))
             : new BackfillResult(false, state.CatalogueVersion, null);
         await AuditAsync(conn, tx, op, "starter_backfill", accountId, null,
             result.Grant is { } grant

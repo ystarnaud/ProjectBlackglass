@@ -246,6 +246,22 @@ public class PlayerApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_duplicated_body_member_is_400_even_when_both_copies_agree()
+    {
+        await using var api = await ApiServer.StartAsync(db, DevOn);
+        var (account, token, operative) = await PlayerAsync(api, xp: 100); // either body would otherwise be a valid pick
+        var id = Base58Id.Format(operative);
+        foreach (var body in new[] { "{\"choiceId\":\"combat\",\"expectedVersion\":1,\"expectedVersion\":1}", "{\"choiceId\":\"combat\",\"choiceId\":\"mobility\",\"expectedVersion\":1}" })
+        {
+            var (response, text) = await SendAsync(api.Http, Pick(token, id, body));
+            Assert.True(HttpStatusCode.BadRequest == response.StatusCode, $"{body} -> {(int)response.StatusCode} {text}");
+            Assert.Equal("InvalidBody", CodeOf(text));
+        }
+        Assert.Equal(1L, await ScalarAsSuperuserAsync<long>(db, "select version from inventories where account_id = @a", new { a = account.AccountId }));
+        Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(db, "select count(*) from operative_choices where operative_id = @operative", new { operative }));
+    }
+
+    [Fact]
     public async Task Malformed_bodies_and_ids_are_400()
     {
         await using var api = await ApiServer.StartAsync(db, DevOn);

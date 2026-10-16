@@ -24,10 +24,11 @@ public static class PlayerEndpoints
 
     static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
-    // Strict numbers: "1" is not an integer version. A member the request type lacks, an account id included, is a 400.
+    // Strict numbers: "1" is not an integer version. A member the request type lacks, an account id included, or a member given twice, is a 400.
     static readonly JsonSerializerOptions RequestOptions = new(JsonSerializerDefaults.Web)
     {
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+        AllowDuplicateProperties = false, // a member named twice is a 400, whichever copy a reader would pick
         NumberHandling = JsonNumberHandling.Strict,
     };
 
@@ -97,9 +98,9 @@ public static class PlayerEndpoints
             }
             catch (PlayerException e) { return Refusal(e); }
             catch (InventoryRefusedException e) { return Problem(StatusCodes.Status422UnprocessableEntity, e.Code.ToString(), e.Index); }
-            catch (InventoryInvariantException e)
+            catch (Exception e) when (IsInventoryServerFault(e))
             {
-                // A bug or corruption, never a client error: the store rolled the batch back. The client learns nothing about
+                // A bug or corruption (a broken invariant, or a checked stack merge overflowing), never a client error: the store rolled the batch back. The client learns nothing about
                 // it; the log gets the message (only ids, catalogue names and counts, never a token) and no request data.
                 logs.CreateLogger("Blackglass.Inventory").LogError(e, "Inventory invariant failure for {Path}", http.Request.Path);
                 return Results.StatusCode(StatusCodes.Status500InternalServerError);
@@ -108,6 +109,12 @@ public static class PlayerEndpoints
     }
 
     static IResult Json<T>(T value) => Results.Json(value, Web);
+
+    /// <summary>
+    /// A failure of the inventory domain or store that no request can cause: a broken invariant, or the checked stack merge
+    /// overflowing. Both are answered with an empty 500 and a token-free log line, never the host's default handler.
+    /// </summary>
+    public static bool IsInventoryServerFault(Exception e) => e is InventoryInvariantException or OverflowException;
 
     /// <summary>
     /// The status of every <see cref="PlayerError"/>, on every route (owner ruling S5-D5: InventoryLocked is 409 everywhere).

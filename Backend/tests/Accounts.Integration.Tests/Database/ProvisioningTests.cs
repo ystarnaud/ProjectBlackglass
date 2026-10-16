@@ -149,12 +149,11 @@ public class ProvisioningTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Provisioning_an_account_that_already_has_its_starter_changes_nothing_and_reports_the_current_state()
+    public async Task Provisioning_an_account_that_already_has_its_starter_changes_nothing_and_reports_no_holdings_as_a_grant()
     {
         var issued = await store.CreateAccountAsync(null, null, Op);
-        var plan = StarterPlanner.For(issued.AccountId, Catalogue.Document);
         var again = await InTransactionAsync((c, t) => StarterProvisioner.ProvisionAsync(c, t, issued.AccountId, Catalogue, default));
-        Assert.Equal(new ProvisionResult(1, plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count, Catalogue.Version, false), again);
+        Assert.Equal(new ProvisionResult(1, null, null, null, Catalogue.Version, false), again); // the recorded versions only: current holdings are never a grant
         await AssertStarterRowsAsync(issued.AccountId);
     }
 
@@ -337,7 +336,7 @@ public class ProvisioningTests : IAsyncLifetime
         var results = await Task.WhenAll(others); // none throws: each sees the committed grant
         var plan = StarterPlanner.For(account, Catalogue.Document);
         Assert.Equal(new ProvisionResult(1, plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count, Catalogue.Version, true), granted);
-        Assert.All(results, r => Assert.Equal(granted with { Granted = false }, r));
+        Assert.All(results, r => Assert.Equal(granted with { Operatives = null, Instances = null, Stacks = null, Granted = false }, r));
         await AssertStarterRowsAsync(account);
         Assert.Equal(plan.Operatives.Count, (int)await ScalarAsync<long>("select count(*) from operatives"));
         Assert.Equal(plan.Instances.Count, (int)await ScalarAsync<long>("select count(*) from item_instances"));
@@ -371,7 +370,7 @@ public class ProvisioningTests : IAsyncLifetime
 
         var results = await Task.WhenAll(others); // none throws: each finds the committed grant
         Assert.True(granted.Granted);
-        Assert.All(results, r => Assert.Equal(granted with { Granted = false }, r));
+        Assert.All(results, r => Assert.Equal(granted with { Operatives = null, Instances = null, Stacks = null, Granted = false }, r));
         await AssertStarterRowsAsync(account);
     }
 

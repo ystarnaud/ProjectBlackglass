@@ -256,6 +256,27 @@ public class InventoryApiTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_duplicated_body_member_is_InvalidBody_and_changes_nothing()
+    {
+        var api = await StartAsync();
+        var p = await NewPlayerAsync(api);
+        var good = EquipOp(p.Operative, p.Rifle);
+        var snapshot = await SnapshotAsync(p.Account);
+        string[] bad =
+        [
+            $"{{\"expectedVersion\":1,\"expectedVersion\":1,\"operations\":[{good}]}}",   // even when both copies agree
+            $"{{\"expectedVersion\":1,\"operations\":[{good}],\"operations\":[{good}]}}",
+        ];
+        foreach (var body in bad)
+        {
+            var (status, text) = await SendAsync(api, Edit(p.Token, body));
+            Assert.True(HttpStatusCode.BadRequest == status, $"{body} -> {(int)status} {text}");
+            Assert.Equal("InvalidBody", CodeOf(text));
+        }
+        Assert.Equal(snapshot, await SnapshotAsync(p.Account));
+    }
+
+    [Fact]
     public async Task Refusals_are_422_with_code_and_index()
     {
         var api = await StartAsync();
