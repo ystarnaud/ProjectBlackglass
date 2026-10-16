@@ -657,7 +657,7 @@ public sealed record MeView(long? InventoryVersion, EnergyView? Energy);
 
 **Branch `phase13-stage6`.**
 - **Pushed:** the documentation baseline, up to `b4bbd5b` (owner-authorized).
-- **Not pushed:** the implementation commits `6af495a..e89842e` (21 commits on top of the baseline).
+- **Not pushed:** the implementation commits `6af495a..e89842e` (21 commits on top of the baseline), `c363ff1` (this plan as built) and the grant-replay correction below.
 - **Schema version 6** (`0006_energy`). Migrations 0000–0005 are byte-identical to `main` (`62cbfcf`).
 
 **Tasks and commits**
@@ -673,6 +673,7 @@ public sealed record MeView(long? InventoryVersion, EnergyView? Energy);
 | 6 `GET /v1/me` | `a742bff`, `f626a26` |
 | 7 smoke | `3761f09`, plus the pattern fix in `e89842e` |
 | 8 docs | `305d4e7`, `59aac9c`, `e45b72c`, `e89842e` |
+| Correction: grant replay before the maximum | `02be9f6` (code and tests), plus its docs commit |
 
 **Measured** (low-memory recipe: `-m:1` build, then each test project with MaxCpuCount 1 and xUnit MaxParallelThreads 2; no Unity running):
 
@@ -736,7 +737,7 @@ Mutation checks proved that each concurrency and ordering test fails when its pr
 9. `energy reconcile` names each finding (`mismatch=<Base58>:<rule>`). Cost: extra output lines.
 10. On-demand reconcile writes no audit row. Cost: a later migration adds an action value.
 11. A sweep's anomalies stay all-or-nothing, and the foreign-key key-share is documented in §15.3. Cost: a sweep may wait behind an operator command and retry an hour later.
-12. A lowered `BLACKGLASS_ENERGY_GRANT_MAX` refuses a same-key retry with exit 64 before the replay lookup. This is harmless (no double grant) and left as is. Cost: an operator raises the limit to replay.
+12. A lowered `BLACKGLASS_ENERGY_GRANT_MAX` refused a same-key retry with exit 64 before the replay lookup: fixed in `02be9f6` (owner-required correction, below).
 
 **Departures from revision 2's text** (all strengthenings, recorded in spec §0.6 "As built"):
 - Each change below is enforced by the database:
@@ -750,7 +751,21 @@ Mutation checks proved that each concurrency and ordering test fails when its pr
 - The anomaly dedupe key is `<Base58>:<rule>`.
 - `energy open` prints `advisory=true` for an existing wallet.
 - Grants give unknown-outcome guidance.
+- A grant replay writes nothing, not even an audit row (controller ruling with the correction below; Task 4's sketch had a replay audit).
 - One internal reader serves the clock and the policies; `EnergyReader` serves `/v1/me`.
+
+**Correction: grant replays survive a lowered maximum** (owner-required, before merge; `02be9f6`):
+- **Defect.** `GrantAsync` and the CLI checked `amount <= BLACKGLASS_ENERGY_GRANT_MAX` before connecting. After an operator granted N and lowered the maximum below N, rerunning the same command was refused (InvalidAmount, exit 64) instead of replaying, contradicting the CLI's "retry with the same --idempotency-key" guidance.
+- **Fix.**
+  - Only the structural `amount >= 1` (`EnergyAdminStore.ValidateGrantAmount(amount)`) stays before any connection, in the store and the CLI.
+  - The lock order is unchanged: `accounts` `FOR UPDATE` → wallet `FOR UPDATE` → key lookup. A replay (same key, account and amount) returns the stored `balance_after` with `Regenerated` 0 and writes nothing: no wallet change, no entry, and no audit row (the replay audit was removed, controller ruling). A conflicting reuse is `IdempotencyKeyReused` (66), nothing written.
+  - For a new key only, the current maximum is checked next, before the materialization: an over-max grant is InvalidAmount (64), with a message naming `BLACKGLASS_ENERGY_GRANT_MAX` and nothing written, not even a regen entry. Then materialize, credit, write and audit as before.
+  - No change to regeneration, materialization, policies, opening, publication, reconciliation or migrations.
+- **Tests** (real PostgreSQL):
+  - `EnergyAdminStoreTests`: `A_replay_after_the_maximum_is_lowered_returns_the_original_result`, `A_new_grant_over_the_lowered_maximum_is_refused_and_writes_nothing`, `A_conflicting_reuse_of_the_original_key_is_refused_after_the_maximum_is_lowered`, `Concurrent_replays_after_the_maximum_is_lowered_change_nothing` and `A_failure_during_a_new_grant_under_the_lowered_maximum_rolls_back`.
+  - `EnergyAdminCliTests`: `A_cli_replay_after_the_maximum_is_lowered_replays`.
+  - Updated: `A_replayed_key_returns_the_stored_result_and_writes_no_entry` and `Twenty_concurrent_grants_with_one_key_credit_once` now expect no replay audit row (one row per granted key). `A_grant_above_the_configured_maximum_is_InvalidAmount` proves the maximum is no longer checked before connecting. The `grant-replay` and `grant-above-max` theory cases now expect no replay audit and an over-max refusal after the target preview.
+- **Measured.** RED before the fix: 10 failed / 52 passed of the two energy admin classes; the lowered-maximum replays failed with InvalidAmount, the concurrent replays never reached the lock, and the CLI rerun exited 64. GREEN after: 131/0 for `EnergyAdminStoreTests`, `EnergyAdminCliTests`, `AdminArgumentsTests` and `LogSecrecyTests` (62 of them in the two energy classes, 6 new). The full ALL suite was not rerun for this correction; Integration should now count 1061.
 
 **Deferred minors:**
 - Task 1:

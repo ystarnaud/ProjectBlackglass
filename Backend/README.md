@@ -98,7 +98,7 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 | `BLACKGLASS_INVENTORY_MAX_OPERATIONS` | 1–256, operations per inventory batch (Stage 5, provisional). A batch must also fit the body limit below: at 16 KiB, about 128 operations is the practical ceiling | 32 |
 | `BLACKGLASS_INVENTORY_MAX_BODY_BYTES` | 1024–1048576, the inventory batch body limit (Stage 5, provisional) | 16384 |
 | `BLACKGLASS_ENERGY_RECONCILE_SECONDS` | 0 = off, else 60–86400; the reconciliation sweep interval in `serve` (Stage 6, provisional) | 3600 |
-| `BLACKGLASS_ENERGY_GRANT_MAX` | 1–1000000; the largest single development grant (`admin energy grant`; also validated by `serve`) | 1000 |
+| `BLACKGLASS_ENERGY_GRANT_MAX` | 1–1000000; the largest single new development grant (`admin energy grant`; a replay is matched before it; also validated by `serve`) | 1000 |
 | `BLACKGLASS_DB_STATEMENT_TIMEOUT_MS` | 1–600000, `statement_timeout` on the same connections (the migrator has neither: it sets its own `lock_timeout`) | 15000 |
 
 **Routes.**
@@ -248,8 +248,9 @@ Schema version 6 (`0006_energy`). Owner rulings E1–E7 (spec revision 2.6, §0.
 - **`open`** prints `energyOpened=opened|already`, `balance=` and `policyVersion=`, plus `advisory=true` when already opened (an unlocked read).
 - **`grant`** prints `amount=`, `balanceAfter=`, `regenerated=` and `replayed=true|false`.
   - A grant is idempotent per key. The same key with the same account and amount replays the stored result and credits nothing; any other use is refused (66) with nothing written.
-  - The amount is 1..`BLACKGLASS_ENERGY_GRANT_MAX`. A grant may exceed the cap; a result above 2,147,483,647 is refused (64).
-  - On an unknown outcome (69 or 1) it says to retry with the same key, never a new one. The audit row records the key.
+  - The amount is 1..`BLACKGLASS_ENERGY_GRANT_MAX` for a new key (below 1 is refused before connecting; above the maximum inside the transaction, 64, nothing written). A replay is matched before the limit and writes nothing, not even an audit row, so rerunning a grant after the maximum was lowered still replays it.
+  - A grant may exceed the cap; a result above 2,147,483,647 is refused (64).
+  - On an unknown outcome (69 or 1) it says to retry with the same key, never a new one. The granting audit row records the key.
 - **`policy publish`** prints `policyVersion=`, `effectiveAt=` and the values.
   - The confirmation happens before its transaction. It holds the exclusive publication lock only for the insert and the audit.
   - Account creation, materializations and `GET /v1/me` wait behind it, bounded by `lock_timeout`.

@@ -158,6 +158,8 @@ The detailed plan is `Docs/superpowers/plans/2026-10-16-phase-13-stage6-energy.m
   - no TRUNCATE on the ledger or the policies.
 - **The commit check works both ways.** Two deferred constraint triggers check the wallet against its latest entry, one on wallet writes and one on ledger inserts.
 - **Grants.** The audit row records the idempotency key. On an unknown outcome the CLI tells the operator to retry with the same key.
+  - Under the account and wallet locks, the key is looked up before any limit meant for new grants. A replay (same key, account and amount) returns the stored result and writes nothing, not even an audit row, even after `BLACKGLASS_ENERGY_GRANT_MAX` was lowered below its amount. A conflicting reuse is refused (66), nothing written.
+  - `BLACKGLASS_ENERGY_GRANT_MAX` applies to a new key only, inside the transaction and before the materialization: an over-max new grant is refused (64) with nothing written. Only `amount >= 1` is checked before connecting (owner-required correction, 2026-10-16).
 - **`energy reconcile`** names each finding (`mismatch=<Base58>:<rule>`) and writes no audit row (it changes no state).
 - **Anomalies.** The dedupe key is `<Base58>:<rule>`; the numbers are in `detail`. `anomaly_events.reviewed_at` is not writable by the app until a stage adds anomaly review.
 - **`serve`** validates both energy settings at startup.
