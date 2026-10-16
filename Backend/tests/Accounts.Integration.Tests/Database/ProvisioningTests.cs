@@ -91,6 +91,11 @@ public class ProvisioningTests : IAsyncLifetime
         Assert.Equal((plan.Operatives.Count, plan.Instances.Count, plan.Stacks.Count),
             (starter.GetProperty("operatives").GetInt32(), starter.GetProperty("instances").GetInt32(), starter.GetProperty("stacks").GetInt32()));
         Assert.Equal("starter-1", result.GetProperty("handle").GetString());
+        // The wallet opens in the same transaction (owner ruling E1), and the audit records it beside the starter.
+        var energy = result.GetProperty("energy");
+        Assert.Equal((true, 50, 1), (energy.GetProperty("opened").GetBoolean(), energy.GetProperty("balance").GetInt32(), energy.GetProperty("policyVersion").GetInt32()));
+        Assert.Equal(new Blackglass.Accounts.Persistence.Energy.WalletOpen(true, 50, 1), issued.Energy);
+        Assert.Equal(1L, await ScalarAsync<long>("select count(*) from energy_ledger where account_id = @a and kind = 'open'", new { a = issued.AccountId }));
     }
 
     [Fact]
@@ -138,7 +143,8 @@ public class ProvisioningTests : IAsyncLifetime
             """
             select (select count(*) from accounts) + (select count(*) from dev_credentials) + (select count(*) from account_identities)
               + (select count(*) from operator_actions) + (select count(*) from operatives) + (select count(*) from item_instances)
-              + (select count(*) from item_stacks) + (select count(*) from inventories)
+              + (select count(*) from item_stacks) + (select count(*) from inventories) + (select count(*) from energy_wallets)
+              + (select count(*) from energy_ledger)
             """));
 
         await ExecuteAsSuperuserAsync(db, "drop trigger refuse_stacks on item_stacks");

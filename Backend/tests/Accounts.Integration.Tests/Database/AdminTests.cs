@@ -74,7 +74,9 @@ public class AdminTests : IAsyncLifetime
         Assert.Equal(plan.Stacks.Count.ToString(System.Globalization.CultureInfo.InvariantCulture), Field(output, "starterStacks"));
         Assert.True(plan.Operatives.Count > 0 && plan.Instances.Count > 0 && plan.Stacks.Count > 0);
         var names = output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(l => l.TrimEnd('\r').Split('=')[0]).ToArray();
-        Assert.Equal(["accountId", "credentialId", "accountKey", "starterGranted", "starterOperatives", "starterInstances", "starterStacks", "correlationId"], names);
+        Assert.Equal("opened", Field(output, "energyOpened"));
+        Assert.Equal("50", Field(output, "energyBalance"));
+        Assert.Equal(["accountId", "credentialId", "accountKey", "starterGranted", "starterOperatives", "starterInstances", "starterStacks", "energyOpened", "energyBalance", "correlationId"], names);
     }
 
     [Fact]

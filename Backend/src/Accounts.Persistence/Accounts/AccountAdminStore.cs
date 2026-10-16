@@ -1,14 +1,17 @@
+using System.Data;
 using System.Text.Json;
 using Dapper;
 using Npgsql;
 using Blackglass.Accounts.Domain.Auth;
 using Blackglass.Accounts.Domain.Catalogue;
+using Blackglass.Accounts.Persistence.Energy;
 using Blackglass.Accounts.Persistence.Player;
 
 namespace Blackglass.Accounts.Persistence.Accounts;
 
 /// <param name="Starter">What account creation provisioned; null for a rotation.</param>
-public sealed record IssuedCredential(long AccountId, Guid CredentialId, OpaqueSecret AccountKey, ProvisionResult? Starter = null);
+/// <param name="Energy">The wallet account creation opened (owner ruling E1); null for a rotation.</param>
+public sealed record IssuedCredential(long AccountId, Guid CredentialId, OpaqueSecret AccountKey, ProvisionResult? Starter = null, WalletOpen? Energy = null);
 
 /// <summary>What an operator is about to change (the admin CLI shows it before asking for confirmation).</summary>
 public sealed record AccountSummary(long AccountId, string Status, string? Handle, string? DisplayName, DateTime CreatedAt, Guid? LiveCredentialId, int LiveSessions, bool StarterGranted);
@@ -62,7 +65,7 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, Func<GameCatalogue> l
         var credentialId = Guid.CreateVersion7();
         var key = OpaqueSecret.New(OpaqueSecret.AccountKeyPrefix);
         await using var conn = await DbFailure.OpenAsync(db, ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct); // the energy lock protocol needs it
         long accountId;
         try
         {
@@ -89,10 +92,17 @@ public sealed class AccountAdminStore(NpgsqlDataSource db, Func<GameCatalogue> l
         await InsertCredentialAsync(conn, tx, accountId, credentialId, key, ct);
         // The starter is part of the same transaction (owner ruling D4): any failure rolls the account back with it.
         var starter = await StarterProvisioner.ProvisionAsync(conn, tx, accountId, starterCatalogue, ct);
+        // So is the wallet (owner ruling E1), after the starter: the account row, inventories, the shared policy lock, the wallet.
+        var energy = await EnergyProvisioner.OpenAsync(conn, tx, accountId, ct);
         await AuditAsync(conn, tx, op, "account_create", accountId, credentialId,
-            new { handle, displayName, starter = new { catalogueVersion = starter.CatalogueVersion, operatives = starter.Operatives, instances = starter.Instances, stacks = starter.Stacks } }, ct);
+            new
+            {
+                handle, displayName,
+                starter = new { catalogueVersion = starter.CatalogueVersion, operatives = starter.Operatives, instances = starter.Instances, stacks = starter.Stacks },
+                energy = new { opened = energy.Opened, balance = energy.Balance, policyVersion = energy.PolicyVersion },
+            }, ct);
         await tx.CommitAsync(ct);
-        return new IssuedCredential(accountId, credentialId, key, starter);
+        return new IssuedCredential(accountId, credentialId, key, starter, energy);
     }
 
     public async Task<IssuedCredential> RotateCredentialAsync(long accountId, OperatorContext op, CancellationToken ct = default)

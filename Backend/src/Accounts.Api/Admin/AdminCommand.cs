@@ -75,6 +75,11 @@ public static class AdminCommand
                         output.WriteLine($"starterInstances={starter.Instances}");
                         output.WriteLine($"starterStacks={starter.Stacks}");
                     }
+                    if (issued.Energy is { } energy)
+                    {
+                        output.WriteLine($"energyOpened={(energy.Opened ? "opened" : "already")}");
+                        output.WriteLine($"energyBalance={energy.Balance}");
+                    }
                     break;
                 case "credential-revoke":
                     var revoked = await store.RevokeCredentialAsync(a.Credential!.Value, a.Operator, ct);
