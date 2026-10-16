@@ -84,13 +84,16 @@ public class EnergySchemaTests : IAsyncLifetime
         await tx.CommitAsync();
     }
 
-    /// <summary>Runs <paramref name="sql"/> as the superuser in a transaction that is always rolled back, optionally after
-    /// dropping an overlapping CHECK (in the same transaction, so it comes back), and returns the failure.</summary>
-    async Task<PostgresException> RolledBackFailureAsync(string sql, object? args, string? dropFirst = null)
+    /// <summary>Runs <paramref name="sql"/> as the superuser in a transaction that is always rolled back, with the user
+    /// triggers of <paramref name="table"/> disabled (so a CHECK is seen on its own, not behind the chain or progress
+    /// triggers, which have tests of their own), optionally after dropping an overlapping CHECK (in the same transaction,
+    /// so both come back), and returns the failure.</summary>
+    async Task<PostgresException> RolledBackFailureAsync(string table, string sql, object? args, string? dropFirst = null)
     {
         await using var conn = await db.AsSuperuser().OpenConnectionAsync();
         await using var tx = await conn.BeginTransactionAsync();
-        if (dropFirst is not null) await conn.ExecuteAsync($"alter table energy_ledger drop constraint {dropFirst}", transaction: tx);
+        await conn.ExecuteAsync($"alter table {table} disable trigger user", transaction: tx);
+        if (dropFirst is not null) await conn.ExecuteAsync($"alter table {table} drop constraint {dropFirst}", transaction: tx);
         var e = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(sql, args, tx));
         await tx.RollbackAsync();
         return e;
@@ -107,6 +110,8 @@ public class EnergySchemaTests : IAsyncLifetime
     [InlineData("(50, 50, interval '-1 minute', 1, 100)", "energy_policies_regen_interval_check")]
     [InlineData("(50, 50, interval '7 days 1 microsecond', 1, 100)", "energy_policies_regen_interval_check")]
     [InlineData("(50, 50, interval '1 month', 1, 100)", "energy_policies_regen_interval_check")]
+    [InlineData("(50, 50, interval '1 month -23 days', 1, 100)", "energy_policies_regen_interval_check")]   // compares equal to 7 days, but carries a month
+    [InlineData("(50, 50, interval '1 year -359 days', 1, 100)", "energy_policies_regen_interval_check")]    // one day, carried as a year
     [InlineData("(50, 50, interval '10 minutes', 0, 100)", "energy_policies_regen_amount_check")]
     [InlineData("(50, 50, interval '10 minutes', 1, -1)", "energy_policies_void_refund_pct_check")]
     [InlineData("(50, 50, interval '10 minutes', 1, 101)", "energy_policies_void_refund_pct_check")]
@@ -133,7 +138,7 @@ public class EnergySchemaTests : IAsyncLifetime
     public async Task A_wallet_check_is_enforced(string balanceAndProgress, string constraint)
     {
         var account = await NewAccountAsync();
-        var e = await RolledBackFailureAsync(
+        var e = await RolledBackFailureAsync("energy_wallets",
             $"insert into energy_wallets (account_id, balance, regen_progress_us, regen_anchor, policy_version) values (@account, {balanceAndProgress}, clock_timestamp(), 1)",
             new { account });
         Assert.Equal(("23514", constraint), (e.SqlState, e.ConstraintName));
@@ -141,24 +146,46 @@ public class EnergySchemaTests : IAsyncLifetime
 
     const string InsertEntry = "insert into energy_ledger (account_id, kind, delta, balance_after, idempotency_key) values (@account, ";
 
+    const string Uuid = "0f8fad5b-d9cb-469f-a165-70867728950e";
+
     [Theory]
-    [InlineData("'dev_grant', 1, -1, 'dev_grant:a'", "energy_ledger_balance_after_check", null)]
+    [InlineData("'adjust', -51, -1, 'adjust:a'", "energy_ledger_balance_after_check", null)]
+    // Every kind: at most 200 characters, no whitespace or control character.
     [InlineData("'regen', 1, 51, 'regen:' || repeat('1', 195)", "energy_ledger_idempotency_key_check", null)]   // 201 characters
-    [InlineData("'regen', 1, 51, 'regen:1 2'", "energy_ledger_idempotency_key_check", null)]                    // whitespace
-    [InlineData("'regen', 1, 51, 'regen:1' || chr(1)", "energy_ledger_idempotency_key_check", null)]            // a control character
-    [InlineData("'regen', 1, 51, 'dev_grant:1'", "energy_ledger_idempotency_key_check", null)]                  // another kind's prefix
-    [InlineData("'regen', 1, 51, 'regen:'", "energy_ledger_idempotency_key_check", null)]                       // an empty suffix
-    [InlineData("'dev_grant', 1, 51, 'devXgrant:1'", "energy_ledger_idempotency_key_check", null)]              // '_' is not a wildcard
-    [InlineData("'void_refund', 1, 51, 'voidXrefund:1'", "energy_ledger_idempotency_key_check", null)]
-    [InlineData("'dev_grant', 1, 51, 'devXgrant'", "energy_ledger_idempotency_key_check", null)]
-    [InlineData("'regen', 1, 51, 'regen1'", "energy_ledger_idempotency_key_check", null)]                       // no separator
+    [InlineData("'release', 1, 51, 'release:' || repeat('k', 193)", "energy_ledger_idempotency_key_check", null)]   // 201 characters
+    [InlineData("'release', 1, 51, 'release:1 2'", "energy_ledger_idempotency_key_check", null)]                // whitespace
+    [InlineData("'release', 1, 51, 'release:1' || chr(1)", "energy_ledger_idempotency_key_check", null)]        // a control character
     [InlineData("'regen', 1, 51, ''", "energy_ledger_idempotency_key_check", null)]
+    // open: exactly 'open'.
+    [InlineData("'open', 0, 50, 'open:x'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'open', 0, 50, 'opening'", "energy_ledger_idempotency_key_check", null)]
+    // regen: 'regen:' and a signed decimal integer (the consumed anchor in microseconds).
+    [InlineData("'regen', 1, 51, 'regen'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'regen', 1, 51, 'regen:'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'regen', 1, 51, 'regen:abc'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'regen', 1, 51, 'regen:1.5'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'regen', 1, 51, 'regen:+1'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'regen', 1, 51, 'regen:-'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'regen', 1, 51, 'regen1'", "energy_ledger_idempotency_key_check", null)]                       // no separator
+    [InlineData("'regen', 1, 51, 'dev_grant:1'", "energy_ledger_idempotency_key_check", null)]                  // another kind's prefix
+    // dev_grant: 'dev_grant:' and a canonical lower-case UUID.
+    [InlineData("'dev_grant', 1, 51, 'dev_grant'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'dev_grant', 1, 51, 'dev_grant:x'", "energy_ledger_idempotency_key_check", null)]
+    [InlineData("'dev_grant', 1, 51, 'dev_grant:0F8FAD5B-D9CB-469F-A165-70867728950E'", "energy_ledger_idempotency_key_check", null)]   // upper case
+    [InlineData("'dev_grant', 1, 51, 'dev_grant:0f8fad5bd9cb469fa16570867728950e'", "energy_ledger_idempotency_key_check", null)]       // no hyphens
+    [InlineData("'dev_grant', 1, 51, 'dev_grant:{0f8fad5b-d9cb-469f-a165-70867728950e}'", "energy_ledger_idempotency_key_check", null)] // braces
+    [InlineData("'dev_grant', 1, 51, 'dev_grant:0f8fad5b-d9cb-469f-a165-70867728950e0'", "energy_ledger_idempotency_key_check", null)]  // too long
+    [InlineData("'dev_grant', 1, 51, 'devXgrant:0f8fad5b-d9cb-469f-a165-70867728950e'", "energy_ledger_idempotency_key_check", null)]   // '_' is not a wildcard
+    // The later kinds: the bare kind, or the kind, ':' and a non-empty suffix.
+    [InlineData("'void_refund', 1, 51, 'voidXrefund:1'", "energy_ledger_idempotency_key_check", null)]          // '_' is not a wildcard
+    [InlineData("'release', 1, 51, 'release:'", "energy_ledger_idempotency_key_check", null)]                   // an empty suffix
+    [InlineData("'release', 1, 51, 'released'", "energy_ledger_idempotency_key_check", null)]
     // Every kind outside the list also fails the sign CHECK (which names the kinds); dropping it in the rolled-back
     // transaction shows the kind CHECK on its own.
     [InlineData("'bonus', 1, 51, 'bonus'", "energy_ledger_kind_check", "energy_ledger_delta_sign_check")]
-    [InlineData("'open', -1, 49, 'open:x'", "energy_ledger_delta_sign_check", null)]
-    [InlineData("'regen', 0, 50, 'regen:x'", "energy_ledger_delta_sign_check", null)]
-    [InlineData("'dev_grant', 0, 50, 'dev_grant:x'", "energy_ledger_delta_sign_check", null)]
+    [InlineData("'open', -1, 49, 'open'", "energy_ledger_delta_sign_check", null)]
+    [InlineData("'regen', 0, 50, 'regen:1'", "energy_ledger_delta_sign_check", null)]
+    [InlineData("'dev_grant', 0, 50, 'dev_grant:" + Uuid + "'", "energy_ledger_delta_sign_check", null)]
     [InlineData("'release', 0, 50, 'release:x'", "energy_ledger_delta_sign_check", null)]
     [InlineData("'void_refund', -1, 49, 'void_refund:x'", "energy_ledger_delta_sign_check", null)]
     [InlineData("'reserve', 0, 50, 'reserve:x'", "energy_ledger_delta_sign_check", null)]
@@ -170,31 +197,43 @@ public class EnergySchemaTests : IAsyncLifetime
     public async Task A_ledger_check_is_enforced(string values, string constraint, string? dropFirst)
     {
         var account = await NewWalletAsync();
-        var e = await RolledBackFailureAsync(InsertEntry + values + ")", new { account }, dropFirst);
+        var e = await RolledBackFailureAsync("energy_ledger", InsertEntry + values + ")", new { account }, dropFirst);
         Assert.Equal(("23514", constraint), (e.SqlState, e.ConstraintName));
         Assert.Equal(1L, await SuperScalarAsync<long>("select count(*) from energy_ledger"));
     }
 
+    /// <summary>Each kind with a delta of its sign and a key of its form commits as a real write: the wallet moves by the
+    /// delta and the entry extends the chain. "MAX" is the longest (200-character) key of that kind's form.</summary>
     [Theory]
-    [InlineData("open", 0)]
-    [InlineData("regen", 1)]
-    [InlineData("dev_grant", 1)]
-    [InlineData("release", 1)]
-    [InlineData("void_refund", 1)]
-    [InlineData("reserve", -1)]
-    [InlineData("charge", 0)]
-    [InlineData("settle", 0)]
-    [InlineData("adjust", -1)]
-    [InlineData("adjust", 1)]
-    public async Task Each_kind_accepts_a_delta_of_its_sign(string kind, int delta)
+    [InlineData("open", 0, "open")]
+    [InlineData("open", 50, "open")]
+    [InlineData("regen", 1, "regen:1700000000000000")]
+    [InlineData("regen", 1, "regen:-1")]
+    [InlineData("regen", 1, "MAX")]
+    [InlineData("dev_grant", 1, "dev_grant:" + Uuid)]
+    [InlineData("release", 1, "release")]
+    [InlineData("release", 1, "MAX")]
+    [InlineData("void_refund", 1, "void_refund:a")]
+    [InlineData("reserve", -1, "reserve:a")]
+    [InlineData("charge", 0, "charge:a")]
+    [InlineData("settle", 0, "settle:a")]
+    [InlineData("adjust", -1, "adjust:a")]
+    [InlineData("adjust", 1, "adjust")]
+    public async Task Each_kind_accepts_a_delta_of_its_sign(string kind, int delta, string key)
     {
-        var account = await NewWalletAsync();
-        await using var conn = await db.AsApp().OpenConnectionAsync();
-        await conn.ExecuteAsync(InsertEntry + "@kind, @delta, 50, @key)", new { account, kind, delta, key = kind + ":x" });
-        // The longest key (200 characters) is accepted, and so is the bare kind (the wallet already holds the bare 'open').
-        await conn.ExecuteAsync(InsertEntry + "@kind, @delta, 50, @key)", new { account, kind, delta, key = kind + ":" + new string('k', 199 - kind.Length) });
-        if (kind != "open") await conn.ExecuteAsync(InsertEntry + "@kind, @delta, 50, @kind)", new { account, kind, delta });
-        Assert.Equal(kind == "open" ? 3L : 4L, await conn.ExecuteScalarAsync<long>("select count(*) from energy_ledger where account_id = @account", new { account }));
+        if (key == "MAX") key = kind + ":" + new string(kind == "regen" ? '7' : 'k', 199 - kind.Length);
+        Assert.True(key.Length <= 200);
+        long account;
+        if (kind == "open")
+            account = await NewWalletAsync(delta);
+        else
+        {
+            account = await NewWalletAsync();
+            await CreditAsync(account, kind, delta, key);
+        }
+        Assert.Equal((kind == "open" ? 1L : 2L, (kind == "open" ? 0 : 50) + delta), await SingleAsync<(long, int)>(db.AsSuperuser(),
+            "select (select count(*) from energy_ledger where account_id = @account), (select balance from energy_wallets where account_id = @account)", new { account }));
+        Assert.Empty(await AccountTestKit.InvariantFailuresAsync(db));
     }
 
     [Theory]
@@ -219,9 +258,12 @@ public class EnergySchemaTests : IAsyncLifetime
     {
         var account = await NewWalletAsync();
         await CreditAsync(account, "regen", 1, "regen:1");
-        var e = await FailureOf(db.AsApp(), InsertEntry + "'regen', 2, 52, 'regen:1')", new { account });
+        var e = await FailureOf(db.AsApp(), InsertEntry + "'regen', 2, 53, 'regen:1')", new { account });   // a correct chain, a reused key
         Assert.Equal(("23505", "energy_ledger_account_id_idempotency_key_key"), (e.SqlState, e.ConstraintName));
-        e = await FailureOf(db.AsApp(), InsertEntry + "'open', 0, 50, 'open')", new { account });   // open is once per account
+        // open is once per account: the chain refuses a second one first, and the unique key would too.
+        e = await FailureOf(db.AsApp(), InsertEntry + "'open', 0, 51, 'open')", new { account });
+        Assert.Equal(("23514", "energy_ledger_chain"), (e.SqlState, e.ConstraintName));
+        e = await RolledBackFailureAsync("energy_ledger", InsertEntry + "'open', 0, 51, 'open')", new { account });
         Assert.Equal(("23505", "energy_ledger_account_id_idempotency_key_key"), (e.SqlState, e.ConstraintName));
         // Another account may use the same regen key.
         var other = await NewWalletAsync();
@@ -366,7 +408,7 @@ public class EnergySchemaTests : IAsyncLifetime
 
         // A balance change with no entry, or with an entry that disagrees.
         var account = await NewWalletAsync();
-        foreach (var entry in new[] { null, InsertEntry + "'dev_grant', 5, 54, @key)" })
+        foreach (var entry in new[] { null, InsertEntry + "'dev_grant', 4, 54, @key)" })   // the entry's chain is right; the wallet isn't
         {
             await using var conn = await db.AsApp().OpenConnectionAsync();
             await using var tx = await conn.BeginTransactionAsync();
@@ -437,6 +479,161 @@ public class EnergySchemaTests : IAsyncLifetime
         }
         Assert.Equal(55, await SuperScalarAsync<int>("select balance from energy_wallets where account_id = @account", new { account }));
         Assert.Empty(await AccountTestKit.InvariantFailuresAsync(db));
+    }
+
+    /// <summary>Each refused insert is refused at the statement (the chain trigger is immediate), in a transaction whose
+    /// wallet write alone would pass the commit check.</summary>
+    async Task<PostgresException> ChainFailureAsync(long account, int walletBalance, string entry, object? args = null)
+    {
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+        await conn.ExecuteAsync("update energy_wallets set balance = @walletBalance where account_id = @account", new { account, walletBalance }, tx);
+        return await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(InsertEntry + entry, args ?? new { account }, tx));
+    }
+
+    [Fact]
+    public async Task A_ledger_entry_must_extend_its_account_chain()
+    {
+        var account = await NewWalletAsync();   // open 50
+
+        // A wrong delta with a correct balance_after (the wallet and balance_after agree at 60, but 50 + 7 is 57).
+        var e = await ChainFailureAsync(account, 60, "'dev_grant', 7, 60, @key)", new { account, key = "dev_grant:" + Guid.NewGuid() });
+        Assert.Equal(("23514", "energy_ledger_chain"), (e.SqlState, e.ConstraintName));
+        // A delta-0 charge masking a balance change.
+        e = await ChainFailureAsync(account, 40, "'charge', 0, 40, 'charge:a')");
+        Assert.Equal(("23514", "energy_ledger_chain"), (e.SqlState, e.ConstraintName));
+        // The review's scenario: regeneration materialized (+3, to 53), then a grant computed from the stale balance (50 + 10).
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            await using var tx = await conn.BeginTransactionAsync();
+            await conn.ExecuteAsync("update energy_wallets set balance = 53 where account_id = @account", new { account }, tx);
+            await conn.ExecuteAsync(InsertEntry + "'regen', 3, 53, 'regen:1')", new { account }, tx);
+            await conn.ExecuteAsync("update energy_wallets set balance = 60 where account_id = @account", new { account }, tx);
+            e = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(InsertEntry + "'dev_grant', 10, 60, @key)", new { account, key = "dev_grant:" + Guid.NewGuid() }, tx));
+            Assert.Equal(("23514", "energy_ledger_chain"), (e.SqlState, e.ConstraintName));
+        }
+        // An open entry that is not the first.
+        e = await ChainFailureAsync(account, 50, "'open', 0, 50, 'open')");
+        Assert.Equal(("23514", "energy_ledger_chain"), (e.SqlState, e.ConstraintName));
+        // A first entry that is not an open.
+        var fresh = await NewAccountAsync();
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            await using var tx = await conn.BeginTransactionAsync();
+            await conn.ExecuteAsync("insert into energy_wallets (account_id, balance, regen_anchor, regen_progress_us, policy_version) values (@fresh, 10, clock_timestamp(), 0, 1)", new { fresh }, tx);
+            e = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(InsertEntry + "'dev_grant', 10, 10, @key)", new { account = fresh, key = "dev_grant:" + Guid.NewGuid() }, tx));
+            Assert.Equal(("23514", "energy_ledger_chain"), (e.SqlState, e.ConstraintName));
+        }
+        // An open whose balance_after isn't its delta.
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            await using var tx = await conn.BeginTransactionAsync();
+            await conn.ExecuteAsync("insert into energy_wallets (account_id, balance, regen_anchor, regen_progress_us, policy_version) values (@fresh, 50, clock_timestamp(), 0, 1)", new { fresh }, tx);
+            e = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(InsertEntry + "'open', 40, 50, 'open')", new { account = fresh }, tx));
+            Assert.Equal(("23514", "energy_ledger_chain"), (e.SqlState, e.ConstraintName));
+        }
+
+        Assert.Equal((50, 1L), await SingleAsync<(int, long)>(db.AsSuperuser(),
+            "select (select balance from energy_wallets where account_id = @account), (select count(*) from energy_ledger)", new { account }));
+        Assert.Empty(await AccountTestKit.InvariantFailuresAsync(db));
+    }
+
+    [Fact]
+    public async Task The_grant_shape_commits_in_one_transaction()
+    {
+        // Task 4's grant: materialize (wallet update, regen entry), then credit (wallet update, dev_grant entry).
+        var account = await NewWalletAsync(30);
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            await using var tx = await conn.BeginTransactionAsync();
+            Assert.Equal(30, await conn.ExecuteScalarAsync<int>("select balance from energy_wallets where account_id = @account for update", new { account }, tx));
+            var consumed = await conn.ExecuteScalarAsync<long>(
+                "select (extract(epoch from regen_anchor) * 1000000)::bigint from energy_wallets where account_id = @account", new { account }, tx);
+            await conn.ExecuteAsync("update energy_wallets set balance = 33, regen_anchor = clock_timestamp(), regen_progress_us = 1234 where account_id = @account", new { account }, tx);
+            await conn.ExecuteAsync(InsertEntry + "'regen', 3, 33, @key)", new { account, key = $"regen:{consumed}" }, tx);
+            await conn.ExecuteAsync("update energy_wallets set balance = 43 where account_id = @account", new { account }, tx);
+            await conn.ExecuteAsync(InsertEntry + "'dev_grant', 10, 43, @key)", new { account, key = "dev_grant:" + Guid.NewGuid() }, tx);
+            await tx.CommitAsync();
+        }
+        Assert.Equal((43, 3L), await SingleAsync<(int, long)>(db.AsSuperuser(),
+            "select (select balance from energy_wallets where account_id = @account), (select count(*) from energy_ledger where account_id = @account)", new { account }));
+        Assert.Empty(await AccountTestKit.InvariantFailuresAsync(db));
+    }
+
+    [Fact]
+    public async Task Progress_must_stay_below_its_policy_interval()
+    {
+        // Version 1 runs at 10 minutes: 600,000,000 µs.
+        var account = await NewAccountAsync();
+        const string Insert = "insert into energy_wallets (account_id, balance, regen_anchor, regen_progress_us, policy_version) values (@account, 50, clock_timestamp(), @progress, 1)";
+        var e = await FailureOf(db.AsApp(), Insert, new { account, progress = 600_000_000L });
+        Assert.Equal(("23514", "energy_wallet_progress_below_interval"), (e.SqlState, e.ConstraintName));
+
+        account = await NewWalletAsync();
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        {
+            await conn.ExecuteAsync("update energy_wallets set regen_progress_us = 599999999 where account_id = @account", new { account });
+            await conn.ExecuteAsync(InsertPolicy + "(50, 50, interval '5 minutes', 1, 100)");
+        }
+        foreach (var sql in new[]
+        {
+            "update energy_wallets set regen_progress_us = 600000000 where account_id = @account",
+            "update energy_wallets set regen_progress_us = 9223372036854775807 where account_id = @account",
+            // Switching to the 5-minute version without rescaling leaves the progress out of range.
+            "update energy_wallets set policy_version = 2 where account_id = @account",
+        })
+        {
+            e = await FailureOf(db.AsApp(), sql, new { account });
+            Assert.Equal(("23514", "energy_wallet_progress_below_interval"), (e.SqlState, e.ConstraintName));
+        }
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+            await conn.ExecuteAsync("update energy_wallets set policy_version = 2, regen_progress_us = 299999999 where account_id = @account", new { account });
+        Assert.Equal((2, 299999999L), await SingleAsync<(int, long)>(db.AsSuperuser(),
+            "select policy_version, regen_progress_us from energy_wallets where account_id = @account", new { account }));
+    }
+
+    [Fact]
+    public async Task Neither_the_ledger_nor_the_policies_can_be_truncated_even_by_the_owner()
+    {
+        var account = await NewWalletAsync();
+        foreach (var (sql, constraint) in new[]
+        {
+            ("truncate energy_ledger", "energy_ledger_is_append_only"),
+            ("truncate energy_wallets cascade", "energy_ledger_is_append_only"),   // the cascade reaches the ledger
+            ("truncate energy_policies cascade", "energy_policy_is_immutable"),
+        })
+        {
+            var e = await FailureOf(db.AsMigrator(), sql);
+            Assert.Equal(("23514", constraint), (e.SqlState, e.ConstraintName));
+        }
+        Assert.Equal((1L, 1L, 1L), await SingleAsync<(long, long, long)>(db.AsSuperuser(),
+            "select (select count(*) from energy_ledger), (select count(*) from energy_wallets), (select count(*) from energy_policies)"));
+        Assert.Equal(account, await SuperScalarAsync<long>("select account_id from energy_wallets"));
+    }
+
+    [Fact]
+    public async Task Inserting_a_policy_waits_for_a_shared_holder_of_the_publication_lock()
+    {
+        // The effective_at trigger takes the publication lock itself (0x426C6B456E506F6C, EnergyPolicies.PublicationLockKey),
+        // so even a direct insert waits for every in-flight materialization and takes effect after its clock.
+        const long PublicationLockKey = 4786318449935675244;
+        await using var reader = await db.AsApp().OpenConnectionAsync();
+        await using var readerTx = await reader.BeginTransactionAsync();
+        await reader.ExecuteAsync("select pg_advisory_xact_lock_shared(@PublicationLockKey)", new { PublicationLockKey }, readerTx);
+
+        var insert = Task.Run(async () =>
+        {
+            await using var conn = await db.AsApp().OpenConnectionAsync();
+            return await conn.ExecuteScalarAsync<DateTime>(InsertPolicy + "(60, 60, interval '5 minutes', 1, 100) returning effective_at");
+        });
+        await AccountTestKit.WaitUntilABackendWaitsOnALockAsync(db);
+        Assert.False(insert.IsCompleted);
+        Assert.Equal(1L, await SuperScalarAsync<long>("select count(*) from pg_stat_activity where datname = current_database() and wait_event = 'advisory'"));
+
+        var readerNow = await reader.ExecuteScalarAsync<DateTime>("select clock_timestamp()", transaction: readerTx);
+        await readerTx.CommitAsync();
+        var effectiveAt = await insert;
+        Assert.True(effectiveAt > readerNow, $"{effectiveAt:O} should be after the reader's clock {readerNow:O}");
     }
 
     // ---- seed ----

@@ -125,6 +125,11 @@ public class RevocationPermanenceTests : IAsyncLifetime
             select string_agg(tgrelid::regclass || ':' || tgname || ':' || tgenabled::text, ',' order by tgname)
             from pg_trigger where not tgisinternal
             """);
-        Assert.Equal("auth_sessions:auth_sessions_revocation_is_final:O,dev_credentials:dev_credentials_revocation_is_final:O,inventories:inventories_forward_only:O", triggers);
+        Assert.Equal("auth_sessions:auth_sessions_revocation_is_final:O,dev_credentials:dev_credentials_revocation_is_final:O,"
+            + "energy_ledger:energy_ledger_chain:O,energy_ledger:energy_ledger_is_append_only:O,energy_ledger:energy_ledger_matches_wallet:O,"
+            + "energy_ledger:energy_ledger_no_truncate:O,energy_policies:energy_policies_no_truncate:O,energy_policies:energy_policy_effective_at:O,"
+            + "energy_policies:energy_policy_is_immutable:O,energy_wallets:energy_wallet_forward_only:O,energy_wallets:energy_wallet_matches_ledger:O,"
+            + "energy_wallets:energy_wallet_progress_below_interval:O,"
+            + "inventories:inventories_forward_only:O", triggers);
     }
 }

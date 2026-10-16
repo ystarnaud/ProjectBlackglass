@@ -17,7 +17,8 @@ public class EnergyPrivilegeTests : IAsyncLifetime
     static readonly string[] EnergyTables = ["anomaly_events", "energy_ledger", "energy_policies", "energy_wallets"];
     static readonly string[] EnergySequences = ["anomaly_events_id_seq", "energy_ledger_entry_id_seq", "energy_policies_version_seq"];
     static readonly string[] TriggerFunctions =
-        ["energy_ledger_is_append_only", "energy_policy_effective_at", "energy_policy_is_immutable", "energy_wallet_forward_only", "energy_wallet_matches_ledger"];
+        ["energy_ledger_chain", "energy_ledger_is_append_only", "energy_policy_effective_at", "energy_policy_is_immutable",
+         "energy_wallet_forward_only", "energy_wallet_matches_ledger", "energy_wallet_progress_below_interval"];
 
     public async Task InitializeAsync()
     {
@@ -243,7 +244,7 @@ public class EnergyPrivilegeTests : IAsyncLifetime
     [Fact]
     public async Task The_app_role_can_take_the_policy_advisory_lock()
     {
-        const long Key = 0x426C_6745_6E50_6F6CL;
+        const long Key = 0x426C_6B45_6E50_6F6CL;   // the publication lock (EnergyPolicies.PublicationLockKey, and 0006's effective_at trigger)
         await using var a = await db.AsApp().OpenConnectionAsync();
         await using var b = await db.AsApp().OpenConnectionAsync();
         await using var ta = await a.BeginTransactionAsync();
@@ -273,23 +274,28 @@ public class EnergyPrivilegeTests : IAsyncLifetime
             from pg_proc p join pg_namespace n on n.oid = p.pronamespace and n.nspname = 'public'
             where p.proname = any(@TriggerFunctions) order by p.proname
             """, new { TriggerFunctions })).ToList();
-        Assert.Equal(TriggerFunctions, functions.Select(f => f.Name));
+        Assert.Equal(TriggerFunctions, functions.Select(f => f.Name).OrderBy(n => n, StringComparer.Ordinal));
         Assert.All(functions, f => Assert.Equal((false, false, false), (f.App, f.Public, f.Definer)));
         // Every trigger on the energy tables is enabled in the ordinary (origin) mode.
         var triggers = (await conn.QueryAsync<string>("""
             select c.relname || '.' || t.tgname || ':' || t.tgenabled::text || ':' || case when t.tgdeferrable then 'deferrable' else 'immediate' end
-            from pg_trigger t join pg_class c on c.oid = t.tgrelid
-            where not t.tgisinternal and c.relname = any(@EnergyTables) order by 1
+                   || ':' || case when t.tgtype & 1 = 1 then 'row' else 'statement' end || ':' || p.proname
+            from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_proc p on p.oid = t.tgfoid
+            where not t.tgisinternal and c.relname = any(@EnergyTables)
             """, new { EnergyTables })).ToList();
         Assert.Equal(new[]
         {
-            "energy_ledger.energy_ledger_is_append_only:O:immediate",
-            "energy_ledger.energy_ledger_matches_wallet:O:deferrable",
-            "energy_policies.energy_policy_effective_at:O:immediate",
-            "energy_policies.energy_policy_is_immutable:O:immediate",
-            "energy_wallets.energy_wallet_forward_only:O:immediate",
-            "energy_wallets.energy_wallet_matches_ledger:O:deferrable",
-        }, triggers);
+            "energy_ledger.energy_ledger_chain:O:immediate:row:energy_ledger_chain",
+            "energy_ledger.energy_ledger_is_append_only:O:immediate:row:energy_ledger_is_append_only",
+            "energy_ledger.energy_ledger_matches_wallet:O:deferrable:row:energy_wallet_matches_ledger",
+            "energy_ledger.energy_ledger_no_truncate:O:immediate:statement:energy_ledger_is_append_only",
+            "energy_policies.energy_policies_no_truncate:O:immediate:statement:energy_policy_is_immutable",
+            "energy_policies.energy_policy_effective_at:O:immediate:row:energy_policy_effective_at",
+            "energy_policies.energy_policy_is_immutable:O:immediate:row:energy_policy_is_immutable",
+            "energy_wallets.energy_wallet_forward_only:O:immediate:row:energy_wallet_forward_only",
+            "energy_wallets.energy_wallet_matches_ledger:O:deferrable:row:energy_wallet_matches_ledger",
+            "energy_wallets.energy_wallet_progress_below_interval:O:immediate:row:energy_wallet_progress_below_interval",
+        }, triggers.OrderBy(t => t, StringComparer.Ordinal));
         Assert.Equal("42501", await SqlStateOf(db.AsApp(), "select energy_policy_effective_at()"));
     }
 

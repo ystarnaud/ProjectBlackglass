@@ -5,13 +5,16 @@
 
 -- Policies. A version is never changed or removed once published (E2, E7). Its effective_at is set by the database, never
 -- by the caller: the clock when the row is inserted, and always strictly after the previous version's (E2's transition
--- order). Publication holds the exclusive policy advisory lock while it inserts, so no materialization can have read a
--- `now` later than a version it did not see.
+-- order). Every insert takes the exclusive policy advisory lock before reading the clock (the trigger below), so no
+-- materialization can have read a `now` later than a version it did not see.
+-- regen_interval carries no year or month part: one compares equal to a number of days (so '1 month -23 days' would pass
+-- the range), but Npgsql can't read it as a TimeSpan, and an immutable row that can't be read would break every energy read.
 create table energy_policies (
   version integer generated always as identity primary key,
   cap integer not null check (cap > 0),
   opening_balance integer not null check (opening_balance >= 0),
-  regen_interval interval not null check (regen_interval > interval '0' and regen_interval <= interval '7 days'),
+  regen_interval interval not null check (regen_interval > interval '0' and regen_interval <= interval '7 days'
+                                          and extract(year from regen_interval) = 0 and extract(month from regen_interval) = 0),
   regen_amount integer not null check (regen_amount > 0),
   void_refund_pct integer not null check (void_refund_pct between 0 and 100),
   effective_at timestamptz not null unique,
@@ -19,11 +22,16 @@ create table energy_policies (
   check (opening_balance <= cap));
 
 -- Whatever the caller supplied, effective_at becomes the later of the clock and the latest effective_at plus 1 µs (a
--- clock that stepped back still yields a strictly increasing order). It runs as the invoker: the app reads the table.
+-- clock that stepped back still yields a strictly increasing order). The clock is read only after the trigger holds the
+-- exclusive publication lock, which waits for every in-flight materialization (each holds it shared): this covers the
+-- `energy policy publish` verb (which already holds it; the lock is re-entrant), this migration's seed, and any direct
+-- insert. The key 4786318449935675244 (0x426C6B456E506F6C) MUST equal the C# constant EnergyPolicies.PublicationLockKey.
+-- It runs as the invoker: the app reads the table, and pg_advisory_xact_lock is granted to PUBLIC.
 -- Like every trigger function here it stays unexecutable by the app and PUBLIC (0001's global default revoke); triggers
 -- fire whatever the invoker's EXECUTE privilege.
 create function energy_policy_effective_at() returns trigger language plpgsql as $$
 begin
+  perform pg_advisory_xact_lock(4786318449935675244);
   new.effective_at := greatest(clock_timestamp(),
     coalesce((select max(effective_at) from energy_policies) + interval '1 microsecond', '-infinity'::timestamptz));
   return new;
@@ -32,7 +40,8 @@ end $$;
 create trigger energy_policy_effective_at before insert on energy_policies
   for each row execute function energy_policy_effective_at();
 
--- Immutable, for the owner too: only session_replication_role = replica (superuser only) skips it.
+-- Immutable, for the owner too: only session_replication_role = replica (superuser only) skips it. The same function
+-- refuses TRUNCATE (statement level), which skips row triggers.
 create function energy_policy_is_immutable() returns trigger language plpgsql as $$
 begin
   raise exception 'energy policies are immutable once published'
@@ -41,6 +50,8 @@ end $$;
 
 create trigger energy_policy_is_immutable before update or delete on energy_policies
   for each row execute function energy_policy_is_immutable();
+create trigger energy_policies_no_truncate before truncate on energy_policies
+  for each statement execute function energy_policy_is_immutable();
 
 -- Version 1 (E7, §19; provisional): cap 50, opening balance 50 (E1: a wallet opens full), 1 energy per 10 minutes,
 -- void refund 100 %. Inserted after its trigger so the database sets its effective_at.
@@ -48,8 +59,8 @@ insert into energy_policies (cap, opening_balance, regen_interval, regen_amount,
   values (50, 50, interval '10 minutes', 1, 100);
 
 -- One wallet per account. regen_anchor is the database time up to which regeneration is accounted, and only moves forward;
--- regen_progress_us is the progress toward the next unit under policy_version (kept below that policy's interval, checked
--- by the invariant). A balance may exceed the cap (E6).
+-- regen_progress_us is the progress toward the next unit under policy_version, always below that policy's interval
+-- (energy_wallet_progress_below_interval). A balance may exceed the cap (E6).
 create table energy_wallets (
   account_id bigint primary key references accounts,
   balance integer not null check (balance >= 0),
@@ -57,11 +68,14 @@ create table energy_wallets (
   regen_progress_us bigint not null check (regen_progress_us >= 0),
   policy_version integer not null references energy_policies);
 
--- Every balance change, append-only. Keys: 'open' (once per account), 'regen:<consumed anchor, µs since the Unix epoch>',
--- 'dev_grant:<operator uuid>' (also unique across accounts). Each kind's delta sign is a CHECK. attempt_id is unused until
--- Stage 7. The two CHECKs that read two columns are named (PostgreSQL would call them energy_ledger_check and _check1).
--- A key is the bare kind or the kind, ':' and a non-empty suffix; starts_with, not LIKE, whose '_' would match any
--- character in 'dev_grant' and 'void_refund'.
+-- Every balance change, append-only. Each kind's delta sign is a CHECK. attempt_id is unused until Stage 7. The two
+-- CHECKs that read two columns are named (PostgreSQL would call them energy_ledger_check and _check1).
+-- Keys, per kind:
+--   open       exactly 'open' (once per account);
+--   regen      'regen:<consumed anchor, µs since the Unix epoch>', a signed decimal integer;
+--   dev_grant  'dev_grant:<operator uuid>', canonical lower case (so one UUID is one key; also unique across accounts);
+--   the kinds of later stages: the bare kind, or the kind, ':' and a non-empty suffix (starts_with, not LIKE, whose '_'
+--   would match any character in 'void_refund').
 create table energy_ledger (
   entry_id bigint generated always as identity primary key,
   account_id bigint not null references energy_wallets,
@@ -71,8 +85,12 @@ create table energy_ledger (
   balance_after integer not null check (balance_after >= 0),
   idempotency_key text not null
     constraint energy_ledger_idempotency_key_check check (length(idempotency_key) <= 200 and idempotency_key !~ '[[:space:][:cntrl:]]'
-                                                          and (idempotency_key = kind or (starts_with(idempotency_key, kind || ':')
-                                                                                          and length(idempotency_key) > length(kind) + 1))),
+      and case kind
+            when 'open' then idempotency_key = 'open'
+            when 'regen' then idempotency_key ~ '^regen:-?[0-9]+$'
+            when 'dev_grant' then idempotency_key ~ '^dev_grant:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+            else idempotency_key = kind or (starts_with(idempotency_key, kind || ':') and length(idempotency_key) > length(kind) + 1)
+          end),
   created_at timestamptz not null default statement_timestamp(),
   constraint energy_ledger_delta_sign_check check ((kind = 'open' and delta >= 0) or (kind in ('regen', 'dev_grant', 'release', 'void_refund') and delta > 0)
       or (kind = 'reserve' and delta < 0) or (kind in ('charge', 'settle') and delta = 0) or (kind = 'adjust' and delta <> 0)),
@@ -96,7 +114,8 @@ create table anomaly_events (
   reviewed_note text);
 create unique index anomaly_one_outstanding on anomaly_events (kind, dedupe_key) where reviewed_at is null;
 
--- The ledger is append-only, for the owner too (the app also holds no UPDATE or DELETE on it).
+-- The ledger is append-only, for the owner too (the app also holds no UPDATE or DELETE on it), and cannot be truncated
+-- (directly, or by a cascade from the wallets or the policies).
 create function energy_ledger_is_append_only() returns trigger language plpgsql as $$
 begin
   raise exception 'the energy ledger is append-only'
@@ -105,6 +124,35 @@ end $$;
 
 create trigger energy_ledger_is_append_only before update or delete on energy_ledger
   for each row execute function energy_ledger_is_append_only();
+create trigger energy_ledger_no_truncate before truncate on energy_ledger
+  for each statement execute function energy_ledger_is_append_only();
+
+-- Every entry extends its account's chain, at insert: balance_after = the previous entry's balance_after (0 for none) +
+-- delta, and there is no previous entry exactly when the kind is 'open'. With the commit check below (the wallet equals
+-- its latest entry), the balance is the sum of the deltas at every commit, and 'open' is first and unique.
+-- It is exact because every writer inserts an account's entries while holding that account's wallet row lock (FOR UPDATE,
+-- or the insert of the wallet itself in the same transaction): no other transaction can then add or commit an entry for
+-- the account between this read and this transaction's commit, and entry ids are allocated in the lock's order. A writer
+-- that inserted entries outside the wallet lock could be refused spuriously, never accepted wrongly.
+create function energy_ledger_chain() returns trigger language plpgsql as $$
+declare
+  previous integer;
+begin
+  select balance_after into previous from energy_ledger
+    where account_id = new.account_id and entry_id < new.entry_id order by entry_id desc limit 1;
+  if found = (new.kind = 'open') then
+    raise exception 'an energy ledger''s first entry, and only its first, is its open entry'
+      using errcode = 'check_violation', constraint = 'energy_ledger_chain';
+  end if;
+  if new.balance_after::bigint <> coalesce(previous, 0)::bigint + new.delta then
+    raise exception 'an energy ledger entry''s balance_after must be the previous balance_after plus its delta'
+      using errcode = 'check_violation', constraint = 'energy_ledger_chain';
+  end if;
+  return new;
+end $$;
+
+create trigger energy_ledger_chain before insert on energy_ledger
+  for each row execute function energy_ledger_chain();
 
 -- Neither the anchor nor the policy version ever moves back (owner requirement 2: a clock stepping back causes no anchor
 -- regression, so regen keys, derived from consumed anchors, never repeat).
@@ -123,6 +171,23 @@ end $$;
 
 create trigger energy_wallet_forward_only before update on energy_wallets
   for each row execute function energy_wallet_forward_only();
+
+-- Progress stays below the interval of the wallet's policy version, in microseconds (EnergyMath refuses to read a wallet
+-- otherwise, which would fail every later read of it). A missing version is left to the foreign key.
+create function energy_wallet_progress_below_interval() returns trigger language plpgsql as $$
+declare
+  interval_us numeric;
+begin
+  select extract(epoch from regen_interval) * 1000000 into interval_us from energy_policies where version = new.policy_version;
+  if found and new.regen_progress_us >= interval_us then
+    raise exception 'an energy wallet''s regen_progress_us must stay below its policy''s interval'
+      using errcode = 'check_violation', constraint = 'energy_wallet_progress_below_interval';
+  end if;
+  return new;
+end $$;
+
+create trigger energy_wallet_progress_below_interval before insert or update on energy_wallets
+  for each row execute function energy_wallet_progress_below_interval();
 
 -- Every balance change has its ledger entry in the same transaction (owner requirement 4): at commit, a wallet that was
 -- inserted or updated, or that received a ledger entry, must hold the balance_after of its latest entry (by entry_id); a
