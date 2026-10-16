@@ -4,8 +4,9 @@ using Blackglass.Accounts.Domain.Energy;
 
 namespace Blackglass.Accounts.Persistence.Energy;
 
-/// <summary>The outcome of opening a wallet. Opened is false when the wallet already existed (then Balance and PolicyVersion
-/// are the stored ones).</summary>
+/// <summary>The outcome of opening a wallet. Opened is false when the wallet already existed: then Balance and PolicyVersion
+/// are advisory, read without the wallet's row lock (the policy lock is a leaf), so a materialization committing at the same
+/// time can leave them one regeneration behind. Report them as "already opened", never as the wallet's authoritative state.</summary>
 public sealed record WalletOpen(bool Opened, int Balance, int PolicyVersion);
 
 /// <summary>
@@ -20,7 +21,9 @@ public static class EnergyProvisioner
     /// <summary>
     /// Picks <see cref="EnergyMath.ApplicableAt"/> at the database clock and inserts the wallet with that version's opening
     /// balance, anchored at the clock (on conflict do nothing); when it inserted, also the <c>open</c> entry with delta =
-    /// balance_after = the opening balance. InvalidOperationException outside READ COMMITTED.
+    /// balance_after = the opening balance. When the wallet already exists nothing is written, and the Balance and
+    /// PolicyVersion returned are an unlocked, advisory read (see <see cref="WalletOpen"/>). InvalidOperationException outside
+    /// READ COMMITTED.
     /// </summary>
     public static async Task<WalletOpen> OpenAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, CancellationToken ct)
     {

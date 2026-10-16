@@ -104,6 +104,28 @@ public class EnergyLedgerWriterTests : IAsyncLifetime
         return result;
     }
 
+    /// <summary>Returns once at least <paramref name="count"/> backends of this database wait on a lock (polls
+    /// pg_stat_activity every 20 ms). The waiting pools apply no lock_timeout (<see cref="AssertNoLockTimeoutAsync"/>), so a
+    /// holder kept until then never turns a waiter into a 55P03.</summary>
+    async Task WaitForLockWaitersAsync(int count = 1)
+    {
+        await using var su = await db.AsSuperuser().OpenConnectionAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (await su.ExecuteScalarAsync<long>("select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'") < count)
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException($"Fewer than {count} backends waited on a lock.");
+            await Task.Delay(20);
+        }
+    }
+
+    /// <summary>The test data sources set no lock_timeout (the production 5 s bound comes from DbTimeouts, which these
+    /// sources do not pass): a waiter waits as long as its holder, however slow this machine is.</summary>
+    static async Task AssertNoLockTimeoutAsync(NpgsqlDataSource source)
+    {
+        await using var conn = await source.OpenConnectionAsync();
+        Assert.Equal("0", await conn.ExecuteScalarAsync<string>("show lock_timeout"));
+    }
+
     static void AssertUtc(Materialized m)
     {
         Assert.Equal(DateTimeKind.Utc, m.Now.Kind);
@@ -260,6 +282,8 @@ public class EnergyLedgerWriterTests : IAsyncLifetime
         var env = db.EnvFor("app");
         await using var wide = new DbSettings("127.0.0.1", int.Parse(env[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture), db.Name, "accounts_app", db.Password("app"))
             .CreateDataSource("blackglass-tests", maxPoolSize: Callers + 1);
+        await AssertNoLockTimeoutAsync(wide);
+        await AssertNoLockTimeoutAsync(db.AsApp());
 
         // The start barrier: the wallet is held, so all ten reach its lock on distinct connections before any proceeds.
         await using var holder = await db.AsApp().OpenConnectionAsync();
@@ -268,15 +292,7 @@ public class EnergyLedgerWriterTests : IAsyncLifetime
         var gate = new TaskCompletionSource();
         var callers = Enumerable.Range(0, Callers).Select(_ => Task.Run(async () => { await gate.Task; return (await MaterializeAsync(account, wide))!; })).ToArray();
         gate.SetResult();
-        await using (var su = await db.AsSuperuser().OpenConnectionAsync())
-        {
-            var deadline = DateTime.UtcNow.AddSeconds(30);
-            while (await su.ExecuteScalarAsync<long>("select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'") < Callers)
-            {
-                if (DateTime.UtcNow > deadline) throw new TimeoutException("Fewer than ten materializations waited on the wallet lock.");
-                await Task.Yield();
-            }
-        }
+        await WaitForLockWaitersAsync(Callers);
         await holderTx.CommitAsync();
 
         var results = await Task.WhenAll(callers);
@@ -373,7 +389,7 @@ public class EnergyLedgerWriterTests : IAsyncLifetime
         await holder.ExecuteAsync("select 1 from energy_wallets where account_id = @account for update", new { account }, holderTx);
 
         var waiting = MaterializeAsync(account);
-        await WaitUntilABackendWaitsOnALockAsync(db);
+        await WaitForLockWaitersAsync();
         Assert.False(waiting.IsCompleted);
         var released = await holder.ExecuteScalarAsync<DateTime>("select clock_timestamp()", transaction: holderTx);
         await holderTx.CommitAsync();
@@ -381,6 +397,41 @@ public class EnergyLedgerWriterTests : IAsyncLifetime
         var result = (await waiting)!;
         Assert.True(result.Now > released, $"{result.Now:O} should be after the release at {released:O}");
         Assert.Equal(result.Now, (await WalletAsync(account)).RegenAnchor);
+    }
+
+    [Fact]
+    public async Task The_clock_is_read_after_the_policy_lock()
+    {
+        // The wallet is free, so the only wait is the shared policy lock behind a held exclusive one (as a publication holds it).
+        var account = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        await using var publisher = await db.AsSuperuser().OpenConnectionAsync();
+        await using var publisherTx = await publisher.BeginTransactionAsync();
+        await publisher.ExecuteAsync("select pg_advisory_xact_lock(@key)", new { key = EnergyPolicies.PublicationLockKey }, publisherTx);
+
+        var waiting = MaterializeAsync(account);
+        await WaitForLockWaitersAsync();
+        Assert.False(waiting.IsCompleted);
+        Assert.Equal(1L, await ScalarAsync<long>("select count(*) from pg_stat_activity where datname = current_database() and wait_event = 'advisory'"));
+        var released = await publisher.ExecuteScalarAsync<DateTime>("select clock_timestamp()", transaction: publisherTx);
+        await publisherTx.CommitAsync();
+
+        var result = (await waiting)!;
+        Assert.True(result.Now > released, $"{result.Now:O} should be after the release at {released:O}");
+        Assert.Equal(result.Now, (await WalletAsync(account)).RegenAnchor);
+    }
+
+    [Fact]
+    public async Task Materializing_accepts_a_transaction_begun_without_an_isolation_level()
+    {
+        // Npgsql's default (no level given) is READ COMMITTED, and reports it: later callers may use the bare form.
+        var account = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+        Assert.Equal(IsolationLevel.ReadCommitted, tx.IsolationLevel);
+        var result = (await EnergyLedgerWriter.MaterializeLockedAsync(conn, tx, account, default))!;
+        await tx.CommitAsync();
+        Assert.Equal(3, result.Gained);
+        Assert.Equal(result.Wallet, await WalletAsync(account));
     }
 
     [Fact]
@@ -439,7 +490,7 @@ public class EnergyLedgerWriterTests : IAsyncLifetime
             await using var publisher = await db.AsApp().OpenConnectionAsync();
             return await PublishAsync(publisher, null, cap: 50, opening: 50, interval: "5 minutes");
         });
-        await WaitUntilABackendWaitsOnALockAsync(db);
+        await WaitForLockWaitersAsync();
         Assert.False(publication.IsCompleted);
         await tx.CommitAsync();
 
@@ -459,7 +510,7 @@ public class EnergyLedgerWriterTests : IAsyncLifetime
         var (version, effectiveAt) = await PublishAsync(publisher, publisherTx, cap: 50, opening: 50, interval: "5 minutes");
 
         var waiting = MaterializeAsync(account);
-        await WaitUntilABackendWaitsOnALockAsync(db);
+        await WaitForLockWaitersAsync();
         Assert.False(waiting.IsCompleted);
         await publisherTx.CommitAsync();
 
