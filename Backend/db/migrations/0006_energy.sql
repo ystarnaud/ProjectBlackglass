@@ -133,7 +133,8 @@ create trigger energy_ledger_no_truncate before truncate on energy_ledger
 -- It is exact because every writer inserts an account's entries while holding that account's wallet row lock (FOR UPDATE,
 -- or the insert of the wallet itself in the same transaction): no other transaction can then add or commit an entry for
 -- the account between this read and this transaction's commit, and entry ids are allocated in the lock's order. A writer
--- that inserted entries outside the wallet lock could be refused spuriously, never accepted wrongly.
+-- that inserted entries outside the wallet lock voids this guarantee (two such writers can both pass and leave a broken
+-- chain); the energy invariants and the reconciliation report it.
 create function energy_ledger_chain() returns trigger language plpgsql as $$
 declare
   previous integer;
