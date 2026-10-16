@@ -1,6 +1,6 @@
 # Phase 13A: backend architecture and persistent mission settlement (design)
 
-Date: 2026-10-14. **Revision 2.4** (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
+Date: 2026-10-14. **Revision 2.5** (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
 
 "Project Blackglass" is an internal codename. No identifier, table, route, credential or claim introduced here carries the product name, apart from the C# namespace and repository paths that already exist. Player-facing names live in data (`display_name`), never in keys.
 
@@ -89,6 +89,23 @@ Companion documents:
 | `GET /v1/me` | `{accountId}` | `{accountId, inventoryVersion}` (§16.1) |
 
 **As built (2026-10-15, branch `phase13-stage4`; amendment, nothing above is removed).** Schema version 4 (`0003_operatives_and_picks`, `0004_inventory`). The catalogue is format 2 with `catalogueVersion` `sha256:e83352b1c9d8764a92281551a25bea42621da2b592bc30d35986a5f0a86c496b` (equal in Unity's writer, the backend's writer and `sha256sum`). Measured: backend ALL 974/0 (Domain 292, Integration 682), UNIT 480/0 (`--filter "Requires!=Postgres"`); Unity EditMode 1524/0, PlayMode 1434/0. The exact SQL is in `Backend/db/migrations/`; the route and CLI shapes are in §16 and `Backend/README.md`. Departures from the plan text are listed in the stage plan's "As built" section.
+
+### 0.5 Revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8, 2026-10-16)
+
+The detailed plan is `Docs/superpowers/plans/2026-10-15-phase-13-stage5-inventory-operations.md` (revision 2, §A).
+
+| Ruling | Decision |
+|---|---|
+| S5-D1 exact transfers, atomic batches | Every operation moves exactly the requested quantity or fails; a batch is all-or-nothing (`422 {code, index}`, nothing written, version unchanged). Unity's offline partial transfers are unchanged; shared vectors cover the common semantics, and the backend's strict rules have backend-only tests |
+| S5-D2 fungible stacks | Stacks are identified by account, location and definition, with no ids; moving part of one splits it, arriving units merge. Occupancy is `ceil(quantity / maxStack)` entries against `inventory.bagCapacity`. No zero-quantity row remains |
+| S5-D3 five operations | `equip`, `unequip`, `toStash`, `toBag`, `equipFromStash`. Moves between operatives go through the stash in one batch. No discard, trading, crafting or other operation |
+| S5-D4 migration 0005 | `accounts_app` gains `UPDATE (operative_id, equipped_slot)` on `item_instances` and `UPDATE (quantity)`, `DELETE` on `item_stacks`. Never `DELETE` on instances, never an update of identity, definition, account or origin |
+| S5-D5 `InventoryLocked` | Checked under the `inventories` row lock after `NotProvisioned` and before `VersionMismatch`, for edits and picks; always 409. Stage 5 ships an always-unlocked seam; **Stage 7 must connect it to PostgreSQL participation records before live mission admission** |
+| S5-D6 batch limits (provisional) | At most 32 operations and 16 KiB, configurable. Empty batches are 400. A successful batch increments the version once; a failed one never. The server never refreshes the version and replays a mutation |
+| S5-D7 retired items (revised) | An owned item or stack whose definition the catalogue no longer knows can be unequipped and moved from a bag to the stash; it cannot be equipped, moved to a bag or equipped from the stash (`UnknownItem`). Ids, origin, ownership and quantities are preserved; nothing is silently deleted |
+| S5-D8 information-safe refusals | Foreign, nonexistent and misplaced item ids get the same `NotFound`; foreign and nonexistent operatives the same `UnknownOperative`. Every lookup is scoped to the session's account |
+
+Migration numbering: `0005` is now `0005_inventory_edits`; the later migrations sketched in §15.1 (energy and insurance, hosts and attempts, settlement) shift by one when their stages are planned.
 
 ---
 
@@ -410,10 +427,13 @@ Stackable lines mint no ids; they add to `item_stacks`.
 - One `inventories` row per account is the row-lock anchor and carries `version`.
 - An edit locks the row, checks `expected_version`, applies the change and increments the version.
 - While the account has an **active participation** (§7.1), edits are refused with `409 InventoryLocked`, under the same row lock. Settlement, cancellation and void are the only writers until the participation ends.
+- **Refusal order (revision 2.5, S5-D5):** under the row lock, `NotProvisioned` → `InventoryLocked` → `VersionMismatch` → the operations, in batch order. The same order applies to picks. Until participations exist (Stage 7) the lock source is a seam that always answers unlocked.
 
 ### 5.3 Operations and picks (Phase 13)
 
-- **Inventory operations:** a batch endpoint (`equip`, `unequip`, `toStash`, `toBag`, `equipFromStash`) whose rules are ported from `OperativeEquipment.TryEquip`, `InventoryState.MoveToStash`/`MoveToBag` and `InventorySession.EquipFromStash`. Golden vectors in `Backend/contracts/inventory-vectors.json` run both in xUnit and in a Unity EditMode test against `InventorySession`.
+- **Inventory operations:** a batch endpoint (`equip`, `unequip`, `toStash`, `toBag`, `equipFromStash`) whose rules are ported from `OperativeEquipment.TryEquip`, `InventoryState.MoveToStash`/`MoveToBag` and `InventorySession.EquipFromStash`. Vectors in `Backend/contracts/inventory/vectors.json` (revision 2.5) run in xUnit; the cases marked `shared` also run in a Unity EditMode test against `InventorySession`.
+  - **Revision 2.5 rules (§0.5):** exact quantities and all-or-nothing batches (S5-D1); stacks addressed by location and definition, with automatic split and merge (S5-D2); each operation is checked against the state the batch's earlier operations left, and the complete final state is validated (equipment consistency, one item per slot, no zero stacks, a bag grows only within capacity, units and instance ids conserved); retired items may leave a bag through `unequip` and `toStash` only (S5-D7).
+  - **Backend-only differences from offline Unity**, tested separately: `InsufficientQuantity` instead of a clamp; `DestinationFull` instead of a partial move; `UnknownOperative` instead of `NotFound` on transfers; retired items movable to the stash.
 - **Advancement picks [R-C4]:** `POST /v1/operatives/{id}/choices {choiceId, expectedVersion}` stores a choice id with the same rule as `PersistentOperativeState.TryPickChoice`: a pending pick exists (derived from XP and the exported track) and the track knows the choice. Picks use the inventory row lock and version, and are refused while a participation is active. There is no respec, no new choice type and no change to the track or `EffectiveConfiguration`: the progression system is not expanded.
 
 ### 5.4 Provisioning (revision 2.4, D4)
@@ -422,6 +442,17 @@ Stackable lines mint no ids; they add to `item_stacks`.
 - **Backfill.** For accounts created before Stage 4, `admin starter backfill --account-base58 <id>` (confirmed like every Stage 3 lifecycle command, and audited as `starter_backfill`) locks the account row, then the `inventories` row. It grants only when `starter_granted` is false, so it is exactly once, even concurrently.
 - **Never re-granted.** A later catalogue never re-grants or replaces an existing account's starter.
 - **Reads** (`GET /v1/roster`, `GET /v1/inventory`, `GET /v1/me`) never write. An unprovisioned account reads 409 `NotProvisioned`, and its `inventoryVersion` is null.
+- **Original grant versus current holdings (revision 2.5).**
+
+  | Record | What it is | Changes after inventory edits? |
+  |---|---|---|
+  | `inventories.starter_granted`, `starter_catalogue_version`, `starter_granted_at` | The fact, version and time of the original grant | Never (`inventories_forward_only`) |
+  | `item_instances.origin`, `origin_ref` | Each non-stackable's provenance | Never; kept wherever the item moves |
+  | `item_instances.operative_id`, `equipped_slot` | Where the item is now | Yes (0005) |
+  | `item_stacks` rows | Current fungible quantities per location | Yes; stack units carry no provenance once moved or merged |
+  | `operator_actions` `account_create` / `starter_backfill` (granted) | The audited record of exactly what was granted, with counts | Never (append-only) |
+
+  No code reconstructs the starter from current holdings, and current counts are never labelled as starter counts: a backfill of an already-granted account reports `already` with the recorded catalogue version only.
 
 ---
 
@@ -1281,6 +1312,7 @@ create trigger auth_sessions_revocation_is_final before update on auth_sessions 
 --   UPDATE of owned rows (Stage 5 adds the grants for inventory edits), no privilege on the identity sequences.
 -- Invariants: db/invariants/0004_inventory_consistency.sql (one row per violation; zero rows = holds).
 
+-- Revision 2.5: 0005 is 0005_inventory_edits (Stage 5, §0.5); the sketches below shift by one when planned.
 -- 0005 energy and insurance
 create table energy_policies (
   version integer primary key, cap integer not null check (cap > 0),
@@ -1480,9 +1512,9 @@ All JSON is camelCase, and errors are RFC 9457 ProblemDetails with a stable `cod
 | `GET /v1/me` | → `{accountId, energy:{balance, cap, nextRegenAt}, insurance:{active, policyId, expiresAt}, inventoryVersion, activeAttemptId}`. **Stage 3 returned exactly `{accountId}`** (owner Q1); each later field is added by the stage that creates its data. **As built, Stage 4 returns exactly `{accountId, inventoryVersion}`** (`inventoryVersion` is the shared `inventories.version`, null for an unprovisioned account; the response is `Cache-Control: no-store`) | 401; 503 when the database is unavailable, 503 with `Retry-After` when busy; 500 for any other database error; 429 per account |
 | `POST /v1/auth/logout` | → 204; revokes the current session only (Stage 3) | 401 (also on a repeat); 503 unavailable, 503 with `Retry-After` busy (it locks its session row); 500 for any other database error; 429 per account |
 | `GET /v1/roster` | → `{version, operatives:[{operativeId, definitionId, definitionKnown, experience, rank, pendingPicks, choices:[choiceId]}]}`; owned ids Base58 strings (Stage 4, as built). `definitionKnown` is false for an operative whose definition the current catalogue no longer lists | 409 `NotProvisioned` (reads never write); `Cache-Control: no-store` |
-| `POST /v1/operatives/{id}/choices` | `{choiceId, expectedVersion}` → `{version, operative}` (the updated operative, shaped like a roster row); `{id}` is the Base58 operative id; both members are required and an unknown member (an account id included) is refused. Stage 4, as built | 400 `InvalidOperativeId` (malformed id), 400 `InvalidBody` (missing, null, mistyped or unknown member, or a wrong content type: unlike login's 415), 413 over 4 KiB; 404 `OperativeNotFound` (also for another account's id, identical answer); 409 `VersionMismatch`, `NotProvisioned` (`InventoryLocked` arrives with participations); 422 `NoPendingPick`, `UnknownChoice`. A pick is allowed for an operative whose definition the catalogue no longer knows (picks depend only on XP and the track) |
+| `POST /v1/operatives/{id}/choices` | `{choiceId, expectedVersion}` → `{version, operative}` (the updated operative, shaped like a roster row); `{id}` is the Base58 operative id; both members are required and an unknown member (an account id included) is refused. Stage 4, as built | 400 `InvalidOperativeId` (malformed id), 400 `InvalidBody` (missing, null, mistyped or unknown member, or a wrong content type: unlike login's 415), 413 over 4 KiB; 404 `OperativeNotFound` (also for another account's id, identical answer); 409 `VersionMismatch`, `NotProvisioned`, `InventoryLocked` (revision 2.5: checked under the row lock before the version; the source arrives with participations); 422 `NoPendingPick`, `UnknownChoice`. A pick is allowed for an operative whose definition the catalogue no longer knows (picks depend only on XP and the track) |
 | `GET /v1/inventory` | → `{version, locked, stash:{instances:[{itemId, definitionId, definitionKnown}], stacks:[{definitionId, definitionKnown, quantity}]}, operatives:[{operativeId, bag:{instances, stacks}, equipment:{weapon, armor, utility}}]}`; item ids Base58. As built, `bag.instances` includes the equipped items and `equipment` gives the item id per slot (or null); `locked` is false until participations exist (Stage 4, as built) | 409 `NotProvisioned`; `Cache-Control: no-store` |
-| `POST /v1/inventory/operations` | `{expectedVersion, operations:[…]}` → `{version, inventory}` | 409, 422 `{code, index}` |
+| `POST /v1/inventory/operations` | `{expectedVersion, operations:[…]}` → `{version, inventory}`; operations `{op:"equip", operativeId, itemId}`, `{op:"unequip", operativeId, slot}`, `{op:"toStash"\|"toBag", operativeId, itemId}` or `{…, definitionId, quantity}`, `{op:"equipFromStash", operativeId, itemId}`; ids Base58; no account id (revision 2.5, Stage 5) | 400 `InvalidBody` (including an empty or over-limit list) or `{code:"InvalidOperation", index}`; 413 over 16 KiB; 415; 409 `VersionMismatch`, `NotProvisioned`, `InventoryLocked`; 422 `{code, index}` (`UnknownOperative`, `NotFound`, `UnknownItem`, `NotEquippable`, `NothingEquipped`, `Equipped`, `DestinationFull`, `InvalidQuantity`, `InsufficientQuantity`); 503 busy or unavailable, never replayed by the server |
 | `POST /v1/attempts` + `Idempotency-Key` | `{missionTemplate, operativeIds}` → 201 `{attemptId, state, energy:{cost, balanceAfter}, insurance:{covered, policyId, policyVersion}}`; the same key and body → the stored response | 503 `ServiceUnavailable`; 409 `AttemptActive`, `InsufficientEnergy`, `IdempotencyKeyReused` (same key, different body: nothing created or charged); 422 |
 | `GET /v1/attempts/{id}` | → `{state, participantState, deadlines, join:{endpoint, ticket, ticketExpiresAt}?}` | 404 |
 | `POST /v1/attempts/{id}/tickets` | → `{ticket, ticketExpiresAt}` | 409 `InvalidState`, `AlreadyConnected` |
@@ -1678,6 +1710,7 @@ All are configuration, none is decided, and changing one doesn't need a code cha
 | Insurance activation durations | per dev activation | admin endpoint argument |
 | Success XP | existing `ProgressionTrack.MissionCompletionXp` | catalogue export |
 | Bag capacity | 8 | Unity `InventoryRules` asset → catalogue format 2 `inventory.bagCapacity` (D1, 2026-10-15); versioned by `catalogueVersion`. As built (2026-10-15): the value 8 lives in the Unity `InventoryRules` asset and nowhere in the backend; `InventoryRules` is bag capacity's single home, exported in format 2 as `inventory.bagCapacity` (validated 1..64) and read by the backend's planner and validator; a scene-drift EditMode test compares `ProceduralMission`'s `SquadInventory.bagCapacity` with the asset |
+| Inventory batch limits (S5-D6, revision 2.5) | 32 operations, 16 KiB body | `BLACKGLASS_INVENTORY_MAX_OPERATIONS` (1..256); body limit in API configuration |
 | Access token lifetime | 60 min | API configuration |
 | Ticket lifetime | 120 s | API configuration |
 | Assign, launch, join and start-ack deadlines | 60 s, 120 s, 120 s, = join | API configuration |

@@ -160,7 +160,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 4: provisioning, roster, inventory read and picks (C-4)
 
-**Status: implemented on branch `phase13-stage4`; approved by the owner for merge on 2026-10-15 after the admin catalogue-boundary correction (backend ALL 1001/0 with it; see the detailed plan).** Authorized by the owner on 2026-10-15 with rulings D1–D6 (decision 048 amendment 2, spec revision 2.4). Measured: backend ALL 974/0 (Domain 292, Integration 682), UNIT 480/0 (`--filter "Requires!=Postgres"`); Unity EditMode 1524/0, PlayMode 1434/0; the catalogue `catalogueVersion` is `sha256:e83352b1c9d8764a92281551a25bea42621da2b592bc30d35986a5f0a86c496b`. The VM results are in the detailed plan's "As built" section. Detailed plan: `Docs/superpowers/plans/2026-10-15-phase-13-stage4-operatives-inventory.md` (revision 2). It supersedes the work list below where they differ: bigint owned ids, provisioning at account creation plus a backfill, catalogue format 2 with `InventoryRules` (so it touches Unity's editor export and EditMode tests, no scene), and shared vectors.
+**Status: done, merged into `main` and pushed (`f3cada4`), including the admin catalogue-boundary correction (backend ALL 1001/0 with it; see the detailed plan).** Authorized by the owner on 2026-10-15 with rulings D1–D6 (decision 048 amendment 2, spec revision 2.4). Measured: backend ALL 974/0 (Domain 292, Integration 682), UNIT 480/0 (`--filter "Requires!=Postgres"`); Unity EditMode 1524/0, PlayMode 1434/0; the catalogue `catalogueVersion` is `sha256:e83352b1c9d8764a92281551a25bea42621da2b592bc30d35986a5f0a86c496b`. The VM results are in the detailed plan's "As built" section. Detailed plan: `Docs/superpowers/plans/2026-10-15-phase-13-stage4-operatives-inventory.md` (revision 2). It supersedes the work list below where they differ: bigint owned ids, provisioning at account creation plus a backfill, catalogue format 2 with `InventoryRules` (so it touches Unity's editor export and EditMode tests, no scene), and shared vectors.
 
 **Touches:** `Backend/` only.
 
@@ -181,9 +181,11 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 5: inventory operations
 
+**Status: authorized by the owner on 2026-10-16 with rulings S5-D1–S5-D8 (spec revision 2.5, §0.5); in progress on branch `phase13-stage5`.** Detailed plan: `Docs/superpowers/plans/2026-10-15-phase-13-stage5-inventory-operations.md` (revision 2). It supersedes the work list below where they differ: migration `0005_inventory_edits` (so energy's migration becomes `0006`), the `IInventoryLock` seam for picks and edits, vectors at `Backend/contracts/inventory/vectors.json` with `shared` and `backend` scopes, and the backfill's starter-versus-holdings correction.
+
 **Touches:**
 - `Backend/`;
-- `Backend/contracts/inventory-vectors.json`;
+- `Backend/contracts/inventory/vectors.json` (revision 2.5; was `inventory-vectors.json`);
 - one new EditMode test file.
 
 **Work:**
@@ -201,7 +203,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Touches:** `Backend/` only.
 
 **Work:**
-- migration `0005` (energy);
+- migration `0006` (energy; `0005` is Stage 5's inventory edits, spec revision 2.5);
 - the regeneration function (only after the default `PUBLIC` `EXECUTE` revoke carried over from Stage 1 is in place; grant `EXECUTE` to `accounts_app` explicitly, and test that an ungranted function is refused);
 - the wallet under lock;
 - the ledger with idempotency keys, **including a `regen` entry for every materialization**, keyed by the anchor it consumed, in the same transaction;
