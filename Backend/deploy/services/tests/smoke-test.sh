@@ -7,6 +7,9 @@
 # one POST /v1/inventory/operations batch (200, version up by one), and replaying the same body with the old version is
 # 409 VersionMismatch, once, never retried. The account key and the access token stay in shell variables: never printed,
 # never on a command line, never in a file.
+# Stage 6: account creation opens a full energy wallet; GET /v1/me shows {balance:50, cap:50, nextRegenAt:null}; a
+# development grant with a fresh idempotency key credits 5 once and its replay reports the stored result without
+# crediting again; /v1/me then shows 55 above the cap of 50; and an on-demand reconciliation finds no mismatch.
 # Throwaway project bg-smoke; removed at the end.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -53,7 +56,8 @@ admin_creates_the_first_account() {
     && grep -qx 'accountId=2' "$work/admin.out" && grep -qx 'accountKey=dk1_\[redacted\]' "$work/admin.out" \
     && grep -qx 'starterGranted=granted' "$work/admin.out" \
     && grep -Eqx 'starterOperatives=[1-9][0-9]*' "$work/admin.out" && grep -Eqx 'starterInstances=[1-9][0-9]*' "$work/admin.out" \
-    && grep -Eqx 'starterStacks=[1-9][0-9]*' "$work/admin.out"
+    && grep -Eqx 'starterStacks=[1-9][0-9]*' "$work/admin.out" \
+    && grep -qx 'energyOpened=opened' "$work/admin.out" && grep -qx 'energyBalance=50' "$work/admin.out"
 }
 # Account creation provisioned the starter, so the explicit backfill finds it already granted (exit 0, nothing granted again).
 # It reports the recorded catalogue version and no counts: current holdings are never printed as the starter.
@@ -81,7 +85,7 @@ admin_unknown_account_is_65() {
   local code=0; admin_cli account suspend --account-base58 zz --operator smoke-test --reason smoke --yes > /dev/null || code=$?
   test "$code" -eq 65
 }
-check "the admin CLI creates the first account, prints its Base58 id and the granted starter counts" admin_creates_the_first_account
+check "the admin CLI creates the first account, prints its Base58 id, the granted starter counts and a full energy wallet" admin_creates_the_first_account
 check "starter backfill on that account exits 0, says already, and reports the recorded version and no counts" admin_backfill_finds_the_starter_already
 check "the old --account flag is refused (64): ids are named by --account-base58" admin_refuses_the_old_flag
 check "suspend without --yes and without a terminal shows the target and changes nothing (64)" admin_shows_the_target_and_changes_nothing_without_yes
@@ -98,7 +102,7 @@ done
 # Secrets rule: the account key (dk1_) and the access token (at1_) live in shell variables alone. They are never echoed,
 # never an argument of any command (argv shows in ps; printf is a builtin, so a pipe carries them), and never in a file.
 api_url=http://127.0.0.1:5080
-inv_key= inv_token= inv_body= inv_status= inv_version= inv_operative= inv_weapon=
+inv_key= inv_token= inv_body= inv_status= inv_version= inv_operative= inv_weapon= inv_account= grant_key=
 wait_for_health() { local i; for i in $(seq 1 30); do curl -sf --max-time 2 "$api_url/health" -o /dev/null && return 0; sleep 1; done; return 1; }
 # Recreates the API from the current environment (the compose default for BLACKGLASS_DEV_AUTH is disabled).
 api_recreate() { dc up -d --wait api > "$work/api-recreate.log" 2>&1 && wait_for_health; }
@@ -108,8 +112,9 @@ inv_creates_an_account() {
   local out
   out="$(dc --profile tools run --rm -T admin account create --handle inventory --operator smoke-test --reason smoke 2>&1)" || return 1
   inv_key="$(printf '%s\n' "$out" | sed -n 's/^accountKey=\(dk1_.*\)$/\1/p')"
+  inv_account="$(printf '%s\n' "$out" | sed -n 's/^accountId=\([1-9A-HJ-NP-Za-km-z]*\)$/\1/p')"
   out=
-  [[ "$inv_key" == dk1_* ]]
+  [[ "$inv_key" == dk1_* && -n "$inv_account" ]]
 }
 # The login body travels on stdin; the token is taken from the response and kept in inv_token.
 inv_logs_in() {
@@ -158,6 +163,28 @@ check "that account logs in and receives an access token (kept in memory only)" 
 check "GET /v1/inventory shows the starter weapon equipped, and the version" inv_reads_the_starter_weapon
 check "one batch unequips and re-equips the starter weapon: 200 and the version is up by one" inv_batch_round_trips
 check "replaying that body with the old version is 409 VersionMismatch (once, not retried)" inv_replay_is_a_version_mismatch
+# Stage 6: energy. The wallet opened with the account; a GET projects it without writing.
+me_energy_is() { inv_call /v1/me && [[ "$inv_status" == 200 ]] && printf '%s' "$inv_body" | grep -qF "\"energy\":$1"; }
+# A development grant through the operator CLI (confirmed with --yes), keyed by a fresh UUID. The key is not a secret.
+energy_grant() { admin_cli energy grant --account-base58 "$inv_account" --amount 5 --idempotency-key "$grant_key" --operator smoke-test --reason smoke --yes; }
+energy_grant_credits_once() {
+  grant_key="$(cat /proc/sys/kernel/random/uuid)"
+  energy_grant > "$work/grant1.out" && grep -qx 'amount=5' "$work/grant1.out" && grep -qx 'balanceAfter=55' "$work/grant1.out" \
+    && grep -qx 'replayed=false' "$work/grant1.out"
+}
+energy_grant_replay_is_stored() {
+  energy_grant > "$work/grant2.out" && grep -qx 'balanceAfter=55' "$work/grant2.out" && grep -qx 'replayed=true' "$work/grant2.out"
+}
+energy_reconcile_is_clean() {
+  admin_cli energy reconcile --operator smoke-test --reason smoke > "$work/reconcile.out" \
+    && grep -Eqx 'walletsChecked=[2-9][0-9]*' "$work/reconcile.out" && grep -qx 'mismatches=0' "$work/reconcile.out" \
+    && ! grep -q '^mismatch=' "$work/reconcile.out"
+}
+check "GET /v1/me shows the full wallet opened with the account (50, cap 50, no next regeneration)" me_energy_is '{"balance":50,"cap":50,"nextRegenAt":null}'
+check "energy grant with a fresh key credits 5 once (balanceAfter=55, replayed=false)" energy_grant_credits_once
+check "the same key again reports the stored result and credits nothing (replayed=true, balanceAfter=55)" energy_grant_replay_is_stored
+check "GET /v1/me shows 55, above the cap of 50, with regeneration paused" me_energy_is '{"balance":55,"cap":50,"nextRegenAt":null}'
+check "energy reconcile checks every wallet and finds no mismatch" energy_reconcile_is_clean
 unset inv_key inv_token inv_body
 api_with_default_auth() { ( unset BLACKGLASS_DEV_AUTH; api_recreate ); }
 check "the API is recreated with the stack's default again" api_with_default_auth
