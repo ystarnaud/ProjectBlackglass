@@ -48,6 +48,8 @@ public class AdminArgumentsTests
     [InlineData("account suspend --account-base58 BukQL --operator o --reason r")]
     [InlineData("account reactivate --account-base58 BukQL --operator o --reason r")]
     [InlineData("starter backfill --account-base58 BukQL --operator o --reason r")]
+    [InlineData("energy open --account-base58 BukQL --operator o --reason r")]
+    [InlineData("energy grant --account-base58 BukQL --amount 5 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]
     public void Every_change_to_an_existing_account_needs_confirmation_and_takes_yes(string line)
     {
         var a = Parse(line);
@@ -65,13 +67,18 @@ public class AdminArgumentsTests
     [InlineData("sessions revoke --account-base58 BukQL --operator o --reason r", false)]
     [InlineData("account suspend --account-base58 BukQL --operator o --reason r", false)]
     [InlineData("account reactivate --account-base58 BukQL --operator o --reason r", false)]
+    [InlineData("energy open --account-base58 BukQL --operator o --reason r", false)]
+    [InlineData("energy grant --account-base58 BukQL --amount 5 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r", false)]
+    [InlineData("energy policy publish --cap 50 --opening-balance 50 --interval-seconds 600 --amount 1 --void-refund-pct 100 --operator o --reason r", false)]
+    [InlineData("energy reconcile --operator o --reason r", false)]
     public void Only_the_starter_granting_verbs_need_the_catalogue(string line, bool needs) =>
         Assert.Equal(needs, Parse(line).NeedsCatalogue);
 
     [Fact]
     public void Every_verb_is_classified_and_only_the_starter_granting_ones_need_the_catalogue() =>
         // A new verb fails this until it is listed here and classified in the theory above (security administration, or needing game definitions).
-        Assert.Equal(new SortedSet<string>(["account-create", "account-reactivate", "account-suspend", "credential-revoke", "credential-rotate", "sessions-revoke", "starter-backfill"]),
+        Assert.Equal(new SortedSet<string>(["account-create", "account-reactivate", "account-suspend", "credential-revoke", "credential-rotate", "energy-grant", "energy-open",
+                "energy-policy-publish", "energy-reconcile", "sessions-revoke", "starter-backfill"]),
             new SortedSet<string>(AdminArguments.KnownVerbs));
 
     [Fact]
@@ -102,6 +109,24 @@ public class AdminArgumentsTests
     [InlineData("starter backfill --credential 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")] // a credential is not an account
     [InlineData("starter backfill --account-base58 BukQL --handle x --operator o --reason r")]  // a flag this verb doesn't take
     [InlineData("starter grant --account-base58 BukQL --operator o --reason r")]            // unknown verb
+    [InlineData("energy open --operator o --reason r")]                                     // account missing
+    [InlineData("energy open --account-base58 BukQL --amount 5 --operator o --reason r")]   // a flag this verb doesn't take
+    [InlineData("energy grant --account-base58 BukQL --amount 5 --operator o --reason r")]  // key missing
+    [InlineData("energy grant --account-base58 BukQL --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")] // amount missing
+    [InlineData("energy grant --amount 5 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]              // account missing
+    [InlineData("energy grant --account-base58 BukQL --amount five --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]
+    [InlineData("energy grant --account-base58 BukQL --amount 5.0 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]
+    [InlineData("energy grant --account-base58 BukQL --amount 99999999999 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]
+    [InlineData("energy grant --account-base58 BukQL --amount 5 --idempotency-key not-a-uuid --operator o --reason r")]
+    [InlineData("energy grant --account-base58 BukQL --amount 5 --idempotency-key {0192f1a4-0000-7000-8000-000000000000} --operator o --reason r")]
+    [InlineData("energy grant --account-base58 BukQL --amount 5 --idempotency-key 0192f1a400007000800000000000000 --operator o --reason r")]
+    [InlineData("energy policy publish --cap 50 --opening-balance 50 --interval-seconds 600 --amount 1 --operator o --reason r")] // refund missing
+    [InlineData("energy policy publish --cap 50 --opening-balance 50 --interval-seconds 10m --amount 1 --void-refund-pct 100 --operator o --reason r")]
+    [InlineData("energy policy publish --cap 50 --opening-balance 50 --interval-seconds 600 --amount 1 --void-refund-pct 100 --account-base58 BukQL --operator o --reason r")]
+    [InlineData("energy policy --cap 50 --operator o --reason r")]                         // unknown verb
+    [InlineData("energy reconcile --operator o --reason r --yes")]                         // nothing to confirm
+    [InlineData("energy reconcile --account-base58 BukQL --operator o --reason r")]        // takes no account
+    [InlineData("energy close --account-base58 BukQL --operator o --reason r")]            // unknown verb
     [InlineData("account")]
     [InlineData("")]
     public void Bad_arguments_are_usage_errors(string line) =>
@@ -110,4 +135,31 @@ public class AdminArgumentsTests
     [Fact]
     public void A_blank_operator_or_reason_is_a_usage_error() =>
         Assert.Throws<AdminUsageException>(() => AdminArguments.Parse(["account", "create", "--operator", " ", "--reason", "r"]));
+
+    [Fact]
+    public void Energy_verbs_parse_their_values()
+    {
+        var key = Guid.CreateVersion7();
+        var grant = Parse($"energy grant --account-base58 BukQL --amount 25 --idempotency-key {key.ToString().ToUpperInvariant()} --operator o --reason r");
+        Assert.Equal(("energy-grant", 123456789L, 25, key), (grant.Verb, grant.Account, grant.Amount, grant.IdempotencyKey)); // one UUID, either case
+        Assert.Equal(-3, Parse($"energy grant --account-base58 BukQL --amount -3 --idempotency-key {key} --operator o --reason r").Amount); // the store refuses it (InvalidAmount)
+
+        var open = Parse("energy open --account-base58 BukQL --operator o --reason r");
+        Assert.Equal(("energy-open", 123456789L, null, null), (open.Verb, open.Account, open.Amount, open.IdempotencyKey));
+
+        var publish = Parse("energy policy publish --cap 80 --opening-balance 40 --interval-seconds 300 --amount 2 --void-refund-pct 50 --operator o --reason r");
+        Assert.Equal("energy-policy-publish", publish.Verb);
+        Assert.Equal(new EnergyPolicyValues(80, 40, 300, 2, 50), publish.Policy);
+        Assert.Equal((null, null, false, AdminConfirmation.Publish), (publish.Account, publish.Amount, publish.ChangesAnExistingAccount, publish.Confirmation));
+        Assert.True(Parse("energy policy publish --cap 80 --opening-balance 40 --interval-seconds 300 --amount 2 --void-refund-pct 50 --operator o --reason r --yes").Confirmed);
+        Assert.Equal(-1, Parse("energy policy publish --cap -1 --opening-balance 0 --interval-seconds 0 --amount 0 --void-refund-pct 101 --operator o --reason r").Policy!.Cap); // InvalidPolicy, not usage
+
+        var reconcile = Parse("energy reconcile --operator o --reason r");
+        Assert.Equal(("energy-reconcile", null, false, AdminConfirmation.None), (reconcile.Verb, reconcile.Account, reconcile.ChangesAnExistingAccount, reconcile.Confirmation));
+        Assert.Equal(AdminConfirmation.None, Parse("account create --operator o --reason r").Confirmation);
+        Assert.Equal(AdminConfirmation.Account, open.Confirmation);
+        Assert.Contains("energy grant --account-base58", AdminArguments.Usage);
+        Assert.Contains("energy policy publish", AdminArguments.Usage);
+        Assert.Contains("energy reconcile", AdminArguments.Usage);
+    }
 }

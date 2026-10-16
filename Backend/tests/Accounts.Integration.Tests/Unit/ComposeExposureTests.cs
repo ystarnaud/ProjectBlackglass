@@ -76,6 +76,8 @@ public class ComposeExposureTests
         Assert.Contains("BLACKGLASS_ADMIN_KEY_FILE: /run/secrets/api_admin_key", api);
         Assert.Contains("BLACKGLASS_INVENTORY_MAX_OPERATIONS: ${BLACKGLASS_INVENTORY_MAX_OPERATIONS:-}", api); // empty means the built-in default
         Assert.Contains("BLACKGLASS_INVENTORY_MAX_BODY_BYTES: ${BLACKGLASS_INVENTORY_MAX_BODY_BYTES:-}", api);
+        Assert.Contains("BLACKGLASS_ENERGY_RECONCILE_SECONDS: ${BLACKGLASS_ENERGY_RECONCILE_SECONDS:-}", api); // Stage 6, provisional
+        Assert.Contains("BLACKGLASS_ENERGY_GRANT_MAX: ${BLACKGLASS_ENERGY_GRANT_MAX:-}", api);
         Assert.Contains("- api_admin_key", ComposeText.Block(lines, "services", "api", "secrets").Select(l => l.Trim()));
 
         Assert.Contains("admin", ComposeText.ChildKeys(lines, "services"));
@@ -85,6 +87,8 @@ public class ComposeExposureTests
         var admin = ComposeText.Block(lines, "services", "admin", "environment").Select(l => l.Trim()).ToList();
         Assert.Contains("BLACKGLASS_DB_USER: accounts_app", admin);
         Assert.Contains("BLACKGLASS_DB_PASSWORD_FILE: /run/secrets/admin_db_password", admin);
+        Assert.Contains("BLACKGLASS_ENERGY_RECONCILE_SECONDS: ${BLACKGLASS_ENERGY_RECONCILE_SECONDS:-}", admin);
+        Assert.Contains("BLACKGLASS_ENERGY_GRANT_MAX: ${BLACKGLASS_ENERGY_GRANT_MAX:-}", admin);
         Assert.Equal(["- admin_db_password"], ComposeText.Block(lines, "services", "admin", "secrets").Select(l => l.Trim()));
         Assert.Equal(["driver: none"], ComposeText.Block(lines, "services", "admin", "logging").Select(l => l.Trim())); // its stdout carries a new key once
 

@@ -1,9 +1,11 @@
 using System.Globalization;
 using Npgsql;
+using Blackglass.Accounts.Api.Energy;
 using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
+using Blackglass.Accounts.Persistence.Energy;
 using Blackglass.Accounts.Persistence.Migrations;
 
 namespace Blackglass.Accounts.Api.Admin;
@@ -11,10 +13,12 @@ namespace Blackglass.Accounts.Api.Admin;
 /// <summary>
 /// The operator CLI on bg-dev-services01 (spec §4.2), run with `docker compose run --rm admin …` as accounts_app. A new
 /// key is printed once, on stdout, to the operator who asked for it; nothing else ever shows it. Every command prints
-/// the Base58 account id it acted on and the correlation id of its audit row.
+/// the Base58 account id it acted on (when it acted on one) and the correlation id of its audit row.
 /// A change to an existing account first prints its target ("target.*" lines: the canonical Base58 id, status, handle,
-/// display name, creation time, live credential and sessions, and whether its starter is granted) and then acts only when confirmed: --yes, or, at a
-/// terminal, typing that Base58 id. Without either it changes nothing (exit 64 with no terminal, 67 on a wrong answer).
+/// display name, creation time, live credential and sessions, and whether its starter is granted; for the energy verbs also
+/// the stored energy balance) and then acts only when confirmed: --yes, or, at a terminal, typing that Base58 id. A policy
+/// publication first prints the current policy and the proposed one ("target.policy*" lines) and is confirmed by --yes or by
+/// typing "publish". Without confirmation nothing changes (exit 64 with no terminal, 67 on a wrong answer).
 /// </summary>
 public static class AdminCommand
 {
@@ -25,9 +29,15 @@ public static class AdminCommand
         AdminArguments a;
         try { a = AdminArguments.Parse(args); }
         catch (AdminUsageException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
+        if (a.Verb == "energy-reconcile")
+        {
+            // Stage 6 Task 5 implements the sweep; until then the verb parses but runs nothing.
+            error.WriteLine("admin energy reconcile is not implemented yet: nothing was checked.");
+            return ExitCodes.Usage;
+        }
         // Only the verbs that grant a starter load the catalogue, and before the database, as for serve: an invalid or
-        // missing one refuses them (exit 4) with nothing written. Account-security verbs never load it, so an operator can
-        // still revoke, suspend, reactivate and rotate when a bad build ships.
+        // missing one refuses them (exit 4) with nothing written. Account-security and energy verbs never load it, so an
+        // operator can still revoke, suspend, reactivate and rotate when a bad build ships.
         var load = loadCatalogue ?? (() => GameCatalogue.Embedded);
         GameCatalogue? catalogue = null;
         if (a.NeedsCatalogue)
@@ -43,11 +53,26 @@ public static class AdminCommand
         DbTimeouts timeouts;
         try { (settings, timeouts) = (DbSettings.FromEnvironment(env), DbTimeouts.FromEnvironment(env)); }
         catch (DbSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return ExitCodes.Failure; }
+        // Only the energy verbs read the energy settings, so a bad one never blocks account-security administration.
+        EnergySettings? energySettings = null;
+        if (a.IsEnergyVerb)
+        {
+            try { energySettings = EnergySettings.FromEnvironment(env); }
+            catch (EnergySettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return ExitCodes.Failure; }
+            // The values are checked before any connection: an out-of-bounds grant or policy never reaches the database.
+            try
+            {
+                if (a.Amount is { } amount) EnergyAdminStore.ValidateGrantAmount(amount, energySettings.GrantMax);
+                if (a.Policy is { } p) EnergyAdminStore.ValidatePolicy(p.Cap, p.OpeningBalance, TimeSpan.FromSeconds(p.IntervalSeconds), p.Amount, p.VoidRefundPct);
+            }
+            catch (EnergyException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
+        }
         await using var dataSource = settings.CreateDataSource("blackglass-admin", maxPoolSize: 2, timeouts: timeouts);
         // Without a loaded catalogue the store gets one that refuses: no security verb may come to depend on it unnoticed.
         var store = catalogue is not null
             ? new AccountAdminStore(dataSource, catalogue)
             : new AccountAdminStore(dataSource, () => throw new InvalidOperationException($"admin {a.Verb} does not load the catalogue."));
+        var energy = energySettings is not null ? new EnergyAdminStore(dataSource, energySettings.GrantMax) : null;
         try
         {
             // The same schema policy as serve (Stage 1 ruling 4): behind, drifted or ahead, the CLI writes nothing.
@@ -57,8 +82,13 @@ public static class AdminCommand
                 error.WriteLine($"Refusing to run: schema {status.State}: {status.Detail}");
                 return ExitCodes.SchemaNotCurrent;
             }
-            if (a.ChangesAnExistingAccount && await ConfirmAsync(a, store, output, error, input, ct) is { } refused)
-                return refused;
+            var refused = a.Confirmation switch
+            {
+                AdminConfirmation.Account => await ConfirmAsync(a, store, energy, output, error, input, ct),
+                AdminConfirmation.Publish => await ConfirmPublishAsync(a, energy!, output, error, input, ct),
+                _ => null,
+            };
+            if (refused is { } code) return code;
             switch (a.Verb)
             {
                 case "account-create" or "credential-rotate":
@@ -75,10 +105,10 @@ public static class AdminCommand
                         output.WriteLine($"starterInstances={starter.Instances}");
                         output.WriteLine($"starterStacks={starter.Stacks}");
                     }
-                    if (issued.Energy is { } energy)
+                    if (issued.Energy is { } opened)
                     {
-                        output.WriteLine($"energyOpened={(energy.Opened ? "opened" : "already")}");
-                        output.WriteLine($"energyBalance={energy.Balance}");
+                        output.WriteLine($"energyOpened={(opened.Opened ? "opened" : "already")}");
+                        output.WriteLine($"energyBalance={opened.Balance}");
                     }
                     break;
                 case "credential-revoke":
@@ -114,6 +144,33 @@ public static class AdminCommand
                         output.WriteLine($"stacks={grant.Stacks}");
                     }
                     break;
+                case "energy-open":
+                    var wallet = await energy!.OpenAsync(a.Account!.Value, a.Operator, ct);
+                    output.WriteLine($"accountId={AccountId.Format(a.Account.Value)}");
+                    output.WriteLine($"energyOpened={(wallet.Opened ? "opened" : "already")}");
+                    // For an existing wallet these are read without its row lock: what it held then, not a materialized balance.
+                    output.WriteLine($"balance={wallet.Balance}");
+                    output.WriteLine($"policyVersion={wallet.PolicyVersion}");
+                    break;
+                case "energy-grant":
+                    var granted = await energy!.GrantAsync(a.Account!.Value, a.Amount!.Value, a.IdempotencyKey!.Value, a.Operator, ct);
+                    output.WriteLine($"accountId={AccountId.Format(a.Account.Value)}");
+                    output.WriteLine($"amount={granted.Amount}");
+                    output.WriteLine($"balanceAfter={granted.BalanceAfter}");
+                    output.WriteLine($"regenerated={granted.Regenerated}");
+                    output.WriteLine($"replayed={(granted.Replayed ? "true" : "false")}");
+                    break;
+                case "energy-policy-publish":
+                    var p = a.Policy!;
+                    var policy = await energy!.PublishPolicyAsync(p.Cap, p.OpeningBalance, TimeSpan.FromSeconds(p.IntervalSeconds), p.Amount, p.VoidRefundPct, a.Operator, ct);
+                    output.WriteLine($"policyVersion={policy.Version}");
+                    output.WriteLine($"effectiveAt={Timestamp(policy.EffectiveAt)}");
+                    output.WriteLine($"cap={policy.Cap}");
+                    output.WriteLine($"openingBalance={policy.OpeningBalance}");
+                    output.WriteLine($"intervalSeconds={Seconds(policy.RegenInterval)}");
+                    output.WriteLine($"amount={policy.RegenAmount}");
+                    output.WriteLine($"voidRefundPct={policy.VoidRefundPct}");
+                    break;
             }
             output.WriteLine($"correlationId={a.Operator.CorrelationId}");
             return ExitCodes.Ok;
@@ -122,6 +179,11 @@ public static class AdminCommand
         {
             error.WriteLine(e.Message);
             return e.Error switch { AccountAdminError.NotFound => ExitCodes.NotFound, AccountAdminError.HandleTaken => ExitCodes.Conflict, _ => ExitCodes.Usage };
+        }
+        catch (EnergyException e)
+        {
+            error.WriteLine(e.Message);
+            return e.Error switch { EnergyError.NoWallet => ExitCodes.NotFound, EnergyError.IdempotencyKeyReused => ExitCodes.Conflict, _ => ExitCodes.Usage };
         }
         catch (NpgsqlException e)
         {
@@ -142,8 +204,10 @@ public static class AdminCommand
     }
 
     /// <summary>Prints the target, then returns null when the change is confirmed, else the exit code to stop with.
-    /// An unknown account or credential throws NotFound before anything is printed.</summary>
-    static async Task<int?> ConfirmAsync(AdminArguments a, AccountAdminStore store, TextWriter output, TextWriter error, TextReader? input, CancellationToken ct)
+    /// An unknown account or credential throws NotFound before anything is printed. <paramref name="energy"/> is set for the
+    /// energy verbs, which also print the stored energy balance (read without regeneration or a lock), or "(no wallet)".</summary>
+    static async Task<int?> ConfirmAsync(AdminArguments a, AccountAdminStore store, EnergyAdminStore? energy, TextWriter output, TextWriter error, TextReader? input,
+        CancellationToken ct)
     {
         CredentialSummary? credential = null;
         if (a.Credential is { } credentialId)
@@ -167,6 +231,8 @@ public static class AdminCommand
         output.WriteLine($"target.liveCredentialId={target.LiveCredentialId?.ToString() ?? "(none)"}");
         output.WriteLine($"target.liveSessions={target.LiveSessions}");
         output.WriteLine($"target.starterGranted={(target.StarterGranted ? "true" : "false")}");
+        if (energy is not null)
+            output.WriteLine($"target.energyBalance={(await energy.DescribeStoredBalanceAsync(target.AccountId, ct))?.ToString(CultureInfo.InvariantCulture) ?? "(no wallet)"}");
 
         if (a.Confirmed) return null;
         var action = a.Verb.Replace('-', ' ');
@@ -181,4 +247,42 @@ public static class AdminCommand
         error.WriteLine("Not confirmed, so nothing was changed.");
         return ExitCodes.NotConfirmed;
     }
+
+    /// <summary>A publication changes every wallet's future: prints the latest policy and the proposed values, then returns
+    /// null when confirmed (--yes, or typing "publish"), else the exit code to stop with. Its transaction begins only after.</summary>
+    static async Task<int?> ConfirmPublishAsync(AdminArguments a, EnergyAdminStore energy, TextWriter output, TextWriter error, TextReader? input, CancellationToken ct)
+    {
+        var current = await energy.DescribeLatestPolicyAsync(ct);
+        var proposed = a.Policy!;
+        output.WriteLine($"target.policyCurrentVersion={current.Version}");
+        output.WriteLine($"target.policyCurrentEffectiveAt={Timestamp(current.EffectiveAt)}");
+        output.WriteLine($"target.policyCurrentCap={current.Cap}");
+        output.WriteLine($"target.policyCurrentOpeningBalance={current.OpeningBalance}");
+        output.WriteLine($"target.policyCurrentIntervalSeconds={Seconds(current.RegenInterval)}");
+        output.WriteLine($"target.policyCurrentAmount={current.RegenAmount}");
+        output.WriteLine($"target.policyCurrentVoidRefundPct={current.VoidRefundPct}");
+        output.WriteLine($"target.policyProposedCap={proposed.Cap}");
+        output.WriteLine($"target.policyProposedOpeningBalance={proposed.OpeningBalance}");
+        output.WriteLine($"target.policyProposedIntervalSeconds={proposed.IntervalSeconds}");
+        output.WriteLine($"target.policyProposedAmount={proposed.Amount}");
+        output.WriteLine($"target.policyProposedVoidRefundPct={proposed.VoidRefundPct}");
+
+        if (a.Confirmed) return null;
+        if (input is null)
+        {
+            error.WriteLine($"Not confirmed, so nothing was changed. To publish this energy policy for every wallet, run this at a terminal and type publish, or add {AdminArguments.YesSwitch}.");
+            return ExitCodes.Usage;
+        }
+        error.Write("Type publish to confirm the new energy policy (it applies to every wallet from now on): ");
+        var typed = await input.ReadLineAsync(ct);
+        if (typed == "publish") return null;
+        error.WriteLine("Not confirmed, so nothing was changed.");
+        return ExitCodes.NotConfirmed;
+    }
+
+    /// <summary>A database time, UTC, to the microsecond.</summary>
+    static string Timestamp(DateTime utc) => utc.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture);
+
+    /// <summary>An interval in seconds: whole for any version this verb published; a version inserted otherwise may carry a fraction.</summary>
+    static string Seconds(TimeSpan interval) => interval.TotalSeconds.ToString(CultureInfo.InvariantCulture);
 }
