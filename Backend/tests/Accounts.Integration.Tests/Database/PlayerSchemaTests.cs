@@ -383,7 +383,7 @@ public class PlayerSchemaTests : IAsyncLifetime
         {
             "inventories:SELECT",
             "item_instances:SELECT",
-            "item_stacks:SELECT",
+            "item_stacks:DELETE,SELECT",
             "operative_choices:SELECT",
             "operatives:SELECT",
         }, tables.OrderBy(t => t, StringComparer.Ordinal));
@@ -406,14 +406,14 @@ public class PlayerSchemaTests : IAsyncLifetime
             "inventories.version:UPDATE",
             "item_instances.account_id:INSERT",
             "item_instances.definition_id:INSERT",
-            "item_instances.equipped_slot:INSERT",
-            "item_instances.operative_id:INSERT",
+            "item_instances.equipped_slot:INSERT,UPDATE",
+            "item_instances.operative_id:INSERT,UPDATE",
             "item_instances.origin:INSERT",
             "item_instances.origin_ref:INSERT",
             "item_stacks.account_id:INSERT",
             "item_stacks.definition_id:INSERT",
             "item_stacks.operative_id:INSERT",
-            "item_stacks.quantity:INSERT",
+            "item_stacks.quantity:INSERT,UPDATE",
             "operative_choices.choice_id:INSERT",
             "operative_choices.operative_id:INSERT",
             "operative_choices.ordinal:INSERT",
@@ -423,12 +423,12 @@ public class PlayerSchemaTests : IAsyncLifetime
             "operatives.origin_ref:INSERT",
         }, columns.OrderBy(c => c, StringComparer.Ordinal));
 
-        // Nowhere in the schema: no DELETE or TRUNCATE, and no table-level UPDATE on the four stage 4 tables that are
-        // settled only by later, reviewed paths.
-        Assert.Empty(await conn.QueryAsync<string>(
+        // Nowhere in the schema: no TRUNCATE; the only DELETE is on item_stacks (0005: a stack emptied by an edit is removed),
+        // and the only UPDATEs on the four stage 4 tables are 0005's inventory-edit columns.
+        Assert.Equal(new[] { "item_stacks:DELETE" }, await conn.QueryAsync<string>(
             "select table_name || ':' || privilege_type from information_schema.role_table_grants where grantee = 'accounts_app' and privilege_type in ('DELETE', 'TRUNCATE')"));
-        Assert.Empty(await conn.QueryAsync<string>(
-            "select table_name || '.' || column_name from information_schema.column_privileges where grantee = 'accounts_app' and privilege_type = 'UPDATE' and table_name in ('operatives', 'operative_choices', 'item_instances', 'item_stacks')"));
+        Assert.Equal(new[] { "item_instances.equipped_slot", "item_instances.operative_id", "item_stacks.quantity" }, (await conn.QueryAsync<string>(
+            "select table_name || '.' || column_name from information_schema.column_privileges where grantee = 'accounts_app' and privilege_type = 'UPDATE' and table_name in ('operatives', 'operative_choices', 'item_instances', 'item_stacks')")).OrderBy(c => c, StringComparer.Ordinal));
         // No sequence privilege at all: identities are minted by inserts, which need none.
         Assert.Empty(await conn.QueryAsync<string>(
             "select relname::text from pg_class where case when relkind = 'S' then has_sequence_privilege('accounts_app', oid, 'USAGE, SELECT, UPDATE') else false end"));
@@ -440,11 +440,7 @@ public class PlayerSchemaTests : IAsyncLifetime
     [InlineData("update operatives set account_id = 1", "42501")]
     [InlineData("delete from operatives", "42501")]
     [InlineData("truncate operatives cascade", "42501")]
-    [InlineData("update item_instances set operative_id = null", "42501")]
-    [InlineData("update item_instances set equipped_slot = null", "42501")]
     [InlineData("delete from item_instances", "42501")]
-    [InlineData("update item_stacks set quantity = 9", "42501")]
-    [InlineData("delete from item_stacks", "42501")]
     [InlineData("update inventories set account_id = 2", "42501")]
     [InlineData("delete from inventories", "42501")]
     [InlineData("insert into inventories (account_id, version) values (1, 5)", "42501")]
@@ -619,7 +615,7 @@ public class PlayerSchemaTests : IAsyncLifetime
             account = await conn.ExecuteScalarAsync<long>("insert into accounts (status, display_name) values ('active', 'Stage three') returning account_id");
             await conn.ExecuteAsync("insert into operator_actions (correlation_id, operator, action, account_id, reason, checks, result) values (gen_random_uuid(), 'op', 'account_create', @account, 'r', '{}', '{}')", new { account });
         }
-        Assert.Equal([3, 4], (await migrator.MigrateAsync()).Applied);
+        Assert.Equal([3, 4], (await migrator.MigrateAsync(4)).Applied);   // to 4 on purpose: this is the 0004 upgrade, not the latest
 
         await using (var conn = await upgrade.AsSuperuser().OpenConnectionAsync())
         {
