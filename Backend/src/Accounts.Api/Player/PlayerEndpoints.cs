@@ -66,7 +66,7 @@ public static class PlayerEndpoints
     static IResult Refusal(PlayerException e) => Problem(e.Error switch
     {
         PlayerError.OperativeNotFound => StatusCodes.Status404NotFound,
-        PlayerError.VersionMismatch or PlayerError.NotProvisioned => StatusCodes.Status409Conflict,
+        PlayerError.VersionMismatch or PlayerError.NotProvisioned or PlayerError.InventoryLocked => StatusCodes.Status409Conflict,
         _ => StatusCodes.Status422UnprocessableEntity, // NoPendingPick, UnknownChoice
     }, e.Error.ToString());
 

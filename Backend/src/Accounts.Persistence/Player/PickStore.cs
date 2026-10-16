@@ -10,14 +10,16 @@ namespace Blackglass.Accounts.Persistence.Player;
 /// (<see cref="ProgressionRules.CheckPick"/>): a choice not on the catalogue's track is refused first, then a pick with
 /// no rank gained to spend. One transaction at READ COMMITTED under the account's inventories row lock (the app role has
 /// no lock on operatives), so two picks never read the same pick count and the version is checked after the lock: the
-/// loser of a race with the same expected version is <see cref="PlayerError.VersionMismatch"/>. The choice is validated in
+/// loser of a race with the same expected version is <see cref="PlayerError.VersionMismatch"/>. An account in a mission (the
+/// <see cref="IInventoryLock"/> seam, asked under the row lock) is <see cref="PlayerError.InventoryLocked"/>, checked before the
+/// version (owner ruling S5-D5). The choice is validated in
 /// code before the insert, so an unknown or malformed id is never a check violation. A refusal writes nothing.
 /// </summary>
-public sealed class PickStore(NpgsqlDataSource db, GameCatalogue? catalogue = null)
+public sealed class PickStore(NpgsqlDataSource db, GameCatalogue? catalogue = null, IInventoryLock? inventoryLock = null)
 {
     readonly GameCatalogue known = catalogue ?? GameCatalogue.Embedded;
+    readonly IInventoryLock mission = inventoryLock ?? new NoParticipationsYet();
 
-    // InventoryLocked (an operative deployed in a live attempt cannot advance) is deferred until participations exist (spec §5.3, Stage 6+).
     public async Task<(long Version, OperativeView Operative)> PickAsync(long accountId, long operativeId, string choiceId, long expectedVersion, CancellationToken ct = default)
     {
         await using var conn = await DbFailure.OpenAsync(db, ct);
@@ -27,6 +29,8 @@ public sealed class PickStore(NpgsqlDataSource db, GameCatalogue? catalogue = nu
             "select version, starter_granted from inventories where account_id = @accountId for update", new { accountId }, tx, cancellationToken: ct));
         if (inventory is not { StarterGranted: true })
             throw new PlayerException(PlayerError.NotProvisioned, "The account has no starter roster or inventory yet.");
+        if (await mission.IsLockedAsync(conn, tx, accountId, ct)) // while the row lock is held, so the answer cannot change under the pick
+            throw new PlayerException(PlayerError.InventoryLocked, "The account is in a mission; its roster cannot change.");
         if (inventory.Value.Version != expectedVersion)
             throw new PlayerException(PlayerError.VersionMismatch, "The inventory changed since it was read.");
 

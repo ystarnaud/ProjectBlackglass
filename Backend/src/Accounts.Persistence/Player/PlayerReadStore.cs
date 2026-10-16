@@ -18,7 +18,7 @@ public sealed record EquipmentView(long? Weapon, long? Armor, long? Utility);
 /// <summary>An operative's carried items (equipped ones included) and which of them sit in each slot.</summary>
 public sealed record BagView(long OperativeId, LocationView Bag, EquipmentView Equipment);
 
-/// <param name="Locked">False until participations exist (Stage 6+).</param>
+/// <param name="Locked">Whether the account is in a mission (the <see cref="IInventoryLock"/> seam; never true until Stage 7 connects participations).</param>
 public sealed record InventoryView(long Version, bool Locked, LocationView Stash, IReadOnlyList<BagView> Operatives);
 
 /// <summary>
@@ -29,9 +29,10 @@ public sealed record InventoryView(long Version, bool Locked, LocationView Stash
 /// here. A stored definition id the catalogue does not know is returned with its Known flag false, never an error: a
 /// later catalogue can retire an id the database still holds.
 /// </summary>
-public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogue = null)
+public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogue = null, IInventoryLock? inventoryLock = null)
 {
     readonly GameCatalogue known = catalogue ?? GameCatalogue.Embedded;
+    readonly IInventoryLock mission = inventoryLock ?? new NoParticipationsYet();
 
     /// <summary>The inventory version, or null when the account has no inventories row with the starter granted.</summary>
     public async Task<long?> GetInventoryVersionAsync(long accountId, CancellationToken ct = default)
@@ -54,6 +55,7 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogu
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await BeginSnapshotAsync(conn, ct);
         var version = await ReadVersionAsync(conn, tx, accountId, ct) ?? throw NotProvisioned();
+        var locked = await mission.IsLockedAsync(conn, tx, accountId, ct);
         var operatives = await ReadOperativesAsync(known, conn, tx, accountId, null, ct);
         var instances = (await conn.QueryAsync<InstanceRow>(new CommandDefinition(
             """
@@ -77,7 +79,7 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogu
             .Select(o => new BagView(o.OperativeId, Location(o.OperativeId),
                 new EquipmentView(InSlot(o.OperativeId, "weapon"), InSlot(o.OperativeId, "armor"), InSlot(o.OperativeId, "utility"))))
             .ToList();
-        return new InventoryView(version, Locked: false, Location(null), bags);
+        return new InventoryView(version, locked, Location(null), bags);
     }
 
     static PlayerException NotProvisioned() =>

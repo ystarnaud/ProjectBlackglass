@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Dapper;
+using Microsoft.Extensions.DependencyInjection;
 using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Domain.Auth;
 using Blackglass.Accounts.Domain.Ids;
@@ -11,6 +12,7 @@ using Blackglass.Accounts.IntegrationTests.Support;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
 using Blackglass.Accounts.Persistence.Migrations;
+using Blackglass.Accounts.Persistence.Player;
 using static Blackglass.Accounts.IntegrationTests.Support.AccountTestKit;
 
 namespace Blackglass.Accounts.IntegrationTests.Database;
@@ -135,6 +137,24 @@ public class PlayerApiTests : IAsyncLifetime
             .Concat(inventory.GetProperty("operatives").EnumerateArray().SelectMany(o => o.GetProperty("bag").GetProperty("stacks").EnumerateArray()))
             .Select(s => (s.GetProperty("definitionId").GetString()!, s.GetProperty("quantity").GetInt32())).Order().ToList();
         Assert.Equal(stack.Select(s => (s.Definition, s.Quantity)).Order().ToList(), shownStacks);
+    }
+
+    [Fact]
+    public async Task A_locked_pick_is_409_InventoryLocked()
+    {
+        // The existing configure hook replaces the IInventoryLock singleton (the last registration wins); production has no switch that locks an account.
+        await using var api = await ApiServer.StartAsync(db, DevOn, configure: b => b.Services.AddSingleton<IInventoryLock>(new AlwaysLocked()));
+        var (account, token, operative) = await PlayerAsync(api, xp: 100);
+
+        var (response, text) = await SendAsync(api.Http, Pick(token, Base58Id.Format(operative), "{\"choiceId\":\"combat\",\"expectedVersion\":1}"));
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("InventoryLocked", CodeOf(text));
+        Assert.Equal(1L, await ScalarAsSuperuserAsync<long>(db, "select version from inventories where account_id = @a", new { a = account.AccountId }));
+        Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(db, "select count(*) from operative_choices"));
+
+        var (inventory, inventoryText) = await SendAsync(api.Http, As(token, HttpMethod.Get, "/v1/inventory"));
+        Assert.Equal(HttpStatusCode.OK, inventory.StatusCode);
+        Assert.True(Json(inventoryText).GetProperty("locked").GetBoolean());
     }
 
     [Fact]
