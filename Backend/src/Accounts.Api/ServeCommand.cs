@@ -1,10 +1,12 @@
 using Microsoft.AspNetCore.Authentication;
 using Npgsql;
 using Blackglass.Accounts.Api.Auth;
+using Blackglass.Accounts.Api.Energy;
 using Blackglass.Accounts.Api.Player;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
+using Blackglass.Accounts.Persistence.Energy;
 using Blackglass.Accounts.Persistence.Migrations;
 using Blackglass.Accounts.Persistence.Player;
 
@@ -30,6 +32,10 @@ public static class ServeCommand
         AuthSettings auth;
         try { auth = AuthSettings.FromEnvironment(env); }
         catch (AuthSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return new(ExitCodes.Failure, null); }
+
+        EnergySettings energy;
+        try { energy = EnergySettings.FromEnvironment(env); }
+        catch (EnergySettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return new(ExitCodes.Failure, null); }
 
         var dataSource = settings.CreateDataSource("blackglass-api", timeouts: timeouts);
         var catalog = MigrationCatalog.Embedded;
@@ -64,6 +70,15 @@ public static class ServeCommand
         builder.Services.AddSingleton(sp => new PickStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
         builder.Services.AddSingleton(sp => new InventoryEditStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
         builder.Services.AddSingleton<LoginThrottle>();
+        if (energy.ReconcileSeconds != 0)
+        {
+            // The periodic reconciliation (E4): its first sweep waits one interval, so startup never waits for one. Resolved
+            // through its own registration, so a test's configure can replace the service (and its sweep) as a whole.
+            var interval = TimeSpan.FromSeconds(energy.ReconcileSeconds);
+            builder.Services.AddSingleton(new EnergyReconciler(dataSource));
+            builder.Services.AddSingleton(sp => new EnergyReconcileService(sp.GetRequiredService<EnergyReconciler>().RunAsync, interval, sp.GetRequiredService<ILoggerFactory>()));
+            builder.Services.AddHostedService(sp => sp.GetRequiredService<EnergyReconcileService>());
+        }
         builder.Services.AddAuthentication(AccountClaims.Scheme)
             .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null);
         builder.Services.AddAuthorization();

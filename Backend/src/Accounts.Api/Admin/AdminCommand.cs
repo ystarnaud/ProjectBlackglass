@@ -13,7 +13,8 @@ namespace Blackglass.Accounts.Api.Admin;
 /// <summary>
 /// The operator CLI on bg-dev-services01 (spec §4.2), run with `docker compose run --rm admin …` as accounts_app. A new
 /// key is printed once, on stdout, to the operator who asked for it; nothing else ever shows it. Every command prints
-/// the Base58 account id it acted on (when it acted on one) and the correlation id of its audit row.
+/// the Base58 account id it acted on (when it acted on one) and the correlation id of its audit row (energy reconcile,
+/// which changes no account, writes no audit row: its correlation id is only printed).
 /// A change to an existing account first prints its target ("target.*" lines: the canonical Base58 id, status, handle,
 /// display name, creation time, live credential and sessions, and whether its starter is granted; for the energy verbs also
 /// the stored energy balance) and then acts only when confirmed: --yes, or, at a terminal, typing that Base58 id. A policy
@@ -29,12 +30,6 @@ public static class AdminCommand
         AdminArguments a;
         try { a = AdminArguments.Parse(args); }
         catch (AdminUsageException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
-        if (a.Verb == "energy-reconcile")
-        {
-            // Stage 6 Task 5 implements the sweep; until then the verb parses but runs nothing.
-            error.WriteLine("admin energy reconcile is not implemented yet: nothing was checked.");
-            return ExitCodes.Usage;
-        }
         // Only the verbs that grant a starter load the catalogue, and before the database, as for serve: an invalid or
         // missing one refuses them (exit 4) with nothing written. Account-security and energy verbs never load it, so an
         // operator can still revoke, suspend, reactivate and rotate when a bad build ships.
@@ -172,6 +167,14 @@ public static class AdminCommand
                     output.WriteLine($"intervalSeconds={Seconds(policy.RegenInterval)}");
                     output.WriteLine($"amount={policy.RegenAmount}");
                     output.WriteLine($"voidRefundPct={policy.VoidRefundPct}");
+                    break;
+                case "energy-reconcile":
+                    // On demand, the same sweep as serve's (E4). It changes no account, so nothing is audited and the correlation
+                    // id below is the operator's alone. Mismatches still exit 0: the recorded anomaly is the signal.
+                    var report = await new EnergyReconciler(dataSource).RunAsync(ct);
+                    output.WriteLine($"walletsChecked={report.WalletsChecked}");
+                    output.WriteLine($"mismatches={report.Mismatches.Count}");
+                    output.WriteLine($"anomaliesRecorded={report.AnomaliesRecorded}");
                     break;
             }
             output.WriteLine($"correlationId={a.Operator.CorrelationId}");

@@ -13,8 +13,8 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 /// <summary>
 /// The admin CLI's energy verbs: <c>energy open</c>, <c>energy grant</c> and <c>energy policy publish</c> print their
 /// outputs and exit codes, show their target and act only when confirmed (the Base58 account id for the account verbs,
-/// <c>publish</c> for a publication, or --yes), and never load the game catalogue. <c>energy reconcile</c> is parsed only:
-/// Task 5 implements it.
+/// <c>publish</c> for a publication, or --yes), and never load the game catalogue. <c>energy reconcile</c> prints its counts
+/// here; EnergyReconcilerTests covers its findings.
 /// </summary>
 [Trait("Requires", "Postgres")]
 public class EnergyAdminCliTests : IAsyncLifetime
@@ -216,10 +216,13 @@ public class EnergyAdminCliTests : IAsyncLifetime
             }
             case "reconcile":
             {
-                // Parsed only: Task 5 implements the sweep (and replaces this case).
-                var (code, output, error) = await CliAsync(null, null, "energy", "reconcile", "--operator", "ops", "--reason", "energy test");
-                Assert.Equal((ExitCodes.Usage, ""), (code, output));
-                Assert.Contains("not implemented yet", error);
+                // A consistent database: the one wallet is checked, nothing is found, and nothing is audited (it changes no account).
+                var (code, output, _) = await CliAsync(null, null, "energy", "reconcile", "--operator", "ops", "--reason", "energy test");
+                Assert.Equal(ExitCodes.Ok, code);
+                Assert.Equal(["walletsChecked", "mismatches", "anomaliesRecorded", "correlationId"], Names(output));
+                Assert.Equal(("1", "0", "0"), (Field(output, "walletsChecked"), Field(output, "mismatches"), Field(output, "anomaliesRecorded")));
+                Assert.True(Guid.TryParseExact(Field(output, "correlationId"), "D", out _));
+                Assert.Equal(0L, await CountAsync("anomaly_events"));
                 break;
             }
         }
@@ -293,7 +296,7 @@ public class EnergyAdminCliTests : IAsyncLifetime
         Assert.Equal(ExitCodes.Ok, (await CliAsync(null, null, Open(bare, "--yes"))).Code);
         Assert.Equal(ExitCodes.Ok, (await CliAsync(null, null, Grant(account, 5, Guid.CreateVersion7(), "--yes"))).Code);
         Assert.Equal(ExitCodes.Ok, (await CliAsync(null, null, Publish(60, 60, 600, 1, 100, "--yes"))).Code);
-        Assert.Equal(ExitCodes.Usage, (await CliAsync(null, null, "energy", "reconcile", "--operator", "ops", "--reason", "x")).Code);
+        Assert.Equal(ExitCodes.Ok, (await CliAsync(null, null, "energy", "reconcile", "--operator", "ops", "--reason", "x")).Code);
         Assert.Equal(ExitCodes.Usage, (await CliAsync(null, null, Grant(account, 5, Guid.CreateVersion7()))).Code); // a preview too
         Assert.Equal(0, loads);
 

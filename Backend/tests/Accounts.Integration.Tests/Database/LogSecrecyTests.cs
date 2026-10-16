@@ -1,11 +1,15 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Dapper;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Blackglass.Accounts.Api.Energy;
 using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Domain.Auth;
 using Blackglass.Accounts.IntegrationTests.Support;
 using Blackglass.Accounts.Persistence.Accounts;
+using Blackglass.Accounts.Persistence.Energy;
 using static Blackglass.Accounts.IntegrationTests.Support.AccountTestKit;
 
 namespace Blackglass.Accounts.IntegrationTests.Database;
@@ -113,6 +117,70 @@ public class LogSecrecyTests
                 Assert.DoesNotContain(Convert.ToBase64String(hash)[..12], text);
             }
             Assert.DoesNotContain(db.Password("app"), text);
+        }
+    }
+
+    /// <summary>Stage 6 (E4): the reconciliation sweep inside serve logs counts on success and only the SQLSTATE on failure:
+    /// never the server's message or detail (which can quote values), a connection detail or a password.</summary>
+    [Fact]
+    public async Task The_energy_reconciliation_logs_counts_and_sqlstates_only()
+    {
+        await using var db = await MigratedAsync();
+        const string Leak = "server-message-quoting-a-value-k3x";
+        long account;
+        await using (var conn = await db.AsApp().OpenConnectionAsync())
+        await using (var tx = await conn.BeginTransactionAsync())
+        {
+            account = await conn.ExecuteScalarAsync<long>("insert into accounts (status) values ('active') returning account_id", transaction: tx);
+            await conn.ExecuteAsync(
+                "insert into energy_wallets (account_id, balance, regen_anchor, regen_progress_us, policy_version) values (@account, 50, clock_timestamp(), 0, 1); " +
+                "insert into energy_ledger (account_id, kind, delta, balance_after, idempotency_key) values (@account, 'open', 50, 50, 'open')", new { account }, tx);
+            await tx.CommitAsync();
+        }
+        await using (var su = await db.AsSuperuser().OpenConnectionAsync())
+        {
+            // A mismatch to find, and an anomaly write that fails with a message and detail that must not be logged.
+            await su.ExecuteAsync(
+                "begin; set local session_replication_role = replica; update energy_wallets set balance = 51 where account_id = @account; commit;", new { account });
+            await su.ExecuteAsync(
+                $$"""
+                create function fail_anomaly() returns trigger language plpgsql as $$ begin
+                  raise exception '{{Leak}} %', new.detail using detail = '{{Leak}}', errcode = 'P0001'; end $$;
+                create trigger fail_anomaly before insert on anomaly_events for each row execute function fail_anomaly();
+                """);
+        }
+        var logs = new CapturingLoggerProvider();
+        await using (var api = await ApiServer.StartAsync(db, configure: b =>
+                     {
+                         b.Logging.ClearProviders();
+                         b.Logging.SetMinimumLevel(LogLevel.Trace);
+                         b.Logging.AddProvider(logs);
+                         b.Services.AddSingleton(sp => new EnergyReconcileService(new EnergyReconciler(sp.GetRequiredService<Npgsql.NpgsqlDataSource>()).RunAsync,
+                             TimeSpan.FromMilliseconds(200), sp.GetRequiredService<ILoggerFactory>()));
+                     }))
+        {
+            await WaitForAsync(() => logs.Text.Contains("Energy reconciliation failed"));
+            await using (var su = await db.AsSuperuser().OpenConnectionAsync())
+                await su.ExecuteAsync("drop trigger fail_anomaly on anomaly_events; drop function fail_anomaly()");
+            await WaitForAsync(() => logs.Text.Contains("anomalies recorded"));
+        }
+
+        var text = logs.Text;
+        Assert.Contains("Blackglass.Energy: Energy reconciliation failed: SQLSTATE P0001", text);
+        Assert.Contains("Blackglass.Energy: Energy reconciliation checked 1 wallets: 2 mismatches, 2 anomalies recorded", text);
+        Assert.DoesNotContain(Leak, text);
+        Assert.DoesNotContain("\"balance\"", text);
+        Assert.DoesNotContain(db.Password("app"), text);
+        Assert.DoesNotContain(db.Name, text);
+    }
+
+    static async Task WaitForAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("The expected log line never came.");
+            await Task.Delay(20);
         }
     }
 
