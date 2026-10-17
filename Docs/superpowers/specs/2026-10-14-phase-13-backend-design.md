@@ -185,7 +185,7 @@ The detailed plan is `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admissio
 
 **Lock order for admission** (spec §15.3, extended): `accounts` `FOR KEY SHARE` → `inventories` `FOR UPDATE` → (positive cost only) `energy_wallets` `FOR UPDATE` → the energy policy lock → clock → inserts of new rows. The first step exists because the attempt, participant and deploy-request inserts check account foreign keys. Taken after the policy lock, that check could wait on an operator's `FOR UPDATE` while a publication is queued.
 
-**Release order:** `mission_attempts` → `attempt_participants` → `energy_holds` → `inventories` → (positive amount) `energy_wallets` → the policy lock → clock.
+**Release order:** `accounts` `FOR KEY SHARE` → `mission_attempts` → `attempt_participants` → `energy_holds` → `inventories` → (positive amount) `energy_wallets` → the policy lock → clock. (As built: the first step was added after a test found that the release's second wallet write re-checks the account foreign key, which could deadlock with a same-account grant.)
 
 **As built (2026-10-17, branch `phase13-stage7`; amendment, nothing above is removed).** Schema version 7. Measured counts, reviews and rulings are in the detailed plan's "As built".
 - **Schema.** `0007` holds:

@@ -323,7 +323,7 @@ Schema version 7 (`0007_attempts_and_insurance`). Owner rulings S7-D1–S7-D9 (s
 One active participation per account is enforced by the partial unique index `one_active_participation`.
 
 **Release** (pre-start cancel, or the assignment-deadline worker):
-- `mission_attempts` → `attempt_participants` → `energy_holds` → `inventories` → (positive amount only) wallet → the energy policy lock.
+- `accounts` `FOR KEY SHARE` → `mission_attempts` → `attempt_participants` → `energy_holds` → `inventories` → (positive amount only) wallet → the energy policy lock. The first step exists because the release's second wallet write re-checks the wallet's account foreign key; taken late, that check could deadlock with a same-account grant.
 - It releases once: the `release:<attempt>` entry (+cost, may exceed the cap) and three guarded single-row transitions. A later state is never cancelled.
 - The admission and insurance records remain.
 

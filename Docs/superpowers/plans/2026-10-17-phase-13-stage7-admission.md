@@ -113,7 +113,7 @@ Insurance gets immutable versioned policies and UTC-timed activations, where the
     3. `energy_wallets` `FOR UPDATE`, ascending.
     4. The energy policy lock (shared), then the clock.
     5. Inserts of new rows only. Coverage and policy rows are read without locking.
-  - **Release (cancel or deadline):** `mission_attempts` `FOR UPDATE` → `attempt_participants` → `energy_holds` → `inventories` `FOR UPDATE` → (positive amount only) `energy_wallets` `FOR UPDATE` → the policy lock → clock → writes.
+  - **Release (cancel or deadline):** `accounts` `FOR KEY SHARE` → `mission_attempts` `FOR UPDATE` → `attempt_participants` → `energy_holds` → `inventories` `FOR UPDATE` → (positive amount only) `energy_wallets` `FOR UPDATE` → the policy lock → clock → writes. (As built: the account key-share step was added after the Checkpoint 2 test round found a deadlock with a same-account grant; see "As built".)
   - **Activation:** `accounts` `FOR UPDATE` → `insurance_coverages` `FOR UPDATE` (or the insert) → clock. It takes no energy lock.
   - **Inventory edits and picks:** unchanged, plus the participation query under the `inventories` lock.
   - **The leaf rule** (Stage 6) holds after the energy policy lock: only own or new rows, policy rows, and at most one global unique key per transaction.
