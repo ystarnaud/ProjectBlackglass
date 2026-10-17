@@ -140,14 +140,24 @@ public class AccountsSchemaTests : IAsyncLifetime
             "account_identities:SELECT",
             "accounts:SELECT",
             "anomaly_events:SELECT",
+            "attempt_insurance:SELECT",
+            "attempt_participants:SELECT",
             "auth_sessions:SELECT",
+            "deploy_requests:SELECT",
             "dev_credentials:SELECT",
+            "energy_holds:SELECT",
             "energy_ledger:SELECT",
             "energy_policies:SELECT",
             "energy_wallets:SELECT",
+            "insurance_activations:SELECT",
+            "insurance_coverages:SELECT",
+            "insurance_policies:SELECT",
             "inventories:SELECT",
             "item_instances:SELECT",
             "item_stacks:DELETE,SELECT",
+            "mission_attempts:SELECT",
+            "mission_hosts:SELECT",
+            "mission_templates:SELECT",
             "operative_choices:SELECT",
             "operatives:SELECT",
             "operator_actions:SELECT",
@@ -177,16 +187,39 @@ public class AccountsSchemaTests : IAsyncLifetime
             "anomaly_events.detail:INSERT",
             "anomaly_events.host_id:INSERT",
             "anomaly_events.kind:INSERT",
+            "attempt_insurance.account_id:INSERT",
+            "attempt_insurance.activation_id:INSERT",
+            "attempt_insurance.attempt_id:INSERT",
+            "attempt_insurance.policy_id:INSERT",
+            "attempt_insurance.policy_version:INSERT",
+            "attempt_insurance.terms:INSERT",
+            "attempt_participants.account_id:INSERT",
+            "attempt_participants.attempt_id:INSERT",
+            "attempt_participants.energy_cost:INSERT",
+            "attempt_participants.inventory_version:INSERT",
+            "attempt_participants.loadout_snapshot:INSERT",
+            "attempt_participants.state:UPDATE",
+            "attempt_participants.template_id:INSERT",
+            "attempt_participants.template_version:INSERT",
             "auth_sessions.account_id:INSERT",
             "auth_sessions.credential_id:INSERT",
             "auth_sessions.expires_at:INSERT",
             "auth_sessions.revoked_at:UPDATE",
             "auth_sessions.session_id:INSERT",
             "auth_sessions.token_hash:INSERT",
+            "deploy_requests.account_id:INSERT",
+            "deploy_requests.attempt_id:INSERT",
+            "deploy_requests.idempotency_key:INSERT",
+            "deploy_requests.request_hash:INSERT",
+            "deploy_requests.response:INSERT",
             "dev_credentials.account_id:INSERT",
             "dev_credentials.credential_id:INSERT",
             "dev_credentials.revoked_at:UPDATE",
             "dev_credentials.secret_hash:INSERT",
+            "energy_holds.account_id:INSERT",
+            "energy_holds.amount:INSERT",
+            "energy_holds.attempt_id:INSERT",
+            "energy_holds.state:UPDATE",
             "energy_ledger.account_id:INSERT",
             "energy_ledger.attempt_id:INSERT",
             "energy_ledger.balance_after:INSERT",
@@ -203,6 +236,24 @@ public class AccountsSchemaTests : IAsyncLifetime
             "energy_wallets.policy_version:INSERT,UPDATE",
             "energy_wallets.regen_anchor:INSERT,UPDATE",
             "energy_wallets.regen_progress_us:INSERT,UPDATE",
+            "insurance_activations.account_id:INSERT",
+            "insurance_activations.activation_id:INSERT",
+            "insurance_activations.duration:INSERT",
+            "insurance_activations.idempotency_key:INSERT",
+            "insurance_activations.policy_id:INSERT",
+            "insurance_activations.policy_version:INSERT",
+            "insurance_activations.previous_expires_at:INSERT",
+            "insurance_activations.resulting_expires_at:INSERT",
+            "insurance_activations.source:INSERT",
+            "insurance_coverages.account_id:INSERT",
+            "insurance_coverages.activation_id:INSERT,UPDATE",
+            "insurance_coverages.expires_at:INSERT,UPDATE",
+            "insurance_coverages.policy_id:INSERT,UPDATE",
+            "insurance_coverages.policy_version:INSERT,UPDATE",
+            "insurance_coverages.starts_at:INSERT,UPDATE",
+            "insurance_policies.policy_id:INSERT",
+            "insurance_policies.terms:INSERT",
+            "insurance_policies.version:INSERT",
             "inventories.account_id:INSERT",
             "inventories.starter_catalogue_version:UPDATE",
             "inventories.starter_granted:UPDATE",
@@ -218,6 +269,28 @@ public class AccountsSchemaTests : IAsyncLifetime
             "item_stacks.definition_id:INSERT",
             "item_stacks.operative_id:INSERT",
             "item_stacks.quantity:INSERT,UPDATE",
+            "mission_attempts.assign_deadline:INSERT",
+            "mission_attempts.attempt_id:INSERT",
+            "mission_attempts.cancel_reason:UPDATE",
+            "mission_attempts.created_by:INSERT",
+            "mission_attempts.ended_at:UPDATE",
+            "mission_attempts.retention_salt:INSERT",
+            "mission_attempts.seed:INSERT",
+            "mission_attempts.state:UPDATE",
+            "mission_attempts.template_id:INSERT",
+            "mission_attempts.template_version:INSERT",
+            "mission_hosts.capacity:INSERT,UPDATE",
+            "mission_hosts.drained:UPDATE",
+            "mission_hosts.enabled:INSERT,UPDATE",
+            "mission_hosts.host_id:INSERT",
+            "mission_hosts.kind:INSERT",
+            "mission_hosts.last_heartbeat_at:UPDATE",
+            "mission_hosts.secret_hash:INSERT",
+            "mission_templates.energy_cost:INSERT",
+            "mission_templates.max_operatives:INSERT",
+            "mission_templates.min_operatives:INSERT",
+            "mission_templates.template_id:INSERT",
+            "mission_templates.version:INSERT",
             "operative_choices.choice_id:INSERT",
             "operative_choices.operative_id:INSERT",
             "operative_choices.ordinal:INSERT",
@@ -239,7 +312,7 @@ public class AccountsSchemaTests : IAsyncLifetime
         // Identity sequences need no privilege for inserts; the app holds none, so it can't burn or reset ids.
         Assert.Empty(await conn.QueryAsync<string>(
             "select relname::text from pg_class where case when relkind = 'S' then has_sequence_privilege('accounts_app', oid, 'USAGE, SELECT, UPDATE') else false end"));
-        Assert.Equal(7L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'")); // 0006 adds three
+        Assert.Equal(7L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'")); // 0006 adds three; 0007 none
     }
 
     [Fact]
@@ -261,8 +334,10 @@ public class AccountsSchemaTests : IAsyncLifetime
         Assert.Equal(new[]
         {
             "account_identities=statement_timestamp()", "accounts=statement_timestamp()", "anomaly_events=statement_timestamp()",
-            "auth_sessions=statement_timestamp()", "dev_credentials=statement_timestamp()", "energy_ledger=statement_timestamp()",
-            "energy_policies=statement_timestamp()", "item_instances=statement_timestamp()", "operatives=statement_timestamp()",
+            "auth_sessions=statement_timestamp()", "deploy_requests=statement_timestamp()", "dev_credentials=statement_timestamp()",
+            "energy_ledger=statement_timestamp()", "energy_policies=statement_timestamp()", "insurance_activations=statement_timestamp()",
+            "insurance_policies=statement_timestamp()", "item_instances=statement_timestamp()", "mission_attempts=statement_timestamp()",
+            "mission_hosts=statement_timestamp()", "mission_templates=statement_timestamp()", "operatives=statement_timestamp()",
             "operator_actions=statement_timestamp()",
         }, defaults.OrderBy(d => d, StringComparer.Ordinal));
     }
@@ -279,13 +354,15 @@ public class AccountsSchemaTests : IAsyncLifetime
         string[] bigintColumns = ["account_id", "operative_id", "item_id"];
         Assert.All(types.Where(t => bigintColumns.Contains(t.Column)), t => Assert.Equal("bigint", t.Type));
         Assert.All(types.Where(t => !bigintColumns.Contains(t.Column)), t => Assert.Equal("uuid", t.Type));
-        Assert.Equal(["account_identities", "accounts", "anomaly_events", "auth_sessions", "dev_credentials", "energy_ledger", "energy_wallets", "inventories", "item_instances", "item_stacks", "operatives", "operator_actions"],
+        Assert.Equal(["account_identities", "accounts", "anomaly_events", "attempt_insurance", "attempt_participants", "auth_sessions", "deploy_requests", "dev_credentials",
+                      "energy_holds", "energy_ledger", "energy_wallets", "insurance_activations", "insurance_coverages", "inventories", "item_instances", "item_stacks", "operatives", "operator_actions"],
             types.Where(t => t.Column == "account_id").Select(t => t.Table).Order(StringComparer.Ordinal).ToArray());
         // Operative and item ids are bigint identities; stack and choice rows carry them as bigint references.
         Assert.Equal(["item_instances.item_id", "item_instances.operative_id", "item_stacks.operative_id", "operative_choices.operative_id", "operatives.operative_id"],
             types.Where(t => t.Column is "operative_id" or "item_id").Select(t => $"{t.Table}.{t.Column}").Order(StringComparer.Ordinal).ToArray());
-        // Mission attempts are not affected: no attempt table exists yet, and attempt ids stay UUIDv7 when it does.
+        // Mission attempt ids stay UUIDv7 wherever they appear (0007's attempt tables included).
         Assert.DoesNotContain(types, t => t.Column == "attempt_id" && t.Type != "uuid");
+        Assert.Contains(types, t => t.Table == "mission_attempts" && t.Column == "attempt_id");
     }
 
     [Theory]

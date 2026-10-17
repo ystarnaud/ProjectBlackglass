@@ -72,16 +72,28 @@ public class EnergySchemaTests : IAsyncLifetime
     Task GrantAsync(long account, int amount) => CreditAsync(account, "dev_grant", amount, "dev_grant:" + Guid.NewGuid());
 
     /// <summary>A credit of any kind as the app would write it: the wallet and its entry in one transaction.</summary>
-    async Task CreditAsync(long account, string kind, int amount, string key)
+    async Task CreditAsync(long account, string kind, int amount, string key, Guid? attempt = null)
     {
         await using var conn = await db.AsApp().OpenConnectionAsync();
         await using var tx = await conn.BeginTransactionAsync();
         var after = await conn.ExecuteScalarAsync<int>(
             "update energy_wallets set balance = balance + @amount where account_id = @account returning balance", new { account, amount }, tx);
         await conn.ExecuteAsync(
-            "insert into energy_ledger (account_id, kind, delta, balance_after, idempotency_key) values (@account, @kind, @amount, @after, @key)",
-            new { account, kind, amount, after, key }, tx);
+            "insert into energy_ledger (account_id, attempt_id, kind, delta, balance_after, idempotency_key) values (@account, @attempt, @kind, @amount, @after, @key)",
+            new { account, attempt, kind, amount, after, key }, tx);
         await tx.CommitAsync();
+    }
+
+    /// <summary>A bare mission attempt (0007) for the attempt-bound kinds' entries to name.</summary>
+    async Task<Guid> NewAttemptAsync(long account)
+    {
+        var attempt = Guid.CreateVersion7();
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await conn.ExecuteAsync("""
+            insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline)
+            values (@attempt, @account, 'procedural-standard', 1, 1, decode(repeat('ab', 32), 'hex'), clock_timestamp() + interval '60 seconds')
+            """, new { attempt, account });
+        return attempt;
     }
 
     /// <summary>Runs <paramref name="sql"/> as the superuser in a transaction that is always rolled back, with the user
@@ -203,7 +215,9 @@ public class EnergySchemaTests : IAsyncLifetime
     }
 
     /// <summary>Each kind with a delta of its sign and a key of its form commits as a real write: the wallet moves by the
-    /// delta and the entry extends the chain. "MAX" is the longest (200-character) key of that kind's form.</summary>
+    /// delta and the entry extends the chain. "MAX" is the longest (200-character) key of that kind's form.
+    /// Since 0007 the attempt-bound kinds (charge, settle, void_refund here) name an existing attempt; reserve and release,
+    /// whose keys 0007 ties to their attempt and whose holds its invariants check, are covered by AttemptSchemaTests.</summary>
     [Theory]
     [InlineData("open", 0, "open")]
     [InlineData("open", 50, "open")]
@@ -211,10 +225,8 @@ public class EnergySchemaTests : IAsyncLifetime
     [InlineData("regen", 1, "regen:-1")]
     [InlineData("regen", 1, "MAX")]
     [InlineData("dev_grant", 1, "dev_grant:" + Uuid)]
-    [InlineData("release", 1, "release")]
-    [InlineData("release", 1, "MAX")]
     [InlineData("void_refund", 1, "void_refund:a")]
-    [InlineData("reserve", -1, "reserve:a")]
+    [InlineData("void_refund", 1, "MAX")]
     [InlineData("charge", 0, "charge:a")]
     [InlineData("settle", 0, "settle:a")]
     [InlineData("adjust", -1, "adjust:a")]
@@ -229,7 +241,8 @@ public class EnergySchemaTests : IAsyncLifetime
         else
         {
             account = await NewWalletAsync();
-            await CreditAsync(account, kind, delta, key);
+            var attempt = kind is "void_refund" or "charge" or "settle" ? await NewAttemptAsync(account) : (Guid?)null;
+            await CreditAsync(account, kind, delta, key, attempt);
         }
         Assert.Equal((kind == "open" ? 1L : 2L, (kind == "open" ? 0 : 50) + delta), await SingleAsync<(long, int)>(db.AsSuperuser(),
             "select (select count(*) from energy_ledger where account_id = @account), (select balance from energy_wallets where account_id = @account)", new { account }));
@@ -764,8 +777,8 @@ public class EnergySchemaTests : IAsyncLifetime
                 "select (select count(*) from energy_wallets), (select count(*) from energy_ledger), (select count(*) from anomaly_events), (select count(*) from energy_policies)"));
             Assert.Equal(2L, await conn.ExecuteScalarAsync<long>("select count(*) from item_instances where equipped_slot = 'weapon'"));
         }
+        // The database is at version 6: the invariants of 6 and earlier apply (later ones name tables it doesn't have yet).
         Assert.Empty(await InvariantRunner.RunAsync(upgrade.AsSuperuser(), 6, InvariantRunner.RealDirectory));
-        Assert.Empty(await AccountTestKit.InvariantFailuresAsync(upgrade));
     }
 
     // ---- invariants ----
