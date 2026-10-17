@@ -271,7 +271,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 8: hosts, claim, process sessions, ready, tickets and start (backend side)
 
-**Status: implemented, awaiting the owner's review** (2026-10-17; owner rulings B1–B13 and design corrections, spec §0.8; `Docs/superpowers/plans/2026-10-17-phase-13-stage8-hosts-start.md`, revision 2, with "As built"; migration `0008_hosts_sessions_tickets`, schema version 8; backend 713 domain and 1,589 integration tests green on the VM-local runner; not merged, not pushed, not deployed).
+**Status: done, approved by the owner, merged into `main` and pushed** (2026-10-17; owner rulings B1–B13, the design corrections and the host-disable decision R8, spec §0.8; `Docs/superpowers/plans/2026-10-17-phase-13-stage8-hosts-start.md`, revision 2, with "As built"; migration `0008_hosts_sessions_tickets`, schema version 8; backend 713 domain and 1,602 integration tests green on the VM-local runner; not deployed).
 
 **Touches:** `Backend/` only.
 

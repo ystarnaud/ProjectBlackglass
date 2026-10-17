@@ -988,3 +988,11 @@ There are three distinct host administration operations:
 - **Operator view (M5):** the confirmation preview shows `target.secretRevoked`.
 
 A disable that times out on a lock (exit 75) isolates nothing and must be re-run.
+
+**Final validation after R8 (2026-10-17):**
+- Backend tree `0e58e76` (`286ae93`): 713 domain and 1,602 integration tests passed, 0 failed, the integration suite in 6 m 3 s.
+- The concurrency and failure-injection classes, rerun on their own: 89 passed.
+- VM smoke: 0 failures. Off-host probe: 5080, 5432 and 55432 closed; 22 open. Restore drill at schema 8: passed.
+- Docker containers, volumes and listeners identical before and after. The runner left no `bg_t_*` database, container or tunnel.
+- Only `Backend/`, `Docs/` and `CLAUDE.md` changed.
+- Approved by the owner, then fast-forwarded into `main` and pushed.
