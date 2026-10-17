@@ -7,6 +7,39 @@ namespace Blackglass.Accounts.Persistence.Attempts;
 
 public sealed record AuthenticatedProcess(Guid AttemptId);
 
+/// <summary>One participant as the registered process receives it: the account and its admission snapshot (the stored JSON).</summary>
+public sealed record RegisteredParticipant(long AccountId, string LoadoutJson);
+
+public abstract record RegisterResult
+{
+    /// <summary>The session and the attempt's configuration: the only response that carries the seed; never the salt.</summary>
+    public sealed record Registered(Guid ProcessSessionId, int Seed, string TemplateId, int TemplateVersion, string CatalogueVersion,
+        IReadOnlyList<RegisteredParticipant> Participants, DateTime LaunchDeadline) : RegisterResult;
+    /// <summary>Not exactly the claimed build, or that build is no longer enabled or allowlisted for the template: nothing written.</summary>
+    public sealed record BuildNotAllowed : RegisterResult;
+    public sealed record InvalidState : RegisterResult;
+}
+
+public abstract record ReadyResult
+{
+    public sealed record Ready(DateTime JoinDeadline) : ReadyResult;
+    /// <summary>The pool is outside the catalogue's table or its hash is wrong: the attempt was cancelled (invalid_pool).</summary>
+    public sealed record InvalidLootPool(IReadOnlyList<string> Errors) : ReadyResult;
+    /// <summary>The objectives break the rules: nothing written.</summary>
+    public sealed record InvalidObjectives(IReadOnlyList<string> Errors) : ReadyResult;
+    public sealed record WrongSession : ReadyResult;
+    /// <summary>Not launching, or already ready with a different report: nothing written.</summary>
+    public sealed record InvalidState : ReadyResult;
+}
+
+public abstract record ProcessHeartbeatResult
+{
+    public sealed record Ok : ProcessHeartbeatResult;
+    public sealed record WrongSession : ProcessHeartbeatResult;
+    /// <summary>A listed account is not a participant of the attempt: nothing written.</summary>
+    public sealed record UnknownParticipant : ProcessHeartbeatResult;
+}
+
 /// <summary>
 /// The mission process side of an attempt (spec §16.3; plan revision 2 R1, R4, R6). A process authenticates with its attempt's
 /// <c>pc1_</c> credential: one indexed lookup of the SHA-256 per request (no cache), valid only while the attempt is neither
@@ -24,6 +57,158 @@ public sealed class ProcessStore(NpgsqlDataSource db)
             new { credentialHash }, cancellationToken: ct));
         return attempt is { } id ? new AuthenticatedProcess(id) : null;
     }
+
+    /// <summary>
+    /// The process session (spec §7.4; B4; R1): the attempt FOR UPDATE, then the clock. Accepted while assigned (moving it to
+    /// launching: the agent's launching report was lost, and the credential is now frozen) or launching. The body's build must
+    /// be exactly the claimed one, still enabled and allowlisted for the attempt's template version (BuildNotAllowed otherwise,
+    /// nothing written). The first call writes a new UUIDv7 session; a repeat while launching returns the same session and
+    /// configuration. The seed is read from attempt_secrets for this response only; the salt is never read here.
+    /// </summary>
+    public async Task<RegisterResult> RegisterAsync(Guid attemptId, RegisterRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        var attempt = await conn.QuerySingleOrDefaultAsync<(string State, string? BuildRevision, string CatalogueVersion, string TemplateId, int TemplateVersion,
+            Guid? Session, DateTime? LaunchDeadline)?>(new CommandDefinition(
+            """
+            select state, build_revision, catalogue_version, template_id, template_version, process_session_id, launch_deadline
+            from mission_attempts where attempt_id = @attemptId for update
+            """, new { attemptId }, tx, cancellationToken: ct));
+        if (attempt is not { } a || a.State is not ("assigned" or "launching")) return new RegisterResult.InvalidState();
+        var allowed = request.Build.Revision == a.BuildRevision && request.Build.CatalogueVersion == a.CatalogueVersion
+            && await conn.ExecuteScalarAsync<bool>(new CommandDefinition(
+                """
+                select exists (select 1 from allowed_builds b join allowed_build_templates t using (build_revision, catalogue_version)
+                               where b.enabled and b.build_revision = @Revision and b.catalogue_version = @CatalogueVersion
+                                 and t.template_id = @TemplateId and t.template_version = @TemplateVersion)
+                """, new { request.Build.Revision, request.Build.CatalogueVersion, a.TemplateId, a.TemplateVersion }, tx, cancellationToken: ct));
+        if (!allowed) return new RegisterResult.BuildNotAllowed();
+
+        var session = a.Session ?? Guid.CreateVersion7();
+        if (a.Session is null)
+            await conn.ExecuteAsync(new CommandDefinition(
+                "update mission_attempts set state = 'launching', process_session_id = @session where attempt_id = @attemptId and state in ('assigned', 'launching')",
+                new { attemptId, session }, tx, cancellationToken: ct));
+        var seed = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
+            "select seed from attempt_secrets where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct));
+        var participants = (await conn.QueryAsync<(long AccountId, string Loadout)>(new CommandDefinition(
+            "select account_id, loadout_snapshot::text from attempt_participants where attempt_id = @attemptId order by account_id",
+            new { attemptId }, tx, cancellationToken: ct))).Select(p => new RegisteredParticipant(p.AccountId, p.Loadout)).ToList();
+        await tx.CommitAsync(ct);
+        return new RegisterResult.Registered(session, seed, a.TemplateId, a.TemplateVersion, a.CatalogueVersion, participants, Utc(a.LaunchDeadline!.Value));
+    }
+
+    /// <summary>
+    /// The ready report (spec §7.4, §8.4; R3). Validated purely first: objectives (<see cref="ObjectiveList"/>; InvalidObjectives,
+    /// nothing written), then the pool against <paramref name="table"/> (<see cref="LootPoolValidator"/>) and its canonical
+    /// <see cref="LootHash"/>. The session is checked before anything is written (WrongSession never cancels). An invalid pool
+    /// cancels the launching attempt with <c>invalid_pool</c>, releasing every participant (the release lock order). A valid
+    /// report: the attempt FOR UPDATE, launching → ready with ready_at, the join deadline (database clock), the layout hash, the
+    /// table version and the loot hash, and the objectives and pool inserted (all written once). A repeat while ready with the
+    /// identical report answers the stored join deadline; any difference is InvalidState.
+    /// </summary>
+    public async Task<ReadyResult> ReadyAsync(Guid attemptId, ReadyReport report, Blackglass.Accounts.Domain.Catalogue.LootTable table, int joinDeadlineSeconds, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentNullException.ThrowIfNull(table);
+        var objectiveErrors = ObjectiveList.Validate(report.Objectives);
+        if (objectiveErrors.Count > 0) return new ReadyResult.InvalidObjectives(objectiveErrors);
+        var poolErrors = LootPoolValidator.Validate(table, report.LootTableVersion, report.LootPool).ToList();
+        if (LootHash.Compute(report.LootTableVersion, report.LootPool) != report.LootHash) poolErrors.Add("lootHash is not the pool's canonical hash");
+
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        // The session is written once: an unlocked read decides WrongSession before any lock or write.
+        if (await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+                "select process_session_id from mission_attempts where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct)) != report.ProcessSessionId)
+            return new ReadyResult.WrongSession();
+        if (poolErrors.Count > 0)
+        {
+            var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.InvalidPool, ["launching"], ct)
+                ?? throw new InvalidOperationException("An attempt has no participants.");
+            if (batch.AttemptState != "cancelled") return new ReadyResult.InvalidState(); // not launching: nothing written
+            await tx.CommitAsync(ct);
+            return new ReadyResult.InvalidLootPool(poolErrors);
+        }
+
+        var stored = await conn.QuerySingleAsync<(string State, string? LayoutHash, int? TableVersion, string? LootHash, DateTime? JoinDeadline)>(new CommandDefinition(
+            "select state, layout_hash, loot_table_version, loot_hash, join_deadline from mission_attempts where attempt_id = @attemptId for update",
+            new { attemptId }, tx, cancellationToken: ct));
+        if (stored.State == "ready")
+        {
+            var objectives = (await conn.QueryAsync<(string Id, bool Required)>(new CommandDefinition(
+                "select objective_id, required from attempt_objectives where attempt_id = @attemptId order by ordinal", new { attemptId }, tx, cancellationToken: ct)))
+                .Select(o => new Objective(o.Id, o.Required)).ToList();
+            var same = stored.LayoutHash == report.LayoutHash && stored.TableVersion == report.LootTableVersion && stored.LootHash == report.LootHash
+                && objectives.SequenceEqual(report.Objectives);
+            return same ? new ReadyResult.Ready(Utc(stored.JoinDeadline!.Value)) : new ReadyResult.InvalidState();
+        }
+        if (stored.State != "launching") return new ReadyResult.InvalidState();
+
+        var joinDeadline = await conn.ExecuteScalarAsync<DateTime>(new CommandDefinition(
+            """
+            update mission_attempts set state = 'ready', ready_at = clock_timestamp(), join_deadline = clock_timestamp() + make_interval(secs => @joinDeadlineSeconds),
+                   layout_hash = @LayoutHash, loot_table_version = @LootTableVersion, loot_hash = @LootHash
+            where attempt_id = @attemptId and state = 'launching' returning join_deadline
+            """, new { attemptId, joinDeadlineSeconds = (double)joinDeadlineSeconds, report.LayoutHash, report.LootTableVersion, report.LootHash }, tx, cancellationToken: ct));
+        for (var i = 0; i < report.Objectives.Count; i++)
+            await conn.ExecuteAsync(new CommandDefinition(
+                "insert into attempt_objectives (attempt_id, objective_id, required, ordinal) values (@attemptId, @ObjectiveId, @Required, @i)",
+                new { attemptId, report.Objectives[i].ObjectiveId, report.Objectives[i].Required, i }, tx, cancellationToken: ct));
+        foreach (var line in report.LootPool)
+            await conn.ExecuteAsync(new CommandDefinition(
+                "insert into attempt_loot_pool (attempt_id, container_index, line, definition_id, quantity) values (@attemptId, @ContainerIndex, @Line, @DefinitionId, @Quantity)",
+                new { attemptId, line.ContainerIndex, line.Line, line.DefinitionId, line.Quantity }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return new ReadyResult.Ready(Utc(joinDeadline));
+    }
+
+    /// <summary>
+    /// The process heartbeat (spec §11.2; B10; R4): the listed accounts must all be participants (UnknownParticipant otherwise,
+    /// nothing written; duplicates are refused by the parser). Then the attempt FOR UPDATE (its session must match), its
+    /// participants FOR UPDATE in account order, the clock: last_process_heartbeat_at stamped, unresponsive → running, and each
+    /// listed started participant joined → left when not connected, left → joined when connected. An admitted participant is
+    /// never made joined here (only the start commit does that).
+    /// </summary>
+    public async Task<ProcessHeartbeatResult> HeartbeatAsync(Guid attemptId, ProcessHeartbeatRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        var session = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            "select process_session_id from mission_attempts where attempt_id = @attemptId and state not in ('cancelled', 'settled') for update", new { attemptId }, tx, cancellationToken: ct));
+        if (session is null || session != request.ProcessSessionId) return new ProcessHeartbeatResult.WrongSession(); // an ended attempt has no live session
+        var participants = (await conn.QueryAsync<(long AccountId, string State)>(new CommandDefinition(
+            "select account_id, state from attempt_participants where attempt_id = @attemptId order by account_id for update",
+            new { attemptId }, tx, cancellationToken: ct))).ToDictionary(p => p.AccountId, p => p.State);
+        if (request.Participants.Any(p => !participants.ContainsKey(p.AccountId))) return new ProcessHeartbeatResult.UnknownParticipant();
+        await conn.ExecuteAsync(new CommandDefinition(
+            """
+            update mission_attempts set last_process_heartbeat_at = clock_timestamp(),
+                   state = case when state = 'unresponsive' then 'running' else state end
+            where attempt_id = @attemptId
+            """, new { attemptId }, tx, cancellationToken: ct));
+        foreach (var p in request.Participants.OrderBy(p => p.AccountId))
+        {
+            var (from, to) = participants[p.AccountId] switch
+            {
+                "joined" when !p.Connected => ("joined", "left"),
+                "left" when p.Connected => ("left", "joined"),
+                _ => (null, null),
+            };
+            if (from is not null)
+                await conn.ExecuteAsync(new CommandDefinition(
+                    "update attempt_participants set state = @to where attempt_id = @attemptId and account_id = @AccountId and state = @from",
+                    new { attemptId, p.AccountId, from, to }, tx, cancellationToken: ct));
+        }
+        await tx.CommitAsync(ct);
+        return new ProcessHeartbeatResult.Ok();
+    }
+
+    static DateTime Utc(DateTime value) =>
+        value.Kind == DateTimeKind.Utc ? value : throw new InvalidOperationException($"A timestamptz was read as {value.Kind}, not UTC.");
 
     /// <summary>
     /// The process's failure report (B11 revised, R6), in the release lock order: before any start, every admitted participant

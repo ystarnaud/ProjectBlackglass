@@ -91,7 +91,7 @@ public static class ServeCommand
         // The attempt read, the player cancel and the assignment deadline release (Task 7). The deadline worker is always on
         // (S7-D6: it is what releases an expired attempt exactly once); its first sweep waits one interval. Resolved through its
         // own registration, so a test's configure can replace the worker (and its sweep) as a whole.
-        builder.Services.AddSingleton(new AttemptStore(dataSource));
+        builder.Services.AddSingleton(new AttemptStore(dataSource, attempts.ProcessLeaseSeconds));
         var sweepInterval = TimeSpan.FromSeconds(attempts.AttemptSweepSeconds);
         var cooldown = new SweepCooldown(); // the worker's memory of releases that keep failing (sweeps never overlap)
         builder.Services.AddSingleton(sp => new AttemptDeadlineWorker(ct => sp.GetRequiredService<AttemptStore>().SweepAsync(AttemptDeadlineWorker.BatchSize, cooldown, ct),
@@ -138,7 +138,7 @@ public static class ServeCommand
         app.MapPlayer(auth);
         app.MapAttempts(attempts);
         app.MapAgent(attempts);
-        app.MapProcess();
+        app.MapProcess(attempts, catalogue);
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
     }

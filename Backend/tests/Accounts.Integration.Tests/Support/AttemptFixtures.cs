@@ -70,7 +70,7 @@ public static class AttemptFixtures
                   $"ended_at = {(state is "cancelled" or "settled" ? "coalesce(ended_at, clock_timestamp())" : "null")}";
         var level = state switch { "assigned" or "launching" => 1, "ready" => 2, "running" or "ending" or "unresponsive" or "settled" => 3, _ => 0 };
         if (level >= 1)
-            set += $", host_id = '{hostId}', build_revision = '{FixtureBuild}', credential_generation = coalesce(credential_generation, 1), " +
+            set += $", host_id = coalesce(host_id, '{hostId}'), build_revision = coalesce(build_revision, '{FixtureBuild}'), credential_generation = coalesce(credential_generation, 1), " +
                    $"mission_port = coalesce(mission_port, (select port_base from mission_hosts where host_id = '{hostId}') + (select count(*) from mission_attempts m where m.host_id = '{hostId}')::int), " +
                    "process_credential_hash = coalesce(process_credential_hash, sha256(convert_to(attempt_id::text, 'UTF8'))), " +
                    "claim_key = coalesce(claim_key, attempt_id), launch_deadline = coalesce(launch_deadline, clock_timestamp() + interval '120 seconds')";

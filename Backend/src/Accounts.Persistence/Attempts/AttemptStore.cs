@@ -88,7 +88,8 @@ public enum ExpireResult
 /// <param name="Due">How many attempts the selections returned (at most the batch each).</param>
 /// <param name="Failures">One safe description per due attempt whose release failed and rolled back (a SQLSTATE and
 /// constraint, or an exception type), never a server message; that attempt cools down before it is selected again.</param>
-public sealed record SweepReport(int Due, int Released, int AlreadyEnded, int NotAdmitted, IReadOnlyList<string> Failures);
+/// <param name="Unresponsive">Running attempts whose process lease lapsed, moved to unresponsive (never a void, D-11).</param>
+public sealed record SweepReport(int Due, int Released, int AlreadyEnded, int NotAdmitted, IReadOnlyList<string> Failures, int Unresponsive = 0);
 
 /// <summary>
 /// The deadline worker's memory of items whose release keeps failing (Stage 7 CP2 M3): after its n-th consecutive failure an
@@ -125,9 +126,10 @@ public sealed class SweepCooldown
 /// guarded transitions, and each participant's reserved energy given back exactly once with its ledger entry. A release never
 /// retries; a failure rolls everything back and propagates (a 23514 is a bug, answered 500; a timeout is busy).
 /// </summary>
-public sealed class AttemptStore(NpgsqlDataSource db)
+public sealed class AttemptStore(NpgsqlDataSource db, int processLeaseSeconds = 30)
 {
     readonly NpgsqlDataSource db = db ?? throw new ArgumentNullException(nameof(db));
+    readonly int processLeaseSeconds = processLeaseSeconds >= 1 ? processLeaseSeconds : throw new ArgumentOutOfRangeException(nameof(processLeaseSeconds));
 
     /// <summary>The attempt states a release may cancel (the §7.2 edges to cancelled).</summary>
     public static readonly string[] PreStartStates = ["admitted", "assigned", "launching", "ready"];
@@ -400,7 +402,27 @@ public sealed class AttemptStore(NpgsqlDataSource db)
             catch (NpgsqlException e) { failures.Add(DbFailure.SafeDescription(e)); cooldown.Failed(attempt.AttemptId); }
             catch (Exception e) { failures.Add(e.GetType().Name); cooldown.Failed(attempt.AttemptId); } // a bug in one release must not stop the others
         }
-        return new SweepReport(due.Count, released, ended, notAdmitted, failures);
+        var unresponsive = await MarkUnresponsiveAsync(limit, ct);
+        return new SweepReport(due.Count, released, ended, notAdmitted, failures, unresponsive);
+    }
+
+    /// <summary>
+    /// The process lease (spec §7.6): running attempts whose last process heartbeat (or, before the first, their start) is older
+    /// than the lease by the database clock become unresponsive, at most <paramref name="limit"/> per sweep, in one short
+    /// transaction that locks only those attempt rows (SKIP LOCKED). Nothing else changes: no participant, hold, energy or slot;
+    /// the next process heartbeat makes the attempt running again. Never a void (D-11).
+    /// </summary>
+    public async Task<int> MarkUnresponsiveAsync(int limit, CancellationToken ct = default)
+    {
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        return await conn.ExecuteAsync(new CommandDefinition(
+            """
+            update mission_attempts set state = 'unresponsive'
+            where state = 'running' and attempt_id in (
+              select attempt_id from mission_attempts
+              where state = 'running' and coalesce(last_process_heartbeat_at, started_at) < clock_timestamp() - make_interval(secs => @lease)
+              order by coalesce(last_process_heartbeat_at, started_at) limit @limit for update skip locked)
+            """, new { lease = (double)processLeaseSeconds, limit }, cancellationToken: ct));
     }
 
     /// <summary>The ledger key of a participant's release (0006/0007: unique per account, naming the attempt).</summary>

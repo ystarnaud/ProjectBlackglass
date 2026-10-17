@@ -133,7 +133,9 @@ public class DtoAuditTests
             foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
                 walked.Add($"{type.Name}.{p.Name}");
-                Assert.False(new[] { "seed", "salt", "secret" }.Any(w => p.Name.Contains(w, StringComparison.OrdinalIgnoreCase)), $"{type.Name}.{p.Name}");
+                // The one exception (spec §7.4): the registered process's session response carries the seed; never the salt.
+                if (type == typeof(Blackglass.Accounts.Api.Hosts.ProcessEndpoints.RegisterResponse) && p.Name == "Seed") continue;
+                Assert.False(new[] { "seed", "salt", "secret", "hash" }.Any(w => p.Name.Contains(w, StringComparison.OrdinalIgnoreCase)), $"{type.Name}.{p.Name}");
                 Assert.False(p.PropertyType == typeof(byte[]) || p.PropertyType == typeof(ReadOnlyMemory<byte>) || p.PropertyType == typeof(Memory<byte>),
                     $"{type.Name}.{p.Name} is typed like a salt");
                 pending.Enqueue(p.PropertyType);
@@ -142,6 +144,8 @@ public class DtoAuditTests
         Assert.Contains("DeployResponse.AttemptId", walked);
         Assert.Contains("DeployEnergy.BalanceAfter", walked); // nested types are walked too
         Assert.Contains("DeployInsurance.PolicyVersion", walked);
+        Assert.Contains("RegisterResponse.Seed", walked); // the exemption names a member that exists
+        Assert.Contains("ClaimResponse.ProcessCredential", walked); // agent and process DTOs are walked too
     }
 
     [Fact]
