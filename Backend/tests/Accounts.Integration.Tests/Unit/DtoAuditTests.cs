@@ -107,6 +107,44 @@ public class DtoAuditTests
     }
 
     [Fact]
+    public void No_client_DTO_has_a_seed_or_salt_member()
+    {
+        // Owner requirement 8: the attempt seed and retention salt never reach a client. Every wire type of the API (its
+        // requests, responses and DTOs, nested ones included) and the stored deploy answer are walked through every property
+        // type: no member is named like a seed, a salt or a secret, and none is typed like a salt (raw bytes).
+        var roots = typeof(AuthEndpoints).Assembly.GetTypes()
+            .Where(t => t.IsPublic || t.IsNestedPublic)
+            .Where(t => t.Name.EndsWith("Request", StringComparison.Ordinal) || t.Name.EndsWith("Response", StringComparison.Ordinal) || t.Name.EndsWith("Dto", StringComparison.Ordinal))
+            .Concat([typeof(Blackglass.Accounts.Persistence.Attempts.Admission), typeof(Blackglass.Accounts.Persistence.Attempts.DeployResponse),
+                typeof(Blackglass.Accounts.Domain.Attempts.DeployRequest)])
+            .ToList();
+        Assert.Contains(typeof(Blackglass.Accounts.Persistence.Attempts.DeployResponse), roots);
+        Assert.Contains(typeof(PickChoiceRequest), roots);
+
+        var seen = new HashSet<Type>();
+        var pending = new Queue<Type>(roots);
+        var walked = new List<string>();
+        while (pending.TryDequeue(out var type))
+        {
+            if (!seen.Add(type) || type.IsPrimitive || type.IsEnum || type == typeof(string) || type.Namespace?.StartsWith("System", StringComparison.Ordinal) == true && !type.IsGenericType)
+                continue;
+            foreach (var argument in type.IsGenericType ? type.GetGenericArguments() : []) pending.Enqueue(argument);
+            if (type.Namespace?.StartsWith("System", StringComparison.Ordinal) == true) continue; // a collection or Nullable<T>: only its arguments
+            foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+            {
+                walked.Add($"{type.Name}.{p.Name}");
+                Assert.False(new[] { "seed", "salt", "secret" }.Any(w => p.Name.Contains(w, StringComparison.OrdinalIgnoreCase)), $"{type.Name}.{p.Name}");
+                Assert.False(p.PropertyType == typeof(byte[]) || p.PropertyType == typeof(ReadOnlyMemory<byte>) || p.PropertyType == typeof(Memory<byte>),
+                    $"{type.Name}.{p.Name} is typed like a salt");
+                pending.Enqueue(p.PropertyType);
+            }
+        }
+        Assert.Contains("DeployResponse.AttemptId", walked);
+        Assert.Contains("DeployEnergy.BalanceAfter", walked); // nested types are walked too
+        Assert.Contains("DeployInsurance.PolicyVersion", walked);
+    }
+
+    [Fact]
     public void Me_energy_serializes_nextRegenAt_as_UTC_ISO_8601_with_Z()
     {
         // System.Text.Json writes a UTC-kind DateTime with 'Z' (a DateTimeOffset would write "+00:00"), trimming trailing
