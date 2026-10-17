@@ -55,6 +55,8 @@ public sealed class RecoveryStore(NpgsqlDataSource db, CatalogueHistoryStore cat
                     "select exists (select 1 from attempt_participants where attempt_id = @attemptId and account_id = @accountId)", new { attemptId, accountId }, tx, cancellationToken: ct)))
                 throw new RecoveryException(RecoveryError.NotFound, "No such participant.");
             await SettlementStore.LockAccountAsync(conn, tx, accountId, ct);
+            await SettlementStore.LockHostKeyShareAsync(conn, tx, await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
+                "select host_id from mission_attempts where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct)), ct);
             var attempt = await SettlementStore.LockAttemptAsync(conn, tx, attemptId, ct);
             var participant = await SettlementStore.LockParticipantAsync(conn, tx, attemptId, accountId, ct);
             return (conn, tx, attempt, participant);

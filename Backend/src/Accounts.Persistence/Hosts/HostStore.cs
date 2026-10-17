@@ -214,6 +214,9 @@ public sealed class HostStore
         if (stored is not null && ExitReports.Same(stored, report)) return new ExitReportResult.Applied(stored.Outcome);
         if (stored is not null && !ExitReports.CanObserve(stored, report)) return new ExitReportResult.Conflicting();
 
+        // The host row FOR KEY SHARE before the attempt lock: this transaction may update the attempt twice (a release or a void,
+        // then the slot release), and the second update re-checks the host foreign key (Settlement.SettlementStore.LockHostKeyShareAsync).
+        await Settlement.SettlementStore.LockHostKeyShareAsync(conn, tx, hostId, ct);
         var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.ProcessExited,
             AttemptStore.PreStartStates, ct) ?? throw new InvalidOperationException("An attempt has no participants.");
         // The presented secret must still be current, read while this transaction holds the attempt row: a disable (which locks

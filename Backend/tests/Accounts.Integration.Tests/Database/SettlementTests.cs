@@ -42,7 +42,7 @@ public class SettlementTests : IAsyncLifetime
     Task<T> Scalar<T>(string sql, object? args = null) => ScalarAsSuperuserAsync<T>(db, sql, args);
 
     async Task<(string Participant, string Attempt, string Hold, long Version)> StateAsync(ManifestKit.Running r) =>
-        await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(string, string, string, long)>("""
+        await RowAsSuperuserAsync<(string, string, string, long)>(db, """
             select p.state, a.state, h.state, i.version from attempt_participants p join mission_attempts a using (attempt_id)
             join energy_holds h using (attempt_id, account_id) join inventories i on i.account_id = p.account_id
             where p.attempt_id = @Attempt and p.account_id = @Account
@@ -86,7 +86,7 @@ public class SettlementTests : IAsyncLifetime
         var op = r.Snapshot.Operatives[0].OperativeId;
         var vest = await Scalar<long>("select item_id from item_instances where origin = 'settlement' and origin_ref = @o",
             new { o = $"settlement:{r.Attempt}:{Base58Id.Format(r.Account)}:c0:l1:u0" });
-        Assert.Equal(("armor", op), await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(string, long)>(
+        Assert.Equal(("armor", op), await RowAsSuperuserAsync<(string, long)>(db, 
             "select equipped_slot, operative_id from item_instances where item_id = @vest", new { vest }));
         Assert.Equal(4, await Scalar<int>("select quantity from item_stacks where operative_id = @op and definition_id = 'item.medkit'", new { op }));
         Assert.Equal(xpBefore + GameCatalogue.Embedded.Document.Progression.MissionCompletionXp,
@@ -106,7 +106,7 @@ public class SettlementTests : IAsyncLifetime
         var wide = r with { Pool = [new(0, 0, "item.combat-blade", 2), new(1, 0, "item.light-vest", 1)] };
         var body = ManifestKit.Body(ManifestKit.Manifest(wide));
         Assert.IsType<ResultOutcome.Settled>(await Submit(body));
-        var refs = (await (await db.AsSuperuser().OpenConnectionAsync()).QueryAsync<string>("select origin_ref from item_instances where origin = 'settlement' and definition_id = 'item.combat-blade' order by 1")).ToList();
+        var refs = (await RowsAsSuperuserAsync<string>(db, "select origin_ref from item_instances where origin = 'settlement' and definition_id = 'item.combat-blade' order by 1")).ToList();
         var acc = Base58Id.Format(r.Account);
         Assert.Equal([$"settlement:{r.Attempt}:{acc}:c0:l0:u0", $"settlement:{r.Attempt}:{acc}:c0:l0:u1"], refs);
         Assert.Equal(new ResultOutcome.Duplicate("success"), await Submit(body));
@@ -248,7 +248,7 @@ public class SettlementTests : IAsyncLifetime
         var canonical = Encoding.UTF8.GetString(ManifestKit.Manifest(r).ToCanonicalBytes());
         var bad = canonical.Replace("\"outcome\":\"success\"", "\"outcome\":\"victory\"", StringComparison.Ordinal);
         Assert.Equal(new ResultOutcome.Malformed("BadEnum"), await Submit(ManifestKit.Body(bad)));
-        Assert.Equal(("quarantined", "malformed_manifest"), await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(string, string)>(
+        Assert.Equal(("quarantined", "malformed_manifest"), await RowAsSuperuserAsync<(string, string)>(db, 
             "select state, quarantine_reason from attempt_participants where attempt_id = @Attempt", new { r.Attempt }));
         Assert.Equal(new ResultOutcome.Malformed("NotJson"), await Submit(ManifestKit.Body("not json")));
         Assert.Equal(new ResultOutcome.Malformed("NotJson"), await Submit(ManifestKit.Body("not json")));
@@ -294,7 +294,7 @@ public class SettlementTests : IAsyncLifetime
             """, new { missing, r.Attempt });
         var m = ManifestKit.Manifest(r) with { CatalogueVersion = missing };
         Assert.IsType<ResultOutcome.Held>(await Submit(ManifestKit.Body(m)));
-        Assert.Equal(("quarantined", "catalogue_unavailable"), await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(string, string)>(
+        Assert.Equal(("quarantined", "catalogue_unavailable"), await RowAsSuperuserAsync<(string, string)>(db, 
             "select state, quarantine_reason from attempt_participants where attempt_id = @Attempt", new { r.Attempt }));
         Assert.Equal("held", await Scalar<string>("select disposition from result_submissions where attempt_id = @Attempt", new { r.Attempt }));
         Assert.True(await Scalar<bool>("select exists (select 1 from anomaly_events where kind = 'catalogue_unavailable' and attempt_id = @Attempt)", new { r.Attempt }));

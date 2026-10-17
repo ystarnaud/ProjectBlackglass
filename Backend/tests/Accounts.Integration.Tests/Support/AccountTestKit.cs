@@ -43,6 +43,20 @@ public static class AccountTestKit
         return (await conn.ExecuteScalarAsync<T>(sql, args))!;
     }
 
+    /// <summary>One row as the superuser, on a connection disposed afterwards (never an inline open, which leaks the pool's five).</summary>
+    public static async Task<T> RowAsSuperuserAsync<T>(TestDatabase db, string sql, object? args = null)
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        return await conn.QuerySingleAsync<T>(sql, args);
+    }
+
+    /// <summary>Rows as the superuser, on a connection disposed afterwards.</summary>
+    public static async Task<List<T>> RowsAsSuperuserAsync<T>(TestDatabase db, string sql, object? args = null)
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        return (await conn.QueryAsync<T>(sql, args)).ToList();
+    }
+
     /// <summary>A live session row for a credential, written directly (for store tests that precede SessionStore).</summary>
     public static async Task<Guid> InsertSessionAsync(TestDatabase db, long accountId, Guid credentialId)
     {

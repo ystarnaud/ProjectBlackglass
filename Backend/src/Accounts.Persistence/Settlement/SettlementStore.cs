@@ -143,6 +143,7 @@ public sealed class SettlementStore
         if (linked)
         {
             await LockAccountAsync(conn, tx, claimedAccount!.Value, ct);
+            await LockHostKeyShareAsync(conn, tx, hostId, ct);
             attempt = await LockAttemptAsync(conn, tx, claimedAttempt!.Value, ct);
         }
         if (!await SecretCurrentAsync(conn, tx, hostId, secretHash, ct)) return new ResultOutcome.Unauthenticated();
@@ -478,6 +479,19 @@ public sealed class SettlementStore
     }
 
     // ---- shared pieces ----
+
+    /// <summary>
+    /// The attempt's host row FOR KEY SHARE, taken before the attempt lock by every transaction that may update the attempt row
+    /// twice (running → ending → settled, a void then the slot release): PostgreSQL re-checks mission_attempts' host foreign key
+    /// on a second update of a row the transaction already changed, which takes this same lock after the attempt lock and would
+    /// deadlock with `host disable` (host FOR UPDATE, then the host's attempts). Taken first, the order is host then attempt, as
+    /// disable and the claim already take it (R7). It waits only for a disable, rotation or claim of that host.
+    /// </summary>
+    internal static async Task LockHostKeyShareAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string? hostId, CancellationToken ct)
+    {
+        if (hostId is null) return;
+        await conn.ExecuteAsync(new CommandDefinition("select 1 from mission_hosts where host_id = @hostId for key share", new { hostId }, tx, cancellationToken: ct));
+    }
 
     internal static async Task LockAccountAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long account, CancellationToken ct) =>
         await conn.ExecuteAsync(new CommandDefinition("select 1 from accounts where account_id = @account for key share", new { account }, tx, cancellationToken: ct));

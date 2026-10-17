@@ -71,12 +71,12 @@ public class EvidenceVoidTests : IAsyncLifetime
         Assert.Equal(new ExitReportResult.Applied("voided"), await Exited(r, 139, null, true, (r.Account, false)));
         Assert.Equal("settled", await ParticipantState(r));
         Assert.Equal("refunded", await Scalar<string>("select state from energy_holds where attempt_id = @Attempt", new { r.Attempt }));
-        Assert.Equal((1L, 10), await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(long, int)>(
+        Assert.Equal((1L, 10), await RowAsSuperuserAsync<(long, int)>(db, 
             "select count(*), coalesce(sum(delta), 0)::int from energy_ledger where kind = 'void_refund' and attempt_id = @Attempt", new { r.Attempt }));
         Assert.Equal(50, await Scalar<int>("select balance from energy_wallets where account_id = @Account", new { r.Account }));
         Assert.Equal(inventory, await ManifestKit.InventoryAsync(db, r.Account)); // nothing consumed, granted or re-equipped
         Assert.Equal(version + 1, await Scalar<long>("select version from inventories where account_id = @Account", new { r.Account }));
-        Assert.Equal(("infra_void", "exit_evidence"), await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(string, string)>(
+        Assert.Equal(("infra_void", "exit_evidence"), await RowAsSuperuserAsync<(string, string)>(db, 
             "select outcome, void_basis from participant_settlements where attempt_id = @Attempt", new { r.Attempt }));
         var receipt = await Scalar<string>("select receipt from participant_settlements where attempt_id = @Attempt", new { r.Attempt });
         Assert.Contains("\"outcome\":\"infra_void\"", receipt);
@@ -166,7 +166,7 @@ public class EvidenceVoidTests : IAsyncLifetime
         Assert.Equal("joined", await ParticipantState(r));
         Assert.Equal(new ExitReportResult.Applied("voided"), await Exited(r, 137, null, true, (r.Account, false)));
         Assert.Equal("settled", await ParticipantState(r));
-        Assert.Equal(("none", false), await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(string, bool)>(
+        Assert.Equal(("none", false), await RowAsSuperuserAsync<(string, bool)>(db, 
             "select outcome, outbox_complete from attempt_exit_reports where attempt_id = @Attempt", new { r.Attempt })); // the first report is unchanged
         Assert.Equal("voided", await Scalar<string>("select outcome from attempt_outbox_observations where attempt_id = @Attempt", new { r.Attempt }));
         Assert.Equal(new ExitReportResult.Applied("voided"), await Exited(r, 137, null, true, (r.Account, false)));

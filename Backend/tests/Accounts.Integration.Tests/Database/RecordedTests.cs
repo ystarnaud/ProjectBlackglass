@@ -42,7 +42,7 @@ public class RecordedTests : IAsyncLifetime
     Task<ResultOutcome> Relay(ResultManifest m) => ManifestKit.SubmitAsync(store, db, ManifestKit.Body(m));
 
     async Task<(string State, string? Reason, string? Recorded)> ParticipantAsync(ManifestKit.Running r) =>
-        await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(string, string?, string?)>(
+        await RowAsSuperuserAsync<(string, string?, string?)>(db, 
             "select state, quarantine_reason, recorded_manifest_hash from attempt_participants where attempt_id = @Attempt", new { r.Attempt });
 
     [Fact]
@@ -174,7 +174,7 @@ public class RecordedTests : IAsyncLifetime
         var bad = ManifestKit.Manifest(r) with { BuildRevision = "r9" };
         var q = Assert.IsType<ResultOutcome.Quarantined>(await Relay(bad));
         Assert.Equal(["V4.build"], q.Codes);
-        var (escalation, raw, canonical) = await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(bool, byte[], byte[])>("""
+        var (escalation, raw, canonical) = await RowAsSuperuserAsync<(bool, byte[], byte[])>(db, """
             select p.escalate_at between p.quarantined_at + interval '23 hours 59 minutes' and p.quarantined_at + interval '24 hours 1 minute', x.raw_bytes, x.canonical_bytes
             from attempt_participants p join result_submissions s using (attempt_id, account_id) join result_submission_payloads x using (submission_id)
             where p.attempt_id = @Attempt

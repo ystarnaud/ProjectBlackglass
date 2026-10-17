@@ -70,7 +70,7 @@ public class RecoveryTests : IAsyncLifetime
         Assert.Equal("settled", (await recovery.RevalidateAsync(r.Attempt, r.Account, good, false, Op, default)).Result);
         Assert.Equal("settled", await StateAsync(r));
         Assert.Equal(good, await Scalar<long>("select submission_id from participant_settlements where attempt_id = @Attempt", new { r.Attempt }));
-        Assert.Equal(new[] { "failed", "settled" }, (await (await db.AsSuperuser().OpenConnectionAsync()).QueryAsync<string>(
+        Assert.Equal(new[] { "failed", "settled" }, (await RowsAsSuperuserAsync<string>(db, 
             "select result ->> 'result' from operator_actions where action = 'revalidate' and attempt_id = @Attempt order by id", new { r.Attempt })).ToArray());
         var e = await Assert.ThrowsAsync<RecoveryException>(() => recovery.RevalidateAsync(r.Attempt, r.Account, good, false, Op, default));
         Assert.Equal(RecoveryError.NotAllowed, e.Error);
@@ -100,9 +100,9 @@ public class RecoveryTests : IAsyncLifetime
         Assert.Equal(RecoveryError.MissingCheck, missing.Error);
         var imported = await recovery.ImportResultAsync(r.Attempt, r.Account, file, "outbox copy", true, Op, default);
         Assert.True(imported.Inserted);
-        Assert.Equal(("quarantined", "host_revoked"), await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(string, string)>(
+        Assert.Equal(("quarantined", "host_revoked"), await RowAsSuperuserAsync<(string, string)>(db, 
             "select state, quarantine_reason from attempt_participants where attempt_id = @Attempt", new { r.Attempt }));
-        Assert.Equal(("operator_import", true), await (await db.AsSuperuser().OpenConnectionAsync()).QuerySingleAsync<(string, bool)>(
+        Assert.Equal(("operator_import", true), await RowAsSuperuserAsync<(string, bool)>(db, 
             "select source, attempt_revoked from result_submissions where submission_id = @SubmissionId", imported));
         Assert.False((await recovery.ImportResultAsync(r.Attempt, r.Account, file, "outbox copy", true, Op, default)).Inserted);
         Assert.Equal(1L, await Scalar<long>("select count(*) from result_submissions where attempt_id = @Attempt", new { r.Attempt }));
