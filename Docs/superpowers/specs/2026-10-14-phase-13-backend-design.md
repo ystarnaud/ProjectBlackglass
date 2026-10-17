@@ -1,6 +1,6 @@
 # Phase 13A: backend architecture and persistent mission settlement (design)
 
-Date: 2026-10-14. **Revision 2.7** (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
+Date: 2026-10-14. **Revision 2.8** (Stage 8 owner rulings B1–B13 and design corrections of 2026-10-17, §0.8); revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
 
 "Project Blackglass" is an internal codename. No identifier, table, route, credential or claim introduced here carries the product name, apart from the C# namespace and repository paths that already exist. Player-facing names live in data (`display_name`), never in keys.
 
@@ -214,6 +214,38 @@ The detailed plan is `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admissio
   - before adding CHECKs to `mission_attempts`, move `seed` and `retention_salt` to an insert-only `attempt_secrets` table (or set `log_error_verbosity = terse`), since a CHECK violation's DETAIL would print the row, secrets included, in the server log;
   - authenticate and audit agent host registration before any `kind = 'agent'` row exists (agent rows count as capacity unconditionally).
 - **Stage 17 obligation:** assert `BLACKGLASS_DEV_HOSTS` is unset or `disabled` for `api` and `admin`, and that no `dev_fixture` host row exists, in the production stack.
+
+### 0.8 Revision 2.8 (Stage 8 owner rulings B1–B13 and design corrections, 2026-10-17)
+
+The detailed plan is `Docs/superpowers/plans/2026-10-17-phase-13-stage8-hosts-start.md` (revision 2). Its §B and §R hold the full text. These rulings amend §4.3, §4.4, §7.2–§7.6, §8.4, §11.4, §15.1, §15.3, §16.2, §16.3 and §19 wherever they differ.
+
+| Ruling | Decision |
+|---|---|
+| B1 seed and salt | Moved to insert-only `attempt_secrets`; `0008` drops `mission_attempts.seed` and `retention_salt`. An approved exception to §15.4's expand-and-contract rule, because the accounts stack was never deployed. The upgrade is tested from a populated schema-7 database |
+| B2 terse errors | `log_error_verbosity=terse` for the eventual accounts stack only (not the test cluster; no deployment). Application logging and PostgreSQL error handling must never expose secrets or sensitive parameters |
+| B3 host registration | Only confirmed, audited operator CLI verbs. Secrets are generated securely, stored hashed and shown once |
+| B4 builds | An enabled build revision, an exact catalogue-version match, and explicit template-version allowlisting (`allowed_builds`, `allowed_build_templates`) |
+| B5 health | Counts real occupied slots and compatible builds; fail-closed |
+| B6 slots | Never freed because an attempt was cancelled or a lease lapsed; only reliable confirmation that the process is gone frees a slot and its port |
+| B7 tickets | Minted only by an authenticated POST; `GET` never mints. Single use, bound to account, attempt and process session |
+| B8 join deadline | A first start after it is refused; a committed start returns its stored result even after it |
+| B9 charge entry | One zero-delta `charge:<attempt>` entry per positive hold; none for a zero-cost hold |
+| B10 joined ⇄ left | The process heartbeat moves started participants only; foreign, duplicate or invalid ids are refused |
+| B11 post-start exits (revised) | Exit and failure reports after a start never cancel, settle, void or refund in Stage 8, but are stored durably (exit status, per-participant result presence), idempotently, and a conflicting report never overwrites evidence. Stage 9 evaluates positive evidence and performs any protective void |
+| B12 | One branch; independent reviews after Task 4 and at the end |
+| B13 test runner | A disposable, digest-pinned .NET 10 SDK container on `bg-dev-services01` sharing the test cluster's network namespace: 2 CPUs, 3 GB, a pids limit, a one-hour cap, one runner at a time, `cluster_name` verified, no socket, host network or published port. The Windows tunnel runner stays as the fallback. Outage tests take only their own database offline, never the shared container |
+
+**Design corrections:**
+- **Claim recovery (§7.4).** A claim retried with the same key while the attempt is `assigned` returns the same attempt with a **newly issued** credential and the next `credentialGeneration`. This is a recovery, not a response replay; storage stays hash-only. `launching` must name the current generation (`409 CredentialSuperseded` otherwise). From `launching` on, a retry is `409` and never rotates the running credential.
+  - **Stage 10 agent obligations:** persist the claim response durably; get the `launching` acknowledgement before starting the unit; never launch with a possibly superseded credential; recover from lost claim and launching acknowledgements.
+- **Unit inventory (§16.2).** A heartbeat frees the slots of ended attempts it doesn't list only when it declares a complete, successful, authoritative enumeration (`inventory.complete`); otherwise it frees nothing. `exited` frees its attempt's slot. A host whose lease lapses gets no claims and keeps its occupied ports.
+  - **Stage 10 obligation:** `complete: true` only after a full, successful `systemctl` enumeration.
+- **`lootHash` (§8.4, §16.3).** The ready report carries `lootHash`: `"sha256:"` + the lowercase hex SHA-256 of `blackglass-loot-pool/1\n`, then `table=<version>\n`, then `<containerIndex>,<line>,<definitionId>,<quantity>\n` per line sorted by `(containerIndex, line)`. It is validated (a mismatch is an invalid pool) and stored once with the pool (`mission_attempts.loot_table_version`, `loot_hash`), so Stage 9 validates manifests against it with no schema change.
+- **Stop after cancellation.** Stop instructions travel only through the authenticated host agent (`stop` in the heartbeat response). A process credential is the uniform 401 on every route once its attempt is `cancelled` or `settled`; the process heartbeat carries no directive.
+  - **Stage 12 obligation:** the server treats a 401 after registration as a stop.
+- **Exit evidence.** Insert-only `attempt_exit_reports` (one per attempt and source: `agent` from `exited`, `process` from `failed`) and `attempt_exit_results` (per-participant result presence). An identical repeat returns the stored outcome; a conflicting one is `409 ConflictingReport`.
+- **Migration order.** `0008` creates referenced tables before the foreign keys that point at them; `0000`–`0007` stay byte-identical.
+- **Locking (§15.3).** Only claim and host heartbeat lock host rows (host, then attempt `SKIP LOCKED`). Exit evidence and slot release lock the attempt row only, so there is no reverse host and attempt dependency. No energy-touching transaction is retried automatically.
 
 ---
 

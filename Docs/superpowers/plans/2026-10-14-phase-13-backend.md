@@ -271,7 +271,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 8: hosts, claim, process sessions, ready, tickets and start (backend side)
 
-**Status: detailed plan written, awaiting the owner's review** (`Docs/superpowers/plans/2026-10-17-phase-13-stage8-hosts-start.md`, revision 1: decisions B1–B13, migration `0008_hosts_sessions_tickets`, the VM test-runner proposal). Not started.
+**Status: authorized by the owner (2026-10-17) with rulings B1–B13 and design corrections** (spec §0.8; `Docs/superpowers/plans/2026-10-17-phase-13-stage8-hosts-start.md`, revision 2; migration `0008_hosts_sessions_tickets`; the VM-local test runner). In progress on `phase13-stage8`.
 
 **Touches:** `Backend/` only.
 

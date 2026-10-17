@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (recommended for this plan, per the owner's lean-execution instruction) or superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Date: 2026-10-17. **Revision 1: for the owner's review. Nothing here is implemented, and Stage 8 does not start until the owner approves this plan and rules on §B.** Base: `main` @ `71827c7` (Stage 7 merged and pushed; schema version 7; backend 2031/0). Branch: `phase13-stage8`. Execution (proposed): native, in the primary session, with two independent security reviews: Checkpoint 1 after Task 4 (schema, secrets, credentials, authentication, claim), and a final whole-branch review. The test approach is in §D.
+Date: 2026-10-17. **Revision 2: authorized by the owner (2026-10-17) with rulings B1–B13 and the required design corrections in §R, which amend everything below wherever they differ.** Base: `main` @ `71827c7` (Stage 7 merged and pushed; schema version 7; backend 2031/0). Branch: `phase13-stage8`. Execution: native, in the primary session, with two independent reviews: Checkpoint 1 after Task 4 (credentials, secret storage, migration privileges, authentication and admission), and a final whole-branch review (claim concurrency, process sessions, tickets, energy charging, retries, process exit and unavailability). Tests run on the VM-local runner (§D, Task 0b); the Windows tunnel runner stays as the fallback.
 
 **Goal:** the attempt lifecycle runs on the backend up to `running`, driven entirely over HTTP by a test client in place of the agent and the mission process.
 - Hosts are registered by an operator. They authenticate with their own secret, heartbeat with their installed build, and report their units.
@@ -105,7 +105,78 @@ Each comes with a recommendation and its cost if wrong.
 | **B12** | **One stage, one branch** (13 tasks), or split into 8A (schema, hosts, builds, claim, release refactor; Tasks 0–6) and 8B (process session, tickets, start, unavailability; Tasks 7–12) with a merge between. | **One branch with Checkpoint 1**, which costs fewer review rounds. Split if you prefer smaller merges. |
 | **B13** | **The test runner and test-cluster settings** (§D). | See §D. |
 
+## R. Revision 2: the owner's rulings and required corrections (2026-10-17)
+
+**Rulings.**
+
+| # | Ruling |
+|---|---|
+| B1 | **Approved.** The seed and retention salt move to insert-only `attempt_secrets`, and 0008 drops the old columns: an approved exception to expand-and-contract, because the live stack was never deployed. The upgrade is tested from a populated schema-7 database |
+| B2 | **Approved.** `log_error_verbosity=terse` for the eventual accounts stack only (no deployment, no change to the test cluster). Tests also verify that application logging and PostgreSQL error handling never expose secrets or sensitive parameters |
+| B3 | **Approved.** Hosts are registered only by confirmed, audited operator CLI verbs. The secret is generated securely, stored hashed, and shown once |
+| B4 | **Approved.** An enabled build revision, an exact catalogue-version match and explicit template-version allowlisting |
+| B5 | **Approved.** Health counts real occupied slots and compatible builds, and stays fail-closed |
+| B6 | **Approved with safeguards.** A slot (capacity and port) is never freed because an attempt was cancelled or a lease lapsed. Only reliable confirmation that the process is gone frees it (R2) |
+| B7 | **Approved.** Minting is a separate authenticated POST; GET never mints. Tickets are single-use and bound to account, attempt and process session |
+| B8 | **Approved.** A first start after the join deadline is refused. A start already committed returns its stored result even after the deadline (tested: lost acknowledgement, then a late retry) |
+| B9 | **Approved.** A positive hold charging writes one zero-delta `charge:<attempt>` entry; a zero-cost hold writes none |
+| B10 | **Approved.** The process heartbeat moves **started** participants between `joined` and `left`. Foreign, duplicate or invalid participant ids are refused (nothing written); a heartbeat never marks an unstarted participant joined |
+| B11 | **Revised.** After a participant's start, exit and failure reports never cancel, settle, void or refund in Stage 8, but they are **stored durably** for Stage 9 (R6): exit status and per-participant result presence. Reports are idempotent; a conflicting report is refused and never overwrites evidence. Stage 9 evaluates positive evidence and performs any protective void |
+| B12 | **Approved.** One branch; an independent security review after Task 4 and a final independent whole-branch review |
+| B13 | **Approved** with the restrictions in Task 0b |
+
+**R1. Claim recovery and credential rotation.**
+- Hash-only storage stays. `mission_attempts.credential_generation` (1 at the claim) counts issued credentials.
+- **A recovery rotation is possible only before launching begins**: a claim retry with the same `Idempotency-Key` from the same host while the attempt is `assigned` returns **the same attempt with a newly issued credential and the next generation**. It is documented as a recovery, not as a replay of the original response.
+- `POST /agent/v1/attempts/{aid}/launching` takes `{credentialGeneration}`. It moves `assigned → launching` only when the generation is the current one; otherwise `409 CredentialSuperseded`, nothing written. A repeat with the current generation once `launching` or later → 200 with the state (lost acknowledgement).
+- Once the attempt is `launching` or later (by the agent's report or by the process registering from `assigned`), a claim retry is `409 InvalidState` and never rotates or invalidates the running credential.
+- Every claim, recovery, launching and register path locks the attempt row, so a recovery and a launching or register serialize: either the recovery commits first (the old credential is 401, the old generation is `CredentialSuperseded`) or the launch does (the recovery is 409).
+- **Stage 10 agent obligations:** persist the idempotency key before sending a claim, and the claim response durably (fsync) before acting on it; get a 200 from `launching` with that response's generation **before** `systemctl start`; never launch with a credential whose generation the backend has not accepted; on `CredentialSuperseded`, retry the claim with the same key; after a restart, resume from the persisted state (no response → claim retry; response but no launching acknowledgement → launching retry).
+
+**R2. Complete host-unit inventory.**
+- The heartbeat reports `inventory: {complete, units}`. A missing unit counts as confirmation that a process is gone **only** when `complete` is true: the heartbeat is a successful, complete, authoritative enumeration of the host's mission units.
+- With `complete: false` (partial, failed or ambiguous), the heartbeat frees nothing; `stop` is still computed from the units it lists.
+- What frees a slot: an `exited` report for the attempt (per-unit confirmation), or a complete inventory that no longer lists an ended (`cancelled` or `settled`) attempt. A `running` or `unresponsive` attempt's slot is freed only by `exited`.
+- A host whose lease lapses gets no new claims and counts for no capacity; its slots and ports stay occupied.
+- **Stage 10 agent obligation:** set `complete: true` only after a `systemctl list-units 'blackglass-mission@*' --all` that exited 0 and parsed entirely; on any error or doubt, send `complete: false`.
+
+**R3. The ready report's `lootHash`.**
+- The ready body carries `lootHash` (spec §16.3, §8.4). It is not Unity's FNV `LootPlan.Hash`, which covers tiles the backend never sees.
+- **Canonical calculation:** `"sha256:" +` the lowercase hex SHA-256 of the UTF-8 text `blackglass-loot-pool/1\n` + `table=<lootTableVersion>\n` + one line `<containerIndex>,<line>,<definitionId>,<quantity>\n` per pool line, sorted by `(containerIndex, line)`, integers in invariant decimal. Definition ids match the catalogue id pattern, so they hold no comma or newline.
+- The backend recomputes it; a mismatch is an invalid pool (`422 InvalidLootPool`, cancels and releases like any invalid pool).
+- `mission_attempts.loot_table_version` and `loot_hash` are written once at ready, with `attempt_loot_pool`, and never change. Stage 9's validation compares a manifest against the stored pool and hash with no schema change.
+
+**R4. Process heartbeat after cancellation.** **Chosen: stop instructions travel only through the authenticated host agent.**
+- A process credential is the uniform 401 on every route once its attempt is `cancelled` or `settled`: there is no exception for the heartbeat.
+- The process heartbeat answers `{}` and carries no directive.
+- The agent heartbeat's `stop` list names the host's ended attempts whose units it still reports. **Stage 10 obligation:** the agent stops those units. **Stage 12 obligation:** the server treats a 401 on its credential after registration as a stop: it admits no one new and exits.
+
+**R5. Migration dependencies.** `allowed_builds` and `allowed_build_templates` are created before any foreign key that points at them; the migration's order is tables, then backfills, then constraints and triggers that depend on them. `0000`–`0007` stay byte-identical (the checksum test).
+
+**R6. Post-start exit evidence.**
+- New insert-only `attempt_exit_reports (attempt_id, source ('agent'|'process'), …)` with primary key `(attempt_id, source)`, and `attempt_exit_results (attempt_id, account_id, present)` for the agent's per-participant result presence.
+  - `source = 'agent'`: from `exited`, with `exit_code`, `signal`, the attempt state when received, whether any participant had started, and the outcome applied (`cancelled` or `none`).
+  - `source = 'process'`: from `failed`, with the process session and `reason`.
+- A repeat with an identical report returns the stored outcome and writes nothing. A different report is `409 ConflictingReport` and writes nothing. Result rows must name participants of the attempt, at most once each (otherwise 400, nothing written).
+- Before any start, `exited` and `failed` still cancel and release (pre-start path); after a start they only store the report (and `exited` frees the slot).
+
+**R7. Locking.**
+- Exit evidence and slot release never lock a host row. They lock the attempt row (the release order before a start, `mission_attempts` `FOR UPDATE` after it), so no transaction takes an attempt row before a host row.
+- Only claim and host heartbeat lock host rows, both host → attempt (`SKIP LOCKED`).
+- Concurrency tests cover claims, cancellation, the start commit, host heartbeat, grants and policy publication. No energy-touching transaction is retried automatically.
+
 ## C. API contracts (Stage 8)
+
+**Revision 2 supersedes these rows where they differ:**
+- **heartbeat** takes `{buildRevision, catalogueVersion, inventory:{complete, units:[{attemptId, activeState}]}, outboxPending}` (R2);
+- **claim** returns `credentialGeneration`, and a retry rotates only before launching begins (R1);
+- **launching** takes `{credentialGeneration}` (R1);
+- **exited** stores its report (R6);
+- **ready** takes `lootHash` (R3);
+- **failed** after a start stores and answers `{applied:"none"}` (R6);
+- the **process heartbeat** answers `{}` and its credential is 401 after cancellation (R4);
+- a **start** already committed answers its stored result even after the join deadline (B8);
+- the **process heartbeat** refuses foreign or duplicate participants (B10).
 
 All bodies are strict JSON: exactly the listed members, with unknown or duplicated members refused (`400 InvalidBody`). Errors are ProblemDetails `{code}`. Account ids are Base58 strings. Attempt ids are canonical lowercase UUIDs; a non-canonical one is refused like an unknown one. No agent or process body carries a host id: the host comes from its credential (controller ruling C-1).
 
@@ -113,21 +184,21 @@ All bodies are strict JSON: exactly the listed members, with unknown or duplicat
 
 | Route | Body → response | Errors |
 |---|---|---|
-| `POST /agent/v1/heartbeat` | `{buildRevision, catalogueVersion, units:[{attemptId, activeState}], outboxPending}` → `{drained, stop:[attemptId]}`. Stamps `last_heartbeat_at` and the reported build. Frees the slot of each of this host's ended attempts that `units` no longer lists (§B6). `stop` lists this host's ended attempts that `units` still lists | 400; 503 |
-| `POST /agent/v1/claim` + `Idempotency-Key` | `{}` → 200 `{attemptId, missionPort, processCredential, launchDeadline}` or 204 after the wait (`BLACKGLASS_CLAIM_WAIT_SECONDS`, provisional 25, polling every `BLACKGLASS_CLAIM_POLL_MS`, provisional 1000). A replay of the key while the attempt is still `assigned` returns the same attempt with a **new** credential (the old hash is replaced); afterwards, 409 `InvalidState` | 409 `HostUnavailable` (drained, lease lapsed or no allowed build reported; the agent heartbeats first); 503 |
-| `POST /agent/v1/attempts/{aid}/launching` | `{}` → 200 `{state}`. `assigned → launching`; already `launching` or later → 200 with the current state (lost acknowledgement) | 404 `AttemptNotFound` (unknown or another host's); 409 `InvalidState` (cancelled) |
-| `POST /agent/v1/attempts/{aid}/exited` | `{exitCode, signal, results:[{accountId, present}]}` → `{applied:"none"\|"cancelled"}`. Before any start (`assigned`, `launching`, `ready` with no started participant): cancels with `process_exited`, releases every admitted participant and frees the slot. After a start: `none`, with only the slot freed (§B11) | 404; 400 |
+| `POST /agent/v1/heartbeat` | `{buildRevision, catalogueVersion, inventory:{complete, units:[{attemptId, activeState}]}, outboxPending}` → `{drained, stop:[attemptId]}`. Stamps `last_heartbeat_at` and the reported build. Only when `complete` is true, frees the slot of each of this host's ended attempts that `units` no longer lists (R2). `stop` lists this host's ended attempts that `units` still lists | 400; 503 |
+| `POST /agent/v1/claim` + `Idempotency-Key` | `{}` → 200 `{attemptId, missionPort, processCredential, credentialGeneration, launchDeadline}` or 204 after the wait (`BLACKGLASS_CLAIM_WAIT_SECONDS`, provisional 25, polling every `BLACKGLASS_CLAIM_POLL_MS`, provisional 1000). A retry of the key while the attempt is still `assigned` is a **recovery**: the same attempt with a newly issued credential and the next generation (the old hash is replaced; R1). Once `launching` or later, 409 `InvalidState`, nothing rotated | 409 `HostUnavailable` (drained, lease lapsed or no allowed build reported; the agent heartbeats first); 503 |
+| `POST /agent/v1/attempts/{aid}/launching` | `{credentialGeneration}` → 200 `{state}`. `assigned → launching` when the generation is current; already `launching` or later with the current generation → 200 with the current state (lost acknowledgement) | 404 `AttemptNotFound` (unknown or another host's); 409 `CredentialSuperseded` (not the current generation), `InvalidState` (cancelled) |
+| `POST /agent/v1/attempts/{aid}/exited` | `{exitCode, signal, results:[{accountId, present}]}` → `{applied:"none"\|"cancelled"}`. Stores the report (R6) and frees the slot. Before any start (`admitted`, `assigned`, `launching`, `ready` with no started participant): also cancels with `process_exited` and releases every admitted participant. After a start: `none` (B11). An identical repeat returns the stored outcome | 404; 400 (unknown or duplicate participant); 409 `ConflictingReport` |
 
 **Process routes** (`Authorization: Bearer pc1_…`). The credential is valid only for the attempt in the route, and only until that attempt is `cancelled` or `settled`; anything else is the uniform 401. Every body after `sessions` names `processSessionId`, and a different one is `409 WrongSession`.
 
 | Route | Body → response | Errors |
 |---|---|---|
 | `POST /server/v1/attempts/{aid}/sessions` | `{buildRevision, catalogueVersion}` → `{processSessionId, seed, missionTemplate:{id, version}, catalogueVersion, participants:[{accountId, loadout}], deadlines:{launch}}`. Accepts `assigned` (moving it to `launching`, for a lost `launching` report) or `launching`. A replay while `launching` returns the same session and body. **The only response that carries the seed. The salt never leaves the backend** | 409 `BuildNotAllowed` (not exactly the claimed build, or the build was disabled since; nothing written); 409 `InvalidState` |
-| `POST /server/v1/attempts/{aid}/ready` | `{processSessionId, layoutHash, lootTableVersion, objectives:[{objectiveId, required}], lootPool:[{containerIndex, line, definitionId, quantity}]}` → `{joinDeadline}`. `launching → ready`, storing the objectives and pool. A pool outside the table is `422 {code:"InvalidLootPool", errors:[…]}` and **cancels the attempt** (`invalid_pool`, releasing every participant; spec §7.4). A replay while `ready` with an identical body → 200 | 409 `WrongSession`, `InvalidState`; 422 `InvalidLootPool`, `InvalidObjectives` |
-| `POST /server/v1/attempts/{aid}/failed` | `{processSessionId, reason}` → `{state:"cancelled"}`. Pre-start only (`process_failed`) | 409 `InvalidState` after a start (§B11) |
+| `POST /server/v1/attempts/{aid}/ready` | `{processSessionId, layoutHash, lootTableVersion, lootHash, objectives:[{objectiveId, required}], lootPool:[{containerIndex, line, definitionId, quantity}]}` → `{joinDeadline}`. `launching → ready`, storing the objectives and pool. A pool outside the table, or a `lootHash` that isn't the pool's canonical hash (R3), is `422 {code:"InvalidLootPool", errors:[…]}` and **cancels the attempt** (`invalid_pool`, releasing every participant; spec §7.4). A replay while `ready` with an identical body → 200 | 409 `WrongSession`, `InvalidState`; 422 `InvalidLootPool`, `InvalidObjectives` |
+| `POST /server/v1/attempts/{aid}/failed` | `{processSessionId, reason}` → `{applied:"cancelled"\|"none"}`. Stores the report (R6). Before any start: cancels with `process_failed`. After a start: `none` (B11). An identical repeat returns the stored outcome | 409 `ConflictingReport`, `WrongSession` |
 | `POST /server/v1/attempts/{aid}/tickets/redeem` | `{processSessionId, ticket}` → `{accountId, operativeIds}` (the snapshot order). Single use. A replay of the same ticket by the same session → the same answer | 401 `UnknownToken` (unknown, expired, revoked, or redeemed by another session); 409 `WrongAttempt`, `InvalidState` (the participant was released or settled, or the attempt is not ready or running) |
-| `POST /server/v1/attempts/{aid}/participants/{acc}/start` | `{processSessionId}` → `{started:true, startedAt}`. A repeat → 200 with the stored `startedAt`, no second charge | 409 `NotRedeemed` (no ticket redeemed by this session for this participant), `Cancelled` (released or attempt cancelled), `DeadlinePassed` (§B8), `WrongSession` |
-| `POST /server/v1/attempts/{aid}/heartbeat` | `{processSessionId, phase, participants:[{accountId, connected}]}` → `{directive:"none"\|"stop"}`. Stamps `last_process_heartbeat_at`; `unresponsive → running`; `joined ⇄ left` (§B10); `stop` once the attempt is cancelled | 409 `WrongSession` |
+| `POST /server/v1/attempts/{aid}/participants/{acc}/start` | `{processSessionId}` → `{started:true, startedAt}`. A repeat → 200 with the stored `startedAt`, no second charge, **even after the join deadline** (B8) | 409 `NotRedeemed` (no ticket redeemed by this session for this participant), `Cancelled` (released or attempt cancelled), `DeadlinePassed` (§B8), `WrongSession` |
+| `POST /server/v1/attempts/{aid}/heartbeat` | `{processSessionId, phase, participants:[{accountId, connected}]}` → `{}`. Stamps `last_process_heartbeat_at`; `unresponsive → running`; `joined ⇄ left` for started participants only (B10). After cancellation the credential is 401 like every process route (R4) | 400 (unknown, foreign or duplicate participant; nothing written); 409 `WrongSession` |
 
 **Client routes** (session):
 
@@ -302,6 +373,33 @@ All bodies are strict JSON: exactly the listed members, with unknown or duplicat
 - **This plan:** revision 2.
 - **Commit:** `Phase 13 Stage 8: owner rulings recorded (spec revision 2.8, plan revision 2, CLAUDE.md)`.
 
+## Task 0b: The VM-local test runner (B13)
+
+**Files:** `Backend/tools/vm-test.sh`, `Backend/tools/run-tests-in-container.sh`, README (testing section).
+
+- **`vm-test.sh [--filter <expr>] [--full] [--evidence <dir>]`** (PC side):
+  - snapshots the working tree's `Backend/` (tracked and untracked, `.gitignore` respected) into a tree id with a temporary index (`git write-tree`), so uncommitted test-first work can run and every transcript names the exact tree;
+  - streams `git archive <tree> Backend` to `/opt/blackglass/backend/test-src` on the VM (root-owned, separate from the deploy copy) and records the tree id;
+  - verifies `cluster_name = blackglass-test` on the test cluster (`docker exec ... psql`), and refuses otherwise;
+  - takes a VM-side `flock` and uses the fixed container name `bg-test-runner`, so only one runner runs at a time;
+  - runs the container, then fails loudly if any `bg_t_*` database remains, and copies the trx files and the summary back.
+- **The container:**
+  - `docker run --rm --name bg-test-runner --cpus 2 --memory 3g --pids-limit 1024 --cap-drop ALL --security-opt no-new-privileges --network container:blackglass-testdb-postgres-1`;
+  - the image pinned by digest;
+  - read-only mounts: the source snapshot and exactly the three test-cluster password files;
+  - named volumes `bg-test-nuget` (NuGet cache) and `bg-test-work` (build output only);
+  - no Docker socket, host network or published port; `timeout 3600`.
+- **`run-tests-in-container.sh`:**
+  - updates `/work/src` from the snapshot, copying only files whose content differs (fresh timestamps, so MSBuild rebuilds exactly what changed), and deleting files the snapshot no longer has (outside `bin/` and `obj/`). A cached build can therefore never test an old revision;
+  - builds, then runs Domain, then Integration (or the filter), with the trx logger;
+  - writes the tree id, the commands, the counts and the timings to the summary.
+- **Credentials:**
+  - the password files are read by the test process only; they are never copied, echoed or written to a volume, and the scripts never use `set -x`;
+  - the API's per-test password files live in the container's `/tmp`, which `--rm` removes.
+- **Outage tests** never stop or recreate the shared PostgreSQL container, since the runner shares its network namespace. They take only their own `bg_t_*` database offline: `alter database ... allow_connections false` and `pg_terminate_backend` for that database, then `allow_connections true`.
+- **Benchmark first:** the 172-test Windows sample (`AttemptSchemaTests`, `AttemptApiTests`, `MigratorTests`, `AttemptPrivilegeTests`, `MissionTemplateTests`; 10 m 54 s on Windows) on the VM, with the real timings recorded. No full-suite figure is claimed until it is measured.
+- [ ] **Commit.** `Phase 13 Stage 8: VM-local disposable .NET 10 test runner (B13)`.
+
 ## Task 1: Pure rules (domain)
 
 **Files:** `src/Accounts.Domain/Auth/OpaqueSecret.cs` (prefixes), `src/Accounts.Domain/Hosts/{BuildIdentity,PortAllocator}.cs`, `src/Accounts.Domain/Attempts/{ReadyReport,LootPoolValidator,ObjectiveList,AgentRequests,ProcessRequests}.cs`; tests under `tests/Accounts.Domain.Tests/{Hosts,Attempts}/`.
@@ -330,7 +428,7 @@ public static class PortAllocator
 namespace Blackglass.Accounts.Domain.Attempts;
 public sealed record PoolLine(int ContainerIndex, int Line, string DefinitionId, int Quantity);
 public sealed record Objective(string ObjectiveId, bool Required);
-public sealed record ReadyReport(Guid ProcessSessionId, string LayoutHash, int LootTableVersion, IReadOnlyList<Objective> Objectives, IReadOnlyList<PoolLine> LootPool)
+public sealed record ReadyReport(Guid ProcessSessionId, string LayoutHash, int LootTableVersion, string LootHash, IReadOnlyList<Objective> Objectives, IReadOnlyList<PoolLine> LootPool)
 { public static ReadyReport Parse(ReadOnlySpan<byte> utf8Json); } // strict; throws RequestFormatException
 public static class LootPoolValidator
 {
@@ -339,6 +437,9 @@ public static class LootPoolValidator
     /// outside the entry's [min, max]. Empty list = valid.
     public static IReadOnlyList<string> Validate(LootTable table, IReadOnlyList<PoolLine> pool);
 }
+public static class LootHash
+{   /// R3's canonical "sha256:<hex>" over the table version and the pool lines sorted by (containerIndex, line).
+    public static string Compute(int lootTableVersion, IReadOnlyList<PoolLine> pool); }
 public static class ObjectiveList
 {   /// 1..32 objectives, unique ids matching ^[a-z0-9]+([._-][a-z0-9]+)*$ (≤ 64), at least one required.
     public static IReadOnlyList<string> Validate(IReadOnlyList<Objective> objectives); }
@@ -353,6 +454,7 @@ public static class ObjectiveList
   - `ReadyReport_parses_strictly` (theory: unknown members, duplicates, wrong types, negative indices, an oversized pool);
   - `LootPoolValidator_accepts_a_pool_inside_the_table`;
   - `LootPoolValidator_reports_every_violation` (theory: one row per rule);
+  - `LootHash_is_canonical_and_order_independent` (a pinned vector; the input order doesn't matter; any field change changes it);
   - `ObjectiveList_validates`;
   - `Agent_and_process_requests_parse_strictly` (theory per request type).
 - [ ] **Step 2:** run (FAIL: types missing), implement, run `Accounts.Domain.Tests` (PASS).
@@ -362,7 +464,8 @@ public static class ObjectiveList
 
 **Files:** `db/migrations/0008_hosts_sessions_tickets.sql`, `db/invariants/0008_sessions.sql`; tests `tests/Accounts.Integration.Tests/Database/{SessionSchemaTests,SessionPrivilegeTests,SecretStorageTests}.cs`; `UpgradeTests` (0007 → 0008 case).
 
-**The migration, in order:**
+**The migration, in order** (R5: every referenced table exists before a foreign key points at it):
+0. **`allowed_builds`** and **`allowed_build_templates`** (item 4 below) are created first.
 1. **`attempt_secrets`** `(attempt_id uuid primary key references mission_attempts, seed integer not null check (seed >= 0), retention_salt bytea not null check (length(retention_salt) = 32), created_at timestamptz not null default statement_timestamp())`.
    - Triggers refuse update, delete and truncate.
    - `insert into attempt_secrets select attempt_id, seed, retention_salt, created_at from mission_attempts`.
@@ -373,7 +476,8 @@ public static class ObjectiveList
      - `catalogue_version text`, backfilled from the participants' `loadout_snapshot->>'catalogueVersion'`, then `not null`;
      - `host_id text references mission_hosts`, `mission_port integer`, `build_revision text`;
      - `process_credential_hash bytea unique check (length = 32)`, `claim_key uuid unique`, `process_session_id uuid unique`, `layout_hash text`;
-     - `launch_deadline`, `ready_at`, `join_deadline`, `started_at`, `last_process_heartbeat_at`, `slot_released_at` (all `timestamptz`).
+     - `launch_deadline`, `ready_at`, `join_deadline`, `started_at`, `last_process_heartbeat_at`, `slot_released_at` (all `timestamptz`);
+     - `credential_generation integer` (R1; >= 1 with a credential), `loot_table_version integer` and `loot_hash text` (R3; written once at ready).
    - Constraints:
      - FK `(build_revision, catalogue_version)` → `allowed_builds`;
      - `cancel_reason in ('no_capacity','player_cancel','launch_timeout','join_timeout','process_exited','process_failed','invalid_pool')`;
@@ -399,6 +503,7 @@ public static class ObjectiveList
    - a trigger allows only `redeemed_at` with `redeemed_by_session` once, or `revoked_at` once; never delete or truncate;
    - index on `(attempt_id, account_id) where redeemed_at is null and revoked_at is null`.
 7. **`attempt_objectives`** and **`attempt_loot_pool`** as spec §15.1, insert-only (triggers).
+7b. **`attempt_exit_reports`** and **`attempt_exit_results`** (R6), insert-only; results reference `attempt_participants`.
 8. **`energy_ledger`:** the per-kind key CHECK replaced by name with every rule identical, except `charge` = `'charge:' || attempt_id::text`.
 9. **`energy_holds`:** transition unchanged (`reserved → charged | released`; Stage 9 adds its edges).
 10. **`operator_actions`:** add `host_register`, `host_rotate_secret`, `host_disable`, `host_capacity`, `build_allow`.
@@ -424,6 +529,8 @@ public static class ObjectiveList
   - `The_charge_key_must_name_its_attempt`;
   - `Join_tickets_redeem_once_and_never_delete`;
   - `Objectives_and_pool_are_insert_only`;
+  - `Exit_reports_are_insert_only_and_results_name_participants`;
+  - `Migrations_0000_to_0007_are_byte_identical` (the existing checksum test, kept);
   - `App_privileges_are_exactly_the_planned_columns` (catalogue query);
   - the invariant files each catch a hand-made violation.
 - [ ] **Step 2:** run (FAIL), write the migration, run the Task 2 classes and the existing schema classes (PASS).
@@ -467,6 +574,11 @@ public static class ObjectiveList
   - `A_process_credential_is_401_on_another_attempts_route_and_after_its_attempt_ends`;
   - `Heartbeat_stamps_the_database_time_and_reported_build`;
   - `Heartbeat_frees_the_slots_of_ended_attempts_no_longer_listed_and_asks_to_stop_the_rest`;
+  - `An_incomplete_inventory_frees_no_slot` (R2);
+  - `A_lapsed_host_keeps_its_slots_and_gets_no_capacity` (R2);
+  - `A_heartbeat_never_frees_a_running_attempts_slot` (R2);
+  - `Npgsql_and_the_api_never_log_parameters_or_error_detail` (B2: no parameter logging, and no secret in a logged database failure);
+  - `Compose_starts_postgres_with_terse_error_verbosity` (B2, static);
   - `Health_counts_live_slots_not_capacity` (a host at capacity is unhealthy);
   - `Health_requires_an_allowed_build_for_the_template_and_catalogue` (theory: disabled build, template not listed, catalogue mismatch, no build reported);
   - `Health_ignores_lapsed_drained_and_disabled_hosts`;
@@ -511,8 +623,8 @@ Fix Critical and Important findings in one pass, each with a failing test first.
   6. One guarded `UPDATE … where state = 'admitted'` writes `assigned`, the host, port, build, credential hash, `claim_key` and `launch_deadline = clock + BLACKGLASS_LAUNCH_DEADLINE_SECONDS`.
   7. Commit, then return the plaintext credential once.
 - **No candidate:** commit, wait `BLACKGLASS_CLAIM_POLL_MS`, and retry up to the claim wait, each try a new short transaction (no connection is held while waiting). Then 204. The request's cancellation ends the wait.
-- **Claim replay** (same `Idempotency-Key` from the same host): while `assigned`, a new credential replaces the hash in a guarded update; once `launching` or later, 409 `InvalidState`. A key that names another host's attempt is never found (404).
-- **Launching:** guarded `assigned → launching`; already later → 200 with the state; cancelled → 409.
+- **Claim recovery** (same `Idempotency-Key` from the same host): while `assigned`, a new credential replaces the hash and the generation increments in a guarded update (`where state = 'assigned'`); once `launching` or later, 409 `InvalidState` (R1). A key that names another host's attempt is never found (404).
+- **Launching:** attempt `FOR UPDATE`; the body's generation must be current (`CredentialSuperseded`); guarded `assigned → launching`; already later → 200 with the state; cancelled → 409.
 - [ ] **Step 1: Write the failing tests:**
   - `A_claim_assigns_the_oldest_compatible_attempt_with_the_lowest_free_port`;
   - `A_claim_skips_incompatible_templates_catalogues_and_disabled_builds`;
@@ -521,9 +633,13 @@ Fix Critical and Important findings in one pass, each with a failing test first.
   - `Two_hosts_race_for_one_attempt_and_one_wins`;
   - `A_claim_never_takes_an_attempt_past_its_assign_deadline`;
   - `A_claim_waits_and_returns_an_attempt_admitted_during_the_wait`, and `A_claim_returns_204_after_the_wait` (short configured wait);
-  - `A_claim_replay_while_assigned_rotates_the_credential` (the old credential is 401, the new one authenticates);
-  - `A_claim_replay_after_launching_is_409`;
+  - `A_claim_retry_while_assigned_recovers_with_a_new_credential_and_generation` (the old credential is 401, the new one authenticates);
+  - `A_claim_retry_after_launching_is_409_and_keeps_the_credential` (also after a process registered from `assigned`);
+  - `Launching_with_a_superseded_generation_is_409_and_writes_nothing`;
+  - `Claim_recovery_racing_launching_leaves_exactly_one_consistent_outcome` (repeated; either recovery then superseded, or launching then 409);
+  - `Claim_recovery_racing_register_leaves_exactly_one_consistent_outcome`;
   - `Launching_is_idempotent_and_refused_after_cancel`;
+  - `Claims_heartbeats_and_exits_race_without_deadlock` (R7: host heartbeat slot release, exited and claims on one host);
   - `A_drained_or_lapsed_host_is_HostUnavailable_and_takes_nothing`;
   - `A_claim_holds_no_connection_while_waiting` (the pool is not exhausted by 10 waiting claims with a pool of 5).
 - [ ] **Step 2:** run (FAIL), implement, run (PASS).
@@ -552,8 +668,10 @@ Fix Critical and Important findings in one pass, each with a failing test first.
   - `Launch_deadline_cancels_assigned_and_launching_attempts_and_keeps_the_slot_until_exited`;
   - `Join_deadline_releases_unstarted_participants_and_cancels_only_if_none_started`;
   - `Exited_before_start_cancels_releases_and_frees_the_slot`;
-  - `Exited_after_start_applies_none` (§B11);
-  - `Failed_before_start_cancels_and_after_start_is_409`;
+  - `Exited_after_start_applies_none_and_stores_the_evidence` (B11, R6: exit code, signal, per-participant presence);
+  - `An_identical_exit_report_repeats_and_a_conflicting_one_is_409_and_keeps_the_first` (both sources);
+  - `An_exit_report_naming_a_foreign_or_duplicate_participant_is_400_and_writes_nothing`;
+  - `Failed_before_start_cancels_and_after_start_stores_the_report_and_applies_none`;
   - `A_cancel_and_every_deadline_race_and_release_once` (theory over the three deadlines);
   - `A_release_drains_with_a_grant_and_a_queued_publication_without_deadlock` (the Stage 7 test, extended to a launch-deadline release);
   - `A_persistently_failing_item_cools_down_and_the_rest_of_the_batch_proceeds`;
@@ -571,14 +689,15 @@ Fix Critical and Important findings in one pass, each with a failing test first.
   - The first call writes a new UUIDv7 `process_session_id`. A replay while `launching` returns it unchanged.
   - The response reads the seed from `attempt_secrets` and the loadouts from the participants. It never logs any of it.
 - **Ready:**
-  - The body is parsed and validated purely first (`LootPoolValidator` against the catalogue's table, and `ObjectiveList`). An invalid pool calls the release with `invalid_pool` and answers 422; invalid objectives answer 422 with nothing written.
+  - The body is parsed and validated purely first (`LootPoolValidator` against the catalogue's table, `LootHash.Compute` against the reported `lootHash`, and `ObjectiveList`). An invalid pool calls the release with `invalid_pool` and answers 422; invalid objectives answer 422 with nothing written.
   - A valid body: attempt `FOR UPDATE`, the session matches, `launching` → `ready`, `ready_at` and `join_deadline = clock + BLACKGLASS_JOIN_DEADLINE_SECONDS`, objectives and pool inserted.
   - A replay while `ready` with an identical body → 200; a different body → 409 `InvalidState`.
 - **Heartbeat:**
   - Attempt `FOR UPDATE`, the session matches, stamp `last_process_heartbeat_at`.
   - `unresponsive` → `running`.
   - For each listed participant: `joined` → `left` when not connected, `left` → `joined` when connected (guarded, one update each).
-  - `directive: "stop"` when the attempt is `cancelled`. (The credential still authenticates for this one route after its attempt ends, so the process learns to stop; that is the documented exception to the credential's lifetime.)
+  - Participants are validated before any write: each a participant of this attempt, at most once (400 otherwise, nothing written). Only started participants move; an `admitted` one never becomes `joined` here (B10).
+  - The response is `{}`. After cancellation the credential is 401 on this route like every other (R4); stop travels through the agent.
 - **Lease selection** (the worker): `running` attempts with `last_process_heartbeat_at < clock − BLACKGLASS_PROCESS_LEASE_SECONDS` → `unresponsive`. Nothing else.
 - [ ] **Step 1: Write the failing tests:**
   - `Register_returns_the_session_seed_and_snapshots_never_the_salt`;
@@ -592,7 +711,11 @@ Fix Critical and Important findings in one pass, each with a failing test first.
   - `Every_process_call_with_another_session_is_WrongSession`;
   - `A_lapsed_process_lease_makes_running_unresponsive_and_a_heartbeat_restores_it`;
   - `Heartbeat_moves_joined_and_left`;
-  - `Heartbeat_after_cancel_directs_stop`.
+  - `Heartbeat_never_marks_an_unstarted_participant_joined`;
+  - `Heartbeat_with_a_foreign_or_duplicate_participant_is_400_and_writes_nothing`;
+  - `Every_process_route_is_401_after_cancel` (R4, heartbeat included);
+  - `A_wrong_loot_hash_cancels_as_an_invalid_pool` (R3);
+  - `Ready_stores_the_loot_hash_and_table_version_once`.
 - [ ] **Step 2:** run (FAIL), implement, run (PASS).
 - [ ] **Step 3: Commit.** `Phase 13 Stage 8: process sessions with build checks, ready with pool and objective validation, process heartbeat and lease`.
 
@@ -632,7 +755,7 @@ Fix Critical and Important findings in one pass, each with a failing test first.
 **Files:** `src/Accounts.Persistence/Attempts/StartStore.cs`, `ProcessEndpoints.cs`; tests `StartTests`, `StartConcurrencyTests`.
 
 - **One READ COMMITTED transaction, Start lock order:**
-  1. Session check.
+  1. Session check. An already started participant answers its stored result here, before the deadline check (B8).
   2. The participant must have a ticket redeemed by this session (`NotRedeemed` otherwise).
   3. `clock > join_deadline` → `DeadlinePassed` (§B8).
   4. Participant `admitted` → `joined` with `started_at = clock`.
@@ -646,6 +769,7 @@ Fix Critical and Important findings in one pass, each with a failing test first.
   - `A_zero_cost_start_charges_with_no_ledger_entry`;
   - `A_start_without_a_redeemed_ticket_is_NotRedeemed`;
   - `A_start_after_the_join_deadline_is_DeadlinePassed_and_the_worker_then_releases`;
+  - `A_lost_start_acknowledgement_retried_after_the_join_deadline_returns_the_stored_result` (B8);
   - `A_start_after_cancel_is_409_Cancelled`;
   - `A_start_and_a_cancel_race_and_exactly_one_wins`;
   - `A_start_and_the_join_deadline_race_and_exactly_one_wins`;
@@ -663,7 +787,7 @@ Fix Critical and Important findings in one pass, each with a failing test first.
   - `The_whole_lifecycle_to_running_is_driven_over_HTTP`: host register (store call), build allow, heartbeat, deploy, claim, launching, register, ready, mint, redeem, start, heartbeat. Assertions: energy charged once, inventory locked, `GET` shows `running`;
   - `No_log_or_client_body_in_a_whole_lifecycle_contains_the_seed_or_salt` (capturing logger over every category; every client and agent body; the seed's decimal and the salt's hex and base64);
   - `Every_client_and_agent_dto_has_no_seed_salt_or_credential_hash_member` (reflection);
-  - `A_database_outage_during_running_never_voids`: refuse connections past both leases, run sweeps (which fail), restore, sweep. Expected: at most `unresponsive`, then `running` on heartbeat; participant `joined`; hold `charged`; no `release` or refund;
+  - `A_database_outage_during_running_never_voids`: take only this test's database offline (`allow_connections false` and terminate its backends; never the shared container) past both leases, run sweeps (which fail), restore, sweep. Expected: at most `unresponsive`, then `running` on heartbeat; participant `joined`; hold `charged`; no `release` or refund;
   - `An_API_restart_during_running_changes_nothing`;
   - `A_lapsed_host_lease_never_cancels_a_running_attempt`;
   - `A_backend_restart_before_start_keeps_the_deadlines_authoritative` (database time).
