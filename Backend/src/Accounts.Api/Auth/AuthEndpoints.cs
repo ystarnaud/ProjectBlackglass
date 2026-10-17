@@ -17,7 +17,15 @@ public static class AuthEndpoints
         [property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId);
 
     /// <param name="Energy">The projected energy balance; null when the account has no wallet yet (owner ruling E3), never a zero balance.</param>
-    public sealed record MeResponse([property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId, long? InventoryVersion, EnergyDto? Energy);
+    /// <param name="ActiveAttemptId">The attempt of the account's active participation (Stage 7), or null.</param>
+    /// <param name="Insurance">The account-level coverage at the read's database now (Stage 7).</param>
+    public sealed record MeResponse([property: JsonConverter(typeof(AccountIdJsonConverter))] long AccountId, long? InventoryVersion, EnergyDto? Energy,
+        Guid? ActiveAttemptId, InsuranceDto Insurance);
+
+    /// <summary>The account-level coverage (Stage 7): whether it is in force at the read's database now (starts_at &lt;= now
+    /// &lt; expires_at), and the policy and expiry of the coverage row (an expired one included; UTC, ISO-8601 with 'Z'). With
+    /// no coverage at all: <c>{active: false, policyId: null, expiresAt: null}</c>.</summary>
+    public sealed record InsuranceDto(bool Active, string? PolicyId, DateTime? ExpiresAt);
 
     /// <summary>A wallet projected to the database clock (Stage 6): the balance (which may exceed the cap, E6), the cap of the
     /// policy it is measured under, and when the next unit lands (UTC, ISO-8601 with 'Z'), or null at or above the cap.</summary>
@@ -67,7 +75,8 @@ public static class AuthEndpoints
             var account = AccountClaims.AccountOf(http.User);
             var me = await players.GetMeAsync(account, http.RequestAborted);
             var energy = me.Energy is { } e ? new EnergyDto(e.Balance, e.Cap, e.NextRegenAt) : null;
-            return Results.Ok(new MeResponse(account, me.InventoryVersion, energy));
+            return Results.Ok(new MeResponse(account, me.InventoryVersion, energy, me.ActiveAttemptId,
+                new InsuranceDto(me.Insurance.Active, me.Insurance.PolicyId, me.Insurance.ExpiresAt)));
         }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
     }
 

@@ -3,6 +3,7 @@ using Dapper;
 using Npgsql;
 using Blackglass.Accounts.Domain.Advancement;
 using Blackglass.Accounts.Domain.Catalogue;
+using Blackglass.Accounts.Domain.Insurance;
 using Blackglass.Accounts.Persistence.Energy;
 
 namespace Blackglass.Accounts.Persistence.Player;
@@ -20,7 +21,17 @@ public sealed record EquipmentView(long? Weapon, long? Armor, long? Utility);
 public sealed record BagView(long OperativeId, LocationView Bag, EquipmentView Equipment);
 
 /// <param name="Energy">The projected wallet, or null when the account has none (owner ruling E3), never a zero balance.</param>
-public sealed record MeView(long? InventoryVersion, EnergyView? Energy);
+/// <param name="ActiveAttemptId">The attempt of the account's one active participation (S7-D4's active states), or null.</param>
+/// <param name="Insurance">The account-level coverage at the read's now.</param>
+public sealed record MeView(long? InventoryVersion, EnergyView? Energy, Guid? ActiveAttemptId, InsuranceView Insurance);
+
+/// <summary>The account's coverage: Active per <see cref="CoverageMath.IsActive"/> at the
+/// read's database now; the policy and expiry of the coverage row (an expired one included), both null when there is none.</summary>
+public sealed record InsuranceView(bool Active, string? PolicyId, DateTime? ExpiresAt)
+{
+    public static readonly InsuranceView None = new(false, null, null);
+}
+
 /// <param name="Locked">Whether the account is in a mission (the mandatory <see cref="IInventoryLock"/>: an active mission participation, S7-D4); a failed lock query fails the read, never false.</param>
 public sealed record InventoryView(long Version, bool Locked, LocationView Stash, IReadOnlyList<BagView> Operatives);
 
@@ -47,7 +58,8 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, IInventoryLock inventor
     }
 
     /// <summary>
-    /// <c>GET /v1/me</c>: the inventory version and the projected energy (null without a wallet, E3; nothing is created). Unlike
+    /// <c>GET /v1/me</c>: the inventory version, the projected energy (null without a wallet, E3; nothing is created), the
+    /// attempt of the active participation and the insurance coverage at the read's now (Stage 7), all from one statement. Unlike
     /// the other reads this is a <c>read committed, read only</c> transaction, never <see cref="BeginSnapshotAsync"/>: the
     /// shared policy lock comes first, then one statement, whose snapshot is taken after the lock (a REPEATABLE READ snapshot
     /// would predate the lock wait; <see cref="EnergyReader.LockSharedAndReadMeAsync"/>). The projection is in memory only.
@@ -59,7 +71,8 @@ public sealed class PlayerReadStore(NpgsqlDataSource db, IInventoryLock inventor
         await conn.ExecuteAsync(new CommandDefinition("set transaction read only", transaction: tx, cancellationToken: ct));
         var read = await EnergyReader.LockSharedAndReadMeAsync(conn, tx, accountId, ct);
         var energy = read.Wallet is null ? null : EnergyReader.Project(read.Wallet, read.Policies, read.Now);
-        return new MeView(read.InventoryVersion, energy);
+        var insurance = read.Coverage is { } c ? new InsuranceView(CoverageMath.IsActive(c.StartsAt, c.ExpiresAt, read.Now), c.PolicyId, c.ExpiresAt) : InsuranceView.None;
+        return new MeView(read.InventoryVersion, energy, read.ActiveAttemptId, insurance);
     }
 
     public async Task<RosterView> GetRosterAsync(long accountId, CancellationToken ct = default)

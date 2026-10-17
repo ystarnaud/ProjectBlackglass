@@ -101,7 +101,7 @@ public class DtoAuditTests
         var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         const long id = 9007199254740993; // 2^53 + 1: a JSON number would lose it in JavaScript
         var expected = $"\"accountId\":\"{AccountId.Format(id)}\"";
-        Assert.Contains(expected, JsonSerializer.Serialize(new AuthEndpoints.MeResponse(id, null, null), web));
+        Assert.Contains(expected, JsonSerializer.Serialize(new AuthEndpoints.MeResponse(id, null, null, null, new AuthEndpoints.InsuranceDto(false, null, null)), web));
         Assert.Contains(expected, JsonSerializer.Serialize(new AuthEndpoints.LoginResponse("at1_x", DateTimeOffset.UnixEpoch, id), web));
         Assert.Contains(expected, JsonSerializer.Serialize(new AdminEndpoints.CreateAccountResponse(id, Guid.Empty, "dk1_x"), web));
     }
@@ -145,18 +145,28 @@ public class DtoAuditTests
     }
 
     [Fact]
+    public void Me_insurance_serializes_its_expiry_as_UTC_ISO_8601_with_Z_and_the_attempt_as_a_canonical_uuid()
+    {
+        var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var attempt = Guid.Parse("0190d1e2-0000-7000-8000-00000000abcd");
+        var text = JsonSerializer.Serialize(new AuthEndpoints.MeResponse(1, 3, null, attempt,
+            new AuthEndpoints.InsuranceDto(true, "standard", new DateTime(2026, 10, 18, 12, 0, 0, DateTimeKind.Utc).AddTicks(10))), web);
+        Assert.EndsWith("\"energy\":null,\"activeAttemptId\":\"0190d1e2-0000-7000-8000-00000000abcd\",\"insurance\":{\"active\":true,\"policyId\":\"standard\",\"expiresAt\":\"2026-10-18T12:00:00.000001Z\"}}", text);
+    }
+
+    [Fact]
     public void Me_energy_serializes_nextRegenAt_as_UTC_ISO_8601_with_Z()
     {
         // System.Text.Json writes a UTC-kind DateTime with 'Z' (a DateTimeOffset would write "+00:00"), trimming trailing
         // zero fraction digits: whole microseconds give at most six.
         var web = new JsonSerializerOptions(JsonSerializerDefaults.Web);
         var at = new DateTime(2026, 10, 16, 12, 0, 0, DateTimeKind.Utc);
-        string Me(DateTime? next) => JsonSerializer.Serialize(new AuthEndpoints.MeResponse(1, 3, new AuthEndpoints.EnergyDto(10, 50, next)), web);
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(1)}\",\"inventoryVersion\":3,\"energy\":{{\"balance\":10,\"cap\":50,\"nextRegenAt\":\"2026-10-16T12:00:00.123456Z\"}}}}",
+        string Me(DateTime? next) => JsonSerializer.Serialize(new AuthEndpoints.MeResponse(1, 3, new AuthEndpoints.EnergyDto(10, 50, next), null, new AuthEndpoints.InsuranceDto(false, null, null)), web);
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(1)}\",\"inventoryVersion\":3,\"energy\":{{\"balance\":10,\"cap\":50,\"nextRegenAt\":\"2026-10-16T12:00:00.123456Z\"}},\"activeAttemptId\":null,\"insurance\":{{\"active\":false,\"policyId\":null,\"expiresAt\":null}}}}",
             Me(at.AddTicks(1_234_560)));
         Assert.Contains("\"nextRegenAt\":\"2026-10-16T12:00:00.00001Z\"", Me(at.AddTicks(100)));
         Assert.Contains("\"nextRegenAt\":\"2026-10-16T12:00:00Z\"", Me(at));
         Assert.Contains("\"nextRegenAt\":null", Me(null));
-        Assert.EndsWith("\"energy\":null}", JsonSerializer.Serialize(new AuthEndpoints.MeResponse(1, null, null), web));
+        Assert.Contains("\"energy\":null,", JsonSerializer.Serialize(new AuthEndpoints.MeResponse(1, null, null, null, new AuthEndpoints.InsuranceDto(false, null, null)), web));
     }
 }

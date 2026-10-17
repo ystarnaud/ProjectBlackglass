@@ -23,7 +23,8 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 /// {code[, index]} (409, 422, 503 ServiceUnavailable with Retry-After) and the 201 body exactly as stored in deploy_requests.
 /// The account comes only from the session; another account's operative is answered exactly like an unknown one. Every
 /// admitting test has a fresh development host fixture and runs serve with BLACKGLASS_DEV_HOSTS=enabled; one test proves
-/// that with fixtures disabled admission is 503.
+/// that with fixtures disabled admission is 503. Task 7 adds GET /v1/attempts/{id} and POST /v1/attempts/{id}/cancel: another
+/// account's attempt, an unknown one and a malformed id are the same 404, and the cancel answers the released energy once.
 /// </summary>
 [Trait("Requires", "Postgres")]
 public class AttemptApiTests : IAsyncLifetime
@@ -431,6 +432,175 @@ public class AttemptApiTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, inventory.Status);
         Assert.True(Json(inventory.Body).GetProperty("locked").GetBoolean());
         Assert.Equal(1L, await ScalarAsync<long>("select version from inventories where account_id = @a", new { a = p.Account }));
+    }
+
+    // ---- read and cancel (Task 7) -------------------------------------------------------------------------------------------
+
+    static HttpRequestMessage GetAttempt(string? token, string id) => As(token, HttpMethod.Get, "/v1/attempts/" + id);
+
+    static HttpRequestMessage Cancel(string? token, string id) => As(token, HttpMethod.Post, "/v1/attempts/" + id + "/cancel");
+
+    async Task<string> DeployedAsync(ApiServer api, Player p, string? key = null)
+    {
+        var (status, body, _) = await SendAsync(api, Deploy(p.Token, Body(p.Operatives[0]), key ?? NewKey()));
+        Assert.True(HttpStatusCode.Created == status, $"{(int)status} {body}");
+        return Json(body).GetProperty("attemptId").GetString()!;
+    }
+
+    [Fact]
+    public async Task Get_attempt_returns_the_participation()
+    {
+        var api = await StartAsync();
+        var p = await PlayerAsync(api);
+        var id = await DeployedAsync(api, p);
+
+        var (status, body, response) = await SendAsync(api, GetAttempt(p.Token, id));
+
+        Assert.True(HttpStatusCode.OK == status, $"{(int)status} {body}");
+        Assert.True(response.Headers.CacheControl!.NoStore);
+        var json = Json(body);
+        Assert.Equal(["attemptId", "deadlines", "energy", "insurance", "participantState", "state"], json.EnumerateObject().Select(m => m.Name).Order(StringComparer.Ordinal).ToArray());
+        Assert.Equal(id, json.GetProperty("attemptId").GetString());
+        Assert.Equal(("admitted", "admitted"), (json.GetProperty("state").GetString(), json.GetProperty("participantState").GetString()));
+        Assert.Equal(["assign"], json.GetProperty("deadlines").EnumerateObject().Select(m => m.Name).ToArray()); // no join until Stage 8
+        var assign = json.GetProperty("deadlines").GetProperty("assign").GetString()!;
+        Assert.EndsWith("Z", assign);
+        Assert.Equal(await ScalarAsync<DateTime>("select assign_deadline from mission_attempts where attempt_id = @a::uuid", new { a = id }),
+            DateTime.Parse(assign, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.RoundtripKind));
+        Assert.Equal("""{"amount":10,"state":"reserved"}""", json.GetProperty("energy").GetRawText());
+        Assert.Equal("""{"covered":false,"policyId":null,"policyVersion":null}""", json.GetProperty("insurance").GetRawText());
+    }
+
+    [Fact]
+    public async Task Get_attempt_is_404_for_another_account()
+    {
+        var api = await StartAsync(new() { ["BLACKGLASS_RATE_REQUESTS_PER_MINUTE"] = "1000" });
+        var p = await PlayerAsync(api);
+        var other = await PlayerAsync(api);
+        var theirs = await DeployedAsync(api, other);
+        var before = await StateAsync();
+
+        // Another account's attempt, an unknown one and an id that is not a canonical UUID are all the same 404, byte for byte,
+        // for the read and for the cancel; nothing is written.
+        var answers = new List<(HttpStatusCode Status, string Body, HttpResponseMessage Response)>();
+        foreach (var id in new[] { theirs, NewKey(), "not-a-uuid", theirs.ToUpperInvariant(), "{" + theirs + "}", theirs.Replace("-", "") })
+        {
+            answers.Add(await SendAsync(api, GetAttempt(p.Token, id)));
+            answers.Add(await SendAsync(api, Cancel(p.Token, id)));
+        }
+        foreach (var answer in answers) AssertProblem(answer, HttpStatusCode.NotFound, "AttemptNotFound");
+        Assert.Single(answers.Select(r => r.Body).Distinct(StringComparer.Ordinal));
+        Assert.Equal(before, await StateAsync());
+        Assert.Equal("admitted", await ScalarAsync<string>("select state from mission_attempts where attempt_id = @a::uuid", new { a = theirs }));
+
+        // No session: the uniform 401.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(api, GetAttempt(null, theirs))).Status);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await SendAsync(api, Cancel(null, theirs))).Status);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(api, GetAttempt(other.Token, theirs))).Status); // its owner reads it
+    }
+
+    [Fact]
+    public async Task Cancel_is_200_with_the_released_energy_once_and_409_after_start()
+    {
+        var api = await StartAsync();
+        var p = await PlayerAsync(api);
+        var id = await DeployedAsync(api, p);
+
+        var (status, body, response) = await SendAsync(api, Cancel(p.Token, id));
+        Assert.True(HttpStatusCode.OK == status, $"{(int)status} {body}");
+        Assert.True(response.Headers.CacheControl!.NoStore);
+        Assert.Equal("""{"participantState":"released","energy":{"released":10,"balanceAfter":50}}""", body);
+        var repeat = await SendAsync(api, Cancel(p.Token, id)); // the stored outcome, nothing written again
+        Assert.Equal((HttpStatusCode.OK, body), (repeat.Status, repeat.Body));
+        Assert.Equal(1L, await ScalarAsync<long>("select count(*) from energy_ledger where kind = 'release'"));
+        var read = Json((await SendAsync(api, GetAttempt(p.Token, id))).Body);
+        Assert.Equal(("cancelled", "released", "released"), (read.GetProperty("state").GetString(), read.GetProperty("participantState").GetString(),
+            read.GetProperty("energy").GetProperty("state").GetString()));
+
+        // After start (assigned here by SQL), a cancel is 409 InvalidState with nothing written.
+        var started = await DeployedAsync(api, p);
+        await ExecuteAsSuperuserAsync(db, "update mission_attempts set state = 'assigned' where attempt_id = @a::uuid", new { a = started });
+        var before = await StateAsync();
+        AssertProblem(await SendAsync(api, Cancel(p.Token, started)), HttpStatusCode.Conflict, "InvalidState");
+        Assert.Equal(before, await StateAsync());
+    }
+
+    [Fact]
+    public async Task After_release_the_account_may_deploy_again()
+    {
+        var api = await StartAsync();
+        var p = await PlayerAsync(api);
+        var key = NewKey();
+        var first = await SendAsync(api, Deploy(p.Token, Body(p.Operatives[0]), key));
+        Assert.Equal(HttpStatusCode.Created, first.Status);
+        var firstId = Json(first.Body).GetProperty("attemptId").GetString()!;
+        AssertProblem(await SendAsync(api, Deploy(p.Token, Body(p.Operatives[0]), NewKey())), HttpStatusCode.Conflict, "AttemptActive");
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(api, Cancel(p.Token, firstId))).Status);
+
+        // A new key admits a new attempt from the restored balance.
+        var second = await SendAsync(api, Deploy(p.Token, Body(p.Operatives[0]), NewKey()));
+        Assert.True(HttpStatusCode.Created == second.Status, $"{(int)second.Status} {second.Body}");
+        Assert.NotEqual(firstId, Json(second.Body).GetProperty("attemptId").GetString());
+        Assert.Equal(40, Json(second.Body).GetProperty("energy").GetProperty("balanceAfter").GetInt32());
+
+        // The original key still replays its recorded 201 body: no new reservation, and the released attempt stays released.
+        var replay = await SendAsync(api, Deploy(p.Token, Body(p.Operatives[0]), key));
+        Assert.Equal((HttpStatusCode.Created, first.Body), (replay.Status, replay.Body));
+        Assert.Equal((2L, 2L, 1L), (await ScalarAsync<long>("select count(*) from mission_attempts"), await ScalarAsync<long>("select count(*) from energy_ledger where kind = 'reserve'"),
+            await ScalarAsync<long>("select count(*) from energy_ledger where kind = 'release'")));
+        Assert.Equal("cancelled", Json((await SendAsync(api, GetAttempt(p.Token, firstId))).Body).GetProperty("state").GetString());
+    }
+
+    [Fact]
+    public async Task Get_attempt_never_shows_seed_or_salt()
+    {
+        var secrets = new FixedSecrets(1_987_654_321, Enumerable.Range(0, 32).Select(i => (byte)(0x5C ^ (i * 11))).ToArray());
+        var logs = new CapturingLoggerProvider();
+        var api = await StartAsync(configure: b =>
+        {
+            b.Logging.ClearProviders();
+            b.Logging.SetMinimumLevel(LogLevel.Trace);
+            b.Logging.AddProvider(logs);
+            b.Services.AddSingleton<IAttemptSecrets>(secrets);
+        });
+        var p = await PlayerAsync(api);
+        var id = await DeployedAsync(api, p);
+        var bodies = new List<string>
+        {
+            (await SendAsync(api, GetAttempt(p.Token, id))).Body,
+            (await SendAsync(api, Cancel(p.Token, id))).Body,
+            (await SendAsync(api, Cancel(p.Token, id))).Body,
+            (await SendAsync(api, GetAttempt(p.Token, id))).Body,
+        };
+
+        Assert.Equal(secrets.Seed, await ScalarAsync<int>("select seed from mission_attempts"));
+        Assert.Contains("attemptId", bodies[0]);
+        foreach (var body in bodies)
+        {
+            Assert.DoesNotContain("seed", body, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("salt", body, StringComparison.OrdinalIgnoreCase);
+        }
+        var text = string.Join('\n', bodies) + '\n' + logs.Text;
+        Assert.Contains("/v1/attempts/" + id, logs.Text); // the capture saw the requests
+        foreach (var value in new[]
+                 {
+                     secrets.Seed.ToString(System.Globalization.CultureInfo.InvariantCulture), Convert.ToHexStringLower(secrets.Salt), Convert.ToHexString(secrets.Salt),
+                     Convert.ToBase64String(secrets.Salt).TrimEnd('='), Convert.ToHexStringLower(secrets.Salt[..8]),
+                 })
+            Assert.DoesNotContain(value, text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Reads_and_cancels_are_rate_limited_per_account()
+    {
+        var api = await StartAsync(new() { ["BLACKGLASS_RATE_REQUESTS_PER_MINUTE"] = "2" });
+        var p = await PlayerAsync(api);
+        var id = await DeployedAsync(api, p); // the deploy route has its own window
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(api, GetAttempt(p.Token, id))).Status);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(api, Cancel(p.Token, id))).Status);
+        var limited = await SendAsync(api, Cancel(p.Token, id));
+        Assert.Equal(HttpStatusCode.TooManyRequests, limited.Status);
+        Assert.Equal("60", limited.Response.Headers.GetValues("Retry-After").Single());
     }
 
     /// <summary>Known, distinctive secrets, so the test can look for them; never used outside tests.</summary>

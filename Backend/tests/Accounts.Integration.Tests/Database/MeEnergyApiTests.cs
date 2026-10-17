@@ -22,7 +22,8 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 /// policy lock: it never writes a wallet, an entry or an anchor, and an account without a wallet reads <c>energy: null</c>,
 /// never a zero balance. Time is never mocked: wallets are reopened as the superuser under
 /// <c>session_replication_role = replica</c> with a backdated anchor, consistently with their ledger, and every expected
-/// time derives from the stored anchor. The 0000-0006 invariants hold after every test.
+/// time derives from the stored anchor. Stage 7 adds the active attempt and the insurance coverage, read in the same
+/// statement. The 0000-0007 invariants hold after every test.
 /// </summary>
 [Trait("Requires", "Postgres")]
 public class MeEnergyApiTests : IAsyncLifetime
@@ -156,17 +157,18 @@ public class MeEnergyApiTests : IAsyncLifetime
     // ---- shape and projection ----
 
     [Fact]
-    public async Task Me_returns_exactly_accountId_inventoryVersion_and_energy()
+    public async Task Me_returns_exactly_accountId_inventoryVersion_energy_activeAttemptId_and_insurance()
     {
         await using var api = await ApiServer.StartAsync(db, DevOn);
         var (account, token) = await PlayerAsync(api);
         var text = await MeTextAsync(api, token);
 
         var root = JsonDocument.Parse(text).RootElement;
-        Assert.Equal(["accountId", "inventoryVersion", "energy"], root.EnumerateObject().Select(p => p.Name).ToArray());
+        Assert.Equal(["accountId", "inventoryVersion", "energy", "activeAttemptId", "insurance"], root.EnumerateObject().Select(p => p.Name).ToArray());
+        Assert.Equal(["active", "policyId", "expiresAt"], root.GetProperty("insurance").EnumerateObject().Select(p => p.Name).ToArray());
         Assert.Equal(["balance", "cap", "nextRegenAt"], root.GetProperty("energy").EnumerateObject().Select(p => p.Name).ToArray());
         // A new account's wallet opens full (E1): at the cap, regeneration is paused, so there is no next unit.
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account)}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}}}}", text);
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account)}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}},\"activeAttemptId\":null,\"insurance\":{{\"active\":false,\"policyId\":null,\"expiresAt\":null}}}}", text);
     }
 
     [Fact]
@@ -258,7 +260,7 @@ public class MeEnergyApiTests : IAsyncLifetime
         var footprint = await FootprintAsync(account);
 
         var text = await MeTextAsync(api, token);
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account)}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":70,\"cap\":50,\"nextRegenAt\":null}}}}", text);
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account)}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":70,\"cap\":50,\"nextRegenAt\":null}},\"activeAttemptId\":null,\"insurance\":{{\"active\":false,\"policyId\":null,\"expiresAt\":null}}}}", text);
         Assert.Equal(footprint, await FootprintAsync(account)); // a materialization would reset the progress; the projection writes nothing
     }
 
@@ -270,7 +272,7 @@ public class MeEnergyApiTests : IAsyncLifetime
         await RemoveWalletAsync(account); // as an account created before Stage 6 is, until `energy open`
 
         var text = await MeTextAsync(api, token);
-        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account)}\",\"inventoryVersion\":1,\"energy\":null}}", text);
+        Assert.Equal($"{{\"accountId\":\"{AccountId.Format(account)}\",\"inventoryVersion\":1,\"energy\":null,\"activeAttemptId\":null,\"insurance\":{{\"active\":false,\"policyId\":null,\"expiresAt\":null}}}}", text);
         Assert.Equal(JsonValueKind.Null, EnergyOf(text).ValueKind);
         Assert.Equal(0L, await ScalarAsync<long>("select count(*) from energy_wallets where account_id = @account", new { account }));
         Assert.Equal(0L, await ScalarAsync<long>("select count(*) from energy_ledger where account_id = @account", new { account }));
@@ -394,7 +396,7 @@ public class MeEnergyApiTests : IAsyncLifetime
         Assert.Equal(footprint, await FootprintAsync(issued.AccountId));
 
         var nobody = await new PlayerReadStore(db.AsApp(), new ParticipationLock()).GetMeAsync(424242, default);
-        Assert.Equal(new MeView(null, null), nobody);
+        Assert.Equal(new MeView(null, null, null, InsuranceView.None), nobody);
     }
 
     [Fact]
@@ -425,6 +427,84 @@ public class MeEnergyApiTests : IAsyncLifetime
 
         await ExecuteAsSuperuserAsync(db,
             "drop policy bg_test_read_only_only on energy_policies; alter table energy_policies no force row level security; alter table energy_policies disable row level security");
+    }
+
+    // ---- the active attempt and insurance (Stage 7) ----
+
+    /// <summary>An admitted solo participation and an insurance coverage written together, in one superuser transaction that is
+    /// left open for the caller to commit (the attempt fixture's rows and a coverage with its activation).</summary>
+    async Task<(NpgsqlConnection Conn, NpgsqlTransaction Tx, Guid Attempt, DateTime ExpiresAt)> BeginAdmissionWithCoverageAsync(long account)
+    {
+        var conn = await db.AsSuperuser().OpenConnectionAsync();
+        var tx = await conn.BeginTransactionAsync();
+        var attempt = Guid.CreateVersion7();
+        var activation = Guid.CreateVersion7();
+        var expiresAt = await conn.ExecuteScalarAsync<DateTime>("select date_trunc('second', clock_timestamp()) + interval '1 day'", transaction: tx);
+        await conn.ExecuteAsync(
+            """
+            insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline)
+            values (@attempt, @account, 'procedural-standard', 1, 12345, @salt, clock_timestamp() + interval '60 seconds');
+            insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost)
+            values (@attempt, @account, 'procedural-standard', 1, '{"operatives":[]}'::jsonb, 1, 0);
+            insert into energy_holds (attempt_id, account_id, amount) values (@attempt, @account, 0);
+            insert into insurance_activations (activation_id, account_id, policy_id, policy_version, duration, previous_expires_at, resulting_expires_at, source, idempotency_key)
+            values (@activation, @account, 'standard', 1, interval '2 days', null, @expiresAt, 'dev_grant', gen_random_uuid());
+            insert into insurance_coverages (account_id, policy_id, policy_version, activation_id, starts_at, expires_at)
+            values (@account, 'standard', 1, @activation, @expiresAt - interval '2 days', @expiresAt);
+            """, new { attempt, account, activation, expiresAt, salt = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) }, tx);
+        return (conn, tx, attempt, expiresAt);
+    }
+
+    [Fact]
+    public async Task Me_shows_the_active_attempt_and_insurance()
+    {
+        await using var api = await ApiServer.StartAsync(db, DevOn);
+        var (account, token) = await PlayerAsync(api);
+        var id = AccountId.Format(account);
+        const string Energy = "\"energy\":{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}";
+
+        // None yet: no attempt, no coverage (both fields present, both empty).
+        Assert.Equal($"{{\"accountId\":\"{id}\",\"inventoryVersion\":1,{Energy},\"activeAttemptId\":null,\"insurance\":{{\"active\":false,\"policyId\":null,\"expiresAt\":null}}}}",
+            await MeTextAsync(api, token));
+
+        // An admission and a coverage that commit while /v1/me waits on the shared policy lock are seen whole: the attempt, the
+        // coverage, the inventory version and the energy all come from the one statement taken after the lock.
+        var (conn, tx, attempt, expiresAt) = await BeginAdmissionWithCoverageAsync(account);
+        await using (conn)
+        await using (tx)
+        {
+            Assert.EndsWith("\"activeAttemptId\":null,\"insurance\":{\"active\":false,\"policyId\":null,\"expiresAt\":null}}", await MeTextAsync(api, token)); // in flight: unseen
+            await using var holder = await db.AsSuperuser().OpenConnectionAsync();
+            await using var holderTx = await holder.BeginTransactionAsync();
+            await holder.ExecuteAsync("select pg_advisory_xact_lock(@key)", new { key = EnergyPolicies.PublicationLockKey }, holderTx);
+            var waiting = MeTextAsync(api, token);
+            await WaitForLockWaitersAsync();
+            Assert.False(waiting.IsCompleted);
+            await tx.CommitAsync();
+            await holderTx.CommitAsync();
+            Assert.Equal($"{{\"accountId\":\"{id}\",\"inventoryVersion\":1,{Energy},\"activeAttemptId\":\"{attempt:D}\",\"insurance\":{{\"active\":true,\"policyId\":\"standard\",\"expiresAt\":\"{expiresAt.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture)}\"}}}}", await waiting);
+        }
+
+        // Released: no active attempt any more; the coverage is still in force.
+        await AttemptFixtures.ReleaseAsync(db, attempt);
+        var released = JsonDocument.Parse(await MeTextAsync(api, token)).RootElement;
+        Assert.Equal(JsonValueKind.Null, released.GetProperty("activeAttemptId").ValueKind);
+        Assert.True(released.GetProperty("insurance").GetProperty("active").GetBoolean());
+
+        // Expired (moved into the past as the superuser, under replica: the coverage trigger forbids it otherwise): not active,
+        // but its policy and expiry are still shown.
+        await AsReplicaAsync(
+            "update insurance_coverages set starts_at = clock_timestamp() - interval '2 days', expires_at = clock_timestamp() - interval '1 day' where account_id = @account",
+            new { account });
+        var expiredAt = await ScalarAsync<DateTime>("select expires_at from insurance_coverages where account_id = @account", new { account });
+        var insurance = JsonDocument.Parse(await MeTextAsync(api, token)).RootElement.GetProperty("insurance");
+        Assert.False(insurance.GetProperty("active").GetBoolean());
+        Assert.Equal("standard", insurance.GetProperty("policyId").GetString());
+        Assert.Equal(expiredAt, DateTime.Parse(insurance.GetProperty("expiresAt").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+
+        // Another account's attempt and coverage are never shown.
+        var (_, otherToken) = await PlayerAsync(api);
+        Assert.EndsWith("\"activeAttemptId\":null,\"insurance\":{\"active\":false,\"policyId\":null,\"expiresAt\":null}}", await MeTextAsync(api, otherToken));
     }
 
     // ---- headers and failures, as before ----

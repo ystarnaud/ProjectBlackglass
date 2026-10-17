@@ -31,4 +31,14 @@ public class AttemptRefusalMappingTests
         Assert.Equal(all.Order(), Expected.Keys.Order()); // a new member must be given its expected status here too
         foreach (var error in all) Assert.Equal(Expected[error], AttemptEndpoints.StatusFor(error));
     }
+
+    [Fact]
+    public void Every_AttemptError_maps_to_its_status()
+    {
+        // Task 7: an unknown or foreign attempt is 404 (one code for both), a cancel after start is 409 InvalidState.
+        var expected = new Dictionary<AttemptError, int> { [AttemptError.NotFound] = 404, [AttemptError.InvalidState] = 409 };
+        var all = Enum.GetValues<AttemptError>();
+        Assert.Equal(all.Order(), expected.Keys.Order());
+        foreach (var error in all) Assert.Equal(expected[error], AttemptEndpoints.StatusFor(error));
+    }
 }

@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Primitives;
 using Blackglass.Accounts.Api.Auth;
@@ -17,9 +18,18 @@ namespace Blackglass.Accounts.Api.Attempts;
 /// <see cref="StatusFor"/>; 503 ServiceUnavailable carries Retry-After. A database failure is not caught here: it flows to the
 /// database failure middleware (503, busy 503 with Retry-After, or 500). Nothing here retries. The route has its own
 /// per-account rate limit (<see cref="RateLimits.Deploy"/>).
+/// <para>
+/// GET /v1/attempts/{attemptId} and POST /v1/attempts/{attemptId}/cancel (Task 7; S7-D6, S7-D7): the path id is the canonical
+/// lower-case UUID; any other spelling, an unknown attempt and another account's attempt are the same 404
+/// <c>AttemptNotFound</c>. The read answers <see cref="AttemptResponse"/> (no join deadline until Stage 8; never the seed or
+/// the salt). The cancel answers 200 <see cref="CancelResponse"/> for a release and for a repeat (the stored outcome), and 409
+/// InvalidState after start. Both use the general per-account rate limit.
+/// </para>
 /// </summary>
 public static class AttemptEndpoints
 {
+    static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
+
     public const string IdempotencyKeyHeader = "Idempotency-Key";
 
     /// <summary>Retry-After on 503 ServiceUnavailable (no healthy capacity), in seconds; provisional.</summary>
@@ -49,7 +59,45 @@ public static class AttemptEndpoints
             }
             catch (AdmissionException e) { return Refusal(http, e); }
         }).RequireAuthorization().RequireRateLimiting(RateLimits.Deploy).WithMetadata(new RequestSizeLimitAttribute(settings.DeployMaxBodyBytes));
+
+        app.MapGet("/v1/attempts/{attemptId}", async (string attemptId, HttpContext http, AttemptStore attempts) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            if (!TryParseAttemptId(attemptId, out var id)) return NotFound();
+            var view = await attempts.GetAsync(AccountClaims.AccountOf(http.User), id, http.RequestAborted);
+            return view is null ? NotFound() : Results.Json(AttemptResponse.From(view), Web);
+        }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
+
+        app.MapPost("/v1/attempts/{attemptId}/cancel", async (string attemptId, HttpContext http, AttemptStore attempts) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            if (!TryParseAttemptId(attemptId, out var id)) return NotFound();
+            try
+            {
+                var outcome = await attempts.CancelAsync(AccountClaims.AccountOf(http.User), id, http.RequestAborted);
+                return Results.Json(new CancelResponse(outcome.ParticipantState, new CancelEnergyDto(outcome.Released, outcome.BalanceAfter)), Web);
+            }
+            catch (AttemptException e) { return Problem(StatusFor(e.Error), e.Error == AttemptError.NotFound ? AttemptNotFoundCode : e.Error.ToString()); }
+        }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
     }
+
+    /// <summary>The code of the one 404 the attempt routes answer, for an unknown attempt, another account's or a malformed id.</summary>
+    public const string AttemptNotFoundCode = "AttemptNotFound";
+
+    /// <summary>The status of every <see cref="AttemptError"/>; no default arm, so a new member is a compile error until mapped.</summary>
+#pragma warning disable CS8524
+    public static int StatusFor(AttemptError error) => error switch
+    {
+        AttemptError.NotFound => StatusCodes.Status404NotFound,
+        AttemptError.InvalidState => StatusCodes.Status409Conflict,
+    };
+#pragma warning restore CS8524
+
+    static IResult NotFound() => Problem(StatusCodes.Status404NotFound, AttemptNotFoundCode);
+
+    /// <summary>Exactly the canonical lower-case 8-4-4-4-12 spelling of a UUID, as the attempt id is answered.</summary>
+    static bool TryParseAttemptId(string text, out Guid id) =>
+        Guid.TryParseExact(text, "D", out id) && id.ToString("D") == text;
 
     /// <summary>
     /// The status of every <see cref="AdmissionError"/>. A switch with no default arm, so a new member is a compile error until

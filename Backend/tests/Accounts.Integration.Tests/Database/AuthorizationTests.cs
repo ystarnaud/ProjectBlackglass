@@ -72,7 +72,7 @@ public class AuthorizationTests : IAsyncLifetime
     [Fact]
     public async Task A_guessed_id_in_the_query_a_header_or_a_body_never_changes_whose_account_me_returns()
     {
-        var expected = $"{{\"accountId\":\"{IdA}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}}}}";
+        var expected = $"{{\"accountId\":\"{IdA}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}},\"activeAttemptId\":null,\"insurance\":{{\"active\":false,\"policyId\":null,\"expiresAt\":null}}}}";
         Assert.Equal(expected, await MeAsync(As(tokenA, HttpMethod.Get, $"/v1/me?accountId={IdB}")));
         Assert.Equal(expected, await MeAsync(As(tokenA, HttpMethod.Get, $"/v1/me?account_id={b.AccountId}&sub={b.AccountId}")));
         var header = As(tokenA, HttpMethod.Get, "/v1/me");
@@ -98,7 +98,7 @@ public class AuthorizationTests : IAsyncLifetime
         var response = await api.Http.SendAsync(As(tokenA, HttpMethod.Post, $"/v1/auth/logout?accountId={IdB}", $"{{\"accountId\":\"{IdB}\"}}"));
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await api.Http.SendAsync(As(tokenA, HttpMethod.Get, "/v1/me"))).StatusCode);
-        Assert.Equal($"{{\"accountId\":\"{IdB}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}}}}", await MeAsync(As(tokenB, HttpMethod.Get, "/v1/me")));
+        Assert.Equal($"{{\"accountId\":\"{IdB}\",\"inventoryVersion\":1,\"energy\":{{\"balance\":50,\"cap\":50,\"nextRegenAt\":null}},\"activeAttemptId\":null,\"insurance\":{{\"active\":false,\"policyId\":null,\"expiresAt\":null}}}}", await MeAsync(As(tokenB, HttpMethod.Get, "/v1/me")));
     }
 
     [Fact]

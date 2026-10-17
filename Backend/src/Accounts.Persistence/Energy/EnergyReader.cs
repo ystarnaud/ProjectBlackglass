@@ -1,6 +1,7 @@
 using Dapper;
 using Npgsql;
 using Blackglass.Accounts.Domain.Energy;
+using Blackglass.Accounts.Persistence.Attempts;
 
 namespace Blackglass.Accounts.Persistence.Energy;
 
@@ -17,8 +18,15 @@ public static class EnergyReader
 {
     /// <summary>What <see cref="LockSharedAndReadMeAsync"/> read: the inventory version (null without a provisioned
     /// inventory), the database clock, the wallet (null without one) and the policies from the wallet's version upward
-    /// (every version when there is no wallet), ascending.</summary>
-    internal sealed record MeSnapshot(long? InventoryVersion, DateTime Now, WalletState? Wallet, IReadOnlyList<EnergyPolicy> Policies);
+    /// (every version when there is no wallet), ascending; the attempt of the account's active participation (null without
+    /// one) and its insurance coverage row (null without one).</summary>
+    internal sealed record MeSnapshot(long? InventoryVersion, DateTime Now, WalletState? Wallet, IReadOnlyList<EnergyPolicy> Policies,
+        Guid? ActiveAttemptId, MeCoverage? Coverage);
+
+    /// <summary>The account's insurance coverage row as read (it may have expired).</summary>
+    internal sealed record MeCoverage(string PolicyId, DateTime StartsAt, DateTime ExpiresAt);
+
+    static readonly string[] ActiveStates = [.. AttemptStates.ActiveParticipant];
 
     /// <summary>
     /// Takes the shared publication lock (its own statement), then reads the inventory version, the wallet,
@@ -30,8 +38,8 @@ public static class EnergyReader
     /// every publication committed before the lock was granted is visible, none can commit while it is held, and the clock is
     /// read in that same statement. A REPEATABLE READ snapshot would be taken at the lock statement, before the wait, and a
     /// publication committed during the wait would be missing while the clock is read later: a retroactive projection.</item>
-    /// <item>One statement is one snapshot, so the inventory version and the wallet always come from the same instant: a
-    /// write that commits during the read is seen whole or not at all.</item>
+    /// <item>One statement is one snapshot, so the inventory version, the wallet, the active participation and the coverage
+    /// always come from the same instant: a write that commits during the read is seen whole or not at all.</item>
     /// </list>
     /// Requires a READ COMMITTED transaction; InvalidOperationException otherwise, before any statement. Never opens, commits
     /// or rolls back.
@@ -43,6 +51,8 @@ public static class EnergyReader
             "select pg_advisory_xact_lock_shared(@key)", new { key = EnergyPolicies.PublicationLockKey }, tx, cancellationToken: ct));
         // The materialized CTE evaluates the volatile clock once, for every row. The outer joins keep one row (the clock and the
         // inventory version) when there is no wallet; the policies start at the wallet's version, or at the first without one.
+        // The active participation (at most one: one_active_participation) and the coverage (at most one per account) repeat on
+        // every policy row. No row is locked.
         var rows = (await conn.QueryAsync<MeRow>(new CommandDefinition(
             """
             with clock as materialized (select clock_timestamp() as now),
@@ -50,14 +60,17 @@ public static class EnergyReader
               select balance, regen_anchor, regen_progress_us, policy_version from energy_wallets where account_id = @accountId)
             select clock.now as Now,
               (select i.version from inventories i where i.account_id = @accountId and i.starter_granted) as InventoryVersion,
+              (select ap.attempt_id from attempt_participants ap where ap.account_id = @accountId and ap.state = any(@activeStates)) as ActiveAttemptId,
+              c.policy_id as CoveragePolicyId, c.starts_at as CoverageStartsAt, c.expires_at as CoverageExpiresAt,
               w.balance as Balance, w.regen_anchor as RegenAnchor, w.regen_progress_us as ProgressMicros, w.policy_version as PolicyVersion,
               p.version as Version, p.cap as Cap, p.opening_balance as OpeningBalance, p.regen_interval as RegenInterval,
               p.regen_amount as RegenAmount, p.void_refund_pct as VoidRefundPct, p.effective_at as EffectiveAt
             from clock
               left join wallet w on true
+              left join insurance_coverages c on c.account_id = @accountId
               left join energy_policies p on p.version >= coalesce(w.policy_version, 1)
             order by p.version
-            """, new { accountId }, tx, cancellationToken: ct))).ToList();
+            """, new { accountId, activeStates = ActiveStates }, tx, cancellationToken: ct))).ToList();
 
         var first = rows[0];
         var now = Utc(first.Now);
@@ -72,7 +85,10 @@ public static class EnergyReader
                 throw new InvalidOperationException($"Energy policy version {version} is missing.");
             wallet = new WalletState(first.Balance!.Value, Utc(first.RegenAnchor!.Value), first.ProgressMicros!.Value, version);
         }
-        return new MeSnapshot(first.InventoryVersion, now, wallet, policies);
+        var coverage = first.CoveragePolicyId is { } policyId
+            ? new MeCoverage(policyId, Utc(first.CoverageStartsAt!.Value), Utc(first.CoverageExpiresAt!.Value))
+            : null;
+        return new MeSnapshot(first.InventoryVersion, now, wallet, policies, first.ActiveAttemptId, coverage);
     }
 
     /// <summary>
@@ -91,6 +107,7 @@ public static class EnergyReader
     static DateTime Utc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : throw new InvalidOperationException($"A timestamptz was read as {value.Kind}, not UTC.");
 
-    sealed record MeRow(DateTime Now, long? InventoryVersion, int? Balance, DateTime? RegenAnchor, long? ProgressMicros, int? PolicyVersion,
+    sealed record MeRow(DateTime Now, long? InventoryVersion, Guid? ActiveAttemptId, string? CoveragePolicyId, DateTime? CoverageStartsAt, DateTime? CoverageExpiresAt,
+        int? Balance, DateTime? RegenAnchor, long? ProgressMicros, int? PolicyVersion,
         int? Version, int? Cap, int? OpeningBalance, TimeSpan? RegenInterval, int? RegenAmount, int? VoidRefundPct, DateTime? EffectiveAt);
 }
