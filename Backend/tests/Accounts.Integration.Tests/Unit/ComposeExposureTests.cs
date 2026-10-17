@@ -97,6 +97,22 @@ public class ComposeExposureTests
     }
 
     [Fact]
+    public void The_compose_default_leaves_dev_hosts_disabled()
+    {
+        // S7-D2: development host fixtures never count as capacity unless an operator sets exactly "enabled" (never in
+        // production); both the API (the health check) and the admin CLI (host register-dev) read the same setting.
+        var lines = ComposeText.Lines("compose.yaml");
+        foreach (var service in new[] { "api", "admin" })
+        {
+            var env = ComposeText.Block(lines, "services", service, "environment").Select(l => l.Trim()).ToList();
+            Assert.Contains("BLACKGLASS_DEV_HOSTS: ${BLACKGLASS_DEV_HOSTS:-disabled}", env);
+            Assert.Contains("BLACKGLASS_HOST_LEASE_SECONDS: ${BLACKGLASS_HOST_LEASE_SECONDS:-}", env); // empty means the built-in default
+            Assert.Single(env, l => l.StartsWith("BLACKGLASS_DEV_HOSTS:", StringComparison.Ordinal));
+        }
+        Assert.DoesNotContain(ComposeText.Block(lines, "services", "migrate", "environment"), l => l.Contains("BLACKGLASS_DEV_HOSTS", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Test_cluster_publishes_only_55432()
     {
         Assert.Equal(["- \"127.0.0.1:55432:5432\""], Ports(ComposeText.Lines("compose.test.yaml"), "postgres"));

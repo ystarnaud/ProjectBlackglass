@@ -74,6 +74,9 @@ public class AdminArgumentsTests
     [InlineData("energy reconcile --operator o --reason r", false)]
     [InlineData("insurance policy publish --policy-id standard --terms-file t.json --operator o --reason r", false)]
     [InlineData("insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 60 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r", false)]
+    [InlineData("mission template publish --template-id procedural-standard --energy-cost 0 --min-operatives 1 --max-operatives 3 --operator o --reason r", false)]
+    [InlineData("host register-dev --host-id dev-1 --capacity 2 --operator o --reason r", false)]
+    [InlineData("host heartbeat-dev --host-id dev-1 --operator o --reason r", false)]
     public void Only_the_starter_granting_verbs_need_the_catalogue(string line, bool needs) =>
         Assert.Equal(needs, Parse(line).NeedsCatalogue);
 
@@ -81,7 +84,8 @@ public class AdminArgumentsTests
     public void Every_verb_is_classified_and_only_the_starter_granting_ones_need_the_catalogue() =>
         // A new verb fails this until it is listed here and classified in the theory above (security administration, or needing game definitions).
         Assert.Equal(new SortedSet<string>(["account-create", "account-reactivate", "account-suspend", "credential-revoke", "credential-rotate", "energy-grant", "energy-open",
-                "energy-policy-publish", "energy-reconcile", "insurance-activate", "insurance-policy-publish", "sessions-revoke", "starter-backfill"]),
+                "energy-policy-publish", "energy-reconcile", "host-heartbeat-dev", "host-register-dev", "insurance-activate", "insurance-policy-publish",
+                "mission-template-publish", "sessions-revoke", "starter-backfill"]),
             new SortedSet<string>(AdminArguments.KnownVerbs));
 
     [Fact]
@@ -141,6 +145,20 @@ public class AdminArgumentsTests
     [InlineData("insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 60 --idempotency-key not-a-uuid --operator o --reason r")]
     [InlineData("insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 60 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --terms-file t.json --operator o --reason r")]
     [InlineData("insurance policy --policy-id standard --operator o --reason r")]                         // unknown verb
+    [InlineData("mission template publish --template-id t --energy-cost 1 --min-operatives 1 --operator o --reason r")]                    // max missing
+    [InlineData("mission template publish --energy-cost 1 --min-operatives 1 --max-operatives 3 --operator o --reason r")]                 // template missing
+    [InlineData("mission template publish --template-id t --energy-cost ten --min-operatives 1 --max-operatives 3 --operator o --reason r")]
+    [InlineData("mission template publish --template-id t --energy-cost 1 --min-operatives 1 --max-operatives 3.0 --operator o --reason r")]
+    [InlineData("mission template publish --template-id t --energy-cost 1 --min-operatives 1 --max-operatives 3 --account-base58 BukQL --operator o --reason r")]
+    [InlineData("mission template --template-id t --operator o --reason r")]                             // unknown verb
+    [InlineData("host register-dev --host-id dev-1 --operator o --reason r")]                             // capacity missing
+    [InlineData("host register-dev --capacity 2 --operator o --reason r")]                                // host missing
+    [InlineData("host register-dev --host-id dev-1 --capacity two --operator o --reason r")]
+    [InlineData("host register-dev --host-id dev-1 --capacity 2 --account-base58 BukQL --operator o --reason r")]
+    [InlineData("host heartbeat-dev --operator o --reason r")]                                            // host missing
+    [InlineData("host heartbeat-dev --host-id dev-1 --capacity 2 --operator o --reason r")]               // a flag this verb doesn't take
+    [InlineData("host heartbeat-dev --host-id dev-1 --operator o --reason r --yes")]                      // nothing to confirm
+    [InlineData("host register --host-id dev-1 --capacity 2 --operator o --reason r")]                    // unknown verb
     [InlineData("account")]
     [InlineData("")]
     public void Bad_arguments_are_usage_errors(string line) =>
@@ -194,5 +212,31 @@ public class AdminArgumentsTests
         Assert.False(publish.IsEnergyVerb);
         Assert.Contains("insurance policy publish --policy-id", AdminArguments.Usage);
         Assert.Contains("insurance activate --account-base58", AdminArguments.Usage);
+    }
+
+    [Fact]
+    public void Mission_template_and_host_verbs_parse_their_values()
+    {
+        var publish = Parse("mission template publish --template-id procedural-standard --energy-cost 0 --min-operatives 1 --max-operatives 3 --operator o --reason r");
+        Assert.Equal(("mission-template-publish", new MissionTemplateValues("procedural-standard", 0, 1, 3), AdminConfirmation.Publish, false, null),
+            (publish.Verb, publish.Template, publish.Confirmation, publish.ChangesAnExistingAccount, publish.Account));
+        Assert.True(Parse("mission template publish --template-id t --energy-cost 1 --min-operatives 1 --max-operatives 3 --operator o --reason r --yes").Confirmed);
+        Assert.Equal(new MissionTemplateValues("Bad_Id", -1, 0, 99), // MissionTemplate refuses these before any connection, not the parser
+            Parse("mission template publish --template-id Bad_Id --energy-cost -1 --min-operatives 0 --max-operatives 99 --operator o --reason r").Template);
+        Assert.True(publish.IsMissionTemplateVerb);
+        Assert.False(publish.IsEnergyVerb || publish.IsInsuranceVerb || publish.IsHostVerb);
+
+        var register = Parse("host register-dev --host-id dev-1 --capacity 2 --operator o --reason r");
+        Assert.Equal(("host-register-dev", "dev-1", 2, AdminConfirmation.Register, false), (register.Verb, register.HostId, register.Capacity, register.Confirmation, register.ChangesAnExistingAccount));
+        Assert.True(Parse("host register-dev --host-id dev-1 --capacity 2 --yes --operator o --reason r").Confirmed);
+        Assert.True(register.IsHostVerb);
+        var heartbeat = Parse("host heartbeat-dev --host-id dev-1 --operator o --reason r");
+        Assert.Equal(("host-heartbeat-dev", "dev-1", null, AdminConfirmation.None), (heartbeat.Verb, heartbeat.HostId, heartbeat.Capacity, heartbeat.Confirmation));
+        Assert.True(heartbeat.IsHostVerb);
+
+        Assert.Contains("mission template publish --template-id", AdminArguments.Usage);
+        Assert.Contains("host register-dev --host-id", AdminArguments.Usage);
+        Assert.Contains("host heartbeat-dev --host-id", AdminArguments.Usage);
+        Assert.Contains("BLACKGLASS_DEV_HOSTS=enabled", AdminArguments.Usage);
     }
 }

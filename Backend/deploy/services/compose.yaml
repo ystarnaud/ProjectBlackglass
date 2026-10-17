@@ -72,6 +72,10 @@ services:
       # Stage 6 energy (provisional, spec §19): the reconciliation sweep interval (0 = off) and the largest dev grant.
       BLACKGLASS_ENERGY_RECONCILE_SECONDS: ${BLACKGLASS_ENERGY_RECONCILE_SECONDS:-}
       BLACKGLASS_ENERGY_GRANT_MAX: ${BLACKGLASS_ENERGY_GRANT_MAX:-}
+      # Stage 7 (S7-D2): development host fixtures count as mission capacity only when set to exactly "enabled": tests and
+      # the throwaway smoke stack only, never in production. The host heartbeat lease (provisional; empty means 30 s).
+      BLACKGLASS_DEV_HOSTS: ${BLACKGLASS_DEV_HOSTS:-disabled}
+      BLACKGLASS_HOST_LEASE_SECONDS: ${BLACKGLASS_HOST_LEASE_SECONDS:-}
       BLACKGLASS_DB_LOCK_TIMEOUT_MS: ${BLACKGLASS_DB_LOCK_TIMEOUT_MS:-}
       BLACKGLASS_DB_STATEMENT_TIMEOUT_MS: ${BLACKGLASS_DB_STATEMENT_TIMEOUT_MS:-}
     secrets:
@@ -111,6 +115,9 @@ services:
       BLACKGLASS_DB_PASSWORD_FILE: /run/secrets/admin_db_password
       BLACKGLASS_ENERGY_RECONCILE_SECONDS: ${BLACKGLASS_ENERGY_RECONCILE_SECONDS:-}
       BLACKGLASS_ENERGY_GRANT_MAX: ${BLACKGLASS_ENERGY_GRANT_MAX:-}
+      # host register-dev and host heartbeat-dev refuse unless this is exactly "enabled" (never in production).
+      BLACKGLASS_DEV_HOSTS: ${BLACKGLASS_DEV_HOSTS:-disabled}
+      BLACKGLASS_HOST_LEASE_SECONDS: ${BLACKGLASS_HOST_LEASE_SECONDS:-}
       BLACKGLASS_DB_LOCK_TIMEOUT_MS: ${BLACKGLASS_DB_LOCK_TIMEOUT_MS:-}
       BLACKGLASS_DB_STATEMENT_TIMEOUT_MS: ${BLACKGLASS_DB_STATEMENT_TIMEOUT_MS:-}
     secrets:

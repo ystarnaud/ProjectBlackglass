@@ -1,12 +1,14 @@
 using System.Globalization;
 using System.Text;
 using Npgsql;
+using Blackglass.Accounts.Api.Attempts;
 using Blackglass.Accounts.Api.Energy;
 using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Domain.Insurance;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
+using Blackglass.Accounts.Persistence.Attempts;
 using Blackglass.Accounts.Persistence.Energy;
 using Blackglass.Accounts.Persistence.Insurance;
 using Blackglass.Accounts.Persistence.Migrations;
@@ -24,8 +26,11 @@ namespace Blackglass.Accounts.Api.Admin;
 /// display name, creation time, live credential and sessions, and whether its starter is granted; for the energy verbs also
 /// the stored energy balance; for an insurance activation the stored coverage) and then acts only when confirmed: --yes, or,
 /// at a terminal, typing that Base58 id. A policy publication (energy or insurance) first prints the current policy and the
-/// proposed one ("target.policy*" lines) and is confirmed by --yes or by typing "publish". Without confirmation nothing
-/// changes (exit 64 with no terminal, 67 on a wrong answer).
+/// proposed one ("target.policy*" lines) and is confirmed by --yes or by typing "publish"; a mission template publication
+/// likewise ("target.template*" lines). A development host fixture's registration shows its target ("target.host*", kind,
+/// capacity) and is confirmed by --yes or by typing "register"; the host verbs refuse (64) unless this process has
+/// BLACKGLASS_DEV_HOSTS=enabled, before any connection. Without confirmation nothing changes (exit 64 with no terminal, 67 on
+/// a wrong answer).
 /// </summary>
 public static class AdminCommand
 {
@@ -83,6 +88,32 @@ public static class AdminCommand
             }
             catch (InsuranceException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
         }
+        // The development host fixture verbs read the attempt settings and refuse, before any connection, unless this admin
+        // process has development host fixtures enabled (S7-D2: test and smoke use only, never in production).
+        if (a.IsHostVerb)
+        {
+            AttemptSettings attempts;
+            try { attempts = AttemptSettings.FromEnvironment(env); }
+            catch (AttemptSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return ExitCodes.Failure; }
+            if (!attempts.DevHostsEnabled)
+            {
+                error.WriteLine($"Refusing admin {a.Verb.Replace('-', ' ')}: development host fixtures need {AttemptSettings.DevHostsVar}=enabled in this admin process " +
+                    "(tests and the throwaway smoke stack only, never in production). Nothing was changed.");
+                return ExitCodes.Usage;
+            }
+            try
+            {
+                DevHosts.ValidateHostId(a.HostId);
+                if (a.Capacity is { } capacity) DevHosts.ValidateCapacity(capacity);
+            }
+            catch (MissionAdminException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
+        }
+        // A template's values are checked before any connection too (MissionTemplate's rules; a zero cost is valid).
+        if (a.Template is { } t)
+        {
+            try { MissionTemplates.ValidateProposed(t.TemplateId, t.EnergyCost, t.MinOperatives, t.MaxOperatives); }
+            catch (MissionAdminException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
+        }
         await using var dataSource = settings.CreateDataSource("blackglass-admin", maxPoolSize: 2, timeouts: timeouts);
         // Without a loaded catalogue the store gets one that refuses: no security verb may come to depend on it unnoticed.
         var store = catalogue is not null
@@ -91,6 +122,8 @@ public static class AdminCommand
         var energy = energySettings is not null ? new EnergyAdminStore(dataSource, energySettings.GrantMax) : null;
         var insurance = a.IsInsuranceVerb ? new InsuranceAdminStore(dataSource) : null;
         var insuranceReader = a.IsInsuranceVerb ? new InsuranceReader(dataSource) : null;
+        var templates = a.IsMissionTemplateVerb ? new MissionTemplates(dataSource) : null;
+        var devHosts = a.IsHostVerb ? new DevHosts(dataSource) : null;
         try
         {
             // The same schema policy as serve (Stage 1 ruling 4): behind, drifted or ahead, the CLI writes nothing.
@@ -104,6 +137,8 @@ public static class AdminCommand
             {
                 AdminConfirmation.Account => await ConfirmAsync(a, store, energy, insuranceReader, output, error, input, ct),
                 AdminConfirmation.Publish when a.IsInsuranceVerb => await ConfirmInsurancePublishAsync(a, terms!, insuranceReader!, output, error, input, ct),
+                AdminConfirmation.Publish when a.IsMissionTemplateVerb => await ConfirmTemplatePublishAsync(a, templates!, output, error, input, ct),
+                AdminConfirmation.Register => await ConfirmRegisterDevAsync(a, devHosts!, output, error, input, ct),
                 AdminConfirmation.Publish => await ConfirmPublishAsync(a, energy!, output, error, input, ct),
                 _ => null,
             };
@@ -218,6 +253,27 @@ public static class AdminCommand
                     output.WriteLine($"expiresAt={Timestamp(activated.ExpiresAt)}");
                     output.WriteLine($"replayed={(activated.Replayed ? "true" : "false")}");
                     break;
+                case "mission-template-publish":
+                    var proposed = a.Template!;
+                    var template = await templates!.PublishAsync(proposed.TemplateId, proposed.EnergyCost, proposed.MinOperatives, proposed.MaxOperatives, a.Operator, ct);
+                    output.WriteLine($"templateId={template.TemplateId}");
+                    output.WriteLine($"templateVersion={template.Version}");
+                    output.WriteLine($"energyCost={template.EnergyCost}");
+                    output.WriteLine($"minOperatives={template.MinOperatives}");
+                    output.WriteLine($"maxOperatives={template.MaxOperatives}");
+                    break;
+                case "host-register-dev":
+                    // The host's secret is never printed: only its hash is stored, and nothing in Stage 7 uses it.
+                    var registered = await devHosts!.RegisterAsync(a.HostId!, a.Capacity!.Value, a.Operator, ct);
+                    output.WriteLine($"hostId={registered.HostId}");
+                    output.WriteLine("kind=dev_fixture");
+                    output.WriteLine($"capacity={registered.Capacity}");
+                    break;
+                case "host-heartbeat-dev":
+                    var beat = await devHosts!.HeartbeatAsync(a.HostId!, a.Operator, ct);
+                    output.WriteLine($"hostId={beat.HostId}");
+                    output.WriteLine($"lastHeartbeatAt={Timestamp(beat.LastHeartbeatAt)}");
+                    break;
             }
             output.WriteLine($"correlationId={a.Operator.CorrelationId}");
             return ExitCodes.Ok;
@@ -239,6 +295,16 @@ public static class AdminCommand
             {
                 InsuranceError.UnknownPolicy => ExitCodes.NotFound,
                 InsuranceError.IdempotencyKeyReused or InsuranceError.CrossTierDeferred or InsuranceError.PolicyVersionConflict => ExitCodes.Conflict,
+                _ => ExitCodes.Usage,
+            };
+        }
+        catch (MissionAdminException e)
+        {
+            error.WriteLine(e.Message);
+            return e.Error switch
+            {
+                MissionAdminError.TemplateVersionConflict or MissionAdminError.HostExists => ExitCodes.Conflict,
+                MissionAdminError.UnknownDevHost => ExitCodes.NotFound,
                 _ => ExitCodes.Usage,
             };
         }
@@ -368,6 +434,59 @@ public static class AdminCommand
         error.Write($"Type publish to confirm the new version of insurance policy {a.PolicyId} (later activations of it use it): ");
         var typed = await input.ReadLineAsync(ct);
         if (typed == "publish") return null;
+        error.WriteLine("Not confirmed, so nothing was changed.");
+        return ExitCodes.NotConfirmed;
+    }
+
+    /// <summary>A mission template publication: prints the template's latest version and values and the proposed ones (the
+    /// proposed version is advisory: the transaction mints it under the template's lock), then returns null when confirmed
+    /// (--yes, or typing "publish"), else the exit code to stop with. Its transaction begins only after.</summary>
+    static async Task<int?> ConfirmTemplatePublishAsync(AdminArguments a, MissionTemplates templates, TextWriter output, TextWriter error, TextReader? input,
+        CancellationToken ct)
+    {
+        var proposed = a.Template!;
+        var current = await templates.DescribeLatestAsync(proposed.TemplateId, ct);
+        output.WriteLine($"target.templateId={proposed.TemplateId}");
+        output.WriteLine($"target.templateCurrentVersion={current?.Version.ToString(CultureInfo.InvariantCulture) ?? "(none)"}");
+        output.WriteLine($"target.templateCurrentEnergyCost={current?.EnergyCost.ToString(CultureInfo.InvariantCulture) ?? "(none)"}");
+        output.WriteLine($"target.templateCurrentMinOperatives={current?.MinOperatives.ToString(CultureInfo.InvariantCulture) ?? "(none)"}");
+        output.WriteLine($"target.templateCurrentMaxOperatives={current?.MaxOperatives.ToString(CultureInfo.InvariantCulture) ?? "(none)"}");
+        output.WriteLine($"target.templateProposedVersion={(current?.Version ?? 0) + 1}");
+        output.WriteLine($"target.templateProposedEnergyCost={proposed.EnergyCost}");
+        output.WriteLine($"target.templateProposedMinOperatives={proposed.MinOperatives}");
+        output.WriteLine($"target.templateProposedMaxOperatives={proposed.MaxOperatives}");
+
+        if (a.Confirmed) return null;
+        if (input is null)
+        {
+            error.WriteLine($"Not confirmed, so nothing was changed. To publish this mission template version, run this at a terminal and type publish, or add {AdminArguments.YesSwitch}.");
+            return ExitCodes.Usage;
+        }
+        error.Write($"Type publish to confirm the new version of mission template {proposed.TemplateId} (later admissions to it use it): ");
+        var typed = await input.ReadLineAsync(ct);
+        if (typed == "publish") return null;
+        error.WriteLine("Not confirmed, so nothing was changed.");
+        return ExitCodes.NotConfirmed;
+    }
+
+    /// <summary>A development host fixture's registration: prints the host id, whether a host of that id exists, its kind and
+    /// capacity, then returns null when confirmed (--yes, or typing "register"), else the exit code to stop with.</summary>
+    static async Task<int?> ConfirmRegisterDevAsync(AdminArguments a, DevHosts devHosts, TextWriter output, TextWriter error, TextReader? input, CancellationToken ct)
+    {
+        output.WriteLine($"target.hostId={a.HostId}");
+        output.WriteLine($"target.hostExists={(await devHosts.ExistsAsync(a.HostId!, ct) ? "true" : "false")}");
+        output.WriteLine("target.kind=dev_fixture");
+        output.WriteLine($"target.capacity={a.Capacity}");
+
+        if (a.Confirmed) return null;
+        if (input is null)
+        {
+            error.WriteLine($"Not confirmed, so nothing was changed. To register this development host fixture, run this at a terminal and type register, or add {AdminArguments.YesSwitch}.");
+            return ExitCodes.Usage;
+        }
+        error.Write($"Type register to confirm development host fixture {a.HostId} (capacity only where {AttemptSettings.DevHostsVar}=enabled; never in production): ");
+        var typed = await input.ReadLineAsync(ct);
+        if (typed == "register") return null;
         error.WriteLine("Not confirmed, so nothing was changed.");
         return ExitCodes.NotConfirmed;
     }

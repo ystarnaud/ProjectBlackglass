@@ -1,11 +1,13 @@
 using Microsoft.AspNetCore.Authentication;
 using Npgsql;
+using Blackglass.Accounts.Api.Attempts;
 using Blackglass.Accounts.Api.Auth;
 using Blackglass.Accounts.Api.Energy;
 using Blackglass.Accounts.Api.Player;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
+using Blackglass.Accounts.Persistence.Attempts;
 using Blackglass.Accounts.Persistence.Energy;
 using Blackglass.Accounts.Persistence.Migrations;
 using Blackglass.Accounts.Persistence.Player;
@@ -36,6 +38,10 @@ public static class ServeCommand
         EnergySettings energy;
         try { energy = EnergySettings.FromEnvironment(env); }
         catch (EnergySettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return new(ExitCodes.Failure, null); }
+
+        AttemptSettings attempts;
+        try { attempts = AttemptSettings.FromEnvironment(env); }
+        catch (AttemptSettingsException e) { error.WriteLine($"Configuration error: {e.Message}"); return new(ExitCodes.Failure, null); }
 
         var dataSource = settings.CreateDataSource("blackglass-api", timeouts: timeouts);
         var catalog = MigrationCatalog.Embedded;
@@ -70,6 +76,9 @@ public static class ServeCommand
         builder.Services.AddSingleton(sp => new PickStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
         builder.Services.AddSingleton(sp => new InventoryEditStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
         builder.Services.AddSingleton<LoginThrottle>();
+        // The fail-closed host-health check (S7-D2) with this process's development-host setting and lease, for admission.
+        builder.Services.AddSingleton(attempts);
+        builder.Services.AddSingleton(new ServiceHealth(attempts.DevHostsEnabled, attempts.HostLeaseSeconds));
         if (energy.ReconcileSeconds != 0)
         {
             // The periodic reconciliation (E4): its first sweep waits one interval, so startup never waits for one. Resolved
@@ -86,6 +95,9 @@ public static class ServeCommand
         configure?.Invoke(builder);
         var app = builder.Build();
         app.Lifetime.ApplicationStopped.Register(dataSource.Dispose);
+        if (attempts.DevHostsEnabled)
+            app.Services.GetRequiredService<ILoggerFactory>().CreateLogger(AttemptSettings.LogCategory)
+                .LogWarning("{Setting}=enabled: development host fixtures count as capacity: never in production.", AttemptSettings.DevHostsVar);
         app.UseDatabaseFailureResponses();
         app.UseAuthentication();
         app.UseRateLimiter();
