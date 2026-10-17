@@ -10,6 +10,11 @@
 # Stage 6: account creation opens a full energy wallet; GET /v1/me shows {balance:50, cap:50, nextRegenAt:null}; a
 # development grant with a fresh idempotency key credits 5 once and its replay reports the stored result without
 # crediting again; /v1/me then shows 55 above the cap of 50; and an on-demand reconciliation finds no mismatch.
+# Stage 7: with no verified capacity a deploy is 503 and touches no energy; with the development host fixture enabled for
+# that section only (BLACKGLASS_DEV_HOSTS=enabled on api and admin; never the stack default), a registered and heartbeating
+# fixture admits a deploy (201, energy 55 -> 45), the same key and body replay the identical body, the same key with another
+# body is 409, the inventory is locked (an edit is 409 InventoryLocked, reads show locked:true), and the pre-start cancel
+# releases the energy once (back to 55) and unlocks the inventory. No seed or salt appears in any response.
 # Throwaway project bg-smoke; removed at the end.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -185,8 +190,57 @@ check "energy grant with a fresh key credits 5 once (balanceAfter=55, replayed=f
 check "the same key again reports the stored result and credits nothing (replayed=true, balanceAfter=55)" energy_grant_replay_is_stored
 check "GET /v1/me shows 55, above the cap of 50, with regeneration paused" me_energy_is '{"balance":55,"cap":50,"nextRegenAt":null}'
 check "energy reconcile checks every wallet and finds no mismatch" energy_reconcile_is_clean
+# Stage 7: admission. The deploy body names one owned operative; the key is a fresh UUID (not a secret).
+deploy_key= deploy_attempt= deploy_first=
+deploy_body() { printf '{"missionTemplate":"%s","operativeIds":["%s"]}' "$1" "$inv_operative" > "$work/deploy.json"; }
+deploy_call() { inv_call /v1/attempts -H 'Content-Type: application/json' -H "Idempotency-Key: $deploy_key" --data-binary "@$work/deploy.json"; }
+no_secret_in() { ! printf '%s' "$1" | grep -qiE '"seed"|"retentionSalt"|"salt"'; }
+deploy_without_capacity_is_503() {
+  deploy_key="$(cat /proc/sys/kernel/random/uuid)"; deploy_body procedural-standard
+  deploy_call && [[ "$inv_status" == 503 ]] && printf '%s' "$inv_body" | grep -q '"code":"ServiceUnavailable"'
+}
+api_with_dev_hosts() { BLACKGLASS_DEV_AUTH=enabled BLACKGLASS_DEV_HOSTS=enabled api_recreate; }
+dev_host_ready() {
+  BLACKGLASS_DEV_HOSTS=enabled admin_cli host register-dev --host-id smoke-fixture --capacity 2 --operator smoke-test --reason smoke --yes > "$work/host.out" \
+    && grep -qx 'kind=dev_fixture' "$work/host.out" \
+    && BLACKGLASS_DEV_HOSTS=enabled admin_cli host heartbeat-dev --host-id smoke-fixture --operator smoke-test --reason smoke > "$work/heartbeat.out"
+}
+deploy_admits() {
+  deploy_call && [[ "$inv_status" == 201 ]] && no_secret_in "$inv_body" \
+    && printf '%s' "$inv_body" | grep -qE '"balanceAfter": ?45' || return 1
+  deploy_first="$inv_body"
+  deploy_attempt="$(printf '%s' "$inv_body" | sed -n 's/.*"attemptId": *"\([0-9a-f-]*\)".*/\1/p')"
+  [[ -n "$deploy_attempt" ]]
+}
+deploy_replays_identically() { deploy_call && [[ "$inv_status" == 201 && "$inv_body" == "$deploy_first" ]]; }
+deploy_other_body_is_409() {
+  deploy_body other-template
+  deploy_call && [[ "$inv_status" == 409 ]] && printf '%s' "$inv_body" | grep -q '"code":"IdempotencyKeyReused"'
+}
+inventory_is_locked() {
+  inv_call /v1/inventory && [[ "$inv_status" == 200 ]] && printf '%s' "$inv_body" | grep -q '"locked":true' \
+    && inv_reads_the_starter_weapon && inv_call /v1/inventory/operations -H 'Content-Type: application/json' \
+       --data-binary "$(printf '{"expectedVersion":%s,"operations":[{"op":"unequip","operativeId":"%s","slot":"weapon"}]}' "$inv_version" "$inv_operative")" \
+    && [[ "$inv_status" == 409 ]] && printf '%s' "$inv_body" | grep -q '"code":"InventoryLocked"'
+}
+attempt_read_has_no_secret() { inv_call "/v1/attempts/$deploy_attempt" && [[ "$inv_status" == 200 ]] && no_secret_in "$inv_body"; }
+cancel_releases() { inv_call "/v1/attempts/$deploy_attempt/cancel" -X POST && [[ "$inv_status" == 200 ]] && no_secret_in "$inv_body"; }
+inventory_is_unlocked() { inv_call /v1/inventory && [[ "$inv_status" == 200 ]] && printf '%s' "$inv_body" | grep -q '"locked":false'; }
+check "without verified capacity a deploy is 503 ServiceUnavailable" deploy_without_capacity_is_503
+check "and the energy is untouched (55)" me_energy_is '{"balance":55,"cap":50,"nextRegenAt":null}'
+check "the API is recreated with the development host fixture enabled for this section only" api_with_dev_hosts
+check "a development host fixture is registered and heartbeats (admin, gated, audited)" dev_host_ready
+check "a deploy is admitted: 201, energy 55 -> 45, no seed or salt in the body" deploy_admits
+check "the same key and body replay the identical body (no second reservation)" deploy_replays_identically
+check "the same key with another body is 409 IdempotencyKeyReused" deploy_other_body_is_409
+check "the energy was reserved once (45)" me_energy_is '{"balance":45,"cap":50,"nextRegenAt":"'
+check "the inventory is locked: reads show locked:true, an edit is 409 InventoryLocked" inventory_is_locked
+check "GET /v1/attempts/{id} shows the attempt without seed or salt" attempt_read_has_no_secret
+check "the pre-start cancel releases (200)" cancel_releases
+check "the energy is released once (back to 55)" me_energy_is '{"balance":55,"cap":50,"nextRegenAt":null}'
+check "the inventory is unlocked after the release" inventory_is_unlocked
 unset inv_key inv_token inv_body
-api_with_default_auth() { ( unset BLACKGLASS_DEV_AUTH; api_recreate ); }
+api_with_default_auth() { ( unset BLACKGLASS_DEV_AUTH BLACKGLASS_DEV_HOSTS; api_recreate ); }
 check "the API is recreated with the stack's default again" api_with_default_auth
 check "dev login is off again by default (404)" test "$(http_code -X POST -H 'Content-Type: application/json' -d '{}' "$api_url/v1/auth/dev/login")" = 404
 
