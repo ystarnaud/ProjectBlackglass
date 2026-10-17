@@ -840,3 +840,92 @@ Fix Critical and Important findings in one pass, each with a failing test first.
 - Unity backend core, the server lifecycle and ticket admission in Unity (Stages 11–14).
 - Resume tokens and the reconnect window (Stage 15); `AlreadyConnected`.
 - Co-op enablement; prewarming; orchestration; HTTP admin routes.
+
+---
+
+## As built (2026-10-17, branch `phase13-stage8`, implementation commits local, not pushed or merged)
+
+**Commits:**
+- `f932369`: rulings recorded.
+- `6377cf5` and `b215a22`: the VM runner.
+- `85d4c91`: Task 1.
+- `615e5d0`: Task 2.
+- `4a8c308`: Task 3.
+- `d21606c`: Task 4.
+- `acecc1f`: Task 5.
+- `c904864`: Task 6.
+- `a83a1ed`: Checkpoint 1 fixes.
+- `5c498c5`: Task 7.
+- `cc06beb`: Task 8.
+- `84c1eaa`: Task 9.
+- `1f63f31`: Task 10.
+- `8d662e5`: Task 11.
+- `a63af8d`: final review fixes.
+- `5aa1919`: README.
+- The tested `Backend/` tree is `37abd13` (`HEAD:Backend`).
+
+**Schema:** version 8. `0008_hosts_sessions_tickets` applies to a populated schema 7 (`Seeds/0008.sql`, `Migration_0008_applies_to_a_populated_0007_database_and_copies_every_secret`). `0000`–`0007` are byte-identical (pinned checksums). The invariants file is `0008_sessions.sql`.
+- Additions after the plan:
+  - `credential_generation` (R1);
+  - `loot_table_version` and `loot_hash` (R3);
+  - `attempt_exit_reports` and `attempt_exit_results` (R6), bound to the attempt's host and session;
+  - a trigger rule: a live attempt's slot is released only after its agent exit report (Checkpoint 1);
+  - agent capacity of at most 64, the units one heartbeat can list.
+
+**Tests (VM runner, tree `37abd13`):**
+- Domain: 713 passed, 0 failed.
+- Integration: 1,589 passed, 0 failed, in 6 m 3 s (Stage 7 had 1,402 tests in about 52 min through the tunnel).
+- The 172-test benchmark: 47 s on the VM against 10 m 54 s on Windows.
+- Cold build 38 s; warm build 3 s.
+- One final full run. It was repeated twice because code and a race test changed after the first.
+
+**VM:**
+- Smoke: 0 failures, on `8d662e5` and again on `5aa1919`, including the Stage 8 lifecycle section.
+- Off-host probe: 5080, 5432 and 55432 closed; 22 open.
+- Restore drill at schema 8: 6 invariant files held.
+- Docker containers, volumes and listeners identical before and after.
+- No deployment of the live stack.
+
+**Reviews:**
+- **Checkpoint 1** (after Task 4): 0 Critical, 0 Important, 10 Minor.
+  - Fixed: M1 (slot release bounded in the database), M3 (exit evidence's host foreign key), M4 (capacity within one heartbeat), M7 (process-scheme isolation tests with valid credentials), M8 (static check against parameter logging), M9 (runner lock over sync and copy-back), M10 (accepted risk recorded in the README).
+  - Deferred: M2 (a first write of lifecycle columns is not tied to its edge; the CHECKs pin most states), M5 (Stage 10, below), M6 (owner decision, below).
+- **Final review:** 0 Critical, 0 Important, 4 Minor.
+  - Fixed:
+    - M1: register re-checks the presenting credential under its lock, and a failure report after the attempt has ended gets the uniform 401;
+    - M2: `ready` past the launch deadline is refused;
+    - M4: `ready` under another catalogue is `409 CatalogueMismatch`.
+  - Recorded: M3 (Stage 10, below).
+
+**Rulings made during execution:**
+- Admission's attempt-secrets and catalogue writes, and `release_reason`, moved into Task 2 (dropping the columns needs them).
+- `SessionSchemaTests` was written alongside the migration; the existing suite's 102 failures drove the migration.
+- The VM runner connects to the container's address (scram-sha-256), not its loopback, which `pg_hba` trusts.
+- `build allow` takes `--templates id:v[,…]`.
+- The process-scheme HTTP tests landed with the first process route.
+- Default authentication forwards by token prefix; the default authorization policy is Bearer only.
+- Admission resolves the template before health, so an unknown template is 422.
+- The claim response adds `recovered`.
+- The launch-deadline drain is covered by the shared release core's tests.
+- Stage 7 tests that expected a refused cancel in `assigned` now use a started participant.
+- The start takes `accounts FOR KEY SHARE` first; no 40P01 mutation is asserted, because the start writes the wallet at most once.
+
+**Owner decision requested (Checkpoint 1 M6):** a disabled host's process credentials keep working, so its running attempts continue. Disabling stops claims and the agent's own routes. A kill path for a compromised host is left to a later `host_declared_lost`.
+
+**Obligations:**
+- **Stage 9:**
+  - evaluate `attempt_exit_reports`/`attempt_exit_results` as positive evidence for any protective void;
+  - validate manifests against `attempt_loot_pool`, `loot_hash`, `layout_hash` and `attempt_objectives`;
+  - add the hold's settle and refund edges;
+  - replace `mission_attempt_started` and the transition function if settlement needs other edges.
+- **Stage 10 (agent):**
+  - persist the claim key before sending, and the claim response durably;
+  - get `launching` acknowledged with that generation before `systemctl start`;
+  - on `CredentialSuperseded`, retry the claim with the same key;
+  - send `complete: true` only after a successful, fully parsed enumeration, and either list every unit it has acknowledged launching but not yet seen exit, or serialize enumeration with launches (Checkpoint 1 M5, final M3);
+  - stop the units named in `stop`;
+  - report `exited` after the unit is gone.
+- **Stage 12 (server):** treat a 401 on its credential after registration as a stop (R4); compute `lootHash` as R3 defines it.
+- **Stage 17:**
+  - deploy with `log_error_verbosity=terse` (B2);
+  - keep `BLACKGLASS_DEV_HOSTS` disabled, with no `dev_fixture` rows in production.

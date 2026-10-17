@@ -247,6 +247,33 @@ The detailed plan is `Docs/superpowers/plans/2026-10-17-phase-13-stage8-hosts-st
 - **Migration order.** `0008` creates referenced tables before the foreign keys that point at them; `0000`–`0007` stay byte-identical.
 - **Locking (§15.3).** Only claim and host heartbeat lock host rows (host, then attempt `SKIP LOCKED`). Exit evidence and slot release lock the attempt row only, so there is no reverse host and attempt dependency. No energy-touching transaction is retried automatically.
 
+**As built (2026-10-17, branch `phase13-stage8`; amendment, nothing above is removed).** Schema version 8. Measured counts, reviews and rulings are in the detailed plan's "As built".
+- **Schema additions:**
+  - `credential_generation`, `loot_table_version` and `loot_hash` on attempts;
+  - exit evidence bound to the attempt's host and session;
+  - a trigger rule: a live attempt's slot is released only after its agent exit report;
+  - agent capacity of at most 64, the units one heartbeat can list.
+- **Behaviour:**
+  - register re-checks the presenting credential under the attempt lock, so a recovery that commits after authentication voids the old credential (R1);
+  - `ready` past the launch deadline is refused;
+  - `ready` for an attempt admitted under another catalogue than the API's is `409 CatalogueMismatch`, never judged against the wrong table;
+  - a process report after the attempt ended gets the uniform 401;
+  - during a database outage, process routes answer 503, never 401.
+- **Tests:** on the VM-local runner, 713 domain and 1,589 integration tests passed, the integration suite in 6 m 3 s. Smoke, the off-host probe and the restore drill pass at schema 8.
+- **Owner decision requested:** a disabled host's process credentials keep working, and a kill path for a compromised host is left to a later `host_declared_lost`.
+- **Stage 9 obligations:**
+  - evaluate the exit evidence as positive evidence for any protective void;
+  - validate manifests against the stored pool, loot hash, layout hash and objectives;
+  - add the hold's settle and refund edges.
+- **Stage 10 obligations:** the agent
+  - persists the claim key and response;
+  - gets `launching` acknowledged with its generation before starting the unit;
+  - retries the claim with the same key on `CredentialSuperseded`;
+  - sends `complete: true` only for a full, successful enumeration that counts units it acknowledged launching but has not seen exit;
+  - stops the units in `stop`.
+- **Stage 12 obligation:** the server treats a 401 after registration as a stop and computes `lootHash` as specified.
+- **Stage 17 obligation:** deploy with `log_error_verbosity=terse`.
+
 ---
 
 ## 1. Goal, scope and starting point
