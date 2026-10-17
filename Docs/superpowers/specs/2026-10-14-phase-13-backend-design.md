@@ -1,6 +1,6 @@
 # Phase 13A: backend architecture and persistent mission settlement (design)
 
-Date: 2026-10-14. **Revision 2.8** (Stage 8 owner rulings B1–B13 and design corrections of 2026-10-17, §0.8); revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
+Date: 2026-10-14. **Revision 2.9** (Stage 9 owner rulings of 2026-10-17 on the settlement plan, §0.9; Stage 9 implementation not yet authorized); revision 2.8 (Stage 8 owner rulings B1–B13 and design corrections of 2026-10-17, §0.8); revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
 
 "Project Blackglass" is an internal codename. No identifier, table, route, credential or claim introduced here carries the product name, apart from the C# namespace and repository paths that already exist. Player-facing names live in data (`display_name`), never in keys.
 
@@ -283,6 +283,40 @@ The detailed plan is `Docs/superpowers/plans/2026-10-17-phase-13-stage8-hosts-st
   - Disable never cancels, releases, voids, refunds, frees a slot or deletes evidence.
   - **Declare lost** stays in Stage 9, with positive evidence and an explicit reason; it is the only path to protective voids and refunds.
   - **Obligations:** Stage 10 provides a trusted emergency stop for mission units (revocation does not stop a Linux process). Stage 12 treats a revoked authorization as a stop, keeping its results.
+
+### 0.9 Revision 2.9 (Stage 9 owner rulings, 2026-10-17; implementation not yet authorized)
+
+The owner approved Stage 9 in principle and ruled on plan revision 1. The detailed plan is `Docs/superpowers/plans/2026-10-17-phase-13-stage9-settlement.md` (revision 2). Its §B–§G hold the full text: decisions, the response matrix, migration `0009_settlement`, lock orders, the trust model and manifest format v1. These rulings amend §6.3, §7.2, §8, §9.1–§9.2, §10.1–§10.5, §11.1, §11.3–§11.4, §15.1, §15.3, §16.2–§16.4, §18.3 and §19 wherever they differ. Items marked "needs approval" are proposals awaiting the owner.
+
+| Ruling | Decision |
+|---|---|
+| S9-B1 revoked credentials | No normal agent or process route accepts a revoked credential. A result for a revoked attempt (`credential_revoked_at` set) is `409 AttemptRevoked` and is not stored. Pre-revocation evidence is preserved and marked (`attempt_revoked` on every Stage 9 evidence row). Nothing about a revoked attempt settles or voids automatically. Post-revocation evidence is recovered only through the audited `attempt import-result` workflow. R8 stays literal: for a disabled host's attempts, declare-lost is the only void path |
+| S9-B2 atomicity | One transaction writes the settlement, the quarantine records or the refusal record. Every definitive answer (200, 202, 409, 422) follows a committed, durable record |
+| S9-B3 originals | `result_submissions` is insert-only. It keeps the raw payload and its hash beside the canonical form and its hash. Each distinct payload gets its own row, and no earlier row is replaced. A settlement is final |
+| S9-B4 format | Manifest format v1: integers only, each with a format bound; `serverElapsedMs` replaces §9.1's seconds; `lootTableVersion` and `lootHash` are required. Strict parsing and one canonical form, pinned by golden vectors in `Backend/contracts/manifest-v1/` that Stage 11 must reproduce |
+| S9-B5 recorded hash | The process's `recorded` call is strong supporting evidence, not a prerequisite. A missing notification never blocks settlement and never causes a void. A mismatch is never accepted silently (quarantine, or `409` plus an anomaly) |
+| S9-B6 polling | The process does not poll settlement (replaces §9.2.6's 120 s poll). The client polls its receipt with its own bearer session |
+| S9-B7 evidence void | The only automatic void: in the agent's `exited` transaction, with the attempt's own host on a current secret, the attempt not revoked, proof of exit (an exit status), `outbox.complete: true`, the participant listed `present: false`, and no stored submission or recorded hash. Missing connectivity, failed enumeration, an incomplete scan or silence are not proof of absence |
+| S9-B8 declare-lost | Operator only. It needs a disabled host with a revoked secret, a heartbeat older than a provisional 10 minutes, a reason, `--outbox-unrecoverable` and `--evidence`. It is permanent. Host loss is never inferred from a heartbeat timeout alone |
+| S9-B9 recovery | Confirmed, audited admin CLI verbs only. The §16.4 `/dev/v1/*` recovery routes are dropped |
+| S9-B10 retries | Settlement, quarantine and void transactions are never retried automatically. Transient database errors answer 503 with nothing committed; committed quarantines answer 202; permanent conflicts answer 409. Agent retries are idempotent |
+| S9-B11.1–B11.6 minting | BIGINT item identities; a unique `(origin, origin_ref)` per minted unit; plain inserts; the stack rules; loot to the collector's bag; equipment on success only |
+| S9-B12.1–B12.4 insurance | Benefits come from the admission snapshot only; payouts go to the stash; a stored, salted retention selection; a fixed category map |
+| S9-B13.1–B13.5 rounding | A single floor in 64-bit integer arithmetic for progress XP and refunds; success XP from the admission catalogue; XP capped at `int.MaxValue` |
+| S9-B14.1–B14.3 inventory | Inventory-version verification (V16); capacity before writing (V11); bags and equipment checked after writing, inside the transaction |
+| S9-B15.1–B15.3 energy | Hold edges `charged → settled` and `charged → refunded`; exact `settle:<attempt>` and `void_refund:<attempt>` keys; no entry for a zero-cost hold |
+| S9-B17 crash drill | Destructive outage tests use a separate, disposable PostgreSQL container. The shared test cluster is never stopped or damaged |
+| S9-B18 monitoring | Alerts repeat, and no time-based void exists. Auto-drain after repeated confirmed infrastructure failures uses configurable thresholds and counts distinct attempts. It never auto-disables or auto-refunds |
+| S9-B20 catalogue history (revised) | Immutable, hash-verified `catalogue_versions`, keyed by the `catalogueVersion` captured at admission. Settlement uses the matching version. An ordinary upgrade never blocks settlement. A version that is genuinely unavailable leaves the result preserved and held for recovery, never judged under the current catalogue |
+| S9-B16, S9-B19, S9-B21–S9-B23 | **Needs approval:** the state edges; minimal agent answers; a quarantine never cleared automatically; a cap on stored submissions; relay ordering (process `recorded` before exit; agent relays after the unit exits) |
+
+**Response contract** (§10.4 and §16.2 amended). Definitive answers for the agent's relay file:
+- `200` (`settled` or `duplicate`): the file is done.
+- `202` (`quarantined` or `held`): stored and under review; the file is never resent.
+- `409` (`Conflict`, `AlreadySettledAsVoid`, `AttemptRevoked`, `WrongAttempt`, `InvalidState` or `SubmissionLimit`): permanent; the file is kept for the operator.
+- `422`: the body is not a format-v1 manifest; it is stored as `malformed` and never resent.
+
+Not definitive, so the agent retries with backoff: `401`, `500`, `503` and timeouts. An invalid but well-formed manifest now answers 202, not §10.4's 422. The plan's §C is the authority.
 
 ---
 
