@@ -112,6 +112,7 @@ public static class ServeCommand
         builder.Services.AddSingleton(new HostStore(dataSource, attempts.HostLeaseSeconds));
         builder.Services.AddSingleton(new ProcessStore(dataSource));
         builder.Services.AddSingleton(new TicketStore(dataSource));
+        builder.Services.AddSingleton(new StartStore(dataSource));
         builder.Services.AddAuthentication(o => { o.DefaultScheme = CredentialSelector; o.DefaultChallengeScheme = AccountClaims.Scheme; })
             .AddPolicyScheme(CredentialSelector, null, o => o.ForwardDefaultSelector = SelectScheme)
             .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null)

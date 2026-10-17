@@ -26,6 +26,7 @@ public static class ProcessEndpoints
     {
         var process = app.MapGroup("/server/v1/attempts/{attemptId}").RequireAuthorization(MissionClaims.ProcessPolicy).RequireRateLimiting(RateLimits.PerProcess)
             .WithMetadata(new RequestSizeLimitAttribute(MissionBodies.MaxBodyBytes));
+        MapStart(process);
 
         // POST …/sessions, body {buildRevision, catalogueVersion} → the session, the seed (here only), the template, the catalogue,
         // the participants' snapshots and the launch deadline.
@@ -103,6 +104,28 @@ public static class ProcessEndpoints
         });
     }
 
+    static void MapStart(RouteGroupBuilder process) =>
+        // POST .../participants/{account}/start, body {processSessionId} -> {started:true, startedAt}. A repeat answers the stored
+        // start (even after the join deadline, B8) and never charges twice.
+        process.MapPost("/participants/{account}/start", async (string account, HttpContext http, StartStore starts) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var (body, refusal) = await MissionBodies.ReadAsync(http, StartRequest.Parse);
+            if (refusal is not null) return refusal;
+            if (!AccountId.TryParse(account, out var accountId)) return MissionBodies.Problem(StatusCodes.Status404NotFound, "ParticipantNotFound");
+            return await starts.StartAsync(MissionClaims.AttemptOf(http.User), accountId, body!.ProcessSessionId, http.RequestAborted) switch
+            {
+                StartResult.Started s => Results.Json(new StartResponse(true, s.StartedAt), Web),
+                StartResult.NotFound => MissionBodies.Problem(StatusCodes.Status404NotFound, "ParticipantNotFound"),
+                StartResult.NotRedeemed => MissionBodies.Problem(StatusCodes.Status409Conflict, "NotRedeemed"),
+                StartResult.Cancelled => MissionBodies.Problem(StatusCodes.Status409Conflict, "Cancelled"),
+                StartResult.DeadlinePassed => MissionBodies.Problem(StatusCodes.Status409Conflict, "DeadlinePassed"),
+                StartResult.WrongSession => MissionBodies.Problem(StatusCodes.Status409Conflict, "WrongSession"),
+                _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
+            };
+        });
+
+    public sealed record StartResponse(bool Started, DateTime StartedAt);
     public sealed record TemplateDto(string Id, int Version);
     public sealed record ParticipantDto([property: System.Text.Json.Serialization.JsonConverter(typeof(AccountIdJsonConverter))] long AccountId, JsonNode Loadout);
     public sealed record LaunchDeadlineDto(DateTime Launch);
