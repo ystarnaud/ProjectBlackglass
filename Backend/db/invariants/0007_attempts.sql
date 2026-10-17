@@ -13,7 +13,14 @@
 --   participant_template       a participant whose template or template version differs from its attempt's (or whose
 --                              attempt is missing);
 --   insurance_terms            an insurance snapshot whose terms differ from its policy version's terms (or whose policy
---                              version is missing).
+--                              version is missing);
+--   ended_attempt_active_participant
+--                              an ended attempt (cancelled or settled) that still has a participant in an active state: a
+--                              partial release that would leave the inventory locked and the energy reserved forever. It is
+--                              one-directional on purpose: a participant may end while its attempt goes on (Stage 8's co-op
+--                              join deadline releases one participant of a continuing attempt);
+--   hold_amount                a hold whose amount differs from its participant's recorded energy_cost (the two duplicate
+--                              one value; hold_reserve ties the ledger to the hold, this ties the hold to the participant).
 -- Sums are bigint, so a corrupt ledger can't overflow the check itself.
 with entries as (
   select attempt_id, account_id,
@@ -65,4 +72,15 @@ union all
 select 'insurance_terms', i.attempt_id::text || '/' || i.account_id::text
 from attempt_insurance i
 left join insurance_policies p on p.policy_id = i.policy_id and p.version = i.policy_version
-where p.terms is distinct from i.terms;
+where p.terms is distinct from i.terms
+union all
+select 'ended_attempt_active_participant', p.attempt_id::text || '/' || p.account_id::text
+from attempt_participants p
+join mission_attempts a on a.attempt_id = p.attempt_id
+where a.state in ('cancelled', 'settled')
+  and p.state in ('admitted', 'joined', 'left', 'result_pending', 'unresponsive', 'quarantined')
+union all
+select 'hold_amount', h.attempt_id::text || '/' || h.account_id::text
+from energy_holds h
+join attempt_participants p on p.attempt_id = h.attempt_id and p.account_id = h.account_id
+where h.amount <> p.energy_cost;

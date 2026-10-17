@@ -838,6 +838,7 @@ public class AttemptSchemaTests : IAsyncLifetime
     [InlineData("insurance_activate")]
     [InlineData("mission_template_publish")]
     [InlineData("host_register_dev")]
+    [InlineData("host_heartbeat_dev")]
     [InlineData("energy_open")]
     [InlineData("energy_grant")]
     [InlineData("energy_policy_publish")]
@@ -969,6 +970,8 @@ public class AttemptSchemaTests : IAsyncLifetime
     [InlineData("two_active", new[] { "two_active_participations" })]
     [InlineData("template", new[] { "participant_template" })]
     [InlineData("terms", new[] { "insurance_terms" })]
+    [InlineData("ended_active", new[] { "ended_attempt_active_participant" })]
+    [InlineData("hold_amount", new[] { "hold_amount" })]
     public async Task Each_attempt_invariant_reports_its_violation(string fixture, string[] expectedKinds)
     {
         // A consistent history: a released positive attempt, an active positive attempt with insurance, an active zero-cost one.
@@ -1003,7 +1006,9 @@ public class AttemptSchemaTests : IAsyncLifetime
             "reserve_missing" => "delete from energy_ledger where attempt_id = @activeAttempt and kind = 'reserve'",
             "reserve_twice" => "alter table energy_ledger drop constraint energy_ledger_idempotency_key_check; "
                 + Entry + "(@active, @activeAttempt, 'reserve', -10, 30, 'reserve:' || @activeAttempt || ':2')",
-            "reserve_amount" => "update energy_holds set amount = 9 where attempt_id = @activeAttempt",
+            // the hold and its participant agree on 9, the reserve entry says 10
+            "reserve_amount" => "update energy_holds set amount = 9 where attempt_id = @activeAttempt; "
+                + "update attempt_participants set energy_cost = 9 where attempt_id = @activeAttempt",
             "release_missing" => "delete from energy_ledger where attempt_id = @releasedAttempt and kind = 'release'",
             // a release entry for a hold that is still reserved
             "release_unreleased" => Entry + "(@active, @activeAttempt, 'release', 10, 50, 'release:' || @activeAttempt)",
@@ -1016,6 +1021,10 @@ public class AttemptSchemaTests : IAsyncLifetime
                 + InsertHold.Replace("@account", "@zero").Replace("@attempt", "@second").Replace("@amount", "0"),
             "template" => InsertTemplate + "('procedural-standard', 2, 10, 1, 3); update attempt_participants set template_version = 2 where attempt_id = @zeroAttempt",
             "terms" => "update attempt_insurance set terms = jsonb_set(terms, '{progressXp,percent}', '41') where attempt_id = @activeAttempt",
+            // a partial release: the attempt was cancelled, its participant (and hold) were not, so the inventory stays locked
+            "ended_active" => "update mission_attempts set state = 'cancelled', cancel_reason = 'player_cancel', ended_at = clock_timestamp() where attempt_id = @activeAttempt",
+            // the participant's recorded cost and its hold disagree (the reserve entry still matches the hold)
+            "hold_amount" => "update attempt_participants set energy_cost = 9 where attempt_id = @activeAttempt",
             _ => throw new ArgumentOutOfRangeException(nameof(fixture)),
         };
 

@@ -81,8 +81,7 @@ public sealed class DevHosts(NpgsqlDataSource db)
     /// <summary>
     /// Stamps a development fixture's heartbeat with the database clock (the smoke stack's stand-in for Stage 8's agent
     /// heartbeat, so it needs no superuser SQL). Only a <c>dev_fixture</c> row is touched: an agent host or an unknown id is
-    /// UnknownDevHost, nothing written. 0007's operator action list has no heartbeat action, so this is audited as
-    /// <c>host_register_dev</c> {operation: heartbeat, hostId, lastHeartbeatAt}.
+    /// UnknownDevHost, nothing written. Audited as <c>host_heartbeat_dev</c> {operation: heartbeat, hostId, lastHeartbeatAt}.
     /// </summary>
     public async Task<DevHostHeartbeat> HeartbeatAsync(string hostId, OperatorContext op, CancellationToken ct = default)
     {
@@ -94,7 +93,7 @@ public sealed class DevHosts(NpgsqlDataSource db)
             new { hostId }, tx, cancellationToken: ct))
             ?? throw new MissionAdminException(MissionAdminError.UnknownDevHost, $"No development host fixture has id {hostId}: nothing was changed.");
         if (stamped.Kind != DateTimeKind.Utc) throw new InvalidOperationException($"A timestamptz was read as {stamped.Kind}, not UTC.");
-        await AuditAsync(conn, tx, op, "host_register_dev", null, null, new { operation = "heartbeat", hostId, lastHeartbeatAt = stamped }, ct);
+        await AuditAsync(conn, tx, op, "host_heartbeat_dev", null, null, new { operation = "heartbeat", hostId, lastHeartbeatAt = stamped }, ct);
         await tx.CommitAsync(ct);
         return new DevHostHeartbeat(hostId, stamped);
     }

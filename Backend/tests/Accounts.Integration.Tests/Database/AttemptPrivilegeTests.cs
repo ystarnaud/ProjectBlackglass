@@ -8,7 +8,8 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 /// <summary>Migration 0007's privileges (Stage 7; spec §15.1) against a real PostgreSQL 17. The app role reads the nine
 /// Stage 7 tables; it inserts through the listed columns only (never a creation time, a stamp or an initial state, which
 /// the database sets); it updates only an attempt's state, cancel reason and end, a participant's or a hold's state, a
-/// coverage's policy, version, activation and dates, and a host's heartbeat, switches and capacity; it never deletes or
+/// coverage's policy, version, activation and dates, and a host's heartbeat only (Stage 8 adds the switches and capacity
+/// with their audited verbs); it never deletes or
 /// truncates, and executes no trigger function. The outsider role and PUBLIC hold nothing.</summary>
 [Trait("Requires", "Postgres")]
 public class AttemptPrivilegeTests : IAsyncLifetime
@@ -119,10 +120,10 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "mission_attempts.state:SELECT,UPDATE",
             "mission_attempts.template_id:INSERT,SELECT",
             "mission_attempts.template_version:INSERT,SELECT",
-            "mission_hosts.capacity:INSERT,SELECT,UPDATE",
+            "mission_hosts.capacity:INSERT,SELECT",
             "mission_hosts.created_at:SELECT",
-            "mission_hosts.drained:SELECT,UPDATE",
-            "mission_hosts.enabled:INSERT,SELECT,UPDATE",
+            "mission_hosts.drained:SELECT",
+            "mission_hosts.enabled:INSERT,SELECT",
             "mission_hosts.host_id:INSERT,SELECT",
             "mission_hosts.kind:INSERT,SELECT",
             "mission_hosts.last_heartbeat_at:SELECT,UPDATE",
@@ -201,11 +202,11 @@ public class AttemptPrivilegeTests : IAsyncLifetime
         }
         await using (var tx = await conn.BeginTransactionAsync())
         {
-            // Activation's lock order (account, then coverage), an extension, and the host's heartbeat and switches.
+            // Activation's lock order (account, then coverage), an extension, and the host's heartbeat (its only UPDATE column).
             await conn.ExecuteAsync("select 1 from accounts where account_id = @account for update", new { account }, tx);
             await conn.ExecuteAsync("select 1 from insurance_coverages where account_id = @account for update", new { account }, tx);
             await conn.ExecuteAsync("update insurance_coverages set expires_at = expires_at + interval '1 day' where account_id = @account", new { account }, tx);
-            await conn.ExecuteAsync("update mission_hosts set last_heartbeat_at = clock_timestamp(), enabled = false, drained = true, capacity = 2", transaction: tx);
+            await conn.ExecuteAsync("update mission_hosts set last_heartbeat_at = clock_timestamp()", transaction: tx);
             await conn.ExecuteAsync("insert into insurance_policies (policy_id, version, terms) values ('premium', 1, '{}')", transaction: tx);
             await conn.ExecuteAsync("insert into mission_templates (template_id, version, energy_cost, min_operatives, max_operatives) values ('procedural-standard', 2, 0, 1, 3)", transaction: tx);
             await tx.CommitAsync();
@@ -254,6 +255,10 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "update mission_hosts set secret_hash = secret_hash",
             "update mission_hosts set kind = 'agent'",
             "update mission_hosts set host_id = 'renamed'",
+            // Stage 7 writes only the heartbeat: the switches and capacity wait for Stage 8's audited verbs.
+            "update mission_hosts set enabled = false",
+            "update mission_hosts set drained = true",
+            "update mission_hosts set capacity = 2",
             // The database sets times, stamps and initial states.
             "insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline, state) values (gen_random_uuid(), @account, 'procedural-standard', 1, 1, decode(repeat('ab', 32), 'hex'), now(), 'admitted')",
             "insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline, created_at) values (gen_random_uuid(), @account, 'procedural-standard', 1, 1, decode(repeat('ab', 32), 'hex'), now(), now())",

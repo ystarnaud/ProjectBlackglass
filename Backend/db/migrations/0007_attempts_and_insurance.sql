@@ -420,7 +420,7 @@ alter table operator_actions add constraint operator_actions_action_check check 
   'account_create', 'credential_rotate', 'credential_revoke', 'sessions_revoke', 'account_suspend', 'account_reactivate',
   'starter_backfill',
   'energy_open', 'energy_grant', 'energy_policy_publish',
-  'insurance_policy_publish', 'insurance_activate', 'mission_template_publish', 'host_register_dev',
+  'insurance_policy_publish', 'insurance_activate', 'mission_template_publish', 'host_register_dev', 'host_heartbeat_dev',
   'revalidate', 'participant_void', 'host_declared_lost', 'host_drain', 'host_enable', 'build_disable', 'energy_adjust'));
 
 -- ---- privileges ----
@@ -428,9 +428,9 @@ alter table operator_actions add constraint operator_actions_action_check check 
 -- accounts_app, narrowed from 0000's table-level defaults. It reads every table. It inserts through the columns each
 -- path writes, never a creation time, a stamp or an initial state (the defaults and triggers set them). It updates only:
 -- an attempt's state, cancel_reason and ended_at (release; Stage 8 adds its columns); a participant's and a hold's state;
--- a coverage's policy, version, activation and dates (activation); a host's last_heartbeat_at, enabled, drained and
--- capacity (Stage 8 refines this). Each UPDATE grant also lets it lock those rows FOR UPDATE. It never deletes or
--- truncates; templates, policies, activations, snapshots and deploy requests are insert-only. No sequence exists here.
+-- a coverage's policy, version, activation and dates (activation); a host's last_heartbeat_at only (Stage 8 grants the
+-- switches and capacity with their audited verbs). Each UPDATE grant also lets it lock those rows FOR UPDATE. It never
+-- deletes or truncates; templates, policies, activations, snapshots and deploy requests are insert-only. No sequence exists here.
 revoke insert, update, delete on insurance_policies from accounts_app;
 grant insert (policy_id, version, terms) on insurance_policies to accounts_app;
 revoke insert, update, delete on insurance_activations from accounts_app;
@@ -442,8 +442,7 @@ grant insert (account_id, policy_id, policy_version, activation_id, starts_at, e
 revoke insert, update, delete on mission_templates from accounts_app;
 grant insert (template_id, version, energy_cost, min_operatives, max_operatives) on mission_templates to accounts_app;
 revoke insert, update, delete on mission_hosts from accounts_app;
-grant insert (host_id, kind, secret_hash, capacity, enabled),
-  update (last_heartbeat_at, enabled, drained, capacity) on mission_hosts to accounts_app;
+grant insert (host_id, kind, secret_hash, capacity, enabled), update (last_heartbeat_at) on mission_hosts to accounts_app;
 revoke insert, update, delete on mission_attempts from accounts_app;
 grant insert (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline),
   update (state, cancel_reason, ended_at) on mission_attempts to accounts_app;

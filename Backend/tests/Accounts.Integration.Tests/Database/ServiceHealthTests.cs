@@ -361,7 +361,7 @@ public class ServiceHealthTests : IAsyncLifetime
         Assert.Equal("dev-1", Field(output, "hostId"));
         Assert.Matches(@"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}Z$", Field(output, "lastHeartbeatAt"));
         Assert.Equal(audits + 1, await CountAsync("operator_actions"));
-        Assert.Equal("host_register_dev", await ScalarAsSuperuserAsync<string>(db, "select action from operator_actions order by id desc limit 1"));
+        Assert.Equal("host_heartbeat_dev", await ScalarAsSuperuserAsync<string>(db, "select action from operator_actions order by id desc limit 1"));
         Assert.Equal("heartbeat", await ScalarAsSuperuserAsync<string>(db, "select result->>'operation' from operator_actions order by id desc limit 1"));
         Assert.True(await CheckAsync(devHostsEnabled: true));
         Assert.False(await CheckAsync(devHostsEnabled: false)); // still never capacity without the setting in the API
