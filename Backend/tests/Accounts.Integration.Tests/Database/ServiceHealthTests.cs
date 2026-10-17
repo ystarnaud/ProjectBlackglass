@@ -222,6 +222,8 @@ public class ServiceHealthTests : IAsyncLifetime
                      (AttemptSettings.DevHostsVar, "on-value-xyz"), (AttemptSettings.DevHostsVar, "Enabled"),
                      (AttemptSettings.HostLeaseSecondsVar, "4"), (AttemptSettings.HostLeaseSecondsVar, "601"),
                      (AttemptSettings.HostLeaseSecondsVar, "half-value-xyz"),
+                     (AttemptSettings.AssignDeadlineSecondsVar, "9"), (AttemptSettings.AssignDeadlineSecondsVar, "soon-value-xyz"),
+                     (AttemptSettings.DeployMaxBodyBytesVar, "65537"), (AttemptSettings.DeployRateVar, "0"), (AttemptSettings.DeployRateVar, "lots-value-xyz"),
                  })
         {
             var env = db.EnvFor("app");

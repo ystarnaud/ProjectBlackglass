@@ -113,6 +113,20 @@ public class ComposeExposureTests
     }
 
     [Fact]
+    public void The_api_passes_the_admission_settings_through_with_built_in_defaults()
+    {
+        // Task 6 (provisional, spec §19): empty means the built-in default (60 s, 4096 bytes, 6 a minute). Only the API admits.
+        var lines = ComposeText.Lines("compose.yaml");
+        var api = ComposeText.Block(lines, "services", "api", "environment").Select(l => l.Trim()).ToList();
+        foreach (var name in new[] { "BLACKGLASS_ASSIGN_DEADLINE_SECONDS", "BLACKGLASS_DEPLOY_MAX_BODY_BYTES", "BLACKGLASS_RATE_DEPLOY_PER_MINUTE" })
+        {
+            Assert.Contains($"{name}: ${{{name}:-}}", api);
+            Assert.DoesNotContain(ComposeText.Block(lines, "services", "admin", "environment"), l => l.Contains(name, StringComparison.Ordinal));
+            Assert.DoesNotContain(ComposeText.Block(lines, "services", "migrate", "environment"), l => l.Contains(name, StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public void Test_cluster_publishes_only_55432()
     {
         Assert.Equal(["- \"127.0.0.1:55432:5432\""], Ports(ComposeText.Lines("compose.test.yaml"), "postgres"));

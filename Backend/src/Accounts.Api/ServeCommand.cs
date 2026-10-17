@@ -4,6 +4,7 @@ using Blackglass.Accounts.Api.Attempts;
 using Blackglass.Accounts.Api.Auth;
 using Blackglass.Accounts.Api.Energy;
 using Blackglass.Accounts.Api.Player;
+using Blackglass.Accounts.Domain.Attempts;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
@@ -80,6 +81,11 @@ public static class ServeCommand
         // The fail-closed host-health check (S7-D2) with this process's development-host setting and lease, for admission.
         builder.Services.AddSingleton(attempts);
         builder.Services.AddSingleton(new ServiceHealth(attempts.DevHostsEnabled, attempts.HostLeaseSeconds));
+        // Admission (Task 6): the seed and retention salt come from the operating system's CSPRNG; resolved when the store is
+        // first used, so a test's configure can substitute known secrets.
+        builder.Services.AddSingleton<IAttemptSecrets, CryptoAttemptSecrets>();
+        builder.Services.AddSingleton(sp => new AdmissionStore(dataSource, sp.GetRequiredService<ServiceHealth>(), sp.GetRequiredService<IAttemptSecrets>(),
+            catalogue, attempts.AssignDeadlineSeconds));
         if (energy.ReconcileSeconds != 0)
         {
             // The periodic reconciliation (E4): its first sweep waits one interval, so startup never waits for one. Resolved
@@ -92,7 +98,7 @@ public static class ServeCommand
         builder.Services.AddAuthentication(AccountClaims.Scheme)
             .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null);
         builder.Services.AddAuthorization();
-        builder.Services.AddAccountRateLimits(auth);
+        builder.Services.AddAccountRateLimits(auth, attempts.DeployPerMinute);
         configure?.Invoke(builder);
         var app = builder.Build();
         app.Lifetime.ApplicationStopped.Register(dataSource.Dispose);
@@ -107,6 +113,7 @@ public static class ServeCommand
         app.MapAuth(auth);
         app.MapAdmin(auth);
         app.MapPlayer(auth);
+        app.MapAttempts(attempts);
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
     }

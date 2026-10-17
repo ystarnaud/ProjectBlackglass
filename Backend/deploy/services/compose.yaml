@@ -76,6 +76,11 @@ services:
       # the throwaway smoke stack only, never in production. The host heartbeat lease (provisional; empty means 30 s).
       BLACKGLASS_DEV_HOSTS: ${BLACKGLASS_DEV_HOSTS:-disabled}
       BLACKGLASS_HOST_LEASE_SECONDS: ${BLACKGLASS_HOST_LEASE_SECONDS:-}
+      # Stage 7 admission (provisional, spec §19; empty means the built-in default): the assignment deadline (60 s), the
+      # deploy body cap (4096 bytes) and deploys per account per minute (6).
+      BLACKGLASS_ASSIGN_DEADLINE_SECONDS: ${BLACKGLASS_ASSIGN_DEADLINE_SECONDS:-}
+      BLACKGLASS_DEPLOY_MAX_BODY_BYTES: ${BLACKGLASS_DEPLOY_MAX_BODY_BYTES:-}
+      BLACKGLASS_RATE_DEPLOY_PER_MINUTE: ${BLACKGLASS_RATE_DEPLOY_PER_MINUTE:-}
       BLACKGLASS_DB_LOCK_TIMEOUT_MS: ${BLACKGLASS_DB_LOCK_TIMEOUT_MS:-}
       BLACKGLASS_DB_STATEMENT_TIMEOUT_MS: ${BLACKGLASS_DB_STATEMENT_TIMEOUT_MS:-}
     secrets:

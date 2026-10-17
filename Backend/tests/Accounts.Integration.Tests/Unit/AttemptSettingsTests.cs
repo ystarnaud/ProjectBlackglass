@@ -39,4 +39,40 @@ public class AttemptSettingsTests
             if (value.Contains("-value-", StringComparison.Ordinal)) Assert.DoesNotContain(value, e.Message);
         }
     }
+
+    [Fact]
+    public void Admission_settings_defaults_bounds_and_refusals()
+    {
+        // Provisional (spec §19): a 60 s assignment deadline (S7-D6), a 4 KiB deploy body, 6 deploys a minute per account.
+        Assert.Equal("BLACKGLASS_ASSIGN_DEADLINE_SECONDS", AttemptSettings.AssignDeadlineSecondsVar);
+        Assert.Equal("BLACKGLASS_DEPLOY_MAX_BODY_BYTES", AttemptSettings.DeployMaxBodyBytesVar);
+        Assert.Equal("BLACKGLASS_RATE_DEPLOY_PER_MINUTE", AttemptSettings.DeployRateVar);
+        foreach (var env in new[] { Env(), Env((AttemptSettings.AssignDeadlineSecondsVar, ""), (AttemptSettings.DeployMaxBodyBytesVar, null), (AttemptSettings.DeployRateVar, "")) })
+        {
+            var defaults = AttemptSettings.FromEnvironment(env);
+            Assert.Equal((60, 4096, 6), (defaults.AssignDeadlineSeconds, defaults.DeployMaxBodyBytes, defaults.DeployPerMinute));
+        }
+
+        // Inclusive bounds: the deadline 10..3600 s, the body 1024..65536 bytes, the rate 1..1000 a minute.
+        foreach (var (name, text, read) in new (string, string, Func<AttemptSettings, int>)[]
+                 {
+                     (AttemptSettings.AssignDeadlineSecondsVar, "10", s => s.AssignDeadlineSeconds), (AttemptSettings.AssignDeadlineSecondsVar, "3600", s => s.AssignDeadlineSeconds),
+                     (AttemptSettings.DeployMaxBodyBytesVar, "1024", s => s.DeployMaxBodyBytes), (AttemptSettings.DeployMaxBodyBytesVar, "65536", s => s.DeployMaxBodyBytes),
+                     (AttemptSettings.DeployRateVar, "1", s => s.DeployPerMinute), (AttemptSettings.DeployRateVar, "1000", s => s.DeployPerMinute),
+                 })
+            Assert.Equal(int.Parse(text, System.Globalization.CultureInfo.InvariantCulture), read(AttemptSettings.FromEnvironment(Env((name, text)))));
+
+        foreach (var (name, value) in new[]
+                 {
+                     (AttemptSettings.AssignDeadlineSecondsVar, "9"), (AttemptSettings.AssignDeadlineSecondsVar, "3601"), (AttemptSettings.AssignDeadlineSecondsVar, "+60"),
+                     (AttemptSettings.AssignDeadlineSecondsVar, "soon-value-xyz"),
+                     (AttemptSettings.DeployMaxBodyBytesVar, "1023"), (AttemptSettings.DeployMaxBodyBytesVar, "65537"), (AttemptSettings.DeployMaxBodyBytesVar, "4 KiB"),
+                     (AttemptSettings.DeployRateVar, "0"), (AttemptSettings.DeployRateVar, "1001"), (AttemptSettings.DeployRateVar, "-6"), (AttemptSettings.DeployRateVar, "lots-value-xyz"),
+                 })
+        {
+            var e = Assert.Throws<AttemptSettingsException>(() => AttemptSettings.FromEnvironment(Env((name, value))));
+            Assert.Contains(name, e.Message);
+            if (value.Contains("-value-", StringComparison.Ordinal)) Assert.DoesNotContain(value, e.Message);
+        }
+    }
 }
