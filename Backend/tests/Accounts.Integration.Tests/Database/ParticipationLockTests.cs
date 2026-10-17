@@ -232,16 +232,24 @@ public class ParticipationLockTests : IAsyncLifetime
         Assert.True(await ReadLockedAsync(api, p));
         await MoveAsync("attempt_participants", "result_pending");
         Assert.True(await ReadLockedAsync(api, p));
-        await MoveAsync("attempt_participants", "quarantined");
-        Assert.True(await ReadLockedAsync(api, p));
         await ForcedAsync("update attempt_participants set state = 'unresponsive' where attempt_id = @attempt");
         Assert.True(await ReadLockedAsync(api, p));
         AssertLocked(await EditAsync(api, p, 1));
-        await ForcedAsync("update attempt_participants set state = 'quarantined' where attempt_id = @attempt");
+        await ForcedAsync("update attempt_participants set state = 'result_pending' where attempt_id = @attempt");
+        // Since 0009 a quarantined participant carries its reason and its next escalation (cleared when it settles).
+        await MoveAsync("attempt_participants", "quarantined",
+            ", quarantined_at = clock_timestamp(), quarantine_reason = 'invalid_manifest', escalate_at = clock_timestamp() + interval '1 day'");
+        Assert.True(await ReadLockedAsync(api, p));
+        AssertLocked(await EditAsync(api, p, 1));
 
-        // Settlement is terminal: quarantined -> settled (Stage 9 adds the hold's settle edge, so it is forced here).
-        await MoveAsync("attempt_participants", "settled");
-        await ForcedAsync("update energy_holds set state = 'settled' where attempt_id = @attempt");
+        // Settlement is terminal: quarantined -> settled. The fixture's snapshot is a placeholder, so the protective void's effects
+        // are written directly: the hold refunded (no refund entry), the participant's settlement row, then the states.
+        await ForcedAsync("update energy_holds set state = 'refunded' where attempt_id = @attempt");
+        await su.ExecuteAsync("""
+            insert into participant_settlements (attempt_id, account_id, outcome, void_basis, catalogue_version, receipt, settled_at)
+            select attempt_id, @account, 'infra_void', 'operator_quarantine', catalogue_version, '{}', clock_timestamp() from mission_attempts where attempt_id = @attempt
+            """, new { attempt, account = p.Account });
+        await MoveAsync("attempt_participants", "settled", ", escalate_at = null");
         await AttemptFixtures.MoveAsync(db, attempt, "ending");
         await AttemptFixtures.MoveAsync(db, attempt, "settled");
         Assert.False(await ReadLockedAsync(api, p));

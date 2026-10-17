@@ -216,7 +216,8 @@ public class EnergySchemaTests : IAsyncLifetime
     }
 
     /// <summary>Each kind with a delta of its sign and a key of its form commits as a real write: the wallet moves by the
-    /// delta and the entry extends the chain. "MAX" is the longest (200-character) key of that kind's form.
+    /// delta and the entry extends the chain. "MAX" is the longest (200-character) key of that kind's form;
+    /// "ATTEMPT" is the key 0009 fixes for settle and void_refund (the kind and the attempt id).
     /// Since 0007 the attempt-bound kinds (charge, settle, void_refund here) name an existing attempt; reserve and release,
     /// whose keys 0007 ties to their attempt and whose holds its invariants check, are covered by AttemptSchemaTests.</summary>
     [Theory]
@@ -226,9 +227,8 @@ public class EnergySchemaTests : IAsyncLifetime
     [InlineData("regen", 1, "regen:-1")]
     [InlineData("regen", 1, "MAX")]
     [InlineData("dev_grant", 1, "dev_grant:" + Uuid)]
-    [InlineData("void_refund", 1, "void_refund:a")]
-    [InlineData("void_refund", 1, "MAX")]
-    [InlineData("settle", 0, "settle:a")]
+    [InlineData("void_refund", 1, "ATTEMPT")]
+    [InlineData("settle", 0, "ATTEMPT")]
     [InlineData("adjust", -1, "adjust:a")]
     [InlineData("adjust", 1, "adjust")]
     public async Task Each_kind_accepts_a_delta_of_its_sign(string kind, int delta, string key)
@@ -242,6 +242,7 @@ public class EnergySchemaTests : IAsyncLifetime
         {
             account = await NewWalletAsync();
             var attempt = kind is "void_refund" or "charge" or "settle" ? await NewAttemptAsync(account) : (Guid?)null;
+            if (key == "ATTEMPT") key = kind + ":" + attempt; // since 0009 a settle or void_refund key is exactly its kind and attempt
             await CreditAsync(account, kind, delta, key, attempt);
         }
         Assert.Equal((kind == "open" ? 1L : 2L, (kind == "open" ? 0 : 50) + delta), await SingleAsync<(long, int)>(db.AsSuperuser(),
