@@ -36,6 +36,10 @@ public sealed class AttemptSettings
     public const string QuarantineEscalationHoursVar = "BLACKGLASS_QUARANTINE_ESCALATION_HOURS";
     public const string MaxElapsedMsVar = "BLACKGLASS_MANIFEST_MAX_ELAPSED_MS";
     public const string ElapsedToleranceMsVar = "BLACKGLASS_MANIFEST_ELAPSED_TOLERANCE_MS";
+    public const string UnresponsiveAlertSecondsVar = "BLACKGLASS_UNRESPONSIVE_ALERT_SECONDS";
+    public const string RevokedAlertHoursVar = "BLACKGLASS_REVOKED_ALERT_HOURS";
+    public const string AutoDrainAttemptsVar = "BLACKGLASS_AUTO_DRAIN_ATTEMPTS";
+    public const string AutoDrainWindowVar = "BLACKGLASS_AUTO_DRAIN_WINDOW";
 
     /// <summary>The log category of serve's attempt messages, such as the development host warning.</summary>
     public const string LogCategory = "Blackglass.Attempts";
@@ -95,6 +99,18 @@ public sealed class AttemptSettings
     /// <summary>V13's clock tolerance between serverElapsedMs and the attempt's start: 0 to 600000 ms, default 60000.</summary>
     public int ManifestElapsedToleranceMs { get; private init; }
 
+    /// <summary>How long an unresponsive attempt waits before its first alert, and between alerts (never a void): 60 to 86400 s, default 600.</summary>
+    public int UnresponsiveAlertSeconds { get; private init; }
+
+    /// <summary>Hours between alerts for a revoked attempt with unsettled participants: 1 to 720, default 24.</summary>
+    public int RevokedAlertHours { get; private init; }
+
+    /// <summary>Distinct attempts with an exit-evidence void within the window that drain their host (S9-B18): 0 (off) to 1000, default 3.</summary>
+    public int AutoDrainAttempts { get; private init; }
+
+    /// <summary>The auto-drain window in minutes: 1 to 10080, default 60.</summary>
+    public int AutoDrainWindowMinutes { get; private init; }
+
     public static AttemptSettings FromEnvironment(IReadOnlyDictionary<string, string?> env)
     {
         var devHosts = !env.TryGetValue(DevHostsVar, out var d) || string.IsNullOrEmpty(d) ? false
@@ -126,6 +142,10 @@ public sealed class AttemptSettings
             QuarantineEscalationHours = Number(env, QuarantineEscalationHoursVar, 24, 1, 720),
             ManifestMaxElapsedMs = Number(env, MaxElapsedMsVar, 7_500_000, 60_000, 86_400_000),
             ManifestElapsedToleranceMs = Number(env, ElapsedToleranceMsVar, 60_000, 0, 600_000),
+            UnresponsiveAlertSeconds = Number(env, UnresponsiveAlertSecondsVar, 600, 60, 86_400),
+            RevokedAlertHours = Number(env, RevokedAlertHoursVar, 24, 1, 720),
+            AutoDrainAttempts = Number(env, AutoDrainAttemptsVar, 3, 0, 1000),
+            AutoDrainWindowMinutes = Number(env, AutoDrainWindowVar, 60, 1, 10_080),
         };
     }
 

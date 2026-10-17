@@ -110,7 +110,16 @@ public static class ServeCommand
         builder.Services.AddSingleton(new AttemptStore(dataSource, attempts.ProcessLeaseSeconds));
         var sweepInterval = TimeSpan.FromSeconds(attempts.AttemptSweepSeconds);
         var cooldown = new SweepCooldown(); // the worker's memory of releases that keep failing (sweeps never overlap)
-        builder.Services.AddSingleton(sp => new AttemptDeadlineWorker(ct => sp.GetRequiredService<AttemptStore>().SweepAsync(AttemptDeadlineWorker.BatchSize, cooldown, ct),
+        // Stage 9 (S9-B18): the repeating alerts and the auto-drain run after each deadline sweep; none of them ever voids.
+        var monitoring = new Persistence.Settlement.MonitoringStore(dataSource, new Persistence.Settlement.MonitoringOptions(attempts.QuarantineEscalationHours,
+            attempts.UnresponsiveAlertSeconds, attempts.RevokedAlertHours, attempts.AutoDrainAttempts, attempts.AutoDrainWindowMinutes));
+        builder.Services.AddSingleton(monitoring);
+        builder.Services.AddSingleton(sp => new AttemptDeadlineWorker(async ct =>
+            {
+                var report = await sp.GetRequiredService<AttemptStore>().SweepAsync(AttemptDeadlineWorker.BatchSize, cooldown, ct);
+                await sp.GetRequiredService<Persistence.Settlement.MonitoringStore>().SweepAsync(ct);
+                return report;
+            },
             sweepInterval, sp.GetRequiredService<ILoggerFactory>()));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<AttemptDeadlineWorker>());
         if (energy.ReconcileSeconds != 0)
