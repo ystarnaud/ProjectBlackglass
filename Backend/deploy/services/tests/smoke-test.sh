@@ -396,6 +396,10 @@ check "dev login is off again by default (404)" test "$(http_code -X POST -H 'Co
 before="$(api_started_at)"
 check "a second deploy applies nothing and passes health and exposure" bash -c "bash '$here/deploy.sh' > '$work/deploy2.log' 2>&1 && grep -q 'nothing applied' '$work/deploy2.log' && grep -q 'EXPOSURE PASS' '$work/deploy2.log'"
 check "the second deploy stopped the running API before the backup and restarted it" restarted_in_order
+# Stage 9: that deploy's backup holds the settlement, the void and the quarantine above; the restore drill restores it and runs
+# every invariant at schema 9 against them.
+smoke_drill() { local dump; dump="$(ls -t "$BLACKGLASS_BACKUP_DIR"/accounts-*.dump | head -n 1)"; bash "$here/restore-drill.sh" "$dump" > "$work/drill.log" 2>&1 && grep -q "DRILL PASS" "$work/drill.log" && cat "$work/drill.log"; }
+check "the restore drill passes on the backup holding the Stage 9 settlements (invariants at schema $latest)" smoke_drill
 
 # Keeps the stack up, with the API serving, so the PC can run tools/offhost-probe.sh against it (default 0: no hold).
 # This comes before the failed-backup case below, which leaves the API stopped.
