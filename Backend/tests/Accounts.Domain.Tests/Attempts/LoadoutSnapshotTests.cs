@@ -152,8 +152,8 @@ public class LoadoutSnapshotTests
     public static TheoryData<string> BadBuilds =>
     [
         "empty order", "duplicate in the order", "operative not in the roster", "roster lists an operative twice", "account id zero",
-        "negative inventory version", "empty catalogue version", "two items in one slot", "equipped in the stash", "equipped as None",
-        "two stacks of one definition", "non-positive stack",
+        "negative inventory version", "inventory version zero", "empty catalogue version", "two items in one slot",
+        "equipped in the stash", "equipped as None", "two stacks of one definition", "non-positive stack",
     ];
 
     [Theory]
@@ -168,6 +168,8 @@ public class LoadoutSnapshotTests
             "roster lists an operative twice" => () => Build([Op1], roster: [.. Roster(), new(Op1, Golden.One, 0, [])]),
             "account id zero" => () => LoadoutSnapshot.Build(0, Version, CatalogueVersion, [Op1], Roster(), Model(), Cat),
             "negative inventory version" => () => LoadoutSnapshot.Build(Account, -1, CatalogueVersion, [Op1], Roster(), Model(), Cat),
+            // 0007 checks attempt_participants.inventory_version >= 1, and inventories.version starts at 1.
+            "inventory version zero" => () => LoadoutSnapshot.Build(Account, 0, CatalogueVersion, [Op1], Roster(), Model(), Cat),
             "empty catalogue version" => () => LoadoutSnapshot.Build(Account, Version, "", [Op1], Roster(), Model(), Cat),
             "two items in one slot" => () => Build([Op1], Model([.. Instances(), new(50, Rifle, Op1, ItemSlot.Weapon)])),
             "equipped in the stash" => () => Build([Op1], Model([.. Instances(), new(50, Rifle, null, ItemSlot.Weapon)])),

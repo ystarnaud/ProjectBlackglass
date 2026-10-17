@@ -96,9 +96,13 @@ public class DeployRequestTests
             Body,
             """{"operativeIds":["2","21","NQm6nKp8qFC"],"missionTemplate":"procedural-standard"}""",
             "{\n  \"missionTemplate\" : \"procedural-standard\",\r\n\t\"operativeIds\": [ \"2\", \"21\",\n \"NQm6nKp8qFC\" ]\n}\n",
-            // An escaped spelling of the same string is the same value.
-            """{"missionTemplate":"procedural-standard","operativeIds":["2","21","NQm6nKp8qFC"]}""",
+            // JSON-escaped spellings of the same strings are the same values: the template (\u0070 is 'p'), a member name
+            // (\u006d is 'm', \u0049 is 'I') and an operative id (\u0032 is '2'). Raw literals keep the backslashes, so these
+            // are real JSON escapes, not C# ones (the count below fails if an escape is ever lost).
+            """{"missionTemplate":"\u0070rocedural-standard","operativeIds":["2","21","NQm6nKp8qFC"]}""",
+            """{"\u006dissionTemplate":"procedural-standard","operative\u0049ds":["\u0032","21","NQm6nKp8qFC"]}""",
         };
+        Assert.Equal(2, variants.Count(v => v.Contains(@"\u00", StringComparison.Ordinal)));
         foreach (var variant in variants)
         {
             var request = Parse(variant);

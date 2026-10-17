@@ -98,7 +98,13 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
     public bool IsMissionTemplateVerb => Verb.StartsWith("mission-template-", StringComparison.Ordinal);
 
     /// <summary>The development host fixture verbs, which read <c>AttemptSettings</c> and refuse unless BLACKGLASS_DEV_HOSTS=enabled.</summary>
-    public bool IsHostVerb => Verb.StartsWith("host-", StringComparison.Ordinal);
+    public bool IsDevHostVerb => IsDevHostFixtureVerb(Verb);
+
+    /// <summary>
+    /// Exactly the two development host fixture verbs. Not every <c>host-*</c> verb: Stage 8's real host switches (0007
+    /// reserves <c>host_drain</c> and <c>host_enable</c>) must work in production, where fixtures are never enabled.
+    /// </summary>
+    public static bool IsDevHostFixtureVerb(string verb) => verb is "host-register-dev" or "host-heartbeat-dev";
 
     /// <summary>Only the verbs that grant a starter read game definitions. Account-security administration (rotate, revoke a
     /// credential, revoke sessions, suspend, reactivate) never loads the catalogue, so it works whatever state that is in.</summary>

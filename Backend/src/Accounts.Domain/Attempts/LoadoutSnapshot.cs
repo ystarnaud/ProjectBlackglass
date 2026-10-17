@@ -42,14 +42,15 @@ public sealed record LoadoutSnapshot(long AccountId, long InventoryVersion, stri
     /// <summary>
     /// Builds the snapshot of `requestedOrder` (1 or more distinct ids, each listed once in `operatives`) from the account's
     /// roster rows and inventory. Admission validates ownership, team size and duplicates before calling; anything
-    /// malformed here (an unknown or repeated id, two items in one slot, an equipped item outside a bag, a repeated or
-    /// non-positive stack) is an ArgumentException. Rank comes from the catalogue's progression track.
+    /// malformed here (a non-positive account id or inventory version, an unknown or repeated id, two items in one slot, an
+    /// equipped item outside a bag, a repeated or non-positive stack) is an ArgumentException. Rank comes from the
+    /// catalogue's progression track.
     /// </summary>
     public static LoadoutBuild Build(long accountId, long inventoryVersion, string catalogueVersion, IReadOnlyList<long> requestedOrder,
         IReadOnlyList<SnapshotOperativeSource> operatives, InventoryModel inventory, CatalogueDocument catalogue)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(accountId);
-        ArgumentOutOfRangeException.ThrowIfNegative(inventoryVersion);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(inventoryVersion); // inventories.version starts at 1 (0007 checks >= 1)
         ArgumentException.ThrowIfNullOrEmpty(catalogueVersion);
         ArgumentNullException.ThrowIfNull(requestedOrder);
         ArgumentNullException.ThrowIfNull(operatives);

@@ -89,6 +89,16 @@ public class AdminArgumentsTests
             new SortedSet<string>(AdminArguments.KnownVerbs));
 
     [Fact]
+    public void Only_the_two_development_fixture_verbs_are_gated_on_the_dev_hosts_setting()
+    {
+        // The gate is the fixture verbs, not the "host-" prefix: Stage 8's real host switches must not need fixtures enabled.
+        Assert.Equal(new SortedSet<string>(["host-heartbeat-dev", "host-register-dev"]),
+            new SortedSet<string>(AdminArguments.KnownVerbs.Where(AdminArguments.IsDevHostFixtureVerb)));
+        foreach (var verb in new[] { "host-drain", "host-enable", "host-declared-lost", "host-register", "host-heartbeat" })
+            Assert.False(AdminArguments.IsDevHostFixtureVerb(verb), verb);
+    }
+
+    [Fact]
     public void Credential_revocation_takes_a_uuid()
     {
         var id = Guid.CreateVersion7();
@@ -224,15 +234,15 @@ public class AdminArgumentsTests
         Assert.Equal(new MissionTemplateValues("Bad_Id", -1, 0, 99), // MissionTemplate refuses these before any connection, not the parser
             Parse("mission template publish --template-id Bad_Id --energy-cost -1 --min-operatives 0 --max-operatives 99 --operator o --reason r").Template);
         Assert.True(publish.IsMissionTemplateVerb);
-        Assert.False(publish.IsEnergyVerb || publish.IsInsuranceVerb || publish.IsHostVerb);
+        Assert.False(publish.IsEnergyVerb || publish.IsInsuranceVerb || publish.IsDevHostVerb);
 
         var register = Parse("host register-dev --host-id dev-1 --capacity 2 --operator o --reason r");
         Assert.Equal(("host-register-dev", "dev-1", 2, AdminConfirmation.Register, false), (register.Verb, register.HostId, register.Capacity, register.Confirmation, register.ChangesAnExistingAccount));
         Assert.True(Parse("host register-dev --host-id dev-1 --capacity 2 --yes --operator o --reason r").Confirmed);
-        Assert.True(register.IsHostVerb);
+        Assert.True(register.IsDevHostVerb);
         var heartbeat = Parse("host heartbeat-dev --host-id dev-1 --operator o --reason r");
         Assert.Equal(("host-heartbeat-dev", "dev-1", null, AdminConfirmation.None), (heartbeat.Verb, heartbeat.HostId, heartbeat.Capacity, heartbeat.Confirmation));
-        Assert.True(heartbeat.IsHostVerb);
+        Assert.True(heartbeat.IsDevHostVerb);
 
         Assert.Contains("mission template publish --template-id", AdminArguments.Usage);
         Assert.Contains("host register-dev --host-id", AdminArguments.Usage);

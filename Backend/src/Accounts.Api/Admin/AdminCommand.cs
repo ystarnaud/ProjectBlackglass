@@ -28,9 +28,9 @@ namespace Blackglass.Accounts.Api.Admin;
 /// at a terminal, typing that Base58 id. A policy publication (energy or insurance) first prints the current policy and the
 /// proposed one ("target.policy*" lines) and is confirmed by --yes or by typing "publish"; a mission template publication
 /// likewise ("target.template*" lines). A development host fixture's registration shows its target ("target.host*", kind,
-/// capacity) and is confirmed by --yes or by typing "register"; the host verbs refuse (64) unless this process has
-/// BLACKGLASS_DEV_HOSTS=enabled, before any connection. Without confirmation nothing changes (exit 64 with no terminal, 67 on
-/// a wrong answer).
+/// capacity) and is confirmed by --yes or by typing "register"; the two fixture verbs (not every host verb) refuse (64)
+/// unless this process has BLACKGLASS_DEV_HOSTS=enabled, before any connection. Without confirmation nothing changes (exit
+/// 64 with no terminal, 67 on a wrong answer).
 /// </summary>
 public static class AdminCommand
 {
@@ -90,7 +90,7 @@ public static class AdminCommand
         }
         // The development host fixture verbs read the attempt settings and refuse, before any connection, unless this admin
         // process has development host fixtures enabled (S7-D2: test and smoke use only, never in production).
-        if (a.IsHostVerb)
+        if (a.IsDevHostVerb)
         {
             AttemptSettings attempts;
             try { attempts = AttemptSettings.FromEnvironment(env); }
@@ -123,7 +123,7 @@ public static class AdminCommand
         var insurance = a.IsInsuranceVerb ? new InsuranceAdminStore(dataSource) : null;
         var insuranceReader = a.IsInsuranceVerb ? new InsuranceReader(dataSource) : null;
         var templates = a.IsMissionTemplateVerb ? new MissionTemplates(dataSource) : null;
-        var devHosts = a.IsHostVerb ? new DevHosts(dataSource) : null;
+        var devHosts = a.IsDevHostVerb ? new DevHosts(dataSource) : null;
         try
         {
             // The same schema policy as serve (Stage 1 ruling 4): behind, drifted or ahead, the CLI writes nothing.
