@@ -1,4 +1,4 @@
-# Blackglass backend (Phase 13, Stages 1–6: foundation, catalogue, accounts and development authentication, operatives and inventory, inventory operations, energy accounting)
+# Blackglass backend (Phase 13, Stages 1–7: foundation, catalogue, accounts and development authentication, operatives and inventory, inventory operations, energy accounting, insurance and admission)
 
 ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loopback only; the VM is reached by SSH alias `bg-dev-services01-admin` (user `admin`, `sudo -n`; root SSH login is disabled).
 
@@ -99,11 +99,17 @@ A secrets directory created before Stage 3 lacks `api/admin_key` and `admin/db_p
 | `BLACKGLASS_INVENTORY_MAX_BODY_BYTES` | 1024–1048576, the inventory batch body limit (Stage 5, provisional) | 16384 |
 | `BLACKGLASS_ENERGY_RECONCILE_SECONDS` | 0 = off, else 60–86400; the reconciliation sweep interval in `serve` (Stage 6, provisional) | 3600 |
 | `BLACKGLASS_ENERGY_GRANT_MAX` | 1–1000000; the largest single new development grant (`admin energy grant`; a replay is matched before it; also validated by `serve`) | 1000 |
+| `BLACKGLASS_DEV_HOSTS` | `enabled`/`disabled`; development host fixtures count as capacity (tests and the smoke stack only; never production; Stage 7) | disabled |
+| `BLACKGLASS_HOST_LEASE_SECONDS` | 5–600; a host heartbeat older than this is not capacity | 30 |
+| `BLACKGLASS_ASSIGN_DEADLINE_SECONDS` | 10–3600; an admitted attempt not assigned by then is cancelled and released (provisional) | 60 |
+| `BLACKGLASS_ATTEMPT_SWEEP_SECONDS` | 1–3600; the assignment-deadline worker's interval (always on) | 15 |
+| `BLACKGLASS_DEPLOY_MAX_BODY_BYTES` | 1024–65536; the deploy body limit | 4096 |
+| `BLACKGLASS_RATE_DEPLOY_PER_MINUTE` | 1–1000, deploys per account | 6 |
 | `BLACKGLASS_DB_STATEMENT_TIMEOUT_MS` | 1–600000, `statement_timeout` on the same connections (the migrator has neither: it sets its own `lock_timeout`) | 15000 |
 
 **Routes.**
 - `POST /v1/auth/dev/login {accountKey}` → `{accessToken, expiresAt, accountId}`, with `Cache-Control: no-store`.
-- `GET /v1/me` → `{accountId, inventoryVersion, energy}` (Stage 4; `inventoryVersion` is the shared inventory version, null for an account without a starter). Stage 6: `energy` is `{balance, cap, nextRegenAt}` projected read-only (`nextRegenAt` UTC ISO-8601 with `Z`, null at or above the cap), or `null` for an account without a wallet, never zero.
+- `GET /v1/me` → `{accountId, inventoryVersion, energy, activeAttemptId, insurance}` (Stage 7 adds the last two; Stage 4: `inventoryVersion` is the shared inventory version, null for an account without a starter). Stage 6: `energy` is `{balance, cap, nextRegenAt}` projected read-only (`nextRegenAt` UTC ISO-8601 with `Z`, null at or above the cap), or `null` for an account without a wallet, never zero.
 - `POST /v1/auth/logout` → 204. It revokes the current session only. A repeat gets the same 401 as any unknown token.
 - `POST /dev/v1/accounts` with header `X-Admin-Key` and body `{handle?, displayName?, operator, reason}` → 201 `{accountId, credentialId, accountKey}`, with `X-Correlation-Id`.
 
@@ -277,6 +283,71 @@ Schema version 6 (`0006_energy`). Owner rulings E1–E7 (spec revision 2.6, §0.
 **Rate limits behind the tunnel.** Every request reaches the container from the Docker bridge address, so no limit is per IP. Login is limited per presented key, plus a global window that fabricated keys can't get around. Authenticated requests are limited per account. Per-IP limits wait for Phase 14's HAProxy.
 
 **Admin loopback.** For the admin routes, "loopback only" means the API's own `127.0.0.1:5080` publication, plus the off-by-default flag, the admin key and the rate window. Inside the container every request arrives from the bridge gateway, so an in-app address check would prove nothing.
+
+## Insurance, mission participants and admission (Stage 7)
+
+Schema version 7 (`0007_attempts_and_insurance`). Owner rulings S7-D1–S7-D9 (spec revision 2.7, §0.7). **There is no gameplay, claim, ticket, start charge, settlement or payout:** energy is reserved at deployment, and the `reserved → charged` transition is Stage 8's.
+
+**Routes** (session only, `Cache-Control: no-store`, the uniform 401; no request carries an account id):
+
+| Route | Answer |
+|---|---|
+| `POST /v1/attempts`, header `Idempotency-Key: <uuid>`, body `{missionTemplate, operativeIds:[Base58…]}` (exactly these members; order kept and meaningful; no duplicates; 1..16 ids) | `201 {attemptId, state:"admitted", energy:{cost, balanceAfter}, insurance:{covered, policyId, policyVersion}}` |
+| `GET /v1/attempts/{attemptId}` (canonical lower-case UUID) | `200 {attemptId, state, participantState, deadlines:{assign}, energy:{amount, state}, insurance:{covered, policyId, policyVersion}}` |
+| `POST /v1/attempts/{attemptId}/cancel` (before start only) | `200 {participantState:"released", energy:{released, balanceAfter}}`; a repeat returns the stored outcome |
+
+**Deploy responses:**
+- **Refusals:**
+  - 400: `InvalidBody`, `DuplicateOperative`, `InvalidOperativeId`, `InvalidIdempotencyKey`.
+  - 413 over `BLACKGLASS_DEPLOY_MAX_BODY_BYTES`; 415.
+  - 409: `IdempotencyKeyReused` (same key, different normalized body; nothing written), `NotProvisioned`, `AttemptActive`, `InsufficientEnergy` (also for a positive cost with no wallet).
+  - 422 `{code, index?}`: `UnknownTemplate`, `UnknownOperative` (a foreign id is the same answer), `OperativeCount`, `RetiredOperative`, `UnknownItem`.
+  - 503 `ServiceUnavailable` with `Retry-After` (no verified capacity; nothing locked or written); busy is 503 as elsewhere.
+- **Replay.** The same key and body return the recorded response byte for byte, even after the attempt has been released (it still says `admitted`: it is the admission's record). There is no second reservation.
+- **Body format.** Bodies are stored as `jsonb`, so their member order is PostgreSQL's (JSON objects are unordered).
+- **Zero-cost templates** report `balanceAfter: null`, and so does a zero-amount cancel.
+
+**Admission** (one READ COMMITTED transaction):
+1. The early idempotency lookup.
+2. Service health, before any lock: at least one enabled, undrained host with a fresh heartbeat (`BLACKGLASS_HOST_LEASE_SECONDS`) and capacity. A `dev_fixture` host counts only when `BLACKGLASS_DEV_HOSTS=enabled`.
+3. `accounts` `FOR KEY SHARE` → `inventories` `FOR UPDATE`.
+4. The idempotency re-read.
+5. `InventoryLocked`/`AttemptActive`.
+6. Template and operatives:
+   - owned, ordered, within the template's count;
+   - definitions and items known to the catalogue;
+   - choices by ordinal.
+7. Energy, for a positive cost only: wallet `FOR UPDATE` → materialize (Stage 6) → check → reserve. A zero-cost template takes no energy path and writes no ledger entry.
+8. Inserts: attempt (UUIDv7; a CSPRNG seed and 32-byte retention salt, never in any response, log or audit) → participant (the immutable loadout snapshot: the selected operatives in the requested order, with owned id and definition id, advancement, bags and equipment, account, inventory version and catalogue version; no stash) → hold → `reserve:<attempt>` entry → insurance snapshot (complete terms, if the coverage is active at admission's database `now`) → the recorded response.
+
+One active participation per account is enforced by the partial unique index `one_active_participation`.
+
+**Release** (pre-start cancel, or the assignment-deadline worker):
+- `mission_attempts` → `attempt_participants` → `energy_holds` → `inventories` → (positive amount only) wallet → the energy policy lock.
+- It releases once: the `release:<attempt>` entry (+cost, may exceed the cap) and three guarded single-row transitions. A later state is never cancelled.
+- The admission and insurance records remain.
+
+**Worker.** The assignment-deadline worker runs in every `serve` process every `BLACKGLASS_ATTEMPT_SWEEP_SECONDS`. It cancels `admitted` attempts past `assign_deadline` (`no_capacity`) with `FOR UPDATE SKIP LOCKED`, and its first sweep comes one interval after start. Until Stage 8 claims attempts, every admitted attempt is released after the deadline.
+
+**`InventoryLocked`** is now a mandatory, fail-closed participation query (`ParticipationLock`) for edits, picks and `GET /v1/inventory`'s `locked`. The always-unlocked fallback is deleted.
+
+**`/v1/me`** adds `activeAttemptId` (or null) and `insurance: {active, policyId, expiresAt}` (`active` at the read's database `now`), read in the same single statement as the energy.
+
+**Insurance:**
+- Versions are immutable; `standard` v1 is seeded.
+- **Activation:** the same policy extends to `max(expires, now) + duration`. A different policy while active is refused (`CrossTierDeferred`). The key is honoured once; a replay writes nothing.
+- The admission snapshot is immutable and outlives the coverage. There is no payout in Stage 7.
+
+**Operator CLI** (confirmed, audited; never load the catalogue):
+```
+… admin insurance policy publish --policy-id <id> --terms-file <path>
+… admin insurance activate --account-base58 <id> --policy-id <id> --duration-seconds <s> --idempotency-key <uuid>
+… admin mission template publish --template-id <id> --energy-cost <n> --min-operatives <n> --max-operatives <n>
+… admin host register-dev --host-id <id> --capacity <n>        (only with BLACKGLASS_DEV_HOSTS=enabled)
+… admin host heartbeat-dev --host-id <id>                      (only with BLACKGLASS_DEV_HOSTS=enabled)
+```
+- Templates: `procedural-standard` v1 is seeded (cost 10, 1–3 operatives; provisional). Zero cost is allowed. A new version is a new row.
+- `BLACKGLASS_DEV_HOSTS` is for isolated tests and the throwaway smoke stack only. Its compose default is `disabled`, `serve` warns when it is enabled, and it must never be set in production.
 
 ## Restore limits
 Database-level privileges (`CONNECT`, `TEMPORARY`) are not inside a `pg_dump`. A real restore into a new cluster re-runs `initdb/00-roles.sh` first. Stage 17 and Phase 14 write the full recovery runbook.

@@ -187,6 +187,29 @@ The detailed plan is `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admissio
 
 **Release order:** `mission_attempts` → `attempt_participants` → `energy_holds` → `inventories` → (positive amount) `energy_wallets` → the policy lock → clock.
 
+**As built (2026-10-17, branch `phase13-stage7`; amendment, nothing above is removed).** Schema version 7. Measured counts, reviews and rulings are in the detailed plan's "As built".
+- **Schema.** `0007` holds:
+  - insurance policies, coverages and activations;
+  - `mission_templates`;
+  - `mission_hosts` (`kind` `dev_fixture` or `agent`, disabled by default);
+  - attempts, participants (`one_active_participation`), holds, `attempt_insurance` and `deploy_requests`;
+  - guarded state edges per §7.2, and immutability and no-truncate triggers;
+  - the ledger's attempt FK and `reserve`/`release` key patterns.
+  - Invariants include `ended_attempt_active_participant` and `hold_amount`.
+- **Admission and release** follow the lock orders above. A deadlock test proves the `accounts` key-share step: without it, an admission, a grant and a queued publication deadlock (40P01).
+- **Idempotency.** `deploy_requests` is re-read after the `inventories` lock. Bodies are the stored `jsonb` text, so replays are byte-identical; a replay after release returns the admission record.
+- **Codes.** `RetiredOperative` and `UnknownItem` (422 with index); `AttemptNotFound` (404 for an unknown, foreign or non-canonical id); `Retry-After: 5` on `ServiceUnavailable` (provisional).
+- **The worker** is always on; the deadline boundary is database time.
+- **Development host fixtures:** `admin host register-dev`/`heartbeat-dev`, gated by `BLACKGLASS_DEV_HOSTS` (default off).
+- **Stage 8 obligations:**
+  - verify an assigned build can run the requested template and settings version;
+  - replace `capacity > 0` with the live-attempt count;
+  - add real host registration, heartbeat and drain, with their grants;
+  - replace the participant, hold and attempt transition functions for the start, join and settlement edges;
+  - tighten the `charge:` key pattern like `reserve:`/`release:`;
+  - keep one global unique key per transaction after the energy policy lock;
+  - never retry energy-touching transactions.
+
 ---
 
 ## 1. Goal, scope and starting point
@@ -1621,9 +1644,9 @@ All JSON is camelCase, and errors are RFC 9457 ProblemDetails with a stable `cod
 | `GET /v1/inventory` | → `{version, locked, stash:{instances:[{itemId, definitionId, definitionKnown}], stacks:[{definitionId, definitionKnown, quantity}]}, operatives:[{operativeId, bag:{instances, stacks}, equipment:{weapon, armor, utility}}]}`; item ids Base58. As built, `bag.instances` includes the equipped items and `equipment` gives the item id per slot (or null); `locked` is false until participations exist (Stage 4, as built) | 409 `NotProvisioned`; `Cache-Control: no-store` |
 | `POST /v1/inventory/operations` | `{expectedVersion, operations:[…]}` → `{version, inventory}`; operations `{op:"equip", operativeId, itemId}`, `{op:"unequip", operativeId, slot}`, `{op:"toStash"\|"toBag", operativeId, itemId}` or `{…, definitionId, quantity}`, `{op:"equipFromStash", operativeId, itemId}`; ids Base58; no account id (revision 2.5, Stage 5) | 400 `InvalidBody` (including an empty list; as built, an unknown or duplicated member too), 400 `TooManyOperations` (over `BLACKGLASS_INVENTORY_MAX_OPERATIONS`; as built) or `{code:"InvalidOperation", index}`; 413 over `BLACKGLASS_INVENTORY_MAX_BODY_BYTES` (16 KiB); 415; 409 `VersionMismatch`, `NotProvisioned`, `InventoryLocked`; 422 `{code, index}` (`UnknownOperative`, `NotFound`, `UnknownItem`, `NotEquippable`, `NothingEquipped`, `Equipped`, `DestinationFull`, `InvalidQuantity`, `InsufficientQuantity`); 503 busy or unavailable, never replayed by the server |
 | `POST /v1/attempts` + `Idempotency-Key` | `{missionTemplate, operativeIds}` → 201 `{attemptId, state, energy:{cost, balanceAfter}, insurance:{covered, policyId, policyVersion}}`; the same key and body → the stored response | 503 `ServiceUnavailable`; 409 `AttemptActive`, `InsufficientEnergy`, `IdempotencyKeyReused` (same key, different body: nothing created or charged); 422 |
-| `GET /v1/attempts/{id}` | → `{state, participantState, deadlines, join:{endpoint, ticket, ticketExpiresAt}?}` | 404 |
+| `GET /v1/attempts/{id}` | → `{state, participantState, deadlines, join:{endpoint, ticket, ticketExpiresAt}?}`. **As built (Stage 7):** `{attemptId, state, participantState, deadlines:{assign}, energy:{amount, state}, insurance:{covered, policyId, policyVersion}}`; `join` arrives with tickets in Stage 8 | 404 (`AttemptNotFound`, also for another account's or a non-canonical id) |
 | `POST /v1/attempts/{id}/tickets` | → `{ticket, ticketExpiresAt}` | 409 `InvalidState`, `AlreadyConnected` |
-| `POST /v1/attempts/{id}/cancel` | before this participant's start → `{participantState:"released"}` | 409 `AlreadyStarted` |
+| `POST /v1/attempts/{id}/cancel` | before this participant's start → `{participantState:"released"}`. **As built (Stage 7):** `{participantState:"released", energy:{released, balanceAfter}}`; a repeat returns the stored outcome | 409 `InvalidState` (as built; was `AlreadyStarted`); 404 `AttemptNotFound` |
 | `GET /v1/attempts/{id}/receipt` | → 200 receipt, or 202 `{state}` | 404 |
 
 Deploy example:

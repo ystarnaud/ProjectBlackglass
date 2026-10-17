@@ -233,7 +233,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 7: insurance, participants and admission
 
-**Status: authorized by the owner on 2026-10-17 with rulings S7-D1–S7-D9 (spec revision 2.7, §0.7); in progress on branch `phase13-stage7`.** Detailed plan: `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admission.md`. It supersedes the work list below where they differ (the migration is narrowed to what Stage 7 uses; the `accounts` key-share step in admission's lock order).
+**Status: implemented on branch `phase13-stage7`, awaiting the owner's review; implementation commits not pushed, not merged, not deployed.** Authorized on 2026-10-17 with rulings S7-D1–S7-D9 (spec revision 2.7, §0.7). Schema version 7. **The standing `InventoryLocked` obligation is fulfilled:** `ParticipationLock` is mandatory, fail-closed and database-backed for edits, picks and reads, and the always-unlocked fallback is deleted. Evidence: the detailed plan's "As built". Detailed plan: `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admission.md`. It supersedes the work list below where they differ (the migration is narrowed to what Stage 7 uses; the `accounts` key-share step in admission's lock order).
 
 **Touches:** `Backend/` only.
 
