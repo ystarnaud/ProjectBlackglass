@@ -18,6 +18,10 @@
 # fixture admits a deploy (201, energy 55 -> 45), the same key and body replay the identical body, the same key with another
 # body is 409, the inventory is locked (an edit is 409 InventoryLocked, reads show locked:true), and the pre-start cancel
 # releases the energy once (back to 55) and unlocks the inventory. No seed or salt appears in any response.
+# Stage 9: the running participant's manifest (built from its snapshot, never the seed) is relayed and settles (200), its receipt
+# reads 200 and the energy stays charged once; the agent's exit report frees the slot; a second attempt's exit evidence (exit
+# status, complete outbox scan, participant absent) voids it and refunds its energy; a third attempt's invalid manifest is
+# quarantined (202) and its receipt reads under_review. No secret is printed.
 # Throwaway project bg-smoke; removed at the end.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
@@ -289,7 +293,10 @@ s8_launching() { s8_call s8_host_secret "/agent/v1/attempts/$s8_attempt/launchin
 s8_registers() {
   s8_call s8_credential "/server/v1/attempts/$s8_attempt/sessions" "{\"buildRevision\":\"smoke-r1\",\"catalogueVersion\":\"$s8_cat\"}"
   [[ "$s8_status" == 200 ]] && printf '%s' "$s8_body" | grep -qE '"seed": ?[0-9]+' && ! printf '%s' "$s8_body" | grep -qi 'salt' || return 1
-  s8_session="$(s8_field processSessionId)"; s8_body=
+  s8_session="$(s8_field processSessionId)"
+  # Stage 9: only the participants' snapshots are kept (for the manifest), never the seed.
+  printf '%s' "$s8_body" | python3 -c 'import json, sys; json.dump(json.load(sys.stdin)["participants"], open(sys.argv[1], "w"))' "$work/participants.json"
+  s8_body=
   [[ -n "$s8_session" ]]
 }
 s8_ready() {
@@ -339,6 +346,48 @@ check "the player mints a ticket (POST), the process redeems it and starts the p
 check "the attempt is running, without seed or salt in the read" s8_running
 check "the energy was charged once (45: reserved, then charged, never released)" me_energy_is '{"balance":45,"cap":50,"nextRegenAt":"'
 check "a second account's deploy is cancelled before start and released once" s8_second_cancel_releases
+# ---- Stage 9 ----
+# A format-v1 manifest for the current attempt's participant ($1 outcome, $2 integrity): its snapshot items, stacks and equipment
+# held as they were, the pool line (0,0) collected and held. Written to $work/manifest.json; no secret is in it.
+s9_manifest() {
+  local hash; hash="sha256:$(printf 'blackglass-loot-pool/1\ntable=1\n0,0,item.medkit,1\n' | sha256sum | cut -d' ' -f1)"
+  python3 - "$work/participants.json" "$s8_attempt" "$s8_session" "$s8_cat" "$hash" "$1" "$2" > "$work/manifest.json" <<'PY'
+import json, sys
+participants, attempt, session, catalogue, loot, outcome, integrity = json.load(open(sys.argv[1])), *sys.argv[2:]
+p = participants[0]; o = p["loadout"]["operatives"][0]
+held = [{"origin": "owned", "itemId": i["itemId"]} for i in o["bag"]["instances"]] + \
+       [{"origin": "owned", "definitionId": s["definitionId"], "quantity": s["quantity"]} for s in o["bag"]["stacks"]] + \
+       [{"origin": "loot", "containerIndex": 0, "line": 0, "quantity": 1}]
+equipment = [{"slot": k, "itemId": v} for k, v in o["equipment"].items() if v]
+print(json.dumps({"formatVersion": 1, "attemptId": attempt, "accountId": p["accountId"], "processSessionId": session, "buildRevision": "smoke-r1",
+    "catalogueVersion": catalogue, "integrity": integrity, "outcome": outcome, "outcomeSequence": 1, "serverElapsedMs": 1000,
+    "layoutHash": "cf2e14dece9cc2a6", "lootTableVersion": 1, "lootHash": loot,
+    "objectives": [{"objectiveId": "extract", "state": "completed" if outcome == "success" else "active"}],
+    "operatives": [{"operativeId": o["operativeId"], "slot": o["slot"], "alive": True, "consumed": [], "held": held,
+                    "collected": [{"containerIndex": 0, "line": 0, "quantity": 1}], "equipment": equipment}]}))
+PY
+}
+s9_relay() { s9_manifest "$1" "$2" && s8_call s8_host_secret /agent/v1/results "$(cat "$work/manifest.json")"; }
+s9_settles() { s9_relay success ok && [[ "$s8_status" == 200 ]] && printf '%s' "$s8_body" | grep -q '"disposition":"settled"' && ! printf '%s' "$s8_body" | grep -q operativeId; }
+s9_receipt_is() { inv_call "/v1/attempts/$s8_attempt/receipt" && [[ "$inv_status" == "$1" ]] && printf '%s' "$inv_body" | grep -qF "$2" && no_secret_in "$inv_body"; }
+s9_exited() {
+  s8_call s8_host_secret "/agent/v1/attempts/$s8_attempt/exited" "{\"exitCode\":$2,\"signal\":null,\"results\":[{\"accountId\":\"$inv_account\",\"present\":$1}],\"outbox\":{\"complete\":true}}"
+  [[ "$s8_status" == 200 ]] && printf '%s' "$s8_body" | grep -qF "\"applied\":\"$3\""
+}
+s9_lifecycle() { s8_deploys && s8_claims && s8_launching && s8_registers && s8_ready && s8_ticket_redeem_start; }
+s9_quarantined() { s9_relay defeat ledgerMismatch && [[ "$s8_status" == 202 ]] && printf '%s' "$s8_body" | grep -q '"disposition":"quarantined"' && printf '%s' "$s8_body" | grep -q 'V14.integrity'; }
+check "the participant's manifest is relayed and settles the attempt (200 settled, minimal answer)" s9_settles
+check "its receipt is 200 with the outcome, without seed or salt" s9_receipt_is 200 '"outcome":"success"'
+check "the energy stays charged once after the settlement (45)" me_energy_is '{"balance":45,"cap":50,"nextRegenAt":"'
+check "the agent's exit report (present, complete scan) frees the slot" s9_exited true 0 none
+s9_second_runs() { s9_lifecycle && me_energy_is '{"balance":35,'; }
+check "a second attempt runs to its start (energy 35)" s9_second_runs
+check "its exit evidence (exit status, complete scan, participant absent) voids it" s9_exited false 137 voided
+s9_void_refunds() { me_energy_is '{"balance":45,"cap":50,"nextRegenAt":"' && s9_receipt_is 200 '"outcome":"infra_void"'; }
+check "the void refunds the energy (45) and the receipt says infra_void" s9_void_refunds
+check "a third attempt runs to its start" s9_lifecycle
+check "its invalid manifest is quarantined (202, V14.integrity) and never settles" s9_quarantined
+check "its receipt reads under_review" s9_receipt_is 202 '"state":"under_review"'
 unset inv_key inv_token inv_body s8_host_secret s8_credential s8_ticket s8_body
 api_with_default_auth() { ( unset BLACKGLASS_DEV_AUTH BLACKGLASS_DEV_HOSTS; api_recreate ); }
 check "the API is recreated with the stack's default again" api_with_default_auth

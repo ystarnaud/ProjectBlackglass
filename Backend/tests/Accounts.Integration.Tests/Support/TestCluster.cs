@@ -26,10 +26,14 @@ public sealed class TestCluster
     TestCluster(string host, int port, string su, string migrator, string app) =>
         (Host, Port, SuperuserPassword, MigratorPassword, AppPassword) = (host, port, su, migrator, app);
 
+    /// <summary>The disposable crash-drill cluster's name (tools/vm-crash-drill.sh): accepted only when BLACKGLASS_CRASH_DRILL=1.</summary>
+    public const string CrashDrillClusterName = "blackglass-crashdrill";
+
     public static void EnsureTestCluster(string clusterName)
     {
-        if (clusterName != ExpectedClusterName)
-            throw new InvalidOperationException($"Refusing to run destructive tests: cluster_name is '{clusterName}', not '{ExpectedClusterName}'. Check the SSH tunnel.");
+        var expected = Environment.GetEnvironmentVariable("BLACKGLASS_CRASH_DRILL") == "1" ? CrashDrillClusterName : ExpectedClusterName;
+        if (clusterName != expected)
+            throw new InvalidOperationException($"Refusing to run destructive tests: cluster_name is '{clusterName}', not '{expected}'. Check the SSH tunnel.");
     }
 
     public NpgsqlDataSource DataSource(string database, string user, string password) =>

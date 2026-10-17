@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Runs inside the disposable test container started by vm-test.sh (never by hand on a workstation).
 #   run-tests-in-container.sh full|filter [<xunit filter>]
+#   run-tests-in-container.sh build          sync and build only (the crash drill builds here, with the package feed reachable)
+#   run-tests-in-container.sh drill          the crash drill's driver only, from the cached build (no restore, no build: it runs on
+#                                            the drill's internal network, which has no route out)
 # /src is the read-only source snapshot, /work the cached build tree, /out the results. Test-cluster passwords are read
 # by the tests from /secrets; this script never reads, copies or prints them.
 set -euo pipefail
@@ -23,8 +26,15 @@ done < <(cd "$work" && find . \( -name bin -o -name obj \) -prune -o -type f -pr
 echo "$(cat "$src/TREE"); files changed=$changed removed=$removed"
 
 cd "$work"
+if [[ "$mode" == drill ]]; then
+  code=0
+  dotnet test tests/Accounts.Integration.Tests --no-build --no-restore -nologo --filter "FullyQualifiedName~CrashDrillTests"     --logger "trx;LogFileName=drill.trx" --results-directory "$out" || code=$?
+  echo "drill tests $(( $(date +%s) - t0 )) s, exit $code"
+  exit "$code"
+fi
 dotnet build Backend.sln -nologo -v q -clp:ErrorsOnly
 t1=$(date +%s); echo "build $((t1 - t0)) s"
+[[ "$mode" == build ]] && exit 0
 code=0
 if [[ "$mode" == full ]]; then
   dotnet test tests/Accounts.Domain.Tests --no-build -nologo --logger "trx;LogFileName=domain.trx" --results-directory "$out" || code=$?
