@@ -108,7 +108,7 @@ public static class ServeCommand
         // Stage 8 (B3): three credentials, three schemes. The default authentication forwards by the token's prefix, so the
         // per-host and per-process rate limits see their principal before authorization; every route still requires exactly
         // its own scheme (the default policy is the account's Bearer scheme alone), so no credential opens another's routes.
-        builder.Services.AddSingleton(new HostStore(dataSource));
+        builder.Services.AddSingleton(new HostStore(dataSource, attempts.HostLeaseSeconds));
         builder.Services.AddSingleton(new ProcessStore(dataSource));
         builder.Services.AddAuthentication(o => { o.DefaultScheme = CredentialSelector; o.DefaultChallengeScheme = AccountClaims.Scheme; })
             .AddPolicyScheme(CredentialSelector, null, o => o.ForwardDefaultSelector = SelectScheme)
@@ -136,7 +136,7 @@ public static class ServeCommand
         app.MapAdmin(auth);
         app.MapPlayer(auth);
         app.MapAttempts(attempts);
-        app.MapAgent();
+        app.MapAgent(attempts);
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
     }

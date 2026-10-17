@@ -23,6 +23,13 @@ public sealed class AttemptSettings
     public const int DefaultDeployPerMinute = 6;
     public const string AttemptSweepSecondsVar = "BLACKGLASS_ATTEMPT_SWEEP_SECONDS";
     public const int DefaultAttemptSweepSeconds = 15;
+    // Stage 8 (spec §7.6, §19; provisional).
+    public const string LaunchDeadlineSecondsVar = "BLACKGLASS_LAUNCH_DEADLINE_SECONDS";
+    public const string JoinDeadlineSecondsVar = "BLACKGLASS_JOIN_DEADLINE_SECONDS";
+    public const string ProcessLeaseSecondsVar = "BLACKGLASS_PROCESS_LEASE_SECONDS";
+    public const string TicketSecondsVar = "BLACKGLASS_TICKET_SECONDS";
+    public const string ClaimWaitSecondsVar = "BLACKGLASS_CLAIM_WAIT_SECONDS";
+    public const string ClaimPollMsVar = "BLACKGLASS_CLAIM_POLL_MS";
 
     /// <summary>The log category of serve's attempt messages, such as the development host warning.</summary>
     public const string LogCategory = "Blackglass.Attempts";
@@ -49,6 +56,24 @@ public sealed class AttemptSettings
     /// worker is what releases an expired attempt's energy and inventory lock exactly once.</summary>
     public int AttemptSweepSeconds { get; private init; }
 
+    /// <summary>How long a claimed attempt may take to report ready before the deadline worker cancels it: 10 to 3600 s, default 120.</summary>
+    public int LaunchDeadlineSeconds { get; private init; }
+
+    /// <summary>How long after ready a participant may start before it is released: 10 to 3600 s, default 120.</summary>
+    public int JoinDeadlineSeconds { get; private init; }
+
+    /// <summary>How recent a running attempt's process heartbeat must be, else it becomes unresponsive (never a void): 5 to 600 s, default 30.</summary>
+    public int ProcessLeaseSeconds { get; private init; }
+
+    /// <summary>A join ticket's lifetime: 10 to 600 s, default 120.</summary>
+    public int TicketSeconds { get; private init; }
+
+    /// <summary>How long a claim long-polls before it answers 204: 0 to 60 s, default 25.</summary>
+    public int ClaimWaitSeconds { get; private init; }
+
+    /// <summary>How often a waiting claim tries again: 50 to 10000 ms, default 1000.</summary>
+    public int ClaimPollMs { get; private init; }
+
     public static AttemptSettings FromEnvironment(IReadOnlyDictionary<string, string?> env)
     {
         var devHosts = !env.TryGetValue(DevHostsVar, out var d) || string.IsNullOrEmpty(d) ? false
@@ -69,6 +94,12 @@ public sealed class AttemptSettings
             DeployMaxBodyBytes = Number(env, DeployMaxBodyBytesVar, DefaultDeployMaxBodyBytes, 1024, 65536),
             DeployPerMinute = Number(env, DeployRateVar, DefaultDeployPerMinute, 1, 1000),
             AttemptSweepSeconds = Number(env, AttemptSweepSecondsVar, DefaultAttemptSweepSeconds, 1, 3600),
+            LaunchDeadlineSeconds = Number(env, LaunchDeadlineSecondsVar, 120, 10, 3600),
+            JoinDeadlineSeconds = Number(env, JoinDeadlineSecondsVar, 120, 10, 3600),
+            ProcessLeaseSeconds = Number(env, ProcessLeaseSecondsVar, 30, 5, 600),
+            TicketSeconds = Number(env, TicketSecondsVar, 120, 10, 600),
+            ClaimWaitSeconds = Number(env, ClaimWaitSecondsVar, 25, 0, 60),
+            ClaimPollMs = Number(env, ClaimPollMsVar, 1000, 50, 10000),
         };
     }
 

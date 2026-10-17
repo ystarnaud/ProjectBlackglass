@@ -41,6 +41,30 @@ public class AttemptSettingsTests
     }
 
     [Fact]
+    public void Stage8_settings_defaults_bounds_and_refusals()
+    {
+        var defaults = AttemptSettings.FromEnvironment(Env());
+        Assert.Equal((120, 120, 30, 120, 25, 1000), (defaults.LaunchDeadlineSeconds, defaults.JoinDeadlineSeconds, defaults.ProcessLeaseSeconds,
+            defaults.TicketSeconds, defaults.ClaimWaitSeconds, defaults.ClaimPollMs));
+        foreach (var (name, low, high, read) in new (string, int, int, Func<AttemptSettings, int>)[]
+                 {
+                     (AttemptSettings.LaunchDeadlineSecondsVar, 10, 3600, s => s.LaunchDeadlineSeconds), (AttemptSettings.JoinDeadlineSecondsVar, 10, 3600, s => s.JoinDeadlineSeconds),
+                     (AttemptSettings.ProcessLeaseSecondsVar, 5, 600, s => s.ProcessLeaseSeconds), (AttemptSettings.TicketSecondsVar, 10, 600, s => s.TicketSeconds),
+                     (AttemptSettings.ClaimWaitSecondsVar, 0, 60, s => s.ClaimWaitSeconds), (AttemptSettings.ClaimPollMsVar, 50, 10000, s => s.ClaimPollMs),
+                 })
+        {
+            Assert.Equal(low, read(AttemptSettings.FromEnvironment(Env((name, low.ToString(System.Globalization.CultureInfo.InvariantCulture))))));
+            Assert.Equal(high, read(AttemptSettings.FromEnvironment(Env((name, high.ToString(System.Globalization.CultureInfo.InvariantCulture))))));
+            foreach (var bad in new[] { (low - 1).ToString(System.Globalization.CultureInfo.InvariantCulture), (high + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), "soon-value-xyz" })
+            {
+                var e = Assert.Throws<AttemptSettingsException>(() => AttemptSettings.FromEnvironment(Env((name, bad))));
+                Assert.Contains(name, e.Message);
+                Assert.DoesNotContain("soon-value-xyz", e.Message);
+            }
+        }
+    }
+
+    [Fact]
     public void Admission_settings_defaults_bounds_and_refusals()
     {
         // Provisional (spec §19): a 60 s assignment deadline (S7-D6), a 4 KiB deploy body, 6 deploys a minute per account.

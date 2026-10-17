@@ -16,7 +16,9 @@ public static class AgentEndpoints
 {
     static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
-    public static void MapAgent(this WebApplication app)
+    public const string IdempotencyKeyHeader = "Idempotency-Key";
+
+    public static void MapAgent(this WebApplication app, Attempts.AttemptSettings settings)
     {
         var agent = app.MapGroup("/agent/v1").RequireAuthorization(MissionClaims.HostPolicy).RequireRateLimiting(RateLimits.PerHost)
             .WithMetadata(new RequestSizeLimitAttribute(MissionBodies.MaxBodyBytes));
@@ -31,9 +33,53 @@ public static class AgentEndpoints
             if (result is null) return UniformUnauthorized.Result; // disabled since authentication
             return Results.Json(new HeartbeatResponse(result.Drained, result.Stop.Select(a => a.ToString("D")).ToArray()), Web);
         });
+
+        // POST /agent/v1/claim + Idempotency-Key, body {} → 200 {attemptId, missionPort, processCredential, credentialGeneration,
+        // launchDeadline, recovered}, or 204 after the long poll. A retry of the key while the attempt is still assigned is a
+        // recovery (R1): the same attempt with a new credential and the next generation (recovered: true). The plaintext
+        // credential appears in this response only (never stored, logged or cached: no-store).
+        agent.MapPost("/claim", async (HttpContext http, HostStore hosts) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var (_, refusal) = await MissionBodies.ReadAsync(http, b => { EmptyRequest.Parse(b); return string.Empty; });
+            if (refusal is not null) return refusal;
+            var header = http.Request.Headers[IdempotencyKeyHeader];
+            if (header.Count != 1 || !CanonicalUuid.TryParse(header[0], out var key)) return MissionBodies.Problem(StatusCodes.Status400BadRequest, "InvalidIdempotencyKey");
+            var result = await hosts.ClaimWaitingAsync(MissionClaims.HostOf(http.User), key, settings.LaunchDeadlineSeconds,
+                TimeSpan.FromSeconds(settings.ClaimWaitSeconds), TimeSpan.FromMilliseconds(settings.ClaimPollMs), http.RequestAborted);
+            return result switch
+            {
+                ClaimResult.Claimed c => Results.Json(new ClaimResponse(c.AttemptId.ToString("D"), c.MissionPort, c.Credential.Text, c.CredentialGeneration,
+                    c.LaunchDeadline, c.Recovered), Web),
+                ClaimResult.NoCandidate => Results.NoContent(),
+                ClaimResult.HostUnavailable => MissionBodies.Problem(StatusCodes.Status409Conflict, "HostUnavailable"),
+                ClaimResult.InvalidState => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
+                _ => UniformUnauthorized.Result,
+            };
+        });
+
+        // POST /agent/v1/attempts/{attemptId}/launching, body {credentialGeneration} → 200 {state}.
+        agent.MapPost("/attempts/{attemptId}/launching", async (string attemptId, HttpContext http, HostStore hosts) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var (body, refusal) = await MissionBodies.ReadAsync(http, LaunchingRequest.Parse);
+            if (refusal is not null) return refusal;
+            if (!CanonicalUuid.TryParse(attemptId, out var id)) return MissionBodies.Problem(StatusCodes.Status404NotFound, "AttemptNotFound");
+            return await hosts.LaunchingAsync(MissionClaims.HostOf(http.User), id, body!.CredentialGeneration, http.RequestAborted) switch
+            {
+                LaunchingResult.Accepted a => Results.Json(new StateResponse(a.State), Web),
+                LaunchingResult.NotFound => MissionBodies.Problem(StatusCodes.Status404NotFound, "AttemptNotFound"),
+                LaunchingResult.CredentialSuperseded => MissionBodies.Problem(StatusCodes.Status409Conflict, "CredentialSuperseded"),
+                _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
+            };
+        });
     }
 
     public sealed record HeartbeatResponse(bool Drained, string[] Stop);
+
+    public sealed record ClaimResponse(string AttemptId, int MissionPort, string ProcessCredential, int CredentialGeneration, DateTime LaunchDeadline, bool Recovered);
+
+    public sealed record StateResponse(string State);
 }
 
 /// <summary>Reading agent and process bodies, shared by both route groups.</summary>

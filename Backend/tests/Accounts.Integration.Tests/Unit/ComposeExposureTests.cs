@@ -137,6 +137,20 @@ public class ComposeExposureTests
         Assert.DoesNotContain(ComposeText.Block(lines, "services", "migrate", "environment"), l => l.Contains(Name, StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("BLACKGLASS_LAUNCH_DEADLINE_SECONDS")]
+    [InlineData("BLACKGLASS_JOIN_DEADLINE_SECONDS")]
+    [InlineData("BLACKGLASS_PROCESS_LEASE_SECONDS")]
+    [InlineData("BLACKGLASS_TICKET_SECONDS")]
+    [InlineData("BLACKGLASS_CLAIM_WAIT_SECONDS")]
+    [InlineData("BLACKGLASS_CLAIM_POLL_MS")]
+    public void The_api_passes_the_stage8_timers_through_with_their_built_in_defaults(string name)
+    {
+        var lines = ComposeText.Lines("compose.yaml");
+        Assert.Contains($"{name}: ${{{name}:-}}", ComposeText.Block(lines, "services", "api", "environment").Select(l => l.Trim()));
+        Assert.DoesNotContain(ComposeText.Block(lines, "services", "admin", "environment"), l => l.Contains(name, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Test_cluster_publishes_only_55432()
     {
