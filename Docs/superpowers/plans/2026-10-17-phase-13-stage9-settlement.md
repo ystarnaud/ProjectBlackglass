@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans (recommended, per the owner's lean-execution instruction) or superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Date: 2026-10-17. **Revision 2: the owner's rulings of 2026-10-17 on revision 1 are incorporated. Stage 9 is approved in principle; implementation is not authorized. Nothing here is implemented, and no number below is a measurement.**
+Date: 2026-10-17. **Revision 3: the owner reviewed revision 2 (`cdeb5f5`) and authorized implementation on 2026-10-17, with the final rulings recorded in "Revision 3" below. Where revision 3 and an older section disagree, revision 3 wins; the affected sections are amended in place and marked "(rev 3)".**
 - **Base:** `main` @ `e65370b` (Stage 8 merged and pushed; schema version 8; backend 713 domain and 1,602 integration tests).
-- **Branch:** `phase13-stage9`. It holds only documentation until the owner authorizes implementation.
+- **Branch:** `phase13-stage9`. Implementation commits stay local until the owner approves a push.
 - **Execution:** native, in the primary session, with two independent reviews on the most capable model:
   - Checkpoint 1, after Task 4: settlement correctness, conservation, lock order, the trust model and the response contract;
   - a final whole-branch review: voids, operator recovery, catalogue history, concurrency, fault injection and secrecy.
@@ -34,7 +34,6 @@ Date: 2026-10-17. **Revision 2: the owner's rulings of 2026-10-17 on revision 1 
     - the insurance payout: refunds, retained lots and progress XP;
     - the expected post-settlement bags;
     - the receipt.
-  - `StructuralCheck`: the planned inventory against the current catalogue's structural limits (S9-B20.4).
   - `RetentionRanker`: category priority, then the salted SHA-256.
   - `ReceiptWriter`: deterministic receipt bytes, settled and void.
 - **Persistence.**
@@ -66,6 +65,31 @@ Date: 2026-10-17. **Revision 2: the owner's rulings of 2026-10-17 on revision 1 
 Decisions 048–050 also apply. Stage plan: `Docs/superpowers/plans/2026-10-14-phase-13-backend.md` §Stage 9.
 
 ---
+
+## Revision 3: the owner's final rulings (2026-10-17; implementation authorized)
+
+Every revision-2 decision not named here stands as approved (B2–B15, B17, B18).
+
+| Item | Owner ruling | What changes |
+|---|---|---|
+| B1 | Approved as revision 2 reads it | No payload is stored for a revoked attempt on the normal route; pre-revocation evidence stays immutable; a newly rotated host secret never restores the attempt's process authorization; post-revocation results enter only through `import-result` and `revalidate` |
+| R8 targeted recovery | Revised | `host declare-lost` stays for confirmed permanent host or outbox loss. **Added:** an audited per-participant protective void for a revoked attempt, basis `operator_revoked_unrecoverable`, without declaring the host lost (S9-B9, Task 6). Neither a disable nor suspected compromise alone voids anything |
+| B16 | Option (a) approved | `joined → settled` and `left → settled`; no fabricated `result_pending`; the settlement row's `outcome` and `void_basis` tell a settlement from a void; `quarantined → settled` only through operator recovery |
+| B19 | Option (a) approved | Minimal agent answers; no receipt, inventory, payout or minted-item detail to the agent |
+| B21 | Approved | Sticky quarantine, even for a later submission that passes every ordinary check |
+| B22 | Approved, provisional | 16 distinct submissions per participant (`BLACKGLASS_RESULT_SUBMISSIONS_MAX`), 64 unidentified per host per 24 h (`BLACKGLASS_RESULT_UNIDENTIFIED_MAX`). An identical retry returns its recorded outcome even past the cap. `import-result` is the audited path for evidence beyond the cap and never counts against it |
+| B23 | Revised | The agent may relay a published manifest while its process is alive. §H defines the publish/visibility contract for Stages 10–12. A late recorded hash that contradicts an unsettled participant's evidence quarantines it; one that contradicts a settlement raises a durable anomaly and leaves the receipt unchanged; a revoked credential never authenticates |
+| B20 | Kept, with two corrections | (1) A newer catalogue may retire definitions; registration refuses only a change of an id's identity kind. (2) The current catalogue never re-judges an admitted mission: the S9-B20.4 structural check and the `catalogue_conflict` reason are removed. Over-capacity inventories are preserved; Stage 5's moves out of an over-capacity bag stay allowed |
+| Lock order | Added check | Every path that inserts `anomaly_events`, `operator_actions` or another account-referencing row takes `accounts` `FOR KEY SHARE` before attempt, participant, inventory or wallet locks (§E, rev 3). Concurrency tests against suspension, credential rotation, energy grants and policy publication (Task 8) |
+| Incomplete outbox scans | Added | A first report with `outbox.complete: false` can be followed by one immutable supplementary outbox observation (`attempt_outbox_observations`), never overwriting the report (S9-B7, rev 3; Task 5) |
+| Crash drill | Clarified | Its own container on a temporary internal Docker network, removed at the end; no host networking or daemon change (S9-B17, rev 3; Task 9) |
+
+**Rulings recorded during Task 0 (implementation choices that follow from the above):**
+- **T0-1.** A late `recorded` for a solo attempt arrives after the attempt is `settled`, when the Stage 8 rule (R4) has already ended the process credential. So the `recorded` route alone authenticates the current, unrevoked credential of a `settled` attempt (never a `cancelled` or revoked one). It can only compare: a match answers 200 and changes nothing; a mismatch answers 409 and raises the anomaly. *Cost if wrong:* a contradiction after a solo settlement goes unseen, as revision 2 accepted.
+- **T0-2.** A `recorded` hash that differs from an earlier recorded hash, or from an unsettled participant's stored submission, quarantines the participant (`recorded_hash_mismatch`) in the same transaction that commits the 409's anomaly. Revision 2 only answered 409.
+- **T0-3.** `import-result` is allowed for any started participant, not only for a revoked attempt. For a revoked attempt it needs `--host-trust-reviewed`. It quarantines an unsettled participant (`host_revoked` for a revoked attempt, otherwise the new reason `operator_import`). For a settled participant it only stores the evidence (`same_as` or `conflict`, plus an anomaly). This is B22's "beyond the cap" path.
+- **T0-4.** The supplementary outbox observation (incomplete scans) uses the existing `exited` route: a later report with the same exit status and `outbox.complete: true` after a stored `complete: false` is stored as the attempt's one observation and evaluated for voids under S9-B7. Any other differing report stays `409 ConflictingReport`.
+- **T0-5.** Catalogue history enforcement: the `NOT VALID` foreign key from `mission_attempts.catalogue_version`. Test fixtures that insert attempts by SQL register a real catalogue first; nothing in production changes beyond `serve`'s registration.
 
 ## Revision 2: what changed, by the owner's ruling
 
@@ -117,7 +141,7 @@ Status key:
 - **Revised per owner:** rewritten to the owner's ruling. It still needs the owner's confirmation that the wording matches.
 - **Needs approval:** new in revision 2, or surfaced at the owner's request.
 
-### S9-B1. Revoked credentials and revoked attempts. *Revised per owner.*
+### S9-B1. Revoked credentials and revoked attempts. *Approved (rev 3).*
 
 An attempt is revoked when `credential_revoked_at` is set, which happens through a host disable (R8).
 - **No normal route accepts a revoked credential.**
@@ -136,12 +160,10 @@ An attempt is revoked when `credential_revoked_at` is set, which happens through
 - **Recovery of post-revocation evidence is the explicitly authorized operator workflow** (S9-B9):
   1. `attempt import-result --host-trust-reviewed` imports the operator-retrieved outbox file. It is stored with `source = 'operator_import'` and quarantined (`host_revoked`).
   2. `attempt revalidate --submission <id> --host-trust-reviewed` settles it.
-  - Otherwise `host declare-lost`. R8 makes it the only path to a protective void for a disabled host's attempts, so `attempt void-participant` refuses a revoked attempt's participant until its host is declared lost.
+  - Otherwise, **(rev 3)** an audited per-participant void with basis `operator_revoked_unrecoverable` (S9-B9), or `host declare-lost` for confirmed permanent host or outbox loss. A newly rotated host secret never restores the attempt's process authorization.
 - A participant of a revoked attempt shows `under_review` on its receipt. A repeating `revoked_attempt_unsettled` alert runs until it is settled (S9-B18).
 
-*Interpretations to confirm:*
-- "Not accepted" is read as "not stored". The alternative is to store the refused payload as inert evidence, which would save the operator fetching the file from the host. It would also mean the normal route takes in post-revocation data.
-- R8's "declare-lost is the only path to protective voids" is kept literally. The alternative is an operator void of a single revoked attempt's participant, with `--host-trust-reviewed` and the outbox evidence, for a host that is back in service after rotation. Without it, such a participant whose result file is lost stays under review until the owner decides.
+*Owner (rev 3):* "not accepted" means "not stored" (approved). R8's literal "declare-lost only" is revised: the per-participant `operator_revoked_unrecoverable` void is added, and the host can be recovered and re-enabled without being declared lost.
 
 *Cost if wrong:* an operator retrieves the file from the host, which is rare by design.
 
@@ -178,14 +200,14 @@ Rules:
 - The seed is never in a manifest or a receipt.
 - **Golden vectors** in `Backend/contracts/manifest-v1/` pin the canonical bytes, hashes and refusals (§G). Stage 11's Unity EditMode tests must reproduce every vector byte for byte.
 
-### S9-B5. The process's recorded hash is supporting evidence. *Revised per owner.*
+### S9-B5. The process's recorded hash is supporting evidence. *Approved; amended by B23 (rev 3).*
 
 `POST /server/v1/attempts/{aid}/participants/{acc}/recorded {manifestHash}` is sent with the process credential after the outbox `fsync`.
 - It moves the participant from `joined` or `left` to `result_pending` and stores `recorded_manifest_hash` once.
 - **It is not a prerequisite.** A durably written outbox result relayed without any recorded hash (the process died after its write) is validated and settled normally. The settlement row records `recorded_hash = 'absent'`, and a low-severity `result_without_recorded_hash` anomaly is raised for monitoring.
 - **A mismatch is never accepted silently:**
   - a relay whose canonical hash differs from a recorded hash is quarantined (V15, `recorded_hash_mismatch`);
-  - a `recorded` call whose hash differs from a stored submission or settlement for that participant gets `409 ConflictingReport` and raises `recorded_hash_mismatch`. A settlement that already committed stays final, but the participant's account is flagged for review by that anomaly.
+  - a `recorded` call whose hash differs from an earlier recorded hash, a stored submission or a settlement for that participant gets `409 ConflictingReport` and raises `recorded_hash_mismatch`. **(rev 3, T0-2)** An unsettled, unquarantined participant is quarantined (`recorded_hash_mismatch`) in the same transaction. A settlement that already committed stays final and its receipt unchanged; the anomaly is the operator alert.
 - **A missing notification alone never causes a void.** The void rule (S9-B7) does not look at it, except that a recorded hash *blocks* a void: it proves a result file was written.
 - An agent `exited` with `present: true` also moves the participant to `result_pending`.
 
@@ -193,7 +215,7 @@ Rules:
 
 The process tells its clients "pending" and exits. The client polls `GET /v1/attempts/{id}/receipt`, authenticated by its own bearer session. R4 stays intact.
 
-### S9-B7. The positive-evidence void. *Revised per owner.*
+### S9-B7. The positive-evidence void. *Approved; incomplete-scan recovery added (rev 3).*
 
 The void is applied inside the agent's `exited` transaction. For a participant, it happens **only when all of these hold**:
 1. The report comes from the attempt's own host with a current, unrevoked secret, re-checked under the attempt lock.
@@ -215,10 +237,11 @@ Further rules:
 - `attempt_exit_reports` gains `outbox_complete` and `attempt_revoked`, and its `outcome` gains `voided`.
 - `exited` takes `accounts` `FOR KEY SHARE` before the attempt lock (§E).
 - An identical repeat returns the stored outcome. A conflicting one is `409 ConflictingReport` and voids nothing (Stage 8).
+- **(rev 3) Incomplete scans can be completed later.** When the stored agent report has `outbox_complete = false`, a later report with the same `exitCode` and `signal`, `outbox.complete: true` and every started participant listed is stored as the attempt's **outbox observation** (`attempt_outbox_observations` and `attempt_outbox_observation_results`, insert-only, one per attempt). It never overwrites the report. Conditions 1-3 and 6 are re-checked under the locks; condition 4 is the stored report's exit status, condition 5 the observation. A participant the first report listed `present: true` but the observation lists `present: false` is a contradiction (`exit_evidence_contradiction`, no void). An identical repeat of the observation returns its stored outcome; any other report is `409 ConflictingReport`. The answer's `outcome` is the observation's (`voided` or `none`).
 
 ### S9-B8. Host-loss declaration. *Approved.*
 
-`admin host declare-lost` is refused unless all of these hold:
+`admin host declare-lost` (for confirmed permanent host or outbox loss) is refused unless all of these hold:
 - the host is disabled with its secret revoked;
 - its last heartbeat is older than a provisional 10 minutes;
 - `--reason` is given;
@@ -232,11 +255,11 @@ It stamps `mission_hosts.declared_lost_at`, which is permanent: enable and rotat
 The verbs:
 - `admin attempt show <aid>`: states, submissions with hashes, dispositions and pre- or post-revocation marks, exit evidence and actions. It never shows a secret or salt. A raw payload is shown only with `--submission <id> --raw`.
 - `admin attempt revalidate <aid> <acc> --submission <id> --reason`, plus `--host-trust-reviewed` for a revoked attempt or a `host_revoked` hold.
-- `admin attempt import-result <aid> <acc> --file <path> --reason --evidence --host-trust-reviewed`, for a revoked attempt only.
-- `admin attempt void-participant <aid> <acc> --reason --outbox-checked --evidence`:
-  - for a quarantined participant only;
-  - `--revalidated` when the participant has a stored submission;
-  - for a revoked attempt, only after its host is declared lost, and with `--host-trust-reviewed` (R8).
+- `admin attempt import-result <aid> <acc> --file <path> --reason --evidence`, plus `--host-trust-reviewed` for a revoked attempt **(rev 3, T0-3)**. Allowed for any started participant; never counted against S9-B22's cap. An unsettled participant is quarantined (`host_revoked` for a revoked attempt, else `operator_import`); for a settled one the file is stored as evidence only (`same_as` or `conflict`, with an anomaly).
+- `admin attempt void-participant <aid> <acc> --reason --outbox-checked --evidence`, in one of two modes:
+  - **quarantine mode** (basis `operator_quarantine`): the attempt is not revoked and the participant is quarantined; `--revalidated` when it has a stored submission;
+  - **(rev 3) revoked mode** (basis `operator_revoked_unrecoverable`): the attempt is revoked, the participant started and is not settled. It also needs `--host-trust-reviewed` (the host's trust and recovery status were reviewed), `--unrecoverable` (the result is verified unrecoverable or can't be accepted safely) and, when any submission is stored, `--revalidated`. The host need not be declared lost.
+  - In both modes: `--revalidated` means a `revalidate` action recorded after the participant's latest stored submission, with result `failed`; a settled participant is refused, so no settlement or recoverable result is overwritten; the findings (`--evidence`, the flags, the submission ids and hashes seen) are written to the action's `checks`.
 - `admin host declare-lost …`.
 - `admin catalogue import <file> --reason` (S9-B20.5).
 - `admin anomaly list [--open]` and `admin anomaly review <id> --note`.
@@ -290,7 +313,7 @@ Settlement, quarantine and void transactions are never retried by the backend (t
 - **S9-B15.2. Ledger keys.** `settle:<attemptId>` (delta 0, positive holds only, as Stage 8's B9) and `void_refund:<attemptId>` (delta `+amount`, positive holds only). The key CHECK is tightened to the exact attempt form, like `reserve`, `release` and `charge`.
 - **S9-B15.3. Zero cost.** A zero-cost hold changes state with no ledger entry.
 
-### S9-B16. Participant and attempt state edges. *Needs approval (surfaced).*
+### S9-B16. Participant and attempt state edges. *Approved: option (a) (rev 3).*
 
 **Proposal (a):**
 - Add `joined → settled` and `left → settled`, used by a void and by a relay that settles without a recorded hash.
@@ -308,12 +331,13 @@ Settlement, quarantine and void transactions are never retried by the backend (t
 
 *Recommendation:* (a). *Cost if wrong:* a small migration later. No data is lost either way, because the settlement row records the outcome and the void basis.
 
-### S9-B17. Destructive outage tests on a throwaway container. *Approved.*
+### S9-B17. Destructive outage tests on a throwaway container. *Approved; networking clarified (rev 3).*
 
 `Backend/tools/vm-crash-drill.sh` runs outside the runner, like the smoke test.
-- It starts a throwaway `blackglass-crashdb` container on `bg-dev-services01`, with its own volume, no published port and the test cluster's settings, and migrates it.
-- It drives settlements at it from the runner image, `docker kill`s it mid-load, restarts it, and runs the invariant queries.
-- It removes the container and its volume.
+- It creates a temporary internal Docker network (`docker network create --internal`), then starts a throwaway `blackglass-crashdb` container on `bg-dev-services01` attached to it, with its own volume, no published port and the test cluster's settings, and migrates it.
+- The runner container joins the same network and reaches the database by name, so restarting the database never strands the runner in a dead network namespace (no `--network container:`).
+- It drives settlements at it, `docker kill`s it mid-load, restarts it, and runs the invariant queries.
+- It removes the containers, the volume and the network, and verifies they are gone. No host-network exposure and no Docker daemon configuration change.
 
 The shared test cluster is never stopped or damaged.
 
@@ -335,9 +359,9 @@ The shared test cluster is never stopped or damaged.
   - `settlement_conflict`, `late_result_after_void`, `result_without_recorded_hash`, `recorded_hash_mismatch`;
   - `infra_void`, `exit_evidence_inconclusive`, `exit_evidence_contradiction`, `exit_evidence_post_revocation`;
   - `quarantine_escalation`, `unresponsive_attempt`, `revoked_attempt_unsettled`;
-  - `catalogue_unavailable`, `catalogue_conflict`, `submission_limit`, `host_auto_drained`.
+  - `catalogue_unavailable`, `submission_limit`, `host_auto_drained` (rev 3: `catalogue_conflict` removed).
 
-### S9-B19. What the agent is told. *Needs approval (surfaced).*
+### S9-B19. What the agent is told. *Approved: option (a) (rev 3).*
 
 **Proposal (a), minimal answers:**
 - `200 {disposition, outcome}`;
@@ -360,7 +384,7 @@ The full receipt goes only to the participant's own client, through its bearer s
 
 *Recommendation:* (a). *Cost if wrong:* a response field added later, which is backward-compatible for the agent.
 
-### S9-B20. Catalogue history and settlement under the admission catalogue. *Revised per owner.*
+### S9-B20. Catalogue history and settlement under the admission catalogue. *Approved with corrections (rev 3).*
 
 - **S9-B20.1. Immutable history.** New table `catalogue_versions (version, bytes, registered_at)`.
   - `version` is the existing `sha256:<hex>` of the exporter's bytes.
@@ -369,15 +393,15 @@ The full receipt goes only to the participant's own client, through its bearer s
 - **S9-B20.2. Registration.**
   - At startup, `serve` inserts its validated catalogue if absent, then verifies the stored row.
   - 0009 adds a foreign key from `mission_attempts.catalogue_version` to the history, `NOT VALID`, so schema-8 rows are not checked but every new admission is. An attempt can therefore only be admitted under a catalogue the history holds.
-  - Registration refuses a catalogue that removes a definition id present in any registered version, or changes such an id's identity kind (stackable or instance). `serve` then exits with a new code. Item ids are permanent keys (CLAUDE.md), so this only enforces an existing rule.
+  - **(rev 3)** Registration refuses only a catalogue that changes the identity kind (stackable or instance) of an item id present in any registered version; `serve` then exits with a new code. A newer catalogue may **retire** a definition (leave it out); every published version stays in the history for historical settlement. Item ids are permanent keys (CLAUDE.md) and are never reassigned to another kind.
 - **S9-B20.3. Lookup.**
   - Settlement loads the attempt's `catalogue_version` from the history, verifies the hash in the application, and validates and caches the parsed catalogue by version.
   - Validation (V4–V17), the plan, XP and capacity use that admission catalogue; the current catalogue is never applied in its place.
   - Stage 8's `ready` is switched to the same lookup, so its `409 CatalogueMismatch` remains only for a genuinely unavailable version. *Alternative:* keep Stage 8's behaviour, in which case an attempt admitted just before an API upgrade can't start.
-- **S9-B20.4. Structural check against the current catalogue.**
-  - The planned inventory must also fit the current catalogue's structural limits: each definition exists, its identity kind, max stack and bag capacity.
-  - Otherwise the result is preserved, and the participant is quarantined (`catalogue_conflict`). It is never partly applied.
-  - S9-B20.2 makes this case rare. It is reached only when a newer catalogue tightened a limit.
+- **S9-B20.4. (rev 3) The current catalogue never re-judges an admission.** Removed: revision 2's structural check and the `catalogue_conflict` reason.
+  - A historical mission is never quarantined because the current catalogue has a smaller bag, a smaller maximum stack, a retired definition or newer progression or balance values. Validation, rewards and capacity use the admission catalogue.
+  - Permanent integrity stays enforced: database constraints, ownership, non-negative quantities, valid item identities (each definition exists in the admission catalogue, with its kind) and exact conservation.
+  - An inventory left over the current capacity is preserved. Stage 5's approved recovery stays available: a bag over capacity may stay over but never grow, and retired definitions may move to the stash (S5-D7).
 - **S9-B20.5. Genuinely unavailable.** The version has no history row, its bytes fail verification, or they no longer parse.
   - The submission is stored, the participant is quarantined (`catalogue_unavailable`) and `catalogue_unavailable` is raised. The answer is `202 {disposition:"held"}`.
   - The result is never judged against another catalogue, and the agent stops resending it.
@@ -385,7 +409,7 @@ The full receipt goes only to the participant's own client, through its bearer s
 
 *Cost if wrong:* a catalogue table that grows by one row per exported catalogue, which is small.
 
-### S9-B21. A quarantine is never cleared automatically. *Needs approval (new).*
+### S9-B21. A quarantine is never cleared automatically. *Approved (rev 3).*
 
 Once a participant is quarantined, any later distinct submission is stored (disposition `quarantined`, with its codes, even when it would validate) and answered `202`. Only `attempt revalidate --submission <id>` or an operator void ends the quarantine.
 
@@ -393,22 +417,31 @@ Once a participant is quarantined, any later distinct submission is stored (disp
 
 *Alternative:* revision 1's rule, under which a later valid manifest settles automatically. *Cost if wrong:* one operator command per legitimate resubmission, which has no producer in Phase 13.
 
-### S9-B22. A cap on stored submissions. *Needs approval (new).*
+### S9-B22. A cap on stored submissions. *Approved, provisional (rev 3).*
 
 - Distinct submissions per participant are capped at a provisional 16 (`BLACKGLASS_RESULT_SUBMISSIONS_MAX`).
-- Bodies that identify no participant are capped at a provisional 64 per host per 24 h.
+- Bodies that identify no participant are capped at a provisional 64 per host per 24 h (`BLACKGLASS_RESULT_UNIDENTIFIED_MAX`).
 - Past a cap, nothing more is stored except a deduplicated `submission_limit` anomaly's count, committed before the answer. The answer is `409 SubmissionLimit`.
+- **(rev 3)** The identical-retry check runs before the cap: a byte-identical repeat of a stored submission returns its recorded outcome even past the cap. `attempt import-result` is the audited operator path for evidence beyond the cap and is never counted against it.
 
 *Why:* each submission stores up to 64 KiB, twice, and a faulty host must not fill the database. *Cost if wrong:* an operator raises the setting.
 
-### S9-B23. Relay ordering makes a hash mismatch detectable. *Needs approval (new; Stage 10 and 12 obligations).*
+### S9-B23. Result publication and relay ordering. *Revised per owner (rev 3).*
 
-- The process calls `recorded` before it exits.
-- The agent relays an outbox file only after its mission unit has exited.
+The agent does **not** wait for the mission process to exit before relaying a participant's result: that would delay independent settlement in future co-op missions. Instead the process publishes each result through the §H contract:
+1. it durably writes a complete manifest (temporary file, `fsync`, atomic rename, directory `fsync`);
+2. it attempts the authenticated `recorded` notification, bounded in time, whenever the backend is reachable;
+3. it publishes the manifest for relay whether or not the notification succeeded, so an unreachable backend never makes a result wait indefinitely.
 
-Then a recorded hash, when one exists, is always stored before the relay arrives, and a mismatch is always caught (S9-B5). Without this ordering, a relay could settle a solo attempt first, and the process's late `recorded` would get the uniform 401 (R4), so a mismatch would go unseen.
+The agent relays published manifests while the process is alive. After a positive exit, it also publishes and relays any completely written but unpublished manifest: a crash between writing, notification and publication never makes a result count as absent. Incomplete temporary files are never relayed and never count as present.
 
-*Cost if wrong:* a result is relayed a few seconds later.
+Backend consequences (tested now):
+- a recorded hash that differs from an unsettled participant's evidence quarantines it (T0-2);
+- one that contradicts a settlement raises a durable `recorded_hash_mismatch` anomaly (the operator alert) and leaves the settlement and receipt unchanged; the `recorded` route authenticates a settled attempt's current credential for this purpose only (T0-1);
+- a revoked process credential never authenticates, not even for a late hash;
+- the absence of a notification neither blocks a valid result nor causes a void (S9-B5).
+
+*Cost if wrong:* a contradiction found after settlement is an alert, never an automatic correction.
 
 ## C. API contracts (Stage 9)
 
@@ -433,7 +466,7 @@ Every definitive answer below follows a committed record (S9-B2). "Relay file" i
 - Agent: definitive. The file becomes `done`.
 
 **202 `quarantined`** — `{disposition:"quarantined", codes}`. When:
-- V4–V17 failed, including V15 (`recorded_hash_mismatch`), V16 (`inventory_base_changed`) and S9-B20.4 (`catalogue_conflict`);
+- V4–V17 failed, including V15 (`recorded_hash_mismatch`) and V16 (`inventory_base_changed`);
 - a post-apply check failed (`settlement_check_failed`);
 - any distinct submission arrived while the participant was quarantined (S9-B21).
 
@@ -503,10 +536,10 @@ Further rules:
 ### `POST /server/v1/attempts/{aid}/participants/{acc}/recorded` (Process scheme)
 
 The body is `{manifestHash:"sha256:<hex>"}`, the canonical hash.
-- `200 {state:"result_pending"}`, also on an identical repeat.
-- `409 ConflictingReport` for a hash different from the stored recorded hash, or from a stored submission or settlement for that participant. It raises `recorded_hash_mismatch`.
-- `409 InvalidState` when the participant has not started.
-- The uniform 401 when the credential is revoked or superseded, or the attempt has ended (R4, R8).
+- `200 {state}`: `result_pending` on the first call or an identical repeat; the participant's current state when its evidence already matches (for example `settled`).
+- `409 ConflictingReport` for a hash different from the stored recorded hash, or from a stored submission or settlement for that participant. It raises `recorded_hash_mismatch`; **(rev 3)** an unsettled, unquarantined participant is quarantined in the same transaction.
+- `409 InvalidState` when the participant has not started, or was released.
+- The uniform 401 when the credential is revoked or superseded, or the attempt was cancelled (R4, R8). **(rev 3, T0-1)** A `settled` attempt's current, unrevoked credential authenticates on this route only, for comparison.
 - 503 during an outage.
 
 ### `POST /agent/v1/attempts/{aid}/exited` (Host scheme; Stage 8, amended)
@@ -514,6 +547,7 @@ The body is `{manifestHash:"sha256:<hex>"}`, the canonical hash.
 The body gains an optional `outbox: {complete: boolean}`. A missing value is stored as `false`.
 - With `complete: true`, every started participant must be listed in `results`, or the report is `400 IncompleteResults` and nothing is stored.
 - The void rule is S9-B7. The answers are Stage 8's, and `outcome` may now be `voided`.
+- **(rev 3)** After a stored `complete: false` report, a report with the same exit status and `complete: true` is stored as the supplementary outbox observation (S9-B7) and answered with its outcome.
 
 ### `GET /v1/attempts/{id}/receipt` (Bearer)
 
@@ -554,14 +588,14 @@ It never contains the seed, salt, manifest bytes, host secrets or credential mat
    - Unique `(attempt_id, account_id, raw_hash)` where the participant is set; unique `(host_id, raw_hash)` where it is not.
    - Trigger: only `last_received_at` and `receive_count` may change, upward; no delete or truncate.
 3. **`participant_settlements`.**
-   - Columns: PK `(attempt_id, account_id)` with a foreign key to the participant; `outcome`; `submission_id` (null iff `infra_void`); `void_basis` (`exit_evidence`, `operator_quarantine` or `host_declared_lost`; non-null iff `infra_void`); `recorded_hash` (`matched` or `absent`; null for a void); `catalogue_version`; `retention_selection jsonb`; `receipt jsonb`; `settled_at`.
+   - Columns: PK `(attempt_id, account_id)` with a foreign key to the participant; `outcome`; `submission_id` (null iff `infra_void`); `void_basis` (`exit_evidence`, `operator_quarantine`, `operator_revoked_unrecoverable` (rev 3) or `host_declared_lost`; non-null iff `infra_void`); `recorded_hash` (`matched` or `absent`; null for a void); `catalogue_version`; `retention_selection jsonb`; `receipt jsonb`; `settled_at`.
    - Immutable; no truncate.
 4. **`pool_collections`.**
    - PK `(attempt_id, container_index, line)`, with a foreign key to `attempt_loot_pool`; `collected > 0`.
    - Trigger: `collected` only grows and stays at or below the pool line's quantity; no delete.
 5. **Participants.**
    - New columns: `quarantined_at`, `escalate_at`, `quarantine_reason` and `recorded_manifest_hash`.
-     - The reasons are `invalid_manifest`, `malformed_manifest`, `recorded_hash_mismatch`, `inventory_base_changed`, `catalogue_unavailable`, `catalogue_conflict`, `settlement_check_failed` and `host_revoked`.
+     - The reasons are `invalid_manifest`, `malformed_manifest`, `recorded_hash_mismatch`, `inventory_base_changed`, `catalogue_unavailable`, `settlement_check_failed`, `host_revoked` and `operator_import` (rev 3: `catalogue_conflict` removed, `operator_import` added).
    - CHECK: the quarantine columns are set iff the state is `quarantined`, except that `quarantined_at` and `quarantine_reason` stay after a settlement.
    - `recorded_manifest_hash` is written once.
    - The transition function is replaced, adding the S9-B16 edges.
@@ -570,6 +604,7 @@ It never contains the seed, salt, manifest bytes, host secrets or credential mat
 8. **Exit reports.**
    - Columns `outbox_complete` and `attempt_revoked` are added, each with a `NOT VALID` CHECK that agent rows set them.
    - `outcome` gains `voided`; the CHECK is replaced by name.
+   - **(rev 3)** `attempt_outbox_observations` (PK `attempt_id`, the attempt's own host, `attempt_revoked`, `outcome` `voided` or `none`, `received_at`; it requires a stored agent report with `outbox_complete = false`) and `attempt_outbox_observation_results` (PK `(attempt_id, account_id)`, `present`). Insert-only, no truncate.
 9. **Ledger.** The key CHECK is replaced: `settle` and `void_refund` keys must be exactly `<kind>:` plus the entry's `attempt_id`.
 10. **`operator_actions`.**
     - Kept: `revalidate`, `participant_void` and `host_declared_lost`, which are already listed.
@@ -584,7 +619,7 @@ It never contains the seed, salt, manifest bytes, host secrets or credential mat
     - a refunded hold has a `void_refund:` entry of `+amount` iff its amount is > 0;
     - every non-void settlement references a submission of its participant with `disposition = 'settled'`;
     - no settlement's attempt was revoked before the settlement, unless an operator action covers it;
-    - every `exit_evidence` void references an agent exit report with `outbox_complete`, an exit status, `present = false` for the participant and `attempt_revoked = false`;
+    - every `exit_evidence` void references an agent exit report with an exit status and `attempt_revoked = false`, and either that report has `outbox_complete` and `present = false` for the participant, or the attempt's outbox observation does (rev 3);
     - every `pool_collections` row is at or below its pool line and equals the sum of the settled manifests' collected quantities;
     - every `settlement:` or `insurance:` minted item matches a `granted` or `retained` entry in its receipt;
     - every settlement's `catalogue_version` equals its attempt's and has a history row;
@@ -621,15 +656,14 @@ It never contains the seed, salt, manifest bytes, host secrets or credential mat
 4. the submission and anomaly inserts;
 5. participant state.
 
-These take no inventory, wallet or policy lock, except that V16 and S9-B20.4 run after the inventory lock in the settle order. Their quarantine is written in the same transaction, which then skips steps 13–18.
+These take no inventory, wallet or policy lock, except that V16 runs after the inventory lock in the settle order. Their quarantine is written in the same transaction, which then skips steps 13–18.
 
 **Refused revoked, malformed (unidentified), submission limit:** anomaly insert only. When the anomaly references an account, `accounts` `FOR KEY SHARE` is taken first, through the foreign key.
 
-**Recorded** (process):
-1. `mission_attempts`;
-2. `attempt_participants`.
-
-No accounts lock is needed: the process path writes no account-referencing row; the anomaly, when there is one, takes it first.
+**Recorded** (process) **(rev 3)**:
+1. `accounts` `FOR KEY SHARE` (the route's account), always, because a mismatch inserts an account-referencing anomaly;
+2. `mission_attempts`;
+3. `attempt_participants`.
 
 **Exited with void** (S9-B7):
 1. the participants' account ids, read unlocked (immutable since admission);
@@ -664,9 +698,11 @@ No accounts lock is needed: the process path writes no account-referencing row; 
 **Catalogue register and import:**
 - An insert into `catalogue_versions` alone.
 
-**Monitoring sweeps:**
-- Attempt or participant rows `FOR UPDATE SKIP LOCKED`, then the anomaly insert (`accounts` `FOR KEY SHARE` through the foreign key, ascending, taken first).
-- Auto-drain: the host row `FOR UPDATE` alone.
+**Monitoring sweeps (rev 3):**
+- Candidates are read unlocked. Each is then handled in its own transaction: `accounts` `FOR KEY SHARE` (the participant's), then the attempt `FOR UPDATE SKIP LOCKED`, then the participant `FOR UPDATE`, then the anomaly insert and the period stamp. A locked attempt is left for the next sweep.
+- Auto-drain: the host row `FOR UPDATE` alone; its anomaly carries no account.
+
+**Audit and anomaly rows (rev 3 check).** `anomaly_events.account_id` and `operator_actions.account_id` reference `accounts`, so their inserts take a `FOR KEY SHARE` lock on that account row, which waits behind `account suspend` (`FOR UPDATE`). Every path that inserts one with an account id therefore takes `accounts` `FOR KEY SHARE` first: settlement, quarantine, refusals, `recorded`, `exited` (all participants, ascending), the operator verbs and the sweeps. Anomalies without a participant (unidentified malformed bodies, `submission_limit` on the host cap, `host_auto_drained`) carry no account id. `result_submissions` and `participant_settlements` reference the participant row, which the path already holds.
 
 Rules carried forward:
 - one global unique key per transaction after the policy lock (Stage 9 adds none; `settle:` and `void_refund:` are unique per account);
@@ -682,7 +718,7 @@ Rules carried forward:
 | Manifest | Host secret: current, not revoked; the attempt's own host; the bound session; the attempt not revoked | facts to validate (V4–V17), then settle | trusted without validation; anything at all for a revoked attempt (409, not stored) |
 | Imported manifest | An operator, with `--host-trust-reviewed` | facts to validate, held for an explicit `revalidate` | an automatic settlement |
 | Recorded hash | Process credential: current generation, not revoked, attempt live | `result_pending`; the hash a relay must match; a block on any void | a settlement, or a prerequisite for one |
-| Exit report with an exit status, `outbox.complete` and `present: false` | Host secret, as above; attempt not revoked; attempt started | positive evidence of absence: a void (S9-B7) | evidence when incomplete, without an exit status, contradicted, or post-revocation |
+| Exit report with an exit status, `outbox.complete` and `present: false`, or (rev 3) the supplementary observation after an incomplete report | Host secret, as above; attempt not revoked; attempt started | positive evidence of absence: a void (S9-B7) | evidence when incomplete, without an exit status, contradicted, or post-revocation |
 | Process `failed` after start | Process credential | nothing (409, as in Stage 8) | evidence of absence |
 | Lease lapse, outage, restart, timers | none | an alert | a void |
 | Host disable or credential revocation | operator | isolation | a void (owner) |
@@ -690,7 +726,7 @@ Rules carried forward:
 **Exhaustive void conditions** (§11.1, restated):
 1. S9-B7's exit evidence.
 2. S9-B8's host-loss declaration.
-3. An operator void (S9-B9) of a quarantined participant. For a revoked attempt, this is allowed only after its host is declared lost (R8).
+3. An operator void (S9-B9): of a quarantined participant (`operator_quarantine`), or **(rev 3)** of a revoked attempt's started, unsettled participant whose result is verified unrecoverable (`operator_revoked_unrecoverable`).
 
 Nothing else voids.
 
@@ -762,6 +798,40 @@ All numbers are integer literals: no sign, fraction, exponent or leading zero.
 
 The domain tests read every vector. A vector change is a format change and needs the owner's approval.
 
+## H. The publish/visibility contract (rev 3; obligations for Stages 10-12)
+
+**Outbox layout.** One directory per attempt, owned by the mission unit's user and readable by the agent. Per participant, three names, distinguished by suffix only:
+- `<accountBase58>.manifest.tmp`: being written. **Never complete, never relayed, never counted as present.** Kept for diagnosis.
+- `<accountBase58>.manifest.written`: complete and durable, not yet published.
+- `<accountBase58>.manifest.ready`: complete, durable and published for relay.
+
+**Process (Stage 12), per participant, in order:**
+1. Write the canonical manifest bytes to `.tmp`, `fsync` the file.
+2. Rename `.tmp` to `.written`, then `fsync` the directory. From here the result is durable and complete (the rename is atomic, so a `.written` file is never partial).
+3. Call `recorded` with the canonical hash, retrying for at most a provisional 30 s in total. Any answer, or the time bound, ends this step: 200, 409 and 401 all continue to step 4 (the backend keeps the evidence; a 401 means the credential ended), as do 5xx and timeouts.
+4. Rename `.written` to `.ready`, then `fsync` the directory. Published.
+5. Tell the participant's client that the result is saved and pending (S9-B6).
+
+**Agent (Stage 10):**
+- Relays every `.ready` file as soon as it appears, whether or not the process is alive, and handles each answer as §C says.
+- Never touches a `.written` file while the process is alive (the process will publish it).
+- After the unit exits with a positive exit status (`exitCode` or `signal`), renames each remaining `.written` file to `.ready` (then `fsync`s the directory) and relays it. Such a participant is reported `present: true`.
+- Reports `present: false` for a participant only when the scan found neither a `.written` nor a `.ready` file for it. A leftover `.tmp` alone is not a result: the process died before step 2, so no hash was ever notified and no complete result existed.
+- Sets `outbox.complete: true` only when the whole directory was read without error. A failed or partial read is `complete: false`; a later successful rescan is reported as the supplementary observation (S9-B7, rev 3).
+- Relays every published file before reporting `exited`, and never deletes a relay file before Phase 14's cleanup.
+
+**Crash recovery:**
+
+| Crash point | State left | Outcome |
+|---|---|---|
+| During step 1 | `.tmp` only | No durable result: `present: false`; a void needs S9-B7's positive evidence |
+| Between 2 and 3 | `.written`, no recorded hash | After exit the agent publishes and relays; settles with `recorded_hash = 'absent'` |
+| Between 3 and 4 | `.written`, recorded hash stored | After exit the agent publishes and relays; the hash must match (V15) |
+| After 4 | `.ready` | Normal relay |
+| Backend unreachable at step 3 | `.ready` without a recorded hash | Relayed when the backend returns; a later `recorded` is compared (T0-1, T0-2) |
+
+**Backend guarantees (Stage 9):** a relay is accepted with or without a recorded hash; a recorded hash always blocks a void; a mismatch never settles silently; a revoked credential never authenticates.
+
 ## Global Constraints
 
 - Keep `0000`–`0008` byte-identical. One new migration, `0009_settlement`. Schema version 9.
@@ -779,26 +849,26 @@ The domain tests read every vector. A vector change is a format change and needs
 1. **A manifest whose numbers are valid individually but whose provenance does not add up.** Examples: loot consumed from a line the operative never collected; an owned non-stackable held by another operative; a stack split across two `held` entries to dodge V11. The expected behaviour is quarantine, never a partial settlement. Task 1 pins each case with a vector.
 2. **The same relay arriving through two connections at once while the operator revalidates** (three-way race). Exactly one settlement; the others answer `duplicate` or are refused by the operator path; one `revalidate` action records its result. Task 8.
 3. **A host disabled between a manifest's authentication and its transaction.** The in-transaction re-check returns the uniform 401 and writes nothing; after a rotate and enable, the same relay gets `409 AttemptRevoked` and stores nothing. Tasks 3 and 8.
-4. **An API restarted with a new catalogue while results wait.** Each result settles under its admission catalogue, with no 503 loop; a tightened limit quarantines `catalogue_conflict`; a missing version is `202 held` and recovers through `catalogue import`. Tasks 2a, 3 and 8.
+4. **An API restarted with a new catalogue while results wait.** Each result settles under its admission catalogue, with no 503 loop, even when the new catalogue has a smaller bag, a smaller stack or a retired definition (rev 3); a missing version is `202 held` and recovers through `catalogue import`. Tasks 2a, 3 and 8.
 5. **A body close to the size cap, with deep nesting, long strings or a non-canonical encoding.** Over the cap or out of shape: `422` with the raw length or bytes kept and never logged verbatim. A non-canonical but valid encoding: canonicalized, both forms stored. Tasks 1 and 3.
 
 ---
 
-## Task 0 (after the owner authorizes implementation): record the authorization
+## Task 0: record the authorization (rev 3)
 
 **Files:**
-- Modify: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` (§0.9 status: confirmed or amended by the owner; it was written with plan revision 2)
+- Modify: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` (§0.9 amended with the final rulings)
 - Modify: `Docs/superpowers/plans/2026-10-14-phase-13-backend.md` (§Stage 9 status)
 - Modify: `CLAUDE.md` (Stage 9 authorized)
-- Modify: this plan (the owner's answers to the "Needs approval" items)
+- Modify: this plan (revision 3)
 
-- [ ] **Step 1:** Record the owner's answers exactly as given.
+- [x] **Step 1:** Record the owner's rulings of 2026-10-17 (the "Revision 3" table, T0-1 to T0-5, and the sections marked "(rev 3)").
 - [ ] **Step 2:** Commit docs only, by explicit paths.
 
 ## Task 1: Pure settlement rules (domain) and the golden vectors
 
 **Files:**
-- Create: `Backend/src/Accounts.Domain/Settlement/ResultManifest.cs`, `ManifestValidator.cs`, `SettlementPlanner.cs`, `StructuralCheck.cs`, `RetentionRanker.cs`, `Receipt.cs`, `CanonicalJson.cs` (extracted from `CanonicalCatalogueJson` and reused by it, with no behaviour change: its existing tests must stay green)
+- Create: `Backend/src/Accounts.Domain/Settlement/ResultManifest.cs`, `ManifestValidator.cs`, `SettlementPlanner.cs`, `RetentionRanker.cs`, `Receipt.cs`, `CanonicalJson.cs` (extracted from `CanonicalCatalogueJson` and reused by it, with no behaviour change: its existing tests must stay green)
 - Create: `Backend/contracts/manifest-v1/README.md` and the vector files (§G)
 - Test: `Backend/tests/Accounts.Domain.Tests/Settlement/*.cs`, including `GoldenVectorTests.cs`, which reads every file under `Backend/contracts/manifest-v1/`
 
@@ -832,7 +902,6 @@ public static class SettlementPlanner
 {
     public static SettlementPlan Plan(ResultManifest m, SettlementContext c, InsuranceSnapshot? insurance, byte[] retentionSalt);
 }
-public static class StructuralCheck { public static IReadOnlyList<string> Check(SettlementPlan p, GameCatalogue current); }  // S9-B20.4
 public static class RetentionRanker { public static IReadOnlyList<RetainedLot> Select(...); }   // stored, never recomputed on replay
 public static class ReceiptWriter { public static string Settled(...); public static string Void(...); }   // deterministic JSON
 ```
@@ -860,9 +929,8 @@ public static class ReceiptWriter { public static string Settled(...); public st
     - `alive: false` still gets XP on success;
     - retention is identical across 3 calls, and changes when the salt changes;
     - every receipt field is deterministic, and the receipt never contains the salt (byte search).
-  - Structural check: a removed definition, a changed identity kind, a lower max stack and a smaller bag each produce their code.
   - Run: `dotnet test Backend/tests/Accounts.Domain.Tests --filter "FullyQualifiedName~Settlement"`. Expected: FAIL (types missing).
-- [ ] **Step 2: Implement** the parser (on `StrictJson`), canonicalization (the extracted `CanonicalJson`), validator, planner, structural check, ranker and receipt writer, and write the vectors.
+- [ ] **Step 2: Implement** the parser (on `StrictJson`), canonicalization (the extracted `CanonicalJson`), validator, planner, ranker and receipt writer, and write the vectors.
 - [ ] **Step 3: Run** the domain suite. Expected: PASS. The `CanonicalCatalogueJson` tests are unchanged and green.
 - [ ] **Step 4: Commit** (`Backend/src/Accounts.Domain/Settlement`, `Backend/contracts/manifest-v1`, `Backend/tests/Accounts.Domain.Tests/Settlement`, `CanonicalCatalogueJson.cs`).
 
@@ -911,7 +979,7 @@ Task<CatalogueLookup> LookupAsync(string version, CancellationToken ct);       /
 
 - [ ] **Step 1: Write the failing tests.**
   - Registration is idempotent.
-  - A catalogue that drops an id or flips an id's kind is refused, and `serve` exits with its new code.
+  - **(rev 3)** A catalogue that retires (drops) an id registers; one that flips an id's kind (stackable or instance) is refused, and `serve` exits with its new code.
   - Lookup verifies the hash and returns `Unavailable` for a missing row.
   - `ready` for an attempt admitted under catalogue X, with the API on Y, validates against X.
   - `catalogue import` verifies, inserts and audits, and refuses a mismatched file.
@@ -969,7 +1037,7 @@ Task<CatalogueLookup> LookupAsync(string version, CancellationToken ct);       /
   - Malformed bodies: each 422 code; an identified participant is quarantined (`malformed_manifest`); an unidentified body is stored once per host and raw hash.
   - **Catalogue upgrade during a mission** (owner item 16):
     - admit under X, start, then restart the API on Y: the relay settles under X (XP from X), and the settlement row records X;
-    - a Y with a smaller bag gives `Quarantined` with `catalogue_conflict` and nothing applied;
+    - **(rev 3)** a Y with a smaller bag, a smaller maximum stack and a retired definition still settles under X; the bag left over Y's capacity is preserved, and a Stage 5 move of an item from that bag to the stash then succeeds under Y;
     - a schema-8 attempt whose version has no row gives `Held`; `catalogue import` and `revalidate` then settle it.
   - V16: a changed inventory base quarantines.
   - The post-apply bag check: a corrupted plan (a test-only mutation through an internal seam in the test assembly) rolls back and ends `Quarantined` with `settlement_check_failed`.
@@ -987,7 +1055,7 @@ Task<CatalogueLookup> LookupAsync(string version, CancellationToken ct);       /
   7. look up the admission catalogue;
   8. build the context (pool, objectives, `pool_collections`, the recorded hash, the snapshot);
   9. validate; on errors, take the quarantine path (Task 4);
-  10. lock the hold and the inventory; check V16 and the structural limits;
+  10. lock the hold and the inventory; check V16;
   11. read the salt from `attempt_secrets`;
   12. apply the plan;
   13. lock the wallet, take the policy lock, materialize and write the ledger entry;
@@ -1010,10 +1078,12 @@ Task<CatalogueLookup> LookupAsync(string version, CancellationToken ct);       /
   - `recorded`:
     - `joined → result_pending` with the hash stored;
     - an identical repeat gets 200;
-    - a different hash gets 409 and raises `recorded_hash_mismatch`;
-    - a revoked or ended credential gets 401.
+    - a different hash gets 409, raises `recorded_hash_mismatch` and **(rev 3)** quarantines the participant (`recorded_hash_mismatch`);
+    - a revoked or superseded credential, or a cancelled attempt's, gets 401;
+    - **(rev 3, T0-1)** after a solo settlement, the same credential gets 200 for the settled hash and 409 plus the anomaly for another, with the settlement and receipt unchanged; after a revocation it gets 401.
   - A relay whose hash differs from the recorded one quarantines (V15, `recorded_hash_mismatch`).
-  - A `recorded` call after a settlement with a different hash, using a still-live credential in a two-participant fixture, gets 409 and raises the anomaly; the settlement is unchanged.
+  - A `recorded` call after a settlement with a different hash, in a two-participant fixture, gets 409 and raises the anomaly; the settlement is unchanged.
+  - **(rev 3, B23)** A relay that arrives before any `recorded` call settles (`absent`); a quarantined participant's later `recorded` with a different hash stays quarantined and raises the anomaly.
   - **Crash before the hash notification** (owner item 16): no `recorded` call; `exited` with `present: true` gives `result_pending`; the relay settles with `recorded_hash = 'absent'` and `result_without_recorded_hash`; no void happens at any point.
   - When every participant is `result_pending` or settled, the attempt is `ending`.
   - Expected: FAIL.
@@ -1055,7 +1125,8 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
   - Contradiction: a recorded hash or a stored submission with `present: false` voids nothing and raises `exit_evidence_contradiction`.
   - `present: true` gives `result_pending` and no void.
   - Mixed presence across two participants (co-op-shaped) voids only the absent one.
-  - A repeat report is idempotent; a conflicting one (including a later `complete: true` after a stored `complete: false`) is `ConflictingReport` and voids nothing.
+  - A repeat report is idempotent; a conflicting one is `ConflictingReport` and voids nothing.
+  - **(rev 3) Incomplete scan, then the observation:** a stored `complete: false` report voids nothing; a later report with the same exit status and `complete: true` listing the participant absent is stored as the observation and voids it; the first report is byte-identical afterwards; a repeat of the observation returns its outcome; a third, different report is `ConflictingReport`; an observation with another exit status is `ConflictingReport`; an observation contradicting the first report's `present: true` voids nothing and raises `exit_evidence_contradiction`; an observation after a revocation voids nothing.
   - A revoked attempt (disable, rotate, enable, `exited`) stores the report with `attempt_revoked = true`, frees the slot, voids nothing and raises `exit_evidence_post_revocation`.
   - A late result after a void gets `AlreadySettledAsVoid`: the submission is stored as `late_after_void`, an anomaly is raised, and the receipt is byte-identical.
   - An `unresponsive` attempt with no evidence is never voided by the worker (a sweep runs; the state is unchanged).
@@ -1080,16 +1151,17 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
     - for a revoked attempt or a `host_revoked` hold, it requires `--host-trust-reviewed`, or it exits 64;
     - a submission of another participant is refused.
   - `import-result`:
-    - refused unless the attempt is revoked and `--host-trust-reviewed`, `--reason` and `--evidence` are given;
-    - it stores the file (`source = 'operator_import'`, the raw and canonical forms) and quarantines (`host_revoked`), but never settles by itself;
+    - refused without `--reason` and `--evidence`, and for a revoked attempt without `--host-trust-reviewed`;
+    - it stores the file (`source = 'operator_import'`, the raw and canonical forms) and quarantines (`host_revoked` for a revoked attempt, else `operator_import`), but never settles by itself;
+    - **(rev 3)** it works past S9-B22's cap and doesn't count against it; for a settled participant it stores the file as evidence only, with an anomaly, and the settlement is unchanged;
     - importing the same file twice adds no row;
     - a file whose canonical hash equals a pre-revocation recorded hash is shown as matching in `attempt show`.
   - `void-participant`:
     - refused without `--reason`, `--outbox-checked` and `--evidence`;
     - refused without `--revalidated` when a submission is stored (a `revalidate` action after the latest submission must exist);
     - refused for a participant that is not quarantined;
-    - refused for a revoked attempt's participant before its host is declared lost, and afterwards without `--host-trust-reviewed` (R8);
-    - otherwise it voids with basis `operator_quarantine`, with the action and its checks in the same transaction.
+    - quarantine mode voids with basis `operator_quarantine`, with the action and its checks in the same transaction;
+    - **(rev 3) revoked mode:** refused without `--host-trust-reviewed` or `--unrecoverable`, without `--revalidated` when a submission is stored, and for a settled participant; otherwise it voids with basis `operator_revoked_unrecoverable` while the host stays registered (not declared lost), and the host can then be rotated and re-enabled; a revoked attempt's quarantined participant uses this mode, never quarantine mode.
   - `declare-lost`:
     - refused for an enabled host, a host with an unrevoked secret, a fresh heartbeat, or a missing flag;
     - otherwise it stamps the host and voids every started, unsettled, non-quarantined participant, one action each under one correlation id;
@@ -1151,6 +1223,7 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
   - Settlement racing `revalidate`: exactly one settlement.
   - Settlement racing an inventory edit and a pick on the same account: the edit and the pick are `InventoryLocked` until the settlement commits, and succeed afterwards.
   - Settlement racing an energy grant and a policy publication: no deadlock (lock-order proof; a queued publication drains).
+  - **(rev 3)** Settlement, quarantine, `recorded` (with a mismatch), an exit-evidence void and a monitoring sweep, each racing `account suspend` and `credential rotate` on the same account: no deadlock, every path ends in its documented outcome, and the suspension waits for (or precedes) the account lock without a timeout.
   - **Fault after every step:** a raising trigger on each written table in turn: `item_stacks` delete and update, `item_instances` insert, `operatives` update, `pool_collections`, `energy_holds`, `energy_ledger`, `inventories`, `result_submissions`, `participant_settlements`, `attempt_participants`, `mission_attempts`. Each leaves the database byte-identical to before (a table-by-table digest), and a retry after removing the trigger settles once.
   - **`pg_terminate_backend`** of the settling connection while it waits on the pausing trigger: nothing is committed; the retry settles once.
   - **Lost response:** the transaction commits, then the client connection is dropped before the response; the retry gets `Duplicate` with the identical receipt.
@@ -1167,12 +1240,12 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
 
 - [ ] **Step 1: Write `vm-crash-drill.sh`:**
   1. it refuses to run unless the target container name is `blackglass-crashdb`, with no published port and its own volume;
-  2. it starts the container and migrates it;
-  3. the runner image (its network namespace) drives 200 settlements and voids;
+  2. **(rev 3)** it creates a temporary internal network, starts the container on it and migrates it;
+  3. a runner container on the same network (never `--network container:`) drives 200 settlements and voids, and survives the restart;
   4. it `docker kill`s the container mid-load, then restarts it;
   5. it runs the invariant queries;
   6. it runs a resubmission pass: every result gets `Settled` or `Duplicate`;
-  7. it removes the container and volume, and verifies that they are gone and that the shared test container's ID and uptime are unchanged.
+  7. it removes the containers, volume and network, and verifies that they are gone and that the shared test container's ID and uptime are unchanged.
 - [ ] **Step 2: Run** the smoke test, the crash drill and the restore drill. Expected:
   - 0 failures, invariants hold, no secret in any transcript;
   - the off-host probe still shows only port 22 open;
@@ -1209,10 +1282,10 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
 ## Obligations this stage hands on (proposed)
 
 - **Stage 10 (agent):**
-  - relay an outbox file only after its mission unit has exited (S9-B23);
-  - relay every outbox file before reporting `exited`;
+  - follow §H: relay `.ready` files while the process is alive; after a positive exit, publish and relay `.written` files; never relay or count `.tmp` files (S9-B23, rev 3);
+  - relay every published file before reporting `exited`;
   - send `exited` only with an exit status, and `outbox.complete: true` only after a full, successful outbox scan that lists every started participant;
-  - when a scan can't complete, retry it, and send `complete: false` only when it is definitively impossible;
+  - when a scan can't complete, send `complete: false`, and report a later successful rescan as the supplementary observation (S9-B7, rev 3);
   - handle each answer exactly as §C says, recording relay state in its own directory and never deleting a relay file before Phase 14's cleanup;
   - keep `AttemptRevoked` files for the operator;
   - provide the trusted emergency stop (R8).
@@ -1221,7 +1294,7 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
   - pass every golden vector in `Backend/contracts/manifest-v1/` in EditMode tests;
   - compute the canonical `manifestHash` for `recorded`.
 - **Stage 12 (server):**
-  - write and `fsync` the outbox file, then call `recorded` with its canonical hash before telling the client "result saved", and before exiting (S9-B23);
+  - follow §H's five steps: durable write and atomic rename, the bounded `recorded` attempt, publication, then "result saved" to the client (S9-B23, rev 3);
   - exit after informing its clients, without polling settlement (S9-B6);
   - treat a 401 as a stop, keeping the outbox file.
 - **Stage 16 (client):** poll `GET /v1/attempts/{id}/receipt` and show only committed rewards; show "under review" for `under_review`.
