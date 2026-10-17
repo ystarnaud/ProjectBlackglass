@@ -9,8 +9,9 @@ public sealed class AdminUsageException(string message) : Exception(message);
 /// <summary>What a verb must be confirmed by: nothing; the Base58 id of the existing account it changes; for a policy or
 /// template publication (an energy policy changes every wallet's future; an insurance policy version every later activation
 /// of it; a mission template version every later admission to it), the word "publish"; or, for a development host fixture's
-/// registration, the word "register". --yes confirms any of them.</summary>
-public enum AdminConfirmation { None, Account, Publish, Register }
+/// registration or an agent host's, the word "register"; for a change to an existing host, its host id; for a build verb, its
+/// revision. --yes confirms any of them.</summary>
+public enum AdminConfirmation { None, Account, Publish, Register, Host, Build }
 
 /// <summary>The proposed values of <c>energy policy publish</c>, as typed (checked against 0006's CHECKs before any connection).</summary>
 public sealed record EnergyPolicyValues(int Cap, int OpeningBalance, int IntervalSeconds, int Amount, int VoidRefundPct);
@@ -29,7 +30,8 @@ public sealed record MissionTemplateValues(string TemplateId, int EnergyCost, in
 /// </summary>
 public sealed record AdminArguments(string Verb, string? Handle, string? DisplayName, long? Account, Guid? Credential, OperatorContext Operator, bool Confirmed,
     bool AccountWasAllDigits = false, int? Amount = null, Guid? IdempotencyKey = null, EnergyPolicyValues? Policy = null,
-    string? PolicyId = null, string? TermsFile = null, int? DurationSeconds = null, MissionTemplateValues? Template = null, string? HostId = null, int? Capacity = null)
+    string? PolicyId = null, string? TermsFile = null, int? DurationSeconds = null, MissionTemplateValues? Template = null, string? HostId = null, int? Capacity = null,
+    int? PortBase = null, string? Revision = null, string? CatalogueVersion = null, string? Templates = null)
 {
     public const string AccountFlag = "--account-base58";
     public const string YesSwitch = "--yes";
@@ -46,7 +48,10 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         "insurance policy publish --policy-id <id> --terms-file <path> | " +
         "insurance activate --account-base58 <Base58 account id> --policy-id <id> --duration-seconds <1-315360000> --idempotency-key <uuid> | " +
         "mission template publish --template-id <id> --energy-cost <n> --min-operatives <n> --max-operatives <n> | " +
-        "host register-dev --host-id <id> --capacity <1-1000> | host heartbeat-dev --host-id <id>; " +
+        "host register-dev --host-id <id> --capacity <1-1000> | host heartbeat-dev --host-id <id> | " +
+        "host register --host-id <id> --capacity <1-1000> --port-base <port> | host rotate-secret --host-id <id> | " +
+        "host drain|enable|disable --host-id <id> | host capacity --host-id <id> --capacity <1-1000> | " +
+        "build allow --revision <r> --catalogue-version sha256:<hex> --templates <id>:<version>[,...] | build disable --revision <r> --catalogue-version sha256:<hex>; " +
         "each with --operator <name> --reason <text>. " +
         "An account id is always Base58 (as printed, e.g. BukQL or 2), never decimal. Every command that changes an existing " +
         "account shows its target and acts only when confirmed: type the Base58 account id at the terminal, or add --yes. " +
@@ -54,7 +59,10 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         "insurance activate prints startsAt and expiresAt: the period that activation bought (from the later of the old expiry and now). " +
         "mission template publish shows the current and proposed template and is confirmed by typing publish, or by --yes; an energy cost of 0 is allowed. " +
         "host register-dev and host heartbeat-dev are for development host fixtures in tests and the throwaway smoke stack only: they refuse " +
-        "unless this process has BLACKGLASS_DEV_HOSTS=enabled (never in production). host register-dev is confirmed by typing register, or by --yes.";
+        "unless this process has BLACKGLASS_DEV_HOSTS=enabled (never in production). host register-dev is confirmed by typing register, or by --yes. " +
+        "host register registers an agent host and prints its secret once (hostSecret=hs1_...): install it for the agent, it is never shown again; " +
+        "it is confirmed by typing register. host rotate-secret prints a new secret once and refuses the old one from then on. " +
+        "The other host verbs are confirmed by typing the host id, the build verbs by typing the revision; --yes confirms any of them.";
 
     // NeedsCatalogue: whether the verb reads game definitions (only the starter-granting ones). Confirm: what confirms it.
     // Every verb declares both here, so a new verb can't be added without deciding whether an invalid catalogue may block it
@@ -77,6 +85,14 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         ["mission-template-publish"] = (["--template-id", "--energy-cost", "--min-operatives", "--max-operatives"], [], false, AdminConfirmation.Publish),
         ["host-register-dev"] = (["--host-id", "--capacity"], [], false, AdminConfirmation.Register),
         ["host-heartbeat-dev"] = (["--host-id"], [], false, AdminConfirmation.None),
+        ["host-register"] = (["--host-id", "--capacity", "--port-base"], [], false, AdminConfirmation.Register),
+        ["host-rotate-secret"] = (["--host-id"], [], false, AdminConfirmation.Host),
+        ["host-drain"] = (["--host-id"], [], false, AdminConfirmation.Host),
+        ["host-enable"] = (["--host-id"], [], false, AdminConfirmation.Host),
+        ["host-disable"] = (["--host-id"], [], false, AdminConfirmation.Host),
+        ["host-capacity"] = (["--host-id", "--capacity"], [], false, AdminConfirmation.Host),
+        ["build-allow"] = (["--revision", "--catalogue-version", "--templates"], [], false, AdminConfirmation.Build),
+        ["build-disable"] = (["--revision", "--catalogue-version"], [], false, AdminConfirmation.Build),
     };
 
     /// <summary>Every verb ("noun-verb") the CLI knows.</summary>
@@ -105,6 +121,12 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
     /// reserves <c>host_drain</c> and <c>host_enable</c>) must work in production, where fixtures are never enabled.
     /// </summary>
     public static bool IsDevHostFixtureVerb(string verb) => verb is "host-register-dev" or "host-heartbeat-dev";
+
+    /// <summary>The agent host verbs (Stage 8, owner ruling B3): registration, secret rotation, the switches and capacity.</summary>
+    public bool IsHostVerb => Verb is "host-register" or "host-rotate-secret" or "host-drain" or "host-enable" or "host-disable" or "host-capacity";
+
+    /// <summary>The build allowlist verbs (owner ruling B4).</summary>
+    public bool IsBuildVerb => Verb.StartsWith("build-", StringComparison.Ordinal);
 
     /// <summary>Only the verbs that grant a starter read game definitions. Account-security administration (rotate, revoke a
     /// credential, revoke sessions, suspend, reactivate) never loads the catalogue, so it works whatever state that is in.</summary>
@@ -157,10 +179,12 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         MissionTemplateValues? template = verb == "mission-template-publish"
             ? new MissionTemplateValues(flags["--template-id"], Integer(flags, "--energy-cost"), Integer(flags, "--min-operatives"), Integer(flags, "--max-operatives"))
             : null;
-        int? capacity = verb == "host-register-dev" ? Integer(flags, "--capacity") : null;
+        int? capacity = verb is "host-register-dev" or "host-register" or "host-capacity" ? Integer(flags, "--capacity") : null;
+        int? portBase = verb == "host-register" ? Integer(flags, "--port-base") : null;
         return new AdminArguments(verb, flags.GetValueOrDefault("--handle"), flags.GetValueOrDefault("--display-name"), account, credential, op, confirmed,
             accountText is not null && accountText.All(char.IsAsciiDigit), amount, idempotencyKey, policy,
-            flags.GetValueOrDefault("--policy-id"), flags.GetValueOrDefault("--terms-file"), durationSeconds, template, flags.GetValueOrDefault("--host-id"), capacity);
+            flags.GetValueOrDefault("--policy-id"), flags.GetValueOrDefault("--terms-file"), durationSeconds, template, flags.GetValueOrDefault("--host-id"), capacity,
+            portBase, flags.GetValueOrDefault("--revision"), flags.GetValueOrDefault("--catalogue-version"), flags.GetValueOrDefault("--templates"));
     }
 
     static int Integer(Dictionary<string, string> flags, string flag) =>

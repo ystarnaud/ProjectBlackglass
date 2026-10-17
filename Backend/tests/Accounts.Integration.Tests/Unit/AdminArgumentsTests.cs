@@ -77,14 +77,23 @@ public class AdminArgumentsTests
     [InlineData("mission template publish --template-id procedural-standard --energy-cost 0 --min-operatives 1 --max-operatives 3 --operator o --reason r", false)]
     [InlineData("host register-dev --host-id dev-1 --capacity 2 --operator o --reason r", false)]
     [InlineData("host heartbeat-dev --host-id dev-1 --operator o --reason r", false)]
+    [InlineData("host register --host-id h1 --capacity 2 --port-base 7000 --operator o --reason r", false)]
+    [InlineData("host rotate-secret --host-id h1 --operator o --reason r", false)]
+    [InlineData("host drain --host-id h1 --operator o --reason r", false)]
+    [InlineData("host enable --host-id h1 --operator o --reason r", false)]
+    [InlineData("host disable --host-id h1 --operator o --reason r", false)]
+    [InlineData("host capacity --host-id h1 --capacity 3 --operator o --reason r", false)]
+    [InlineData("build allow --revision r1 --catalogue-version sha256:x --templates procedural-standard:1 --operator o --reason r", false)]
+    [InlineData("build disable --revision r1 --catalogue-version sha256:x --operator o --reason r", false)]
     public void Only_the_starter_granting_verbs_need_the_catalogue(string line, bool needs) =>
         Assert.Equal(needs, Parse(line).NeedsCatalogue);
 
     [Fact]
     public void Every_verb_is_classified_and_only_the_starter_granting_ones_need_the_catalogue() =>
         // A new verb fails this until it is listed here and classified in the theory above (security administration, or needing game definitions).
-        Assert.Equal(new SortedSet<string>(["account-create", "account-reactivate", "account-suspend", "credential-revoke", "credential-rotate", "energy-grant", "energy-open",
-                "energy-policy-publish", "energy-reconcile", "host-heartbeat-dev", "host-register-dev", "insurance-activate", "insurance-policy-publish",
+        Assert.Equal(new SortedSet<string>(["account-create", "account-reactivate", "account-suspend", "build-allow", "build-disable", "credential-revoke", "credential-rotate",
+                "energy-grant", "energy-open", "energy-policy-publish", "energy-reconcile", "host-capacity", "host-disable", "host-drain", "host-enable",
+                "host-heartbeat-dev", "host-register", "host-register-dev", "host-rotate-secret", "insurance-activate", "insurance-policy-publish",
                 "mission-template-publish", "sessions-revoke", "starter-backfill"]),
             new SortedSet<string>(AdminArguments.KnownVerbs));
 

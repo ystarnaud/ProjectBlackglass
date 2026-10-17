@@ -10,6 +10,7 @@ using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
 using Blackglass.Accounts.Persistence.Attempts;
 using Blackglass.Accounts.Persistence.Energy;
+using Blackglass.Accounts.Persistence.Hosts;
 using Blackglass.Accounts.Persistence.Insurance;
 using Blackglass.Accounts.Persistence.Migrations;
 
@@ -108,6 +109,21 @@ public static class AdminCommand
             }
             catch (MissionAdminException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
         }
+        // The agent host and build verbs check their values before any connection too.
+        Blackglass.Accounts.Domain.Hosts.BuildIdentity? build = null;
+        IReadOnlyList<TemplateRef>? buildTemplates = null;
+        try
+        {
+            if (a.Verb == "host-register") HostAdminStore.ValidateRegistration(a.HostId, a.Capacity!.Value, a.PortBase!.Value);
+            else if (a.IsHostVerb)
+            {
+                DevHosts.ValidateHostId(a.HostId);
+                if (a.Capacity is { } hostCapacity) HostAdminStore.ValidateCapacity(hostCapacity);
+            }
+            if (a.IsBuildVerb) build = HostAdminStore.ParseBuild(a.Revision, a.CatalogueVersion);
+            if (a.Templates is { } templateList) buildTemplates = HostAdminStore.ParseTemplates(templateList);
+        }
+        catch (MissionAdminException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
         // A template's values are checked before any connection too (MissionTemplate's rules; a zero cost is valid).
         if (a.Template is { } t)
         {
@@ -124,6 +140,7 @@ public static class AdminCommand
         var insuranceReader = a.IsInsuranceVerb ? new InsuranceReader(dataSource) : null;
         var templates = a.IsMissionTemplateVerb ? new MissionTemplates(dataSource) : null;
         var devHosts = a.IsDevHostVerb ? new DevHosts(dataSource) : null;
+        var hostAdmin = a.IsHostVerb || a.IsBuildVerb ? new HostAdminStore(dataSource) : null;
         try
         {
             // The same schema policy as serve (Stage 1 ruling 4): behind, drifted or ahead, the CLI writes nothing.
@@ -138,7 +155,10 @@ public static class AdminCommand
                 AdminConfirmation.Account => await ConfirmAsync(a, store, energy, insuranceReader, output, error, input, ct),
                 AdminConfirmation.Publish when a.IsInsuranceVerb => await ConfirmInsurancePublishAsync(a, terms!, insuranceReader!, output, error, input, ct),
                 AdminConfirmation.Publish when a.IsMissionTemplateVerb => await ConfirmTemplatePublishAsync(a, templates!, output, error, input, ct),
+                AdminConfirmation.Register when a.Verb == "host-register" => await ConfirmRegisterHostAsync(a, hostAdmin!, output, error, input, ct),
                 AdminConfirmation.Register => await ConfirmRegisterDevAsync(a, devHosts!, output, error, input, ct),
+                AdminConfirmation.Host => await ConfirmHostAsync(a, hostAdmin!, output, error, input, ct),
+                AdminConfirmation.Build => await ConfirmBuildAsync(a, build!, buildTemplates, hostAdmin!, output, error, input, ct),
                 AdminConfirmation.Publish => await ConfirmPublishAsync(a, energy!, output, error, input, ct),
                 _ => null,
             };
@@ -274,6 +294,47 @@ public static class AdminCommand
                     output.WriteLine($"hostId={beat.HostId}");
                     output.WriteLine($"lastHeartbeatAt={Timestamp(beat.LastHeartbeatAt)}");
                     break;
+                case "host-register":
+                    // The secret is printed exactly once, here, for installation at /etc/blackglass/agent/host-secret; only its
+                    // SHA-256 is stored, and nothing else prints, logs or audits it.
+                    var host = await hostAdmin!.RegisterAsync(a.HostId!, a.Capacity!.Value, a.PortBase!.Value, a.Operator, ct);
+                    output.WriteLine($"hostId={host.HostId}");
+                    output.WriteLine("kind=agent");
+                    output.WriteLine($"capacity={host.Capacity}");
+                    output.WriteLine($"portBase={host.PortBase}");
+                    output.WriteLine($"hostSecret={host.Secret.Text}");
+                    break;
+                case "host-rotate-secret":
+                    var rotated = await hostAdmin!.RotateSecretAsync(a.HostId!, a.Operator, ct);
+                    output.WriteLine($"hostId={rotated.HostId}");
+                    output.WriteLine($"secretRotatedAt={Timestamp(rotated.RotatedAt)}");
+                    output.WriteLine($"hostSecret={rotated.Secret.Text}");
+                    break;
+                case "host-drain" or "host-enable" or "host-disable" or "host-capacity":
+                    var changed = a.Verb == "host-capacity"
+                        ? await hostAdmin!.SetCapacityAsync(a.HostId!, a.Capacity!.Value, a.Operator, ct)
+                        : await hostAdmin!.SwitchAsync(a.HostId!, a.Verb switch { "host-drain" => HostSwitch.Drain, "host-enable" => HostSwitch.Enable, _ => HostSwitch.Disable },
+                            a.Operator, ct);
+                    output.WriteLine($"hostId={changed.HostId}");
+                    output.WriteLine($"enabled={(changed.Enabled ? "true" : "false")}");
+                    output.WriteLine($"drained={(changed.Drained ? "true" : "false")}");
+                    output.WriteLine($"capacity={changed.Capacity}");
+                    break;
+                case "build-allow" or "build-disable":
+                    var allowed = a.Verb == "build-allow"
+                        ? await hostAdmin!.AllowBuildAsync(build!, buildTemplates!, a.Operator, ct)
+                        : await hostAdmin!.DisableBuildAsync(build!, a.Operator, ct);
+                    output.WriteLine($"buildRevision={allowed.Build.Revision}");
+                    output.WriteLine($"catalogueVersion={allowed.Build.CatalogueVersion}");
+                    output.WriteLine($"enabled={(allowed.Enabled ? "true" : "false")}");
+                    if (a.Verb == "build-allow")
+                    {
+                        output.WriteLine($"created={(allowed.Created ? "true" : "false")}");
+                        output.WriteLine($"reEnabled={(allowed.ReEnabled ? "true" : "false")}");
+                        output.WriteLine($"templatesAdded={allowed.TemplatesAdded}");
+                    }
+                    output.WriteLine($"templates={string.Join(',', allowed.Templates)}");
+                    break;
             }
             output.WriteLine($"correlationId={a.Operator.CorrelationId}");
             return ExitCodes.Ok;
@@ -304,7 +365,7 @@ public static class AdminCommand
             return e.Error switch
             {
                 MissionAdminError.TemplateVersionConflict or MissionAdminError.HostExists => ExitCodes.Conflict,
-                MissionAdminError.UnknownDevHost => ExitCodes.NotFound,
+                MissionAdminError.UnknownDevHost or MissionAdminError.UnknownHost or MissionAdminError.UnknownBuild or MissionAdminError.UnknownTemplate => ExitCodes.NotFound,
                 _ => ExitCodes.Usage,
             };
         }
@@ -487,6 +548,66 @@ public static class AdminCommand
         error.Write($"Type register to confirm development host fixture {a.HostId} (capacity only where {AttemptSettings.DevHostsVar}=enabled; never in production): ");
         var typed = await input.ReadLineAsync(ct);
         if (typed == "register") return null;
+        error.WriteLine("Not confirmed, so nothing was changed.");
+        return ExitCodes.NotConfirmed;
+    }
+
+    /// <summary>An agent host's registration: prints the host id, whether a host of that id exists, and the proposed kind,
+    /// capacity and port base, then returns null when confirmed (--yes, or typing "register"), else the exit code to stop with.</summary>
+    static async Task<int?> ConfirmRegisterHostAsync(AdminArguments a, HostAdminStore hosts, TextWriter output, TextWriter error, TextReader? input, CancellationToken ct)
+    {
+        output.WriteLine($"target.hostId={a.HostId}");
+        output.WriteLine($"target.hostExists={(await hosts.DescribeAsync(a.HostId!, ct) is not null ? "true" : "false")}");
+        output.WriteLine("target.kind=agent");
+        output.WriteLine($"target.capacity={a.Capacity}");
+        output.WriteLine($"target.portBase={a.PortBase}");
+        return await ConfirmWordAsync(a, "register", $"register agent host {a.HostId} (its secret is printed once)", error, input, ct);
+    }
+
+    /// <summary>A change to an existing host: prints it (an unknown id is NotFound before anything is printed), then returns null
+    /// when confirmed (--yes, or typing the host id), else the exit code to stop with.</summary>
+    static async Task<int?> ConfirmHostAsync(AdminArguments a, HostAdminStore hosts, TextWriter output, TextWriter error, TextReader? input, CancellationToken ct)
+    {
+        var host = await hosts.DescribeAsync(a.HostId!, ct) ?? throw new MissionAdminException(MissionAdminError.UnknownHost, $"No host has id {a.HostId}: nothing was changed.");
+        output.WriteLine($"target.hostId={host.HostId}");
+        output.WriteLine($"target.kind={host.Kind}");
+        output.WriteLine($"target.enabled={(host.Enabled ? "true" : "false")}");
+        output.WriteLine($"target.drained={(host.Drained ? "true" : "false")}");
+        output.WriteLine($"target.capacity={host.Capacity}");
+        output.WriteLine($"target.portBase={host.PortBase?.ToString(CultureInfo.InvariantCulture) ?? "(none)"}");
+        output.WriteLine($"target.liveSlots={host.LiveSlots}");
+        output.WriteLine($"target.lastHeartbeatAt={(host.LastHeartbeatAt is { } beat ? Timestamp(beat) : "(never)")}");
+        output.WriteLine($"target.build={(host.BuildRevision is null ? "(none reported)" : $"{host.BuildRevision} {host.CatalogueVersion}")}");
+        return await ConfirmWordAsync(a, host.HostId, $"{a.Verb.Replace('-', ' ')} for host {host.HostId}", error, input, ct);
+    }
+
+    /// <summary>A build verb: prints the build as stored and, for allow, the proposed templates, then returns null when confirmed
+    /// (--yes, or typing the revision), else the exit code to stop with.</summary>
+    static async Task<int?> ConfirmBuildAsync(AdminArguments a, Blackglass.Accounts.Domain.Hosts.BuildIdentity build, IReadOnlyList<TemplateRef>? proposed,
+        HostAdminStore hosts, TextWriter output, TextWriter error, TextReader? input, CancellationToken ct)
+    {
+        var current = await hosts.DescribeBuildAsync(build, ct);
+        output.WriteLine($"target.buildRevision={build.Revision}");
+        output.WriteLine($"target.catalogueVersion={build.CatalogueVersion}");
+        output.WriteLine($"target.buildExists={(current is not null ? "true" : "false")}");
+        output.WriteLine($"target.enabled={(current is null ? "(none)" : current.Enabled ? "true" : "false")}");
+        output.WriteLine($"target.templates={(current is null || current.Templates.Count == 0 ? "(none)" : string.Join(',', current.Templates))}");
+        if (proposed is not null) output.WriteLine($"target.proposedTemplates={string.Join(',', proposed)}");
+        return await ConfirmWordAsync(a, build.Revision, $"{a.Verb.Replace('-', ' ')} for build {build.Revision}", error, input, ct);
+    }
+
+    /// <summary>null when --yes was given or the operator typed <paramref name="word"/>; else 64 (no terminal) or 67.</summary>
+    static async Task<int?> ConfirmWordAsync(AdminArguments a, string word, string action, TextWriter error, TextReader? input, CancellationToken ct)
+    {
+        if (a.Confirmed) return null;
+        if (input is null)
+        {
+            error.WriteLine($"Not confirmed, so nothing was changed. To {action}, run this at a terminal and type {word}, or add {AdminArguments.YesSwitch}.");
+            return ExitCodes.Usage;
+        }
+        error.Write($"Type {word} to confirm ({action}): ");
+        var typed = await input.ReadLineAsync(ct);
+        if (typed == word) return null;
         error.WriteLine("Not confirmed, so nothing was changed.");
         return ExitCodes.NotConfirmed;
     }
