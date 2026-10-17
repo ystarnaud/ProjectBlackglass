@@ -29,6 +29,23 @@ public abstract record ResultOutcome
     public sealed record Unauthenticated : ResultOutcome;
 }
 
+/// <summary>The recorded route's answer (plan §C, S9-B5, T0-1, T0-2).</summary>
+public abstract record RecordedOutcome
+{
+    /// <param name="State">The participant's state after the call (result_pending, or its state when its evidence already matched).</param>
+    public sealed record Accepted(string State) : RecordedOutcome;
+
+    /// <summary>The hash contradicts the participant's recorded hash, a stored submission or its settlement: the anomaly (and, for an
+    /// unsettled participant, the quarantine) committed.</summary>
+    public sealed record Conflicting : RecordedOutcome;
+
+    public sealed record InvalidState : RecordedOutcome;
+    public sealed record NotFound : RecordedOutcome;
+
+    /// <summary>The presented credential is no longer the attempt's, or was revoked, or the attempt was cancelled: the uniform 401.</summary>
+    public sealed record Unauthenticated : RecordedOutcome;
+}
+
 /// <summary>A relayed body as the route read it: the bytes (up to the cap), their full length, and the parse.</summary>
 /// <param name="Raw">The request bytes; null when the body was over <see cref="ResultManifest.MaxBytes"/> (only its length is kept).</param>
 public sealed record ResultBody(byte[]? Raw, int Length, ParseResult Parsed)
@@ -556,6 +573,75 @@ public sealed class SettlementStore
             "malformed" => new ResultOutcome.Malformed(row.Codes.FirstOrDefault() ?? ManifestCodes.NotJson),
             _ => throw new InvalidOperationException("Unknown stored disposition."),
         };
+    }
+
+    /// <summary>
+    /// The process's recorded hash (S9-B5; revision 3 T0-1, T0-2), in the order accounts FOR KEY SHARE (the anomaly may name the
+    /// account), the attempt FOR UPDATE, the participant FOR UPDATE. The presented credential must still be the attempt's,
+    /// unrevoked, and the attempt not cancelled (a settled attempt's credential is accepted here only, for comparison). Then:
+    /// a hash equal to the settlement's, the recorded one or a stored submission's is accepted without change (the first one is
+    /// stored and moves joined | left → result_pending, and the attempt to ending once every unsettled participant is
+    /// result_pending); a contradicting one raises recorded_hash_mismatch and quarantines an unsettled, unquarantined participant,
+    /// and a settlement stays final with its receipt.
+    /// </summary>
+    public async Task<RecordedOutcome> RecordedAsync(Guid attemptId, long accountId, byte[] credentialHash, string manifestHash, CancellationToken ct)
+    {
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        if (!await conn.ExecuteScalarAsync<bool>(new CommandDefinition(
+                "select exists (select 1 from attempt_participants where attempt_id = @attemptId and account_id = @accountId)", new { attemptId, accountId }, tx, cancellationToken: ct)))
+            return new RecordedOutcome.NotFound();
+        await LockAccountAsync(conn, tx, accountId, ct);
+        var current = await conn.ExecuteScalarAsync<bool>(new CommandDefinition(
+            """
+            select exists (select 1 from mission_attempts where attempt_id = @attemptId and process_credential_hash = @credentialHash
+                           and credential_revoked_at is null and state <> 'cancelled')
+            """, new { attemptId, credentialHash }, tx, cancellationToken: ct));
+        var attempt = await LockAttemptAsync(conn, tx, attemptId, ct);
+        if (!current || attempt.Revoked || attempt.State == "cancelled") return new RecordedOutcome.Unauthenticated();
+        var link = new Link(attemptId, accountId);
+        var participant = await LockParticipantAsync(conn, tx, attemptId, accountId, ct);
+        if (participant.State is "admitted" or "released") return new RecordedOutcome.InvalidState();
+
+        var settled = await conn.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            "select coalesce(manifest_hash, 'void') from participant_settlements where attempt_id = @Attempt and account_id = @Account", link, tx, cancellationToken: ct));
+        var stored = (await conn.QueryAsync<string>(new CommandDefinition(
+            "select distinct manifest_hash from result_submissions where attempt_id = @Attempt and account_id = @Account and manifest_hash is not null",
+            link, tx, cancellationToken: ct))).ToList();
+        var contradicts = (settled is not null && settled != manifestHash)
+            || (participant.RecordedHash is { } recorded && recorded != manifestHash)
+            || (settled is null && stored.Any(h => h != manifestHash));
+        if (contradicts)
+        {
+            await Anomalies.RaiseAsync(conn, tx, Anomalies.RecordedHashMismatch, $"{attemptId}:{accountId}:{manifestHash}",
+                new { manifestHash, recordedHash = participant.RecordedHash, settledHash = settled, storedHashes = stored, settledAlready = settled is not null }, ct,
+                accountId: accountId, attemptId: attemptId);
+            if (settled is null) await QuarantineAsync(conn, tx, link, "recorded_hash_mismatch", ct);
+            await tx.CommitAsync(ct);
+            return new RecordedOutcome.Conflicting();
+        }
+        if (settled is not null || participant.RecordedHash is not null)
+        {
+            await tx.CommitAsync(ct);
+            return new RecordedOutcome.Accepted(participant.State);
+        }
+        var next = participant.State is "joined" or "left" ? "result_pending" : participant.State;
+        await ExactlyOneAsync(conn, tx, ct,
+            "update attempt_participants set recorded_manifest_hash = @manifestHash, state = @next where attempt_id = @Attempt and account_id = @Account",
+            new { manifestHash, next, link.Attempt, link.Account });
+        await MarkEndingAsync(conn, tx, link, attempt.State, ct);
+        await tx.CommitAsync(ct);
+        return new RecordedOutcome.Accepted(next);
+    }
+
+    /// <summary>The attempt running | unresponsive → ending once every participant that is neither settled nor released is result_pending.</summary>
+    internal static async Task MarkEndingAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Link link, string attemptState, CancellationToken ct)
+    {
+        if (attemptState is not ("running" or "unresponsive")) return;
+        var remaining = (await conn.QueryAsync<string>(new CommandDefinition(
+            "select state from attempt_participants where attempt_id = @Attempt and state not in ('settled', 'released')", link, tx, cancellationToken: ct))).ToList();
+        if (remaining.Count > 0 && remaining.All(s => s == "result_pending"))
+            await ExactlyOneAsync(conn, tx, ct, "update mission_attempts set state = 'ending' where attempt_id = @Attempt and state in ('running', 'unresponsive')", link);
     }
 
     /// <summary>The ledger key of a participant's settle entry (0009: exactly 'settle:' and the attempt).</summary>

@@ -103,6 +103,16 @@ public sealed record FailedRequest(Guid ProcessSessionId, string Reason)
     });
 }
 
+/// <summary>{manifestHash}: the canonical manifest hash the process recorded (S9-B5, plan §H step 3).</summary>
+public sealed record RecordedRequest(string ManifestHash)
+{
+    public static RecordedRequest Parse(ReadOnlySpan<byte> utf8Json) => StrictJson.Read(utf8Json, root =>
+    {
+        var hash = StrictJson.String(StrictJson.Members(root, "manifestHash")["manifestHash"], 71);
+        return Hosts.BuildIdentity.IsWellFormedCatalogueVersion(hash) ? new RecordedRequest(hash) : throw StrictJson.Refuse(); // the same sha256:<hex> form
+    });
+}
+
 /// <summary>{processSessionId}.</summary>
 public sealed record StartRequest(Guid ProcessSessionId)
 {

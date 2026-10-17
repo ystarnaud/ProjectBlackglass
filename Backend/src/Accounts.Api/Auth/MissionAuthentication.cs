@@ -100,9 +100,13 @@ public sealed class HostAuthenticationHandler(IOptionsMonitor<AuthenticationSche
             : (null, "unknown, rotated or disabled host secret");
 }
 
+/// <summary>Marks the one process route (`recorded`, revision 3 T0-1) on which a settled attempt's current, unrevoked credential
+/// still authenticates, so a late recorded hash can be compared with the settlement. Never a cancelled or revoked one.</summary>
+public sealed class AllowsSettledAttemptAttribute : Attribute;
+
 /// <summary>"Authorization: Bearer pc1_…" → the attempt whose current process credential it is, only while that attempt is
-/// neither cancelled nor settled, and only on that attempt's routes: the route's {attemptId} (canonical lower case) must be
-/// the credential's attempt, else the uniform 401.</summary>
+/// neither cancelled nor settled (settled is accepted on a route marked <see cref="AllowsSettledAttemptAttribute"/>), and only on
+/// that attempt's routes: the route's {attemptId} (canonical lower case) must be the credential's attempt, else the uniform 401.</summary>
 public sealed class ProcessAuthenticationHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder, ProcessStore processes)
     : MissionAuthenticationHandler(options, logger, encoder)
 {
@@ -112,7 +116,8 @@ public sealed class ProcessAuthenticationHandler(IOptionsMonitor<AuthenticationS
     {
         if (Request.RouteValues["attemptId"] is not string text || !CanonicalUuid.TryParse(text, out var routeAttempt))
             return (null, "no canonical attempt in the route");
-        var process = await processes.AuthenticateAsync(hash, Context.RequestAborted);
+        var allowSettled = Context.GetEndpoint()?.Metadata.GetMetadata<AllowsSettledAttemptAttribute>() is not null;
+        var process = await processes.AuthenticateAsync(hash, Context.RequestAborted, allowSettled);
         if (process is null) return (null, "unknown, superseded or ended process credential");
         if (process.AttemptId != routeAttempt) return (null, "process credential presented on another attempt's route");
         return ([new Claim(MissionClaims.AttemptId, process.AttemptId.ToString("D")), new Claim(MissionClaims.CredentialHash, Convert.ToHexStringLower(hash))], null);

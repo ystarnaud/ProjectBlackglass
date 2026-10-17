@@ -27,6 +27,7 @@ public static class ProcessEndpoints
         var process = app.MapGroup("/server/v1/attempts/{attemptId}").RequireAuthorization(MissionClaims.ProcessPolicy).RequireRateLimiting(RateLimits.PerProcess)
             .WithMetadata(new RequestSizeLimitAttribute(MissionBodies.MaxBodyBytes));
         MapStart(process);
+        MapRecorded(process);
 
         // POST …/sessions, body {buildRevision, catalogueVersion} → the session, the seed (here only), the template, the catalogue,
         // the participants' snapshots and the launch deadline.
@@ -107,6 +108,29 @@ public static class ProcessEndpoints
             return AgentEndpoints.ReportResult(await processes.FailedAsync(MissionClaims.AttemptOf(http.User), body!, http.RequestAborted));
         });
     }
+
+    static void MapRecorded(RouteGroupBuilder process) =>
+        // POST .../participants/{account}/recorded, body {manifestHash} -> {state} (S9-B5; plan §C, §H): supporting evidence only.
+        // 409 ConflictingReport for a contradicting hash (after its anomaly, and an unsettled participant's quarantine, committed);
+        // 409 InvalidState for a participant that never started; 404 ParticipantNotFound. A settled attempt's credential is accepted
+        // on this route only (T0-1); a revoked or superseded one is the uniform 401.
+        process.MapPost("/participants/{account}/recorded", async (string account, HttpContext http, Persistence.Settlement.SettlementStore settlements) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var (body, refusal) = await MissionBodies.ReadAsync(http, RecordedRequest.Parse);
+            if (refusal is not null) return refusal;
+            if (!AccountId.TryParse(account, out var accountId)) return MissionBodies.Problem(StatusCodes.Status404NotFound, "ParticipantNotFound");
+            return await settlements.RecordedAsync(MissionClaims.AttemptOf(http.User), accountId, MissionClaims.CredentialHashOf(http.User), body!.ManifestHash, http.RequestAborted) switch
+            {
+                Persistence.Settlement.RecordedOutcome.Accepted a => Results.Json(new StateDto(a.State), Web),
+                Persistence.Settlement.RecordedOutcome.Conflicting => MissionBodies.Problem(StatusCodes.Status409Conflict, "ConflictingReport"),
+                Persistence.Settlement.RecordedOutcome.InvalidState => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
+                Persistence.Settlement.RecordedOutcome.NotFound => MissionBodies.Problem(StatusCodes.Status404NotFound, "ParticipantNotFound"),
+                _ => UniformUnauthorized.Result,
+            };
+        }).WithMetadata(new AllowsSettledAttemptAttribute());
+
+    public sealed record StateDto(string State);
 
     static void MapStart(RouteGroupBuilder process) =>
         // POST .../participants/{account}/start, body {processSessionId} -> {started:true, startedAt}. A repeat answers the stored

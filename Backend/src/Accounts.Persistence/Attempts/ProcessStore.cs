@@ -57,12 +57,15 @@ public abstract record ProcessHeartbeatResult
 /// </summary>
 public sealed class ProcessStore(NpgsqlDataSource db)
 {
-    public async Task<AuthenticatedProcess?> AuthenticateAsync(byte[] credentialHash, CancellationToken ct)
+    /// <param name="allowSettled">Accept a settled attempt's credential too (the recorded route only, revision 3 T0-1); never a cancelled or revoked one.</param>
+    public async Task<AuthenticatedProcess?> AuthenticateAsync(byte[] credentialHash, CancellationToken ct, bool allowSettled = false)
     {
         await using var conn = await DbFailure.OpenAsync(db, ct);
         var attempt = await conn.ExecuteScalarAsync<Guid?>(new CommandDefinition(
-            "select attempt_id from mission_attempts where process_credential_hash = @credentialHash and state not in ('cancelled', 'settled') and credential_revoked_at is null",
-            new { credentialHash }, cancellationToken: ct));
+            """
+            select attempt_id from mission_attempts where process_credential_hash = @credentialHash and credential_revoked_at is null
+              and (state not in ('cancelled', 'settled') or (@allowSettled and state = 'settled'))
+            """, new { credentialHash, allowSettled }, cancellationToken: ct));
         return attempt is { } id ? new AuthenticatedProcess(id) : null;
     }
 
