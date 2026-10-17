@@ -13,6 +13,21 @@ ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loo
 - `ALL` = `dotnet test Backend.sln`: also runs the `Requires=Postgres` tests against the test cluster through the tunnel.
 - `tools/testdb.sh up|tunnel|down|destroy` manages the test cluster (Compose project `blackglass-testdb`, `127.0.0.1:55432` on the VM). `up` syncs `Backend/` at HEAD, creates the secrets once and copies the passwords to `~/.blackglass/testdb-secrets`; `tunnel` (leave it running) forwards the port to the PC.
 - The fixture refuses any cluster whose `cluster_name` is not `blackglass-test`, and creates and drops only `bg_t_*` databases.
+- **Preferred: `tools/vm-test.sh --filter <expr> | --full`**, which runs the tests on `bg-dev-services01` itself. The tunnel path above stays as the fallback.
+  - **Why:** the PC is about 46 ms from the VM, and every database round trip pays that.
+  - **Measured on the 172-test sample:** 47 s of tests on the VM, against 10 m 54 s through the tunnel.
+  - **How it runs:**
+    - It snapshots the working tree's `Backend/` into a git tree id and copies that snapshot to the VM, so uncommitted work runs too.
+    - The tests run in a disposable, digest-pinned .NET 10 SDK container, `bg-test-runner`. It runs as uid 999, with 2 CPUs, 3 GB, 1024 pids, all capabilities dropped and a one-hour cap.
+    - The container shares only the test cluster container's network namespace: no published port, no host network, no Docker socket.
+    - Only the three test-cluster password files are mounted, read-only.
+    - Named volumes cache only NuGet packages and build output. The cached tree is brought to exactly the snapshot by content, so a stale build can't be tested.
+  - **Safeguards:**
+    - It refuses to run unless `cluster_name = blackglass-test`.
+    - It runs one at a time, under a VM-side `flock`.
+    - It fails if a `bg_t_*` database or the container remains.
+  - **Results:** trx files and the transcript land in `.claude/scratchpad/vm-test/`.
+  - Outage tests take only their own `bg_t_*` database offline (`allow_connections`), never the shared container.
 
 ## Migrations
 - Name: `NNNN_lower_snake_name.sql`, contiguous from `0000`. The checksum is SHA-256 over UTF-8 text, BOM removed, CRLF changed to LF.
