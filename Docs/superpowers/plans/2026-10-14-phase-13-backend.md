@@ -504,6 +504,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Work:**
 
 `bg-dev-services01`:
+- **assert `BLACKGLASS_DEV_HOSTS` is unset or `disabled` for `api` and `admin`, and that no `dev_fixture` row exists in `mission_hosts`** (Stage 7 obligation: development host fixtures must never count as production capacity);
 - **re-verify** Docker Engine **≥ 28** and Compose (installed in E1), with the version recorded;
 - **re-verify** `daemon.json` (`"ip": "127.0.0.1"` **and** `default-network-opts` → `bridge` → `com.docker.network.bridge.host_binding_ipv4: 127.0.0.1`); the stack's networks recreated and inspected;
 - the secrets files;

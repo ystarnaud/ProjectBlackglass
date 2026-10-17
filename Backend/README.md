@@ -338,7 +338,7 @@ One active participation per account is enforced by the partial unique index `on
 - **Activation:** the same policy extends to `max(expires, now) + duration`. A different policy while active is refused (`CrossTierDeferred`). The key is honoured once; a replay writes nothing.
 - The admission snapshot is immutable and outlives the coverage. There is no payout in Stage 7.
 
-**Operator CLI** (confirmed, audited; never load the catalogue):
+**Operator CLI** (audited; confirmed, except `host heartbeat-dev`; never load the catalogue):
 ```
 … admin insurance policy publish --policy-id <id> --terms-file <path>
 … admin insurance activate --account-base58 <id> --policy-id <id> --duration-seconds <s> --idempotency-key <uuid>
