@@ -310,6 +310,47 @@ public class AdmissionStoreTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Two_identical_requests_queued_on_one_key_replay_after_the_lock()
+    {
+        // Checkpoint 2 M1. Two identical requests with one key both find no recorded row in the early lookup and queue on the
+        // inventories row (held here). The first admits; the second, re-reading the key under that lock (Checkpoint 1 F2),
+        // replays the first one's stored body byte for byte. Without the re-read it would see the committed participation and
+        // answer AttemptActive.
+        var (account, operatives) = await PlayerAsync();
+        var key = Guid.CreateVersion7();
+        var before = await StateAsync();
+        Task<Admission> first, second;
+        await using (var holder = await db.AsSuperuser().OpenConnectionAsync())
+        {
+            await using var held = await holder.BeginTransactionAsync();
+            await holder.ExecuteAsync("select 1 from inventories where account_id = @account for update", new { account }, held);
+            first = Task.Run(() => store.AdmitAsync(account, key, Deploy(operatives[0])));
+            await WaitForLockWaitersAsync(1);
+            second = Task.Run(() => store.AdmitAsync(account, key, Deploy(operatives[0])));
+            await WaitForLockWaitersAsync(2); // both past the early lookup and the health check, queued on the inventories row
+            Assert.Equal(0L, await ScalarAsync<long>("select count(*) from deploy_requests where account_id = @account", new { account }));
+            Assert.Equal(before, await StateAsync()); // nothing written yet: the lookups found no row
+            Assert.False(first.IsCompleted || second.IsCompleted);
+            await held.CommitAsync();
+        }
+        var outcomes = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(60)); // neither is refused (no AttemptActive)
+
+        Assert.Equal([false, true], outcomes.Select(o => o.Replayed).Order().ToArray()); // one admitted, one replayed
+        Assert.Equal(outcomes[0].Body, outcomes[1].Body); // byte-identical
+        Assert.Equal(await ScalarAsync<string>("select response::text from deploy_requests where account_id = @account and idempotency_key = @key", new { account, key }),
+            outcomes[0].Body);
+        var attempt = AttemptOf(outcomes[0]);
+        Assert.Equal((1L, 1L, 1L, 1L), (
+            await ScalarAsync<long>("select count(*) from mission_attempts where created_by = @account", new { account }),
+            await ScalarAsync<long>("select count(*) from energy_holds where account_id = @account and attempt_id = @attempt", new { account, attempt }),
+            await ScalarAsync<long>("select count(*) from energy_ledger where account_id = @account and kind = 'reserve' and attempt_id = @attempt", new { account, attempt }),
+            await ScalarAsync<long>("select count(*) from deploy_requests where account_id = @account", new { account })));
+        Assert.Equal([new Entry("open", 50, 50), new Entry("reserve", -10, 40)], await EntriesAsync(account)); // reserved once
+        Assert.Equal(40, await BalanceAsync(account));
+        Assert.Equal(1L, await ActiveParticipationsAsync(account));
+    }
+
+    [Fact]
     public async Task Admission_drains_with_a_grant_and_a_queued_publication_without_deadlock()
     {
         // The foreign-key key-share hazard (Review Focus 3), built deterministically. Admission A holds the account's key
