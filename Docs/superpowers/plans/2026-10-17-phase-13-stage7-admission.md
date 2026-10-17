@@ -373,6 +373,8 @@ public interface IAttemptSecrets { int NextSeed(); byte[] NextRetentionSalt(); }
 
 ## Task 5: Mandatory, fail-closed `InventoryLocked`
 
+**Checkpoint 1 notes (binding):** the active-state list exists in three places: 0007's `one_active_participation` predicate, the `0007_attempts.sql` invariant, and the C# constant. One test pins all three against each other.
+
 **Additions from the owner's rulings (revision 2):**
 - The active-state list is one constant shared with `one_active_participation` (a test pins that the index predicate and the C# list agree).
 - The order under the row lock stays `NotProvisioned` → `InventoryLocked` → `VersionMismatch`.
@@ -401,6 +403,19 @@ public interface IAttemptSecrets { int NextSeed(); byte[] NextRetentionSalt(); }
 - [ ] **Commit:** `Phase 13 Stage 7: InventoryLocked is a mandatory, fail-closed participation query; the always-unlocked fallback is deleted`.
 
 ## Task 6: Admission (`POST /v1/attempts`)
+
+**Checkpoint 1 notes (binding; they correct the step list below):**
+- **F1, insert order.** 0007's ledger `attempt_id` foreign key is immediate. After the clock, insert in this order: attempt → participant → hold → (positive cost only) the wallet update and the `reserve:<attempt>` entry → the insurance snapshot → `deploy_requests`.
+- **F2, idempotency under concurrency.** Keep the early `deploy_requests` lookup (a recorded attempt replays even while health is down). **Re-read `deploy_requests (account, key)` again after the `inventories` lock and before the `AttemptActive` check**: the same hash replays the stored body; a different hash is `IdempotencyKeyReused`. A 23505 on `deploy_requests_pkey` re-reads the row; one on `one_active_participation` answers `AttemptActive`.
+- **F3, byte-identical bodies.** Answer the first request from `insert … returning response::text`, exactly as a replay reads it.
+- **Advisory notes, adopted:**
+  - **Retired operatives.** Check them in admission against the catalogue before `LoadoutSnapshot.Build`: `422 RetiredOperative`, with the index.
+  - **Choices** are read `order by ordinal`.
+  - **The snapshot** uses the locked `inventories.version`.
+  - **The insurance snapshot** copies `terms` by `insert … select terms from insurance_policies`. `activation_id` is the coverage's. "Active" is `CoverageMath.IsActive` at admission's `now`.
+  - **The health check** runs before the transaction begins. The admission-level test proves the refusal holds no `inventories`/`energy_wallets` lock and allocates no transaction id.
+  - **The body** is capped (`BLACKGLASS_DEPLOY_MAX_BODY_BYTES`, provisional 4 KiB) before parsing.
+  - **Zero cost:** after `inventories`, read the clock directly, with no wallet and no policy lock.
 
 **Additions from the owner's rulings (revision 2):**
 - **The lock order.** `accounts` `FOR KEY SHARE` comes first (before `inventories`).
@@ -468,6 +483,13 @@ The response is `201 {attemptId, state, energy:{cost, balanceAfter}, insurance:{
 - [ ] **Commit:** `Phase 13 Stage 7: admission reserves energy, snapshots loadout and insurance, and enforces one active attempt per account`.
 
 ## Task 7: Attempt read, cancel, release and the assignment deadline
+
+**Checkpoint 1 notes (binding):**
+- **The attempt update.** `state`, `cancel_reason` and `ended_at = clock_timestamp()` go in one UPDATE.
+- **Hold `updated_at`** is never set by the app; the trigger stamps it.
+- **Guards.** Each of the three guarded UPDATEs (attempt `admitted`, participant `admitted`, hold `reserved`) must affect exactly one row, or the transaction throws and rolls back (with the invariant `ended_attempt_active_participant` as the net).
+- **Zero amount.** A 0-amount release takes no wallet or policy lock.
+- **Order.** The release takes `inventories` after the hold, never `accounts`.
 
 **Additions from the owner's rulings (revision 2):**
 - **The release lock order:** `mission_attempts` → `attempt_participants` → `energy_holds` → `inventories` (`FOR UPDATE`) → (positive amount only) `energy_wallets` → the policy lock → clock.
