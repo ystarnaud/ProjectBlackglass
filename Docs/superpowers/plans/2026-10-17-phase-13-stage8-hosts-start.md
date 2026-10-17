@@ -948,7 +948,7 @@ There are three distinct host administration operations:
 - **Mechanism:** the smallest permanent one, a revocation record per attempt plus a revoked flag on the host.
   - A later enable never restores a revoked process credential.
   - A claim retry never re-issues a revoked credential, and launching a revoked attempt is refused.
-  - `host enable` is refused (`SecretRevoked`, exit 69) until `host rotate-secret` issues a new secret. A rotation clears the flag but does not enable the host.
+  - `host enable` is refused (`SecretRevoked`, exit 66) until `host rotate-secret` issues a new secret. A rotation clears the flag but does not enable the host.
 - **Authentication:**
   - The `Host` scheme refuses a disabled or revoked host.
   - The `Process` scheme refuses an attempt with `credential_revoked_at`.

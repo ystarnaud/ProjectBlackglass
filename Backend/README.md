@@ -442,7 +442,7 @@ The accounts PostgreSQL runs with `log_error_verbosity=terse` (B2). This takes e
 - **Recovery:**
   1. `host rotate-secret` issues a new secret.
   2. Install it for the agent.
-  3. `host enable`, which is refused (exit 69) until step 1.
+  3. `host enable`, which is refused (exit 66) until step 1.
 
   Revoked process credentials never come back. Their running units must be stopped by the host's operator (Stage 10).
 
