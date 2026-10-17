@@ -93,7 +93,13 @@ public sealed class SettlementStore
     internal sealed record ParticipantRow(string State, DateTime? StartedAt, string Snapshot, long InventoryVersion, int EnergyCost, string? RecordedHash,
         DateTime? QuarantinedAt);
 
-    sealed record StoredSubmission(long SubmissionId, string Disposition, string[] Codes, long? SameAs);
+    sealed class StoredSubmission
+    {
+        public long SubmissionId { get; init; }
+        public string Disposition { get; init; } = "";
+        public string[] Codes { get; init; } = [];
+        public long? SameAs { get; init; }
+    }
 
     async Task<ResultOutcome> DecideAsync(string hostId, byte[] secretHash, ResultBody body, bool forceQuarantine, CancellationToken ct)
     {

@@ -14,8 +14,8 @@
 --                             quantities (read from the stored canonical manifests), or a settled line missing from it;
 --   minted_not_in_receipt     a settlement: or insurance: item whose id its participant's receipt does not list;
 --   catalogue_version         a settlement whose catalogue is not its attempt's;
---   quarantine_unalerted      a quarantined participant without a result_quarantined, catalogue_unavailable or
---                             quarantine_escalation anomaly naming it (reviewed or not);
+--   quarantine_unalerted      a quarantined participant without a result_quarantined, result_malformed, catalogue_unavailable,
+--                             recorded_hash_mismatch or quarantine_escalation anomaly naming it (reviewed or not);
 --   settled_attempt_open      a settled attempt with a participant neither settled nor released;
 --   submission_payload        a submission without exactly one payload row.
 with settles as (
@@ -103,7 +103,7 @@ union all
 select 'quarantine_unalerted', p.attempt_id::text || '/' || p.account_id::text
 from attempt_participants p
 where p.state = 'quarantined'
-  and not exists (select 1 from anomaly_events e where e.kind in ('result_quarantined', 'catalogue_unavailable', 'quarantine_escalation')
+  and not exists (select 1 from anomaly_events e where e.kind in ('result_quarantined', 'result_malformed', 'catalogue_unavailable', 'recorded_hash_mismatch', 'quarantine_escalation')
                   and e.attempt_id = p.attempt_id and e.account_id = p.account_id)
 union all
 select 'settled_attempt_open', a.attempt_id::text
