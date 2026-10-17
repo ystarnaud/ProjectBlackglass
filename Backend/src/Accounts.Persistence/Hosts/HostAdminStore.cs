@@ -40,7 +40,8 @@ public sealed record AllowedBuildResult(BuildIdentity Build, bool Enabled, bool 
 /// </summary>
 public sealed class HostAdminStore(NpgsqlDataSource db)
 {
-    public const int MaxCapacity = 1000;
+    /// <summary>An agent host's largest capacity: every unit must fit in one heartbeat's complete inventory (Checkpoint 1 M4).</summary>
+    public const int MaxCapacity = Blackglass.Accounts.Domain.Attempts.HeartbeatRequest.MaxUnits;
     public const int MinPortBase = 1024;
     public const int MaxTemplates = 32;
 

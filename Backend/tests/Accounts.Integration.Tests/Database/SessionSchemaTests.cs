@@ -305,7 +305,12 @@ public class SessionSchemaTests : IAsyncLifetime
             await su.ExecuteAsync("update mission_attempts set mission_port = @port where attempt_id = @second", new { port, second }, tx);
         });
         Assert.Equal(("23505", "one_port_per_live_slot"), (e.SqlState, e.ConstraintName));
-        // Released once (written once), the port is free for another live slot.
+        // A live (assigned) attempt's slot can't be released without the agent's exit report (Checkpoint 1 M1): the database
+        // refuses it, whatever the app does.
+        var live = await FailureOf(db.AsApp(), "update mission_attempts set slot_released_at = clock_timestamp() where attempt_id = @first", new { first });
+        Assert.Equal("mission_attempt_transition", live.ConstraintName);
+        // Cancelled, then released once (written once): the port is free for another live slot.
+        await AttemptFixtures.MoveAsync(db, first, "cancelled");
         await using (var conn = await db.AsApp().OpenConnectionAsync())
         {
             Assert.Equal(1, await conn.ExecuteAsync("update mission_attempts set slot_released_at = clock_timestamp() where attempt_id = @first", new { first }));
@@ -318,6 +323,22 @@ public class SessionSchemaTests : IAsyncLifetime
             Assert.Equal(1, await su.ExecuteAsync("update mission_attempts set mission_port = @port where attempt_id = @second", new { port, second }, tx));
             await tx.RollbackAsync();
         }
+    }
+
+    [Fact]
+    public async Task A_running_attempts_slot_is_released_only_after_its_exit_report_and_the_report_names_the_attempts_host()
+    {
+        var (_, attempt) = await AdmitAsync();
+        foreach (var s in new[] { "assigned", "launching", "ready", "running" }) await AttemptFixtures.MoveAsync(db, attempt, s);
+        const string Release = "update mission_attempts set slot_released_at = clock_timestamp() where attempt_id = @attempt";
+        Assert.Equal("mission_attempt_transition", (await FailureOf(db.AsApp(), Release, new { attempt })).ConstraintName);
+        await SuperExecuteAsync("insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled, port_base) values ('other-host', 'agent', decode(repeat('0b', 32), 'hex'), 1, true, 9000)");
+        const string Report = "insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, outcome) values (@attempt, 'agent', @host, 'running', true, 0, 'none')";
+        var foreign = await FailureOf(db.AsApp(), Report, new { attempt, host = "other-host" });
+        Assert.Equal(("23503", "attempt_exit_reports_host_fkey"), (foreign.SqlState, foreign.ConstraintName));
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        await conn.ExecuteAsync(Report, new { attempt, host = AttemptFixtures.FixtureHost });
+        Assert.Equal(1, await conn.ExecuteAsync(Release, new { attempt }));
     }
 
     [Fact]

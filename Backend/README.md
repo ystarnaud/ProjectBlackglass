@@ -29,6 +29,7 @@ ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loo
     - It fails if a `bg_t_*` database or the container remains.
   - **Results:** trx files and the transcript land in `.claude/scratchpad/vm-test/`.
   - Outage tests take only their own `bg_t_*` database offline (`allow_connections`), never the shared container.
+  - **Accepted risk:** the test build effectively has test-cluster superuser rights. The superuser password is mounted, and the container's loopback is trusted. So code in a NuGet package's build targets could act as superuser on the disposable test cluster, as it already could on the tunnel path. No production database is reachable from the runner.
 
 ## Migrations
 - Name: `NNNN_lower_snake_name.sql`, contiguous from `0000`. The checksum is SHA-256 over UTF-8 text, BOM removed, CRLF changed to LF.

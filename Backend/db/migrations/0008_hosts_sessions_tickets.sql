@@ -163,6 +163,13 @@ begin
     raise exception 'a mission attempt''s assignment, session, ready, start and slot release are written once'
       using errcode = 'check_violation', constraint = 'mission_attempt_transition';
   end if;
+  -- B6: a slot is released only on confirmation that its process is gone: the attempt has ended (a complete unit inventory
+  -- no longer listing it), or the agent's exit report for it is stored. Never for a live attempt on the app's word alone.
+  if old.slot_released_at is null and new.slot_released_at is not null and new.state not in ('cancelled', 'settled')
+     and not exists (select 1 from attempt_exit_reports r where r.attempt_id = new.attempt_id and r.source = 'agent') then
+    raise exception 'a live attempt''s slot is released only after its agent exit report'
+      using errcode = 'check_violation', constraint = 'mission_attempt_transition';
+  end if;
   if old.process_credential_hash is not null
      and (new.process_credential_hash is distinct from old.process_credential_hash
           or new.credential_generation is distinct from old.credential_generation)
@@ -201,6 +208,7 @@ alter table mission_attempts
   add constraint mission_attempt_claim_key_unique unique (host_id, claim_key),
   add constraint mission_attempt_process_session_unique unique (process_session_id),
   add constraint mission_attempt_session_identity unique (attempt_id, process_session_id),
+  add constraint mission_attempt_host_identity unique (attempt_id, host_id),
   add constraint mission_attempt_port_range check (mission_port is null or mission_port between 1024 and 65535),
   add constraint mission_attempt_credential_shape check ((process_credential_hash is null or length(process_credential_hash) = 32)
     and (credential_generation is null or credential_generation >= 1)),
@@ -379,7 +387,9 @@ create table attempt_exit_reports (
     when 'agent' then host_id is not null and process_session_id is null and reason is null
     else host_id is null and process_session_id is not null and exit_code is null and signal is null and reason is not null end),
   constraint attempt_exit_reports_session_fkey foreign key (attempt_id, process_session_id)
-    references mission_attempts (attempt_id, process_session_id));
+    references mission_attempts (attempt_id, process_session_id),
+  -- An agent report names the attempt's own host (a key share on the attempt row, which the report already holds: no host lock).
+  constraint attempt_exit_reports_host_fkey foreign key (attempt_id, host_id) references mission_attempts (attempt_id, host_id));
 
 -- The agent's per-participant result presence: whether it found that participant's result file when the unit ended.
 create table attempt_exit_results (

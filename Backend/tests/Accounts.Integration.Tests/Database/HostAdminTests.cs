@@ -89,6 +89,7 @@ public class HostAdminTests : IAsyncLifetime
     [InlineData("Bad_Host", 1, 7000)]
     [InlineData("h1", 0, 7000)]
     [InlineData("h1", 1001, 7000)]
+    [InlineData("h1", 65, 7000)] // Checkpoint 1 M4: at most the units one heartbeat can list
     [InlineData("h1", 1, 1023)]
     [InlineData("h1", 2, 65535)]
     public void Registration_values_are_checked_before_any_connection(string hostId, int capacity, int portBase) =>

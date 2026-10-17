@@ -237,6 +237,14 @@ public class HostSessionTests : IAsyncLifetime
         var cs = new Npgsql.NpgsqlConnectionStringBuilder(ds.ConnectionString);
         Assert.False(cs.IncludeErrorDetail);
         Assert.DoesNotContain("unused-password-xyz", settings.ToString());
+        // No source file turns on parameter logging, wires Npgsql into a logger, or asks for error detail (Checkpoint 1 M8).
+        var root = Path.Combine(AppContext.BaseDirectory, "source");
+        foreach (var file in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+        {
+            var text = File.ReadAllText(file);
+            foreach (var forbidden in new[] { "EnableParameterLogging", "UseLoggerFactory", "IncludeErrorDetail = true", "NpgsqlLoggingConfiguration" })
+                Assert.False(text.Contains(forbidden, StringComparison.Ordinal), $"{Path.GetRelativePath(root, file)} contains {forbidden}");
+        }
     }
 
     [Fact]

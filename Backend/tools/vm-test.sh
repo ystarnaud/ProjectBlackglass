@@ -35,7 +35,9 @@ evidence="${evidence:-$repo/.claude/scratchpad/vm-test/${tree:0:12}-$(date +%H%M
 mkdir -p "$evidence"
 
 vm=/opt/blackglass/backend
-git -C "$repo" -c core.autocrlf=false -c core.eol=lf archive --format=tar --prefix=Backend/ "$tree" | ssh "$alias" "sudo -n sh -c 'set -e
+# The sync, the run and the copy-back each hold the VM-side lock, so a second invocation never replaces a running test's
+# sources or results (it waits for the lock instead).
+git -C "$repo" -c core.autocrlf=false -c core.eol=lf archive --format=tar --prefix=Backend/ "$tree" | ssh "$alias" "sudo -n flock -w 3600 /run/lock/bg-test-runner.lock sh -c 'set -e
   rm -rf $vm/test-src.new && mkdir -p $vm/test-src.new && chmod 755 $vm/test-src.new
   tar -x -C $vm/test-src.new
   echo \"tree=$tree head=$head\" > $vm/test-src.new/Backend/TREE
@@ -47,7 +49,7 @@ set -euo pipefail
 mode="$1" filter="$2" image="$3"
 vm=/opt/blackglass/backend pg=blackglass-testdb-postgres-1 secrets=/opt/blackglass/backend/testdb-secrets/postgres
 exec 9>/run/lock/bg-test-runner.lock
-flock -n 9 || { echo "another test run holds the lock" >&2; exit 75; }
+flock -w 3600 9 || { echo "another test run held the lock for an hour" >&2; exit 75; }
 psql() { docker exec "$pg" psql -U postgres -d postgres -Atc "$1"; }
 cluster="$(psql "select current_setting('cluster_name')")"
 [[ "$cluster" == blackglass-test ]] || { echo "refusing: cluster_name is '$cluster', not 'blackglass-test'" >&2; exit 78; }
@@ -86,6 +88,6 @@ exit $code
 VM
 code=${PIPESTATUS[0]}
 set -e
-ssh "$alias" "sudo -n tar -c -C $vm/test-out ." | tar -x -C "$evidence"
+ssh "$alias" "sudo -n flock -w 3600 /run/lock/bg-test-runner.lock tar -c -C $vm/test-out ." | tar -x -C "$evidence"
 echo "evidence: $evidence (exit $code)"
 exit "$code"
