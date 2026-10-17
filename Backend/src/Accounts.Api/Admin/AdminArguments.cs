@@ -10,8 +10,10 @@ public sealed class AdminUsageException(string message) : Exception(message);
 /// template publication (an energy policy changes every wallet's future; an insurance policy version every later activation
 /// of it; a mission template version every later admission to it), the word "publish"; or, for a development host fixture's
 /// registration or an agent host's, the word "register"; for a change to an existing host, its host id; for a build verb, its
-/// revision. --yes confirms any of them.</summary>
-public enum AdminConfirmation { None, Account, Publish, Register, Host, Build }
+/// revision. --yes confirms any of them.
+/// Stage 9's recovery verbs are confirmed by typing the attempt id (Attempt), the word "import" (catalogue import) or the anomaly
+/// id (Anomaly).</summary>
+public enum AdminConfirmation { None, Account, Publish, Register, Host, Build, Attempt, Import, Anomaly }
 
 /// <summary>The proposed values of <c>energy policy publish</c>, as typed (checked against 0006's CHECKs before any connection).</summary>
 public sealed record EnergyPolicyValues(int Cap, int OpeningBalance, int IntervalSeconds, int Amount, int VoidRefundPct);
@@ -31,7 +33,8 @@ public sealed record MissionTemplateValues(string TemplateId, int EnergyCost, in
 public sealed record AdminArguments(string Verb, string? Handle, string? DisplayName, long? Account, Guid? Credential, OperatorContext Operator, bool Confirmed,
     bool AccountWasAllDigits = false, int? Amount = null, Guid? IdempotencyKey = null, EnergyPolicyValues? Policy = null,
     string? PolicyId = null, string? TermsFile = null, int? DurationSeconds = null, MissionTemplateValues? Template = null, string? HostId = null, int? Capacity = null,
-    int? PortBase = null, string? Revision = null, string? CatalogueVersion = null, string? Templates = null)
+    int? PortBase = null, string? Revision = null, string? CatalogueVersion = null, string? Templates = null, Guid? Attempt = null, long? Submission = null,
+    string? File = null, string? Evidence = null, long? Anomaly = null, string? Note = null, IReadOnlySet<string>? Switches = null)
 {
     public const string AccountFlag = "--account-base58";
     public const string YesSwitch = "--yes";
@@ -51,7 +54,12 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         "host register-dev --host-id <id> --capacity <1-1000> | host heartbeat-dev --host-id <id> | " +
         "host register --host-id <id> --capacity <1-1000> --port-base <port> | host rotate-secret --host-id <id> | " +
         "host drain|enable|disable --host-id <id> | host capacity --host-id <id> --capacity <1-1000> | " +
-        "build allow --revision <r> --catalogue-version sha256:<hex> --templates <id>:<version>[,...] | build disable --revision <r> --catalogue-version sha256:<hex>; " +
+        "build allow --revision <r> --catalogue-version sha256:<hex> --templates <id>:<version>[,...] | build disable --revision <r> --catalogue-version sha256:<hex> | " +
+        "attempt show --attempt <uuid> [--submission <id> --raw] | attempt revalidate --attempt <uuid> --account-base58 <id> --submission <id> [--host-trust-reviewed] | " +
+        "attempt import-result --attempt <uuid> --account-base58 <id> --file <path> --evidence <text> [--host-trust-reviewed] | " +
+        "attempt void-participant --attempt <uuid> --account-base58 <id> --evidence <text> --outbox-checked [--revalidated] [--host-trust-reviewed --unrecoverable] | " +
+        "host declare-lost --host-id <id> --evidence <text> --outbox-unrecoverable | catalogue import --file <path> [--catalogue-version sha256:<hex>] | " +
+        "anomaly list [--open] | anomaly review --anomaly <id> --note <text>; " +
         "each with --operator <name> --reason <text>. " +
         "An account id is always Base58 (as printed, e.g. BukQL or 2), never decimal. Every command that changes an existing " +
         "account shows its target and acts only when confirmed: type the Base58 account id at the terminal, or add --yes. " +
@@ -93,7 +101,34 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         ["host-capacity"] = (["--host-id", "--capacity"], [], false, AdminConfirmation.Host),
         ["build-allow"] = (["--revision", "--catalogue-version", "--templates"], [], false, AdminConfirmation.Build),
         ["build-disable"] = (["--revision", "--catalogue-version"], [], false, AdminConfirmation.Build),
+        // Stage 9 recovery (S9-B9; revision 3): confirmed, audited, CLI-only.
+        ["attempt-show"] = (["--attempt"], ["--submission"], false, AdminConfirmation.None),
+        ["attempt-revalidate"] = (["--attempt", AccountFlag, "--submission"], [], false, AdminConfirmation.Attempt),
+        ["attempt-import-result"] = (["--attempt", AccountFlag, "--file", "--evidence"], [], false, AdminConfirmation.Attempt),
+        ["attempt-void-participant"] = (["--attempt", AccountFlag, "--evidence"], [], false, AdminConfirmation.Attempt),
+        ["host-declare-lost"] = (["--host-id", "--evidence"], [], false, AdminConfirmation.Host),
+        ["catalogue-import"] = (["--file"], ["--catalogue-version"], false, AdminConfirmation.Import),
+        ["anomaly-list"] = ([], [], false, AdminConfirmation.None),
+        ["anomaly-review"] = (["--anomaly", "--note"], [], false, AdminConfirmation.Anomaly),
     };
+
+    /// <summary>The attestation switches each Stage 9 verb accepts (each a flag without a value; --yes stays the confirmation).</summary>
+    static readonly Dictionary<string, string[]> VerbSwitches = new()
+    {
+        ["attempt-show"] = ["--raw"],
+        ["attempt-revalidate"] = ["--host-trust-reviewed"],
+        ["attempt-import-result"] = ["--host-trust-reviewed"],
+        ["attempt-void-participant"] = ["--outbox-checked", "--revalidated", "--host-trust-reviewed", "--unrecoverable"],
+        ["host-declare-lost"] = ["--outbox-unrecoverable"],
+        ["anomaly-list"] = ["--open"],
+    };
+
+    /// <summary>Whether this run gave <paramref name="name"/> (a Stage 9 attestation switch).</summary>
+    public bool Has(string name) => Switches?.Contains(name) == true;
+
+    /// <summary>The Stage 9 recovery verbs (RecoveryCommand runs them).</summary>
+    public bool IsRecoveryVerb => Verb.StartsWith("attempt-", StringComparison.Ordinal) || Verb.StartsWith("anomaly-", StringComparison.Ordinal)
+        || Verb is "host-declare-lost" or "catalogue-import";
 
     /// <summary>Every verb ("noun-verb") the CLI knows.</summary>
     public static IReadOnlyCollection<string> KnownVerbs => Verbs.Keys;
@@ -123,7 +158,7 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
     public static bool IsDevHostFixtureVerb(string verb) => verb is "host-register-dev" or "host-heartbeat-dev";
 
     /// <summary>The agent host verbs (Stage 8, owner ruling B3): registration, secret rotation, the switches and capacity.</summary>
-    public bool IsHostVerb => Verb is "host-register" or "host-rotate-secret" or "host-drain" or "host-enable" or "host-disable" or "host-capacity";
+    public bool IsHostVerb => Verb is "host-register" or "host-rotate-secret" or "host-drain" or "host-enable" or "host-disable" or "host-capacity" or "host-declare-lost";
 
     /// <summary>The build allowlist verbs (owner ruling B4).</summary>
     public bool IsBuildVerb => Verb.StartsWith("build-", StringComparison.Ordinal);
@@ -144,12 +179,20 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
         var allowed = shape.Required.Concat(shape.Optional).Append("--operator").Append("--reason").ToHashSet(StringComparer.Ordinal);
         var flags = new Dictionary<string, string>(StringComparer.Ordinal);
         var confirmed = false;
+        var switchesAllowed = VerbSwitches.GetValueOrDefault(verb, []);
+        var switches = new HashSet<string>(StringComparer.Ordinal);
         for (var i = words; i < args.Count; i += 2)
         {
             if (args[i] == YesSwitch && shape.Confirm != AdminConfirmation.None && !confirmed)
             {
                 confirmed = true;
                 i--; // a switch takes no value
+                continue;
+            }
+            if (Array.IndexOf(switchesAllowed, args[i]) >= 0)
+            {
+                if (!switches.Add(args[i])) throw new AdminUsageException(Usage);
+                i--;
                 continue;
             }
             if (!allowed.Contains(args[i]) || i + 1 >= args.Count || args[i + 1].StartsWith("--", StringComparison.Ordinal) || !flags.TryAdd(args[i], args[i + 1]))
@@ -181,11 +224,21 @@ public sealed record AdminArguments(string Verb, string? Handle, string? Display
             : null;
         int? capacity = verb is "host-register-dev" or "host-register" or "host-capacity" ? Integer(flags, "--capacity") : null;
         int? portBase = verb == "host-register" ? Integer(flags, "--port-base") : null;
+        Guid? attempt = null;
+        if (flags.TryGetValue("--attempt", out var attemptText))
+            attempt = Blackglass.Accounts.Domain.Attempts.CanonicalUuid.TryParse(attemptText, out var at) ? at : throw new AdminUsageException("--attempt must be a canonical lower-case UUID.");
+        long? submission = flags.TryGetValue("--submission", out var submissionText) ? Long(submissionText, "--submission") : null;
+        long? anomaly = flags.TryGetValue("--anomaly", out var anomalyText) ? Long(anomalyText, "--anomaly") : null;
+        if (switches.Contains("--raw") && submission is null) throw new AdminUsageException("--raw needs --submission <id>.");
         return new AdminArguments(verb, flags.GetValueOrDefault("--handle"), flags.GetValueOrDefault("--display-name"), account, credential, op, confirmed,
             accountText is not null && accountText.All(char.IsAsciiDigit), amount, idempotencyKey, policy,
             flags.GetValueOrDefault("--policy-id"), flags.GetValueOrDefault("--terms-file"), durationSeconds, template, flags.GetValueOrDefault("--host-id"), capacity,
-            portBase, flags.GetValueOrDefault("--revision"), flags.GetValueOrDefault("--catalogue-version"), flags.GetValueOrDefault("--templates"));
+            portBase, flags.GetValueOrDefault("--revision"), flags.GetValueOrDefault("--catalogue-version"), flags.GetValueOrDefault("--templates"),
+            attempt, submission, flags.GetValueOrDefault("--file"), flags.GetValueOrDefault("--evidence"), anomaly, flags.GetValueOrDefault("--note"), switches);
     }
+
+    static long Long(string text, string flag) =>
+        long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : throw new AdminUsageException($"{flag} must be a positive whole number.");
 
     static int Integer(Dictionary<string, string> flags, string flag) =>
         int.TryParse(flags[flag], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var n)

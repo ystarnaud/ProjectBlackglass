@@ -92,6 +92,10 @@ public static class SettlementPlanner
 
         if (success)
         {
+            // Unit numbers run 0..quantity-1 per pool line across the participant's operatives, in slot order (S9-B11.2), so two
+            // operatives holding units of one line never mint the same origin_ref; each operative's first unit is its equipment ref.
+            var nextUnit = new Dictionary<(int, int), int>();
+            var firstUnit = new Dictionary<(long, int, int), int>();
             foreach (var o in operatives)
             {
                 var stackUnits = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -106,7 +110,10 @@ public static class SettlementPlanner
                         continue;
                     }
                     var entry = unitRefs.TryGetValue(line.DefinitionId, out var seen) ? seen : (0, new List<string>());
-                    for (var k = 0; k < lot.Quantity; k++)
+                    var k0 = nextUnit.GetValueOrDefault((lot.ContainerIndex, lot.Line));
+                    firstUnit[(o.OperativeId, lot.ContainerIndex, lot.Line)] = k0;
+                    nextUnit[(lot.ContainerIndex, lot.Line)] = checked(k0 + lot.Quantity);
+                    for (var k = k0; k < k0 + lot.Quantity; k++)
                     {
                         var originRef = Ref("settlement", attempt, account, lot.ContainerIndex, lot.Line, k);
                         mint.Add(new MintUnit(o.OperativeId, line.DefinitionId, "settlement", originRef));
@@ -120,7 +127,8 @@ public static class SettlementPlanner
                     granted.Add(new GrantLine(o.OperativeId, definition, quantity, []));
                 }
                 foreach (var (definition, (quantity, refs)) in unitRefs) granted.Add(new GrantLine(o.OperativeId, definition, quantity, refs));
-                equipment.Add(new OperativeEquipment(o.OperativeId, Target(o, "weapon", attempt, account), Target(o, "armor", attempt, account), Target(o, "utility", attempt, account)));
+                equipment.Add(new OperativeEquipment(o.OperativeId, Target(o, "weapon", attempt, account, firstUnit), Target(o, "armor", attempt, account, firstUnit),
+                    Target(o, "utility", attempt, account, firstUnit)));
             }
             granted = [.. granted.OrderBy(g => g.OperativeId).ThenBy(g => g.DefinitionId, StringComparer.Ordinal)];
             var completion = catalogue.Document.Progression.MissionCompletionXp;
@@ -183,11 +191,13 @@ public static class SettlementPlanner
 
     static EquipTarget Existing(long? id) => id is { } x ? EquipTarget.Existing(x) : EquipTarget.Empty;
 
-    static EquipTarget Target(ManifestOperative o, string slot, string attempt, string account)
+    static EquipTarget Target(ManifestOperative o, string slot, string attempt, string account, IReadOnlyDictionary<(long, int, int), int> firstUnit)
     {
         var e = o.Equipment.FirstOrDefault(x => x.Slot == slot);
         if (e is null) return EquipTarget.Empty;
-        return e.ItemId is { } id ? EquipTarget.Existing(id) : EquipTarget.Minted(Ref("settlement", attempt, account, e.ContainerIndex!.Value, e.Line!.Value, 0));
+        if (e.ItemId is { } id) return EquipTarget.Existing(id);
+        var (ci, line) = (e.ContainerIndex!.Value, e.Line!.Value);
+        return EquipTarget.Minted(Ref("settlement", attempt, account, ci, line, firstUnit[(o.OperativeId, ci, line)]));
     }
 
     /// <summary>A minted unit's origin_ref (S9-B11.2).</summary>

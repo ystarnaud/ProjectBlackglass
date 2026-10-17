@@ -135,7 +135,11 @@ public static class ManifestValidator
             {
                 if (pool.TryGetValue((h.ContainerIndex, h.Line), out var line) && catalogue.FindItem(line.DefinitionId) is { } item) contents.Add((item, h.Quantity));
             }
-            if (InventoryRules.BagEntries(contents) > catalogue.Document.Inventory.BagCapacity) errors.Add("V11.capacity");
+            // A bag already over capacity at admission (a smaller capacity since, S5-D7) may stay over but never grow (ruling on
+            // Checkpoint 1 I4, owner's B20 correction): the bound is the larger of the capacity and the snapshot bag's own entries.
+            var admitted = InventoryRules.BagEntries(snap.Instances.Select(i => catalogue.FindItem(i.DefinitionId)).OfType<CatalogueItem>().Select(i => (i, 1))
+                .Concat(snap.Stacks.Select(st => (catalogue.FindItem(st.DefinitionId), st.Quantity)).Where(x => x.Item1 is not null).Select(x => (x.Item1!, x.Quantity))));
+            if (InventoryRules.BagEntries(contents) > Math.Max(catalogue.Document.Inventory.BagCapacity, admitted)) errors.Add("V11.capacity");
 
             // V12: each equipped reference is a held item of this operative, of the slot's kind, used once.
             var refs = new HashSet<(long?, int?, int?)>();

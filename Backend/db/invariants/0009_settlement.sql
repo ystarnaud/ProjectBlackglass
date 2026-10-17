@@ -6,7 +6,8 @@
 --   hold_refund               a hold whose 'void_refund' entries are not at most one, positive and at most its amount, and
 --                             only when it is refunded with a positive amount;
 --   settled_hold_state        a settlement whose hold is not settled (a result) or refunded (a void);
---   submission_not_settled    a result settlement whose submission is not its participant's with disposition 'settled';
+--   submission_not_settled    a result settlement whose submission is not its participant's with disposition 'settled', or
+--                             one an operator's revalidate action settled;
 --   revoked_settlement        a result settlement of an attempt revoked before it, without a revalidate action covering it;
 --   evidence_void             an exit_evidence void without a qualifying agent report: exit status, not revoked, and the
 --                             participant listed absent by a complete scan (the report itself, or its outbox observation);
@@ -58,6 +59,8 @@ from participant_settlements s
 where s.outcome <> 'infra_void'
   and not exists (select 1 from result_submissions r where r.submission_id = s.submission_id and r.attempt_id = s.attempt_id
                   and r.account_id = s.account_id and r.disposition = 'settled')
+  and not exists (select 1 from operator_actions o where o.action = 'revalidate' and o.attempt_id = s.attempt_id and o.account_id = s.account_id
+                  and o.result ->> 'result' = 'settled' and (o.result ->> 'submissionId')::bigint = s.submission_id)
 union all
 select 'revoked_settlement', s.attempt_id::text || '/' || s.account_id::text
 from participant_settlements s join mission_attempts a using (attempt_id)

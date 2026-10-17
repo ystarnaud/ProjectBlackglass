@@ -212,3 +212,39 @@ public class SnapshotParseTests
         Assert.Equal(snapshot.Operatives.Select(o => o.Equipment), read.Operatives.Select(o => o.Equipment));
     }
 }
+
+/// <summary>Checkpoint 1 I1: two operatives holding units of one non-stackable line mint distinct refs (k runs per line, in slot
+/// order), and each one's equipment points at its own unit.</summary>
+public class SharedLineMintTests
+{
+    [Fact]
+    public void Two_collectors_of_one_line_mint_distinct_units_and_equip_their_own()
+    {
+        var f = SettlementFixtures.Snapshot();
+        var pool = new List<Blackglass.Accounts.Domain.Attempts.PoolLine> { new(0, 0, "item.light-vest", 2) };
+        var c = SettlementFixtures.Context() with
+        {
+            Pool = pool,
+            Snapshot = f with { Operatives = [f.Operatives[0] with { Instances = [new(101, "item.service-rifle")], Equipment = new(101, null, null) }, f.Operatives[1]] },
+            Attempt = SettlementFixtures.Facts() with { LootHash = Blackglass.Accounts.Domain.Attempts.LootHash.Compute(SettlementFixtures.Embedded.Document.LootTable.Version, pool) },
+        };
+        var m0 = SettlementFixtures.Manifest();
+        var m = m0 with
+        {
+            LootHash = c.Attempt.LootHash,
+            Operatives =
+            [
+                m0.Operatives[0] with { ConsumedLoot = [], HeldItems = [101], HeldStacks = [new("item.medkit", 2)], Collected = [new(0, 0, 1)], HeldLoot = [new(0, 0, 1)],
+                    Equipment = [EquipmentRef.Loot("armor", 0, 0), EquipmentRef.Item("weapon", 101)] },
+                m0.Operatives[1] with { Collected = [new(0, 0, 1)], HeldLoot = [new(0, 0, 1)], Equipment = [EquipmentRef.Loot("armor", 0, 0), EquipmentRef.Item("weapon", 103)] },
+            ],
+        };
+        Assert.Empty(ManifestValidator.Validate(m, ((ParseResult.Parsed)ResultManifest.Parse(m.ToCanonicalBytes())).ManifestHash, c));
+        var plan = SettlementPlanner.Plan(m, c, null, SettlementFixtures.Salt);
+        var refs = plan.Mint.Select(u => (u.OperativeId, u.OriginRef)).ToList();
+        var acc = Blackglass.Accounts.Domain.Ids.Base58Id.Format(SettlementFixtures.Account);
+        Assert.Equal([(11L, $"settlement:{SettlementFixtures.Attempt}:{acc}:c0:l0:u0"), (12L, $"settlement:{SettlementFixtures.Attempt}:{acc}:c0:l0:u1")], refs.Select(x => ((long)x.OperativeId!, x.OriginRef)));
+        Assert.Equal(EquipTarget.Minted(refs[0].OriginRef), plan.Equipment[0].Armor);
+        Assert.Equal(EquipTarget.Minted(refs[1].OriginRef), plan.Equipment[1].Armor);
+    }
+}

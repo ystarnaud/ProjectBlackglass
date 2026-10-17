@@ -220,6 +220,19 @@ public class ResultResponseTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_receipt_route_needs_an_account_session()
+    {
+        var r = await ManifestKit.StartAsync(kit, db);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await api.Http.GetAsync($"/v1/attempts/{r.Attempt}/receipt")).StatusCode);
+        using var asHost = new HttpRequestMessage(HttpMethod.Get, $"/v1/attempts/{r.Attempt}/receipt");
+        asHost.Headers.Authorization = new AuthenticationHeaderValue("Bearer", hostSecret);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await api.Http.SendAsync(asHost)).StatusCode);
+        using var asProcess = new HttpRequestMessage(HttpMethod.Get, $"/v1/attempts/{r.Attempt}/receipt");
+        asProcess.Headers.Authorization = new AuthenticationHeaderValue("Bearer", r.Mission.Credential.Text);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await api.Http.SendAsync(asProcess)).StatusCode);
+    }
+
+    [Fact]
     public async Task A_quarantined_or_revoked_participant_reads_under_review_and_a_released_one_has_no_receipt()
     {
         var q = await ManifestKit.StartAsync(kit, db);

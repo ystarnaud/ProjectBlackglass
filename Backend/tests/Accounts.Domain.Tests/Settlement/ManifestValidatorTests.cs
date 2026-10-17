@@ -134,6 +134,20 @@ public class ManifestValidatorTests
     }
 
     [Fact]
+    public void V11_lets_a_bag_admitted_over_capacity_stay_over_but_never_grow()
+    {
+        // Admitted holding 9 entries (2 items + 7 blades) under an 8-entry bag: an honest result with nothing collected passes.
+        var crowded = Snapshot() with
+        {
+            Operatives = [Snapshot().Operatives[0] with { Instances = [.. Snapshot().Operatives[0].Instances, .. Enumerable.Range(200, 7).Select(i => new Blackglass.Accounts.Domain.Attempts.SnapshotInstance(i, "item.combat-blade"))] }, Snapshot().Operatives[1]],
+        };
+        var stayed = WithFirst(o => o with { HeldItems = [101, 102, .. Enumerable.Range(200, 7).Select(i => (long)i)], Collected = [], ConsumedLoot = [], HeldLoot = [] });
+        Assert.Empty(Validate(stayed, Context(snapshot: crowded)));
+        var grew = WithFirst(o => o with { HeldItems = [101, 102, .. Enumerable.Range(200, 7).Select(i => (long)i)], Collected = [new LineCount(0, 1, 1)], ConsumedLoot = [], HeldLoot = [new LootLot(0, 1, 1)] });
+        Assert.Equal(["V11.capacity"], Validate(grew, Context(snapshot: crowded)));
+    }
+
+    [Fact]
     public void V12_equipment_references_a_held_item_of_the_right_slot_once()
     {
         Assert.Contains("V12.slot", Validate(WithFirst(o => o with { Equipment = [EquipmentRef.Item("armor", 101), EquipmentRef.Item("weapon", 102)] })));

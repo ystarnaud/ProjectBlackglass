@@ -98,7 +98,7 @@ public static class AttemptEndpoints
                 Persistence.Settlement.ReceiptView.NoReceipt => Problem(StatusCodes.Status409Conflict, "NoReceipt"),
                 _ => NotFound(),
             };
-        });
+        }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
 
         app.MapPost("/v1/attempts/{attemptId}/cancel", async (string attemptId, HttpContext http, AttemptStore attempts) =>
         {

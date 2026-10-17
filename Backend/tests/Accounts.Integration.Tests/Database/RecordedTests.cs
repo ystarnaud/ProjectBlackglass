@@ -105,6 +105,15 @@ public class RecordedTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_refused_stale_session_body_is_not_evidence_against_a_later_recorded_hash()
+    {
+        // Checkpoint 1 M4: a body refused as WrongAttempt (another session) never makes the genuine notification look contradicting.
+        var r = await ManifestKit.StartAsync(kit, db);
+        Assert.Equal(new ResultOutcome.Refused("WrongAttempt"), await Relay(ManifestKit.Manifest(r, "defeat") with { ProcessSessionId = Guid.CreateVersion7() }));
+        Assert.Equal(new RecordedOutcome.Accepted("result_pending"), await Recorded(r, HashOf(ManifestKit.Manifest(r))));
+    }
+
+    [Fact]
     public async Task A_revoked_or_superseded_credential_is_unauthenticated()
     {
         var r = await ManifestKit.StartAsync(kit, db);

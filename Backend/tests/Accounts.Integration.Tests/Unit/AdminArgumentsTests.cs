@@ -94,7 +94,10 @@ public class AdminArgumentsTests
         Assert.Equal(new SortedSet<string>(["account-create", "account-reactivate", "account-suspend", "build-allow", "build-disable", "credential-revoke", "credential-rotate",
                 "energy-grant", "energy-open", "energy-policy-publish", "energy-reconcile", "host-capacity", "host-disable", "host-drain", "host-enable",
                 "host-heartbeat-dev", "host-register", "host-register-dev", "host-rotate-secret", "insurance-activate", "insurance-policy-publish",
-                "mission-template-publish", "sessions-revoke", "starter-backfill"]),
+                "mission-template-publish", "sessions-revoke", "starter-backfill",
+                // Stage 9 recovery verbs (S9-B9): none loads the catalogue (catalogue import reads its own file).
+                "anomaly-list", "anomaly-review", "attempt-import-result", "attempt-revalidate", "attempt-show", "attempt-void-participant", "catalogue-import",
+                "host-declare-lost"]),
             new SortedSet<string>(AdminArguments.KnownVerbs));
 
     [Fact]

@@ -450,6 +450,25 @@ The accounts PostgreSQL runs with `log_error_verbosity=terse` (B2). This takes e
 
 **Slots (B6).** A slot and its port stay occupied until an exit report or a complete inventory confirms that the process is gone. A database trigger refuses any other release of a live slot. A host whose lease lapses gets no claims and keeps its occupied ports.
 
+## Settlement, quarantine and recovery (Stage 9)
+
+Plan: `Docs/superpowers/plans/2026-10-17-phase-13-stage9-settlement.md` (revision 3). Migration `0009_settlement`, schema version 9.
+
+- **Results:** the agent relays one format-v1 manifest per participant to `POST /agent/v1/results` (host secret). Answers: 200 `settled` or `duplicate`; 202 `quarantined` (with V-rule codes) or `held`; 409 with a code (`Conflict`, `AlreadySettledAsVoid`, `AttemptRevoked`, `WrongAttempt`, `InvalidState`, `SubmissionLimit`); 422 for a body that is not a manifest; 401 and 503 commit nothing. The format and its golden vectors are in `contracts/manifest-v1/` (regenerate with `python3 tools/manifest_vectors.py`; a change is a format change).
+- **Receipts:** players poll `GET /v1/attempts/{id}/receipt` (bearer); 202 `{state}` until settled.
+- **Recorded hash:** the process sends `POST /server/v1/attempts/{aid}/participants/{acc}/recorded {manifestHash}` (supporting evidence only).
+- **Settings (provisional):** `BLACKGLASS_RESULT_SUBMISSIONS_MAX` (16), `BLACKGLASS_RESULT_UNIDENTIFIED_MAX` (64 per host per 24 h), `BLACKGLASS_QUARANTINE_ESCALATION_HOURS` (24), `BLACKGLASS_MANIFEST_MAX_ELAPSED_MS` (7,500,000), `BLACKGLASS_MANIFEST_ELAPSED_TOLERANCE_MS` (60,000), and the monitoring values below.
+- **Catalogue history:** `serve` registers its catalogue at startup and exits 5 when it would change an item id's identity kind; retiring a definition is allowed. Every attempt is settled under the catalogue it was admitted with.
+
+**Operator runbook** (`docker compose run --rm admin …`, each with `--operator` and `--reason`; changes are confirmed by typing the attempt id, host id, anomaly id or `import`, or by `--yes`, and audited in `operator_actions`):
+- **Inspect:** `attempt show --attempt <uuid> [--submission <id> --raw]` lists states, submissions (pre- or post-revocation, matching the recorded hash or not), exit evidence, settlements and actions. `anomaly list [--open]`, then `anomaly review --anomaly <id> --note <text>` once handled.
+- **A quarantined participant** (never cleared automatically): fix the cause, then `attempt revalidate --attempt <uuid> --account-base58 <id> --submission <id>`. If no stored submission can be accepted, check the host's outbox and relay state, then `attempt void-participant … --evidence <findings> --outbox-checked --revalidated` (a failed revalidation must be recorded after the latest submission).
+- **A disabled host's (revoked) attempt:** retrieve the outbox file and `attempt import-result … --file <path> --evidence <text> --host-trust-reviewed`, then `attempt revalidate … --host-trust-reviewed`. If the result is verified unrecoverable: `attempt void-participant … --evidence <findings> --outbox-checked --host-trust-reviewed --unrecoverable [--revalidated]`. The host can then be rotated and re-enabled; it need not be declared lost.
+- **Evidence beyond the submission cap:** `attempt import-result` (never counted against the cap).
+- **A missing admission catalogue** (`held`): `catalogue import --file <catalogue.json> [--catalogue-version sha256:<hex>]`, then `attempt revalidate`.
+- **Confirmed permanent host or outbox loss:** `host disable`, wait 10 minutes without heartbeats, then `host declare-lost --host-id <id> --evidence <text> --outbox-unrecoverable`. It is permanent (a recovered machine registers under a new host id) and voids that host's started, unsettled, unquarantined participants; a re-run resumes.
+- Exit codes: 64 a missing attestation or confirmation, 65 not found, 66 not allowed, 75 busy.
+
 ## Restore limits
 Database-level privileges (`CONNECT`, `TEMPORARY`) are not inside a `pg_dump`. A real restore into a new cluster re-runs `initdb/00-roles.sh` first. Stage 17 and Phase 14 write the full recovery runbook.
 

@@ -323,7 +323,14 @@ public sealed class SettlementStore
         if (hold.State != "charged") throw new InvalidOperationException("A started participant's hold is not charged.");
 
         var submission = await InsertSubmissionAsync(conn, tx, source, hostId, link, link.Attempt, link.Account, revoked, body, rawHash, parsed, "settled", null, [], ct);
-        await ApplySettlementAsync(conn, tx, link, attempt, participant, context, m, parsed.ManifestHash, submission, hold.Amount, ct);
+        try { await ApplySettlementAsync(conn, tx, link, attempt, participant, context, m, parsed.ManifestHash, submission, hold.Amount, ct); }
+        catch (Exception e) when (e is InvalidOperationException or Blackglass.Accounts.Domain.Energy.EnergyLimitException
+                                  || e is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.CheckViolation or PostgresErrorCodes.NumericValueOutOfRange })
+        {
+            // Checkpoint 1 M1: a validated plan that can't be written (a repeated origin_ref, a stock guard, an overflow) is never a
+            // 500 the agent retries forever: everything rolls back and the participant is quarantined (settlement_check_failed).
+            throw new SettlementCheckFailedException(e.GetType().Name);
+        }
         if (participant.RecordedHash is null)
             await Anomalies.RaiseAsync(conn, tx, Anomalies.ResultWithoutRecordedHash, $"{link.Attempt}:{link.Account}", new { submissionId = submission, hostId }, ct,
                 accountId: link.Account, hostId: hostId, attemptId: link.Attempt);
@@ -592,12 +599,10 @@ public sealed class SettlementStore
                 "select exists (select 1 from attempt_participants where attempt_id = @attemptId and account_id = @accountId)", new { attemptId, accountId }, tx, cancellationToken: ct)))
             return new RecordedOutcome.NotFound();
         await LockAccountAsync(conn, tx, accountId, ct);
-        var current = await conn.ExecuteScalarAsync<bool>(new CommandDefinition(
-            """
-            select exists (select 1 from mission_attempts where attempt_id = @attemptId and process_credential_hash = @credentialHash
-                           and credential_revoked_at is null and state <> 'cancelled')
-            """, new { attemptId, credentialHash }, tx, cancellationToken: ct));
         var attempt = await LockAttemptAsync(conn, tx, attemptId, ct);
+        var current = await conn.ExecuteScalarAsync<bool>(new CommandDefinition( // compared under the attempt lock (Checkpoint 1 M3)
+            "select exists (select 1 from mission_attempts where attempt_id = @attemptId and process_credential_hash = @credentialHash)",
+            new { attemptId, credentialHash }, tx, cancellationToken: ct));
         if (!current || attempt.Revoked || attempt.State == "cancelled") return new RecordedOutcome.Unauthenticated();
         var link = new Link(attemptId, accountId);
         var participant = await LockParticipantAsync(conn, tx, attemptId, accountId, ct);
@@ -606,7 +611,7 @@ public sealed class SettlementStore
         var settled = await conn.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
             "select coalesce(manifest_hash, 'void') from participant_settlements where attempt_id = @Attempt and account_id = @Account", link, tx, cancellationToken: ct));
         var stored = (await conn.QueryAsync<string>(new CommandDefinition(
-            "select distinct manifest_hash from result_submissions where attempt_id = @Attempt and account_id = @Account and manifest_hash is not null",
+            "select distinct manifest_hash from result_submissions where attempt_id = @Attempt and account_id = @Account and manifest_hash is not null and disposition <> 'refused'",
             link, tx, cancellationToken: ct))).ToList();
         var contradicts = (settled is not null && settled != manifestHash)
             || (participant.RecordedHash is { } recorded && recorded != manifestHash)

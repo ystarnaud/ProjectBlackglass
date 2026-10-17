@@ -141,6 +141,13 @@ public static class AdminCommand
         var templates = a.IsMissionTemplateVerb ? new MissionTemplates(dataSource) : null;
         var devHosts = a.IsDevHostVerb ? new DevHosts(dataSource) : null;
         var hostAdmin = a.IsHostVerb || a.IsBuildVerb ? new HostAdminStore(dataSource) : null;
+        // Stage 9's recovery verbs read their files (an imported result, a catalogue) before any connection.
+        byte[]? recoveryFile = null;
+        if (a.IsRecoveryVerb && a.File is { } file)
+        {
+            try { recoveryFile = RecoveryCommand.ReadFile(file); }
+            catch (AdminUsageException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
+        }
         try
         {
             // The same schema policy as serve (Stage 1 ruling 4): behind, drifted or ahead, the CLI writes nothing.
@@ -160,9 +167,18 @@ public static class AdminCommand
                 AdminConfirmation.Host => await ConfirmHostAsync(a, hostAdmin!, output, error, input, ct),
                 AdminConfirmation.Build => await ConfirmBuildAsync(a, build!, buildTemplates, hostAdmin!, output, error, input, ct),
                 AdminConfirmation.Publish => await ConfirmPublishAsync(a, energy!, output, error, input, ct),
+                AdminConfirmation.Attempt => await ConfirmWordAsync(a, a.Attempt!.Value.ToString("D"), $"{a.Verb.Replace('-', ' ')} for attempt {a.Attempt}", error, input, ct),
+                AdminConfirmation.Import => await ConfirmWordAsync(a, "import", "import this catalogue into the history", error, input, ct),
+                AdminConfirmation.Anomaly => await ConfirmWordAsync(a, a.Anomaly!.Value.ToString(CultureInfo.InvariantCulture), $"review anomaly {a.Anomaly}", error, input, ct),
                 _ => null,
             };
             if (refused is { } code) return code;
+            if (a.IsRecoveryVerb)
+            {
+                var result = await RecoveryCommand.RunAsync(a, dataSource, env, recoveryFile, output, error, ct);
+                if (result == ExitCodes.Ok) output.WriteLine($"correlationId={a.Operator.CorrelationId}");
+                return result;
+            }
             switch (a.Verb)
             {
                 case "account-create" or "credential-rotate":

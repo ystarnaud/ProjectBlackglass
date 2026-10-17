@@ -33,11 +33,12 @@ alter table mission_attempts add constraint mission_attempts_catalogue_version_f
 -- result_submission_payloads, so no constraint violation's DETAIL on this row ever prints a manifest. attempt_id and account_id
 -- link the row to its participant only when the body names a participant of an attempt of the submitting host (or the
 -- operator imported it); claimed_* keep what an unlinked body claimed. A byte-identical repeat only raises receive_count
--- (the trigger stamps last_received_at). disposition is the answer the row received.
+-- (the trigger stamps last_received_at). disposition is the answer the row received. host_id has no foreign key: its key-share
+-- lock on mission_hosts, taken after the attempt lock, would invert the disable's host-then-attempt order (§E, R7).
 create table result_submissions (
   submission_id bigint generated always as identity primary key,
   source text not null check (source in ('agent', 'operator_import')),
-  host_id text references mission_hosts,
+  host_id text check (host_id is null or (length(host_id) <= 64 and host_id ~ '^[a-z0-9]+([.-][a-z0-9]+)*$')),
   process_session_id uuid,
   attempt_id uuid,
   account_id bigint,

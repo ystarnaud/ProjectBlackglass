@@ -329,6 +329,18 @@ public class SettlementTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_plan_that_cannot_be_written_quarantines_instead_of_failing_forever()
+    {
+        // Checkpoint 1 M1: a repeated origin_ref (a unique violation while applying a validated plan) rolls back and quarantines.
+        var r = await ManifestKit.StartAsync(kit, db, pool: [new(0, 0, "item.combat-blade", 1), new(1, 0, "item.light-vest", 1)]);
+        store.PlanFilterForTests = p => p with { Mint = [.. p.Mint, p.Mint[0]] };
+        var q = Assert.IsType<ResultOutcome.Quarantined>(await Submit(ManifestKit.Body(ManifestKit.Manifest(r))));
+        Assert.Equal(["settlement_check_failed"], q.Codes);
+        Assert.Equal(0L, await Scalar<long>("select count(*) from item_instances where origin = 'settlement'"));
+        Assert.Equal("quarantined", (await StateAsync(r)).Participant);
+    }
+
+    [Fact]
     public async Task The_seventeenth_distinct_body_hits_the_cap_but_an_identical_retry_still_answers()
     {
         var r = await ManifestKit.StartAsync(kit, db);
