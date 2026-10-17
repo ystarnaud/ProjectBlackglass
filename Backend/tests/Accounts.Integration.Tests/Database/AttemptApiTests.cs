@@ -396,8 +396,8 @@ public class AttemptApiTests : IAsyncLifetime
         await ExecuteAsSuperuserAsync(db, "drop trigger bg_test_fail on deploy_requests; drop function bg_test_fail();");
 
         // Stored with the attempt.
-        Assert.Equal(secrets.Seed, await ScalarAsync<int>("select seed from mission_attempts"));
-        Assert.Equal(secrets.Salt, await ScalarAsync<byte[]>("select retention_salt from mission_attempts"));
+        Assert.Equal(secrets.Seed, await ScalarAsync<int>("select seed from attempt_secrets"));
+        Assert.Equal(secrets.Salt, await ScalarAsync<byte[]>("select retention_salt from attempt_secrets"));
         // Absent from every body (no member named or valued like them) and from every log line, in every spelling.
         Assert.Contains("attemptId", bodies[0]);
         foreach (var body in bodies)
@@ -519,7 +519,7 @@ public class AttemptApiTests : IAsyncLifetime
 
         // After start (assigned here by SQL), a cancel is 409 InvalidState with nothing written.
         var started = await DeployedAsync(api, p);
-        await ExecuteAsSuperuserAsync(db, "update mission_attempts set state = 'assigned' where attempt_id = @a::uuid", new { a = started });
+        await AttemptFixtures.MoveAsync(db, Guid.Parse(started), "assigned");
         var before = await StateAsync();
         AssertProblem(await SendAsync(api, Cancel(p.Token, started)), HttpStatusCode.Conflict, "InvalidState");
         Assert.Equal(before, await StateAsync());
@@ -573,7 +573,7 @@ public class AttemptApiTests : IAsyncLifetime
             (await SendAsync(api, GetAttempt(p.Token, id))).Body,
         };
 
-        Assert.Equal(secrets.Seed, await ScalarAsync<int>("select seed from mission_attempts"));
+        Assert.Equal(secrets.Seed, await ScalarAsync<int>("select seed from attempt_secrets"));
         Assert.Contains("attemptId", bodies[0]);
         foreach (var body in bodies)
         {

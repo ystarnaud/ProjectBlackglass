@@ -203,8 +203,8 @@ public sealed class AttemptStore(NpgsqlDataSource db)
             "update mission_attempts set state = 'cancelled', cancel_reason = @reason, ended_at = clock_timestamp() where attempt_id = @attemptId and state = 'admitted'",
             new { attemptId, reason });
         await ExactlyOneAsync(conn, tx, ct,
-            "update attempt_participants set state = 'released' where attempt_id = @attemptId and account_id = @accountId and state = 'admitted'",
-            new { attemptId, accountId });
+            "update attempt_participants set state = 'released', release_reason = @reason where attempt_id = @attemptId and account_id = @accountId and state = 'admitted'",
+            new { attemptId, accountId, reason });
         await ExactlyOneAsync(conn, tx, ct,
             "update energy_holds set state = 'released' where attempt_id = @attemptId and account_id = @accountId and state = 'reserved'",
             new { attemptId, accountId });

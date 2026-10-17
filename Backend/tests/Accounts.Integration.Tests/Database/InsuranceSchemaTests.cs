@@ -281,8 +281,9 @@ public class InsuranceSchemaTests : IAsyncLifetime
         await using var conn = await db.AsApp().OpenConnectionAsync();
         await using var tx = await conn.BeginTransactionAsync();
         await conn.ExecuteAsync("""
-            insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline)
-            values (@attempt, @account, 'procedural-standard', 1, 7, decode(repeat('ab', 32), 'hex'), clock_timestamp() + interval '60 seconds')
+            insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
+            values (@attempt, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 7, decode(repeat('ab', 32), 'hex'))
             """, new { attempt, account }, tx);
         await conn.ExecuteAsync("""
             insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost)
@@ -334,8 +335,9 @@ public class InsuranceSchemaTests : IAsyncLifetime
         await using var conn = await db.AsApp().OpenConnectionAsync();
         await using var tx = await conn.BeginTransactionAsync();
         await conn.ExecuteAsync("""
-            insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline)
-            values (@attempt, @account, 'procedural-standard', 1, 7, decode(repeat('ab', 32), 'hex'), clock_timestamp() + interval '60 seconds')
+            insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
+            values (@attempt, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 7, decode(repeat('ab', 32), 'hex'))
             """, new { attempt, account }, tx);
         await conn.ExecuteAsync("""
             insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost)

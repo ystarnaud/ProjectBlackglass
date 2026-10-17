@@ -250,7 +250,7 @@ public class AttemptStoreTests : IAsyncLifetime
         Assert.Equal(before, await StateAsync());
 
         // After start (any state but admitted) a cancel is InvalidState and never cancels: the attempt is assigned here by SQL.
-        await ExecuteAsSuperuserAsync(db, "update mission_attempts set state = 'assigned' where attempt_id = @mine", new { mine });
+        await AttemptFixtures.MoveAsync(db, mine, "assigned");
         before = await StateAsync();
         Assert.Equal(AttemptError.InvalidState, (await RefusedAsync(attempts.CancelAsync(account, mine))).Error);
         Assert.Equal(before, await StateAsync());
@@ -311,7 +311,7 @@ public class AttemptStoreTests : IAsyncLifetime
         var request = new DeployRequest(Template, [operatives[0]]);
         var admitted = await admissions.AdmitAsync(account, key, request);
         var attempt = AttemptOf(admitted);
-        const string AttemptFixed = "select row(attempt_id, created_by, template_id, template_version, seed, retention_salt, created_at, assign_deadline)::text from mission_attempts where attempt_id = @attempt";
+        const string AttemptFixed = "select row(attempt_id, created_by, template_id, template_version, catalogue_version, created_at, assign_deadline)::text from mission_attempts where attempt_id = @attempt";
         const string ParticipantFixed = "select row(attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost)::text from attempt_participants where attempt_id = @attempt";
         const string Insurance = "select xmin::text || ' ' || row_to_json(i)::text from attempt_insurance i where attempt_id = @attempt";
         const string Deploy = "select xmin::text || ' ' || row_to_json(d)::text from deploy_requests d where attempt_id = @attempt";
@@ -425,7 +425,7 @@ public class AttemptStoreTests : IAsyncLifetime
     /// <summary>The app role with a pool wide enough for every racer and no lock_timeout, so a real cycle surfaces as 40P01.</summary>
     NpgsqlDataSource Wide(int connections) => NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder
     {
-        Host = "127.0.0.1", Port = int.Parse(db.EnvFor("app")[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture), Database = db.Name,
+        Host = db.Host, Port = int.Parse(db.EnvFor("app")[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture), Database = db.Name,
         Username = "accounts_app", Password = db.Password("app"), ApplicationName = "blackglass-tests", MaxPoolSize = connections,
     });
 

@@ -137,7 +137,7 @@ public class EnergyAdminStoreTests : IAsyncLifetime
     NpgsqlDataSource Wide(int connections)
     {
         var port = int.Parse(db.EnvFor("app")[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture);
-        return new DbSettings("127.0.0.1", port, db.Name, "accounts_app", db.Password("app")).CreateDataSource("blackglass-tests", maxPoolSize: connections);
+        return new DbSettings(db.Host, port, db.Name, "accounts_app", db.Password("app")).CreateDataSource("blackglass-tests", maxPoolSize: connections);
     }
 
     /// <summary>Returns once at least <paramref name="count"/> backends of this database wait on a lock (polls every 20 ms).</summary>

@@ -280,7 +280,7 @@ public class EnergyLedgerWriterTests : IAsyncLifetime
         const int Callers = 10;
         var account = await NewWalletAsync(10, TimeSpan.FromMinutes(35));
         var env = db.EnvFor("app");
-        await using var wide = new DbSettings("127.0.0.1", int.Parse(env[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture), db.Name, "accounts_app", db.Password("app"))
+        await using var wide = new DbSettings(db.Host, int.Parse(env[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture), db.Name, "accounts_app", db.Password("app"))
             .CreateDataSource("blackglass-tests", maxPoolSize: Callers + 1);
         await AssertNoLockTimeoutAsync(wide);
         await AssertNoLockTimeoutAsync(db.AsApp());

@@ -38,8 +38,8 @@ public class ServiceHealthTests : IAsyncLifetime
     Task InsertHostAsync(string hostId, string kind = "agent", bool enabled = true, bool drained = false, int capacity = 3, double? heartbeatAgeSeconds = 1) =>
         ExecuteAsSuperuserAsync(db,
             """
-            insert into mission_hosts (host_id, kind, secret_hash, enabled, drained, capacity, last_heartbeat_at)
-            values (@hostId, @kind, @hash, @enabled, @drained, @capacity,
+            insert into mission_hosts (host_id, kind, secret_hash, enabled, drained, capacity, port_base, last_heartbeat_at)
+            values (@hostId, @kind, @hash, @enabled, @drained, @capacity, case when @kind = 'agent' then 7000 end,
                     case when @age::double precision is null then null else clock_timestamp() - make_interval(secs => @age::double precision) end)
             """,
             new { hostId, kind, hash = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32), enabled, drained, capacity, age = heartbeatAgeSeconds });

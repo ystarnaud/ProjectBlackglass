@@ -125,22 +125,59 @@ public class RevocationPermanenceTests : IAsyncLifetime
             select string_agg(tgrelid::regclass || ':' || tgname || ':' || tgenabled::text, ',' order by tgname)
             from pg_trigger where not tgisinternal
             """);
-        Assert.Equal("attempt_insurance:attempt_insurance_is_immutable:O,attempt_insurance:attempt_insurance_no_truncate:O,"
-            + "attempt_participants:attempt_participant_is_permanent:O,attempt_participants:attempt_participant_transition:O,"
-            + "attempt_participants:attempt_participants_no_truncate:O,"
-            + "auth_sessions:auth_sessions_revocation_is_final:O,"
-            + "deploy_requests:deploy_request_is_immutable:O,deploy_requests:deploy_requests_no_truncate:O,"
-            + "dev_credentials:dev_credentials_revocation_is_final:O,"
-            + "energy_holds:energy_hold_is_permanent:O,energy_holds:energy_hold_transition:O,energy_holds:energy_holds_no_truncate:O,"
-            + "energy_ledger:energy_ledger_chain:O,energy_ledger:energy_ledger_is_append_only:O,energy_ledger:energy_ledger_matches_wallet:O,"
-            + "energy_ledger:energy_ledger_no_truncate:O,energy_policies:energy_policies_no_truncate:O,energy_policies:energy_policy_effective_at:O,"
-            + "energy_policies:energy_policy_is_immutable:O,energy_wallets:energy_wallet_forward_only:O,energy_wallets:energy_wallet_matches_ledger:O,"
-            + "energy_wallets:energy_wallet_progress_below_interval:O,"
-            + "insurance_activations:insurance_activation_is_append_only:O,insurance_activations:insurance_activations_no_truncate:O,"
-            + "insurance_coverages:insurance_coverage_forward_only:O,"
-            + "insurance_policies:insurance_policies_no_truncate:O,insurance_policies:insurance_policy_is_immutable:O,"
-            + "inventories:inventories_forward_only:O,"
-            + "mission_attempts:mission_attempt_is_permanent:O,mission_attempts:mission_attempt_transition:O,mission_attempts:mission_attempts_no_truncate:O,"
-            + "mission_templates:mission_template_is_immutable:O,mission_templates:mission_templates_no_truncate:O", triggers);
+        Assert.Equal(new[]
+        {
+            "allowed_build_templates:allowed_build_template_is_immutable:O",
+            "allowed_build_templates:allowed_build_templates_no_truncate:O",
+            "allowed_builds:allowed_build_change:O",
+            "allowed_builds:allowed_build_is_permanent:O",
+            "allowed_builds:allowed_builds_no_truncate:O",
+            "attempt_exit_reports:attempt_exit_report_is_immutable:O",
+            "attempt_exit_reports:attempt_exit_reports_no_truncate:O",
+            "attempt_exit_results:attempt_exit_result_is_immutable:O",
+            "attempt_exit_results:attempt_exit_results_no_truncate:O",
+            "attempt_insurance:attempt_insurance_is_immutable:O",
+            "attempt_insurance:attempt_insurance_no_truncate:O",
+            "attempt_loot_pool:attempt_loot_pool_is_immutable:O",
+            "attempt_loot_pool:attempt_loot_pool_no_truncate:O",
+            "attempt_objectives:attempt_objective_is_immutable:O",
+            "attempt_objectives:attempt_objectives_no_truncate:O",
+            "attempt_participants:attempt_participant_is_permanent:O",
+            "attempt_participants:attempt_participant_transition:O",
+            "attempt_participants:attempt_participants_no_truncate:O",
+            "attempt_secrets:attempt_secret_is_immutable:O",
+            "attempt_secrets:attempt_secrets_no_truncate:O",
+            "auth_sessions:auth_sessions_revocation_is_final:O",
+            "deploy_requests:deploy_request_is_immutable:O",
+            "deploy_requests:deploy_requests_no_truncate:O",
+            "dev_credentials:dev_credentials_revocation_is_final:O",
+            "energy_holds:energy_hold_is_permanent:O",
+            "energy_holds:energy_hold_transition:O",
+            "energy_holds:energy_holds_no_truncate:O",
+            "energy_ledger:energy_ledger_chain:O",
+            "energy_ledger:energy_ledger_is_append_only:O",
+            "energy_ledger:energy_ledger_matches_wallet:O",
+            "energy_ledger:energy_ledger_no_truncate:O",
+            "energy_policies:energy_policies_no_truncate:O",
+            "energy_policies:energy_policy_effective_at:O",
+            "energy_policies:energy_policy_is_immutable:O",
+            "energy_wallets:energy_wallet_forward_only:O",
+            "energy_wallets:energy_wallet_matches_ledger:O",
+            "energy_wallets:energy_wallet_progress_below_interval:O",
+            "insurance_activations:insurance_activation_is_append_only:O",
+            "insurance_activations:insurance_activations_no_truncate:O",
+            "insurance_coverages:insurance_coverage_forward_only:O",
+            "insurance_policies:insurance_policies_no_truncate:O",
+            "insurance_policies:insurance_policy_is_immutable:O",
+            "inventories:inventories_forward_only:O",
+            "join_tickets:join_ticket_change:O",
+            "join_tickets:join_ticket_is_permanent:O",
+            "join_tickets:join_tickets_no_truncate:O",
+            "mission_attempts:mission_attempt_is_permanent:O",
+            "mission_attempts:mission_attempt_transition:O",
+            "mission_attempts:mission_attempts_no_truncate:O",
+            "mission_templates:mission_template_is_immutable:O",
+            "mission_templates:mission_templates_no_truncate:O",
+        }, triggers.Split(',').Order(StringComparer.Ordinal));
     }
 }

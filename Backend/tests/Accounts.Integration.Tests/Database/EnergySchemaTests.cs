@@ -90,8 +90,9 @@ public class EnergySchemaTests : IAsyncLifetime
         var attempt = Guid.CreateVersion7();
         await using var conn = await db.AsApp().OpenConnectionAsync();
         await conn.ExecuteAsync("""
-            insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline)
-            values (@attempt, @account, 'procedural-standard', 1, 1, decode(repeat('ab', 32), 'hex'), clock_timestamp() + interval '60 seconds')
+            insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
+            values (@attempt, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 1, decode(repeat('ab', 32), 'hex'))
             """, new { attempt, account });
         return attempt;
     }
@@ -227,7 +228,6 @@ public class EnergySchemaTests : IAsyncLifetime
     [InlineData("dev_grant", 1, "dev_grant:" + Uuid)]
     [InlineData("void_refund", 1, "void_refund:a")]
     [InlineData("void_refund", 1, "MAX")]
-    [InlineData("charge", 0, "charge:a")]
     [InlineData("settle", 0, "settle:a")]
     [InlineData("adjust", -1, "adjust:a")]
     [InlineData("adjust", 1, "adjust")]

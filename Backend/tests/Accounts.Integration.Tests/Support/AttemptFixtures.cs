@@ -22,8 +22,9 @@ public static class AttemptFixtures
         await using var tx = await conn.BeginTransactionAsync();
         await conn.ExecuteAsync(
             """
-            insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline)
-            values (@attempt, @accountId, @Template, @TemplateVersion, 12345, @salt, clock_timestamp() + interval '60 seconds')
+            insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
+            values (@attempt, @accountId, @Template, @TemplateVersion, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 12345, @salt)
             """, new { attempt, accountId, Template, TemplateVersion, salt = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) }, tx);
         await conn.ExecuteAsync(
             """
@@ -49,10 +50,59 @@ public static class AttemptFixtures
             "update mission_attempts set state = 'cancelled', cancel_reason = 'player_cancel', ended_at = clock_timestamp() where attempt_id = @attempt and state = 'admitted'",
             new { attempt }, tx));
         Assert.Equal(1, await conn.ExecuteAsync(
-            "update attempt_participants set state = 'released' where attempt_id = @attempt and state = 'admitted'", new { attempt }, tx));
+            "update attempt_participants set state = 'released', release_reason = 'player_cancel' where attempt_id = @attempt and state = 'admitted'", new { attempt }, tx));
         Assert.Equal(1, await conn.ExecuteAsync(
             "update energy_holds set state = 'released' where attempt_id = @attempt and state = 'reserved'", new { attempt }, tx));
         await tx.CommitAsync();
+    }
+
+    public const string FixtureHost = "fixture-host";
+    public const string FixtureBuild = "fixture-build";
+
+    /// <summary>
+    /// The SET list that moves an attempt to <paramref name="state"/> with the columns 0008 requires of it: the claim's from
+    /// assigned on (the fixture host, a port and claim key per attempt, a credential hash derived from the attempt id), ready's
+    /// from ready on, the start from running on. Written-once columns already set are kept; cancelled touches none of them.
+    /// </summary>
+    public static string StateSet(string state)
+    {
+        var set = $"state = '{state}', cancel_reason = {(state == "cancelled" ? "coalesce(cancel_reason, 'no_capacity')" : "null")}, " +
+                  $"ended_at = {(state is "cancelled" or "settled" ? "coalesce(ended_at, clock_timestamp())" : "null")}";
+        var level = state switch { "assigned" or "launching" => 1, "ready" => 2, "running" or "ending" or "unresponsive" or "settled" => 3, _ => 0 };
+        if (level >= 1)
+            set += $", host_id = '{FixtureHost}', build_revision = '{FixtureBuild}', credential_generation = coalesce(credential_generation, 1), " +
+                   "mission_port = coalesce(mission_port, 7000 + (select count(*) from mission_attempts m where m.host_id is not null)::int), " +
+                   "process_credential_hash = coalesce(process_credential_hash, sha256(convert_to(attempt_id::text, 'UTF8'))), " +
+                   "claim_key = coalesce(claim_key, attempt_id), launch_deadline = coalesce(launch_deadline, clock_timestamp() + interval '120 seconds')";
+        if (level >= 2)
+            set += ", process_session_id = coalesce(process_session_id, gen_random_uuid()), ready_at = coalesce(ready_at, clock_timestamp()), " +
+                   "join_deadline = coalesce(join_deadline, clock_timestamp() + interval '120 seconds'), layout_hash = coalesce(layout_hash, '0123456789abcdef'), " +
+                   "loot_table_version = coalesce(loot_table_version, 1), loot_hash = coalesce(loot_hash, 'sha256:' || encode(sha256(convert_to('blackglass-loot-pool/1' || E'\n' || 'table=1' || E'\n', 'UTF8')), 'hex'))";
+        if (level >= 3) set += ", started_at = coalesce(started_at, clock_timestamp())";
+        return set;
+    }
+
+    /// <summary>
+    /// Moves an attempt along an allowed edge to <paramref name="state"/> as the superuser, through every trigger, with the
+    /// columns <see cref="StateSet"/> writes. Registers the fixture host (agent, ports from 7000, capacity 64) and allowlists
+    /// the fixture build for the attempt's catalogue and template first; a move to ready also registers one required objective
+    /// (the empty pool matches StateSet's loot hash).
+    /// </summary>
+    public static async Task MoveAsync(TestDatabase db, Guid attempt, string state)
+    {
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        await conn.ExecuteAsync(
+            $"""
+            insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled, port_base)
+              values ('{FixtureHost}', 'agent', sha256(convert_to('{FixtureHost}', 'UTF8')), 64, true, 7000) on conflict do nothing;
+            insert into allowed_builds (build_revision, catalogue_version)
+              select '{FixtureBuild}', catalogue_version from mission_attempts where attempt_id = @attempt on conflict do nothing;
+            insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version)
+              select '{FixtureBuild}', catalogue_version, template_id, template_version from mission_attempts where attempt_id = @attempt on conflict do nothing;
+            """, new { attempt });
+        Assert.Equal(1, await conn.ExecuteAsync($"update mission_attempts set {StateSet(state)} where attempt_id = @attempt", new { attempt }));
+        if (state == "ready")
+            await conn.ExecuteAsync("insert into attempt_objectives (attempt_id, objective_id, required, ordinal) values (@attempt, 'extract', true, 0) on conflict do nothing", new { attempt });
     }
 
     /// <summary>

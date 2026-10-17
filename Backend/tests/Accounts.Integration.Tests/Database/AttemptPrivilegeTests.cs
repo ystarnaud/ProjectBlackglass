@@ -75,6 +75,8 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "attempt_participants.energy_cost:INSERT,SELECT",
             "attempt_participants.inventory_version:INSERT,SELECT",
             "attempt_participants.loadout_snapshot:INSERT,SELECT",
+            "attempt_participants.release_reason:SELECT,UPDATE",
+            "attempt_participants.started_at:SELECT,UPDATE",
             "attempt_participants.state:SELECT,UPDATE",
             "attempt_participants.template_id:INSERT,SELECT",
             "attempt_participants.template_version:INSERT,SELECT",
@@ -111,23 +113,42 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "insurance_policies.version:INSERT,SELECT",
             "mission_attempts.assign_deadline:INSERT,SELECT",
             "mission_attempts.attempt_id:INSERT,SELECT",
+            "mission_attempts.build_revision:SELECT,UPDATE",
             "mission_attempts.cancel_reason:SELECT,UPDATE",
+            "mission_attempts.catalogue_version:INSERT,SELECT",
+            "mission_attempts.claim_key:SELECT,UPDATE",
             "mission_attempts.created_at:SELECT",
             "mission_attempts.created_by:INSERT,SELECT",
+            "mission_attempts.credential_generation:SELECT,UPDATE",
             "mission_attempts.ended_at:SELECT,UPDATE",
-            "mission_attempts.retention_salt:INSERT,SELECT",
-            "mission_attempts.seed:INSERT,SELECT",
+            "mission_attempts.host_id:SELECT,UPDATE",
+            "mission_attempts.join_deadline:SELECT,UPDATE",
+            "mission_attempts.last_process_heartbeat_at:SELECT,UPDATE",
+            "mission_attempts.launch_deadline:SELECT,UPDATE",
+            "mission_attempts.layout_hash:SELECT,UPDATE",
+            "mission_attempts.loot_hash:SELECT,UPDATE",
+            "mission_attempts.loot_table_version:SELECT,UPDATE",
+            "mission_attempts.mission_port:SELECT,UPDATE",
+            "mission_attempts.process_credential_hash:SELECT,UPDATE",
+            "mission_attempts.process_session_id:SELECT,UPDATE",
+            "mission_attempts.ready_at:SELECT,UPDATE",
+            "mission_attempts.slot_released_at:SELECT,UPDATE",
+            "mission_attempts.started_at:SELECT,UPDATE",
             "mission_attempts.state:SELECT,UPDATE",
             "mission_attempts.template_id:INSERT,SELECT",
             "mission_attempts.template_version:INSERT,SELECT",
-            "mission_hosts.capacity:INSERT,SELECT",
+            "mission_hosts.build_revision:SELECT,UPDATE",
+            "mission_hosts.capacity:INSERT,SELECT,UPDATE",
+            "mission_hosts.catalogue_version:SELECT,UPDATE",
             "mission_hosts.created_at:SELECT",
-            "mission_hosts.drained:SELECT",
-            "mission_hosts.enabled:INSERT,SELECT",
+            "mission_hosts.drained:SELECT,UPDATE",
+            "mission_hosts.enabled:INSERT,SELECT,UPDATE",
             "mission_hosts.host_id:INSERT,SELECT",
             "mission_hosts.kind:INSERT,SELECT",
             "mission_hosts.last_heartbeat_at:SELECT,UPDATE",
-            "mission_hosts.secret_hash:INSERT,SELECT",
+            "mission_hosts.port_base:INSERT,SELECT",
+            "mission_hosts.secret_hash:INSERT,SELECT,UPDATE",
+            "mission_hosts.secret_rotated_at:SELECT,UPDATE",
             "mission_templates.created_at:SELECT",
             "mission_templates.energy_cost:INSERT,SELECT",
             "mission_templates.max_operatives:INSERT,SELECT",
@@ -167,8 +188,9 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             values (@activation, @account, 'standard', 1, interval '1 day', null, clock_timestamp() + interval '1 day', 'dev_grant', gen_random_uuid());
             insert into insurance_coverages (account_id, policy_id, policy_version, activation_id, starts_at, expires_at)
             values (@account, 'standard', 1, @activation, clock_timestamp(), clock_timestamp() + interval '1 day');
-            insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline)
-            values (@attempt, @account, 'procedural-standard', 1, 1, decode(repeat('ab', 32), 'hex'), clock_timestamp() + interval '60 seconds');
+            insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
+            values (@attempt, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 1, decode(repeat('ab', 32), 'hex'));
             insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost)
             values (@attempt, @account, 'procedural-standard', 1, '{}', 1, 0);
             insert into energy_holds (attempt_id, account_id, amount) values (@attempt, @account, 0);
@@ -195,7 +217,7 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             await conn.ExecuteAsync("select 1 from energy_holds where attempt_id = @attempt for update", new { attempt }, tx);
             await conn.ExecuteAsync("""
                 update mission_attempts set state = 'cancelled', cancel_reason = 'player_cancel', ended_at = clock_timestamp() where attempt_id = @attempt;
-                update attempt_participants set state = 'released' where attempt_id = @attempt;
+                update attempt_participants set state = 'released', release_reason = 'player_cancel' where attempt_id = @attempt;
                 update energy_holds set state = 'released' where attempt_id = @attempt;
                 """, new { attempt }, tx);
             await tx.CommitAsync();
@@ -241,8 +263,9 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "update attempt_insurance set terms = '{}'",
             "update deploy_requests set response = '{}'",
             "update mission_templates set energy_cost = 0",
-            "update mission_attempts set seed = 1",
-            "update mission_attempts set retention_salt = retention_salt",
+            "update attempt_secrets set seed = 1",
+            "update attempt_secrets set retention_salt = retention_salt",
+            "delete from attempt_secrets", "truncate attempt_secrets",
             "update mission_attempts set assign_deadline = now()",
             "update mission_attempts set created_by = created_by",
             "update mission_attempts set template_version = 1",
@@ -252,16 +275,14 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "update energy_holds set amount = 1",
             "update energy_holds set updated_at = now()",
             "update insurance_coverages set account_id = account_id",
-            "update mission_hosts set secret_hash = secret_hash",
             "update mission_hosts set kind = 'agent'",
             "update mission_hosts set host_id = 'renamed'",
-            // Stage 7 writes only the heartbeat: the switches and capacity wait for Stage 8's audited verbs.
-            "update mission_hosts set enabled = false",
-            "update mission_hosts set drained = true",
-            "update mission_hosts set capacity = 2",
+            // 0008 grants the audited verbs' switches, capacity and secret, and the heartbeat's build; never the port base or creation.
+            "update mission_hosts set port_base = 7000",
+            "update mission_hosts set created_at = now()",
             // The database sets times, stamps and initial states.
-            "insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline, state) values (gen_random_uuid(), @account, 'procedural-standard', 1, 1, decode(repeat('ab', 32), 'hex'), now(), 'admitted')",
-            "insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline, created_at) values (gen_random_uuid(), @account, 'procedural-standard', 1, 1, decode(repeat('ab', 32), 'hex'), now(), now())",
+            "insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline, state) values (gen_random_uuid(), @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), now(), 'admitted')",
+            "insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline, created_at) values (gen_random_uuid(), @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), now(), now())",
             "insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost, state) values (@attempt, @account, 'procedural-standard', 1, '{}', 1, 0, 'admitted')",
             "insert into energy_holds (attempt_id, account_id, amount, state) values (@attempt, @account, 0, 'reserved')",
             "insert into energy_holds (attempt_id, account_id, amount, updated_at) values (@attempt, @account, 0, now())",

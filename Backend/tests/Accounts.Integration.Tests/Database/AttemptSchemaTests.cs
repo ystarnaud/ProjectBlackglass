@@ -90,6 +90,12 @@ public class AttemptSchemaTests : IAsyncLifetime
     static byte[] Bytes(int length, byte fill = 0xab) => Enumerable.Repeat(fill, length).ToArray();
 
     const string InsertAttempt = """
+        insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
+        values (@attempt, @account, @template, 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+        insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 12345, @salt)
+        """;
+    /// <summary>Schema 7's attempt insert (seed and salt on the row), for the Stage 6 to 7 upgrade only.</summary>
+    const string InsertAttempt7 = """
         insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline)
         values (@attempt, @account, @template, 1, 12345, @salt, clock_timestamp() + interval '60 seconds')
         """;
@@ -134,7 +140,7 @@ public class AttemptSchemaTests : IAsyncLifetime
     /// released and, for a positive amount, the credit and its <c>release:&lt;attempt&gt;</c> entry.</summary>
     static async Task ReleaseParticipantAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Guid attempt, long account)
     {
-        Assert.Equal(1, await conn.ExecuteAsync("update attempt_participants set state = 'released' where attempt_id = @attempt and account_id = @account and state = 'admitted'", new { attempt, account }, tx));
+        Assert.Equal(1, await conn.ExecuteAsync("update attempt_participants set state = 'released', release_reason = 'player_cancel' where attempt_id = @attempt and account_id = @account and state = 'admitted'", new { attempt, account }, tx));
         var amount = await conn.ExecuteScalarAsync<int>(
             "update energy_holds set state = 'released' where attempt_id = @attempt and account_id = @account and state = 'reserved' returning amount", new { attempt, account }, tx);
         if (amount > 0)
@@ -225,7 +231,8 @@ public class AttemptSchemaTests : IAsyncLifetime
 
     // ---- hosts ----
 
-    const string InsertHost = "insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled) values (@host, @kind, @secret, @capacity, true)";
+    // 0008: an agent host has its port base (mission_host_agent_ports); a dev fixture needs none.
+    const string InsertHost = "insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled, port_base) values (@host, @kind, @secret, @capacity, true, case when @kind = 'agent' then 7000 end)";
 
     [Theory]
     [InlineData("", "dev_fixture", 32, 1, "mission_hosts_host_id_check")]
@@ -251,7 +258,7 @@ public class AttemptSchemaTests : IAsyncLifetime
             var e = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(InsertHost, new { host = "other", kind = "agent", secret = Bytes(32, 2), capacity = 1 }));
             Assert.Equal(("23505", "mission_hosts_secret_hash_key"), (e.SqlState, e.ConstraintName));
         }
-        await SuperExecuteAsync("insert into mission_hosts (host_id, kind, secret_hash, capacity) values ('bare', 'agent', @s, 1)", new { s = Bytes(32, 3) });
+        await SuperExecuteAsync("insert into mission_hosts (host_id, kind, secret_hash, capacity) values ('bare', 'dev_fixture', @s, 1)", new { s = Bytes(32, 3) });
         Assert.Equal((false, false, (DateTime?)null), await SuperScalarTupleAsync("select enabled, drained, last_heartbeat_at from mission_hosts where host_id = 'bare'"));
     }
 
@@ -264,14 +271,12 @@ public class AttemptSchemaTests : IAsyncLifetime
     // ---- attempts, participants, holds, deploy requests: CHECKs and keys ----
 
     [Theory]
-    [InlineData("seed = -1", "mission_attempts_seed_check")]
-    [InlineData("retention_salt = '\\x00'::bytea", "mission_attempts_retention_salt_check")]
     [InlineData("state = 'paused'", "mission_attempts_state_check")]
     [InlineData("state = 'cancelled', cancel_reason = 'launch_failed', ended_at = clock_timestamp()", "mission_attempts_cancel_reason_check")]
     [InlineData("state = 'cancelled', ended_at = clock_timestamp()", "mission_attempt_cancel_reason_iff_cancelled")]
     [InlineData("cancel_reason = 'player_cancel'", "mission_attempt_cancel_reason_iff_cancelled")]
     [InlineData("state = 'cancelled', cancel_reason = 'no_capacity'", "mission_attempt_ended_at_iff_ended")]
-    [InlineData("state = 'settled'", "mission_attempt_ended_at_iff_ended")]
+    [InlineData("state = 'settled'", "mission_attempt_assignment")] // 0008: a settled attempt was claimed (and ran) first
     [InlineData("ended_at = clock_timestamp()", "mission_attempt_ended_at_iff_ended")]
     public async Task An_attempt_check_is_enforced(string set, string constraint)
     {
@@ -403,7 +408,7 @@ public class AttemptSchemaTests : IAsyncLifetime
 
     [Theory]
     // The attempt-bound kinds need an attempt; reserve and release keys then can't name one either.
-    [InlineData("charge", 0, 40, "'charge:x'", false, "energy_ledger_kind_attempt_check")]
+    [InlineData("charge", 0, 40, "'charge:x'", false, "energy_ledger_idempotency_key_check")]   // 0008: a charge key names its attempt
     [InlineData("settle", 0, 40, "'settle:x'", false, "energy_ledger_kind_attempt_check")]
     [InlineData("void_refund", 1, 41, "'void_refund:x'", false, "energy_ledger_kind_attempt_check")]
     [InlineData("reserve", -1, 39, "'reserve:' || @other", false, "energy_ledger_idempotency_key_check")]
@@ -426,7 +431,9 @@ public class AttemptSchemaTests : IAsyncLifetime
     // 0006's other rules are unchanged.
     [InlineData("reserve", 0, 40, "'reserve:' || @attempt", true, "energy_ledger_delta_sign_check")]
     [InlineData("release", -1, 39, "'release:' || @attempt", true, "energy_ledger_delta_sign_check")]
-    [InlineData("charge", 0, 40, "'charge'", true, null)]
+    [InlineData("charge", 0, 40, "'charge'", true, "energy_ledger_idempotency_key_check")]
+    [InlineData("charge", 0, 40, "'charge:' || @other", true, "energy_ledger_idempotency_key_check")]
+    [InlineData("charge", 0, 40, "'charge:' || @attempt", true, null)]
     public async Task The_attempt_kinds_carry_their_attempt_and_reserve_and_release_keys_name_it(string kind, int delta, int after, string key, bool withAttempt, string? constraint)
     {
         var account = await NewWalletAsync(40);
@@ -496,8 +503,35 @@ public class AttemptSchemaTests : IAsyncLifetime
 
     static readonly (string From, string To)[] HoldEdges = [("reserved", "released"), ("reserved", "charged")];
 
-    static string AttemptSet(string state) =>
-        $"state = '{state}', cancel_reason = {(state == "cancelled" ? "'no_capacity'" : "null")}, ended_at = {(state is "cancelled" or "settled" ? "clock_timestamp()" : "null")}";
+    /// <summary>The state with the columns 0008 requires of it (the claim's from assigned on, ready's from ready on, the
+    /// start from running on), each written-once column kept when already set; a cancelled state touches none of them.</summary>
+    static string AttemptSet(string state)
+    {
+        var set = $"state = '{state}', cancel_reason = {(state == "cancelled" ? "'no_capacity'" : "null")}, ended_at = {(state is "cancelled" or "settled" ? "clock_timestamp()" : "null")}";
+        var level = state switch { "assigned" or "launching" => 1, "ready" => 2, "running" or "ending" or "unresponsive" or "settled" => 3, _ => 0 };
+        if (level >= 1)
+            set += ", host_id = 'h1', mission_port = 7000, build_revision = 'r1', process_credential_hash = decode(repeat('cc', 32), 'hex'), credential_generation = 1, " +
+                   "claim_key = '00000000-0000-4000-8000-000000000001', launch_deadline = coalesce(launch_deadline, clock_timestamp())";
+        if (level >= 2)
+            set += ", process_session_id = '00000000-0000-4000-8000-000000000002', ready_at = coalesce(ready_at, clock_timestamp()), " +
+                   "join_deadline = coalesce(join_deadline, clock_timestamp()), layout_hash = '0123456789abcdef', loot_table_version = 1, loot_hash = 'sha256:' || repeat('0', 64)";
+        if (level >= 3) set += ", started_at = coalesce(started_at, clock_timestamp())";
+        return set;
+    }
+
+    static string ParticipantSet(string state) => $"state = '{state}'"
+        + (state is "joined" or "left" or "result_pending" or "unresponsive" or "quarantined" or "settled" ? ", started_at = coalesce(started_at, clock_timestamp())" : "")
+        + (state == "released" ? ", release_reason = coalesce(release_reason, 'player_cancel')" : "");
+
+    /// <summary>The host and allowlisted build <see cref="AttemptSet"/> names (0008's foreign keys check them outside replica mode).</summary>
+    async Task SeedHostAndBuildAsync()
+    {
+        await SuperExecuteAsync("""
+            insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled, port_base) values ('h1', 'agent', decode(repeat('dd', 32), 'hex'), 4, true, 7000);
+            insert into allowed_builds (build_revision, catalogue_version) values ('r1', 'sha256:' || repeat('ab', 32));
+            insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', 'sha256:' || repeat('ab', 32), 'procedural-standard', 1);
+            """);
+    }
 
     /// <summary>For every ordered pair of distinct states: puts the row in the first (replica mode, as the superuser,
     /// rolled back afterwards) and tries the second as the owner. Returns the pairs that passed.</summary>
@@ -533,6 +567,7 @@ public class AttemptSchemaTests : IAsyncLifetime
     {
         var account = await NewWalletAsync();
         var attempt = await AdmitAsync(account);
+        await SeedHostAndBuildAsync();
         var passed = await PassingTransitionsAsync("mission_attempts", AttemptStates, AttemptSet, "attempt_id = @attempt", new { attempt });
         Assert.Equal(AttemptEdges.Order(), passed.Order());
     }
@@ -542,7 +577,7 @@ public class AttemptSchemaTests : IAsyncLifetime
     {
         var account = await NewWalletAsync();
         var attempt = await AdmitAsync(account);
-        var passed = await PassingTransitionsAsync("attempt_participants", ParticipantStates, s => $"state = '{s}'", "attempt_id = @attempt", new { attempt });
+        var passed = await PassingTransitionsAsync("attempt_participants", ParticipantStates, ParticipantSet, "attempt_id = @attempt", new { attempt });
         Assert.Equal(ParticipantEdges.Order(), passed.Order());
     }
 
@@ -567,8 +602,7 @@ public class AttemptSchemaTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("seed = seed + 1")]
-    [InlineData("retention_salt = decode(repeat('cd', 32), 'hex')")]
+    [InlineData("catalogue_version = 'sha256:' || repeat('cd', 32)")]
     [InlineData("template_version = 2")]
     [InlineData("template_id = 'zero-cost'")]
     [InlineData("created_by = created_by + 0 + @other")]
@@ -646,7 +680,7 @@ public class AttemptSchemaTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("mission_attempts", "insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline, state) values (@attempt2, @account, 'procedural-standard', 1, 1, @salt, now(), 'assigned')", "mission_attempt_transition")]
+    [InlineData("mission_attempts", "insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline, state) values (@attempt2, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), now(), 'assigned')", "mission_attempt_transition")]
     [InlineData("attempt_participants", "insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost, state) values (@attempt, @other, 'procedural-standard', 1, '{}', 1, 0, 'joined')", "attempt_participant_transition")]
     [InlineData("energy_holds", "insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost) values (@attempt, @other, 'procedural-standard', 1, '{}', 1, 0); insert into energy_holds (attempt_id, account_id, amount, state) values (@attempt, @other, 0, 'charged')", "energy_hold_transition")]
     public async Task Rows_start_in_their_initial_state(string table, string sql, string constraint)
@@ -862,7 +896,7 @@ public class AttemptSchemaTests : IAsyncLifetime
         await using var conn = await db.AsApp().OpenConnectionAsync();
         await conn.ExecuteAsync("insert into operator_actions (correlation_id, operator, action, account_id, reason, checks, result) values (gen_random_uuid(), 'op', @action, @account, 'r', '{}', '{}')", new { account, action });
         var e = await FailureOf(db.AsApp(),
-            "insert into operator_actions (correlation_id, operator, action, reason, checks, result) values (gen_random_uuid(), 'op', 'host_register', 'r', '{}', '{}')");
+            "insert into operator_actions (correlation_id, operator, action, reason, checks, result) values (gen_random_uuid(), 'op', 'not_an_action', 'r', '{}', '{}')");
         Assert.Equal(("23514", "operator_actions_action_check"), (e.SqlState, e.ConstraintName));
     }
 
@@ -935,7 +969,7 @@ public class AttemptSchemaTests : IAsyncLifetime
         await using (var conn = await upgrade.AsApp().OpenConnectionAsync())
         {
             await using var tx = await conn.BeginTransactionAsync();
-            await conn.ExecuteAsync(InsertAttempt, new { attempt, account = first, template = Template, salt = Bytes(32) }, tx);
+            await conn.ExecuteAsync(InsertAttempt7, new { attempt, account = first, template = Template, salt = Bytes(32) }, tx);
             await AddParticipantAsync(conn, tx, attempt, first, 10);
             await tx.CommitAsync();
         }
@@ -1001,7 +1035,7 @@ public class AttemptSchemaTests : IAsyncLifetime
         var sql = fixture switch
         {
             // the participant was released, its hold wasn't
-            "hold_state" => "update attempt_participants set state = 'released' where attempt_id = @zeroAttempt",
+            "hold_state" => "update attempt_participants set state = 'released', release_reason = 'player_cancel' where attempt_id = @zeroAttempt",
             "hold_missing" => "delete from energy_holds where attempt_id = @zeroAttempt",
             "reserve_missing" => "delete from energy_ledger where attempt_id = @activeAttempt and kind = 'reserve'",
             "reserve_twice" => "alter table energy_ledger drop constraint energy_ledger_idempotency_key_check; "

@@ -156,7 +156,7 @@ public class AdmissionStoreTests : IAsyncLifetime
 
     NpgsqlConnectionStringBuilder AppConnection(int maxPoolSize) => new()
     {
-        Host = "127.0.0.1", Port = int.Parse(db.EnvFor("app")[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture), Database = db.Name,
+        Host = db.Host, Port = int.Parse(db.EnvFor("app")[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture), Database = db.Name,
         Username = "accounts_app", Password = db.Password("app"), ApplicationName = "blackglass-tests", MaxPoolSize = maxPoolSize,
     };
 

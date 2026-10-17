@@ -224,9 +224,9 @@ public class ParticipationLockTests : IAsyncLifetime
 
         Assert.True(await ReadLockedAsync(api, p)); // admitted
 
-        foreach (var state in new[] { "assigned", "launching", "ready", "running" }) await MoveAsync("mission_attempts", state);
+        foreach (var state in new[] { "assigned", "launching", "ready", "running" }) await AttemptFixtures.MoveAsync(db, attempt, state);
         await MoveAsync("energy_holds", "charged"); // the start commit's edge
-        await MoveAsync("attempt_participants", "joined");
+        await MoveAsync("attempt_participants", "joined", ", started_at = clock_timestamp()");
         Assert.True(await ReadLockedAsync(api, p));
         await MoveAsync("attempt_participants", "left");
         Assert.True(await ReadLockedAsync(api, p));
@@ -242,8 +242,8 @@ public class ParticipationLockTests : IAsyncLifetime
         // Settlement is terminal: quarantined -> settled (Stage 9 adds the hold's settle edge, so it is forced here).
         await MoveAsync("attempt_participants", "settled");
         await ForcedAsync("update energy_holds set state = 'settled' where attempt_id = @attempt");
-        await MoveAsync("mission_attempts", "ending");
-        await MoveAsync("mission_attempts", "settled", ", ended_at = clock_timestamp()");
+        await AttemptFixtures.MoveAsync(db, attempt, "ending");
+        await AttemptFixtures.MoveAsync(db, attempt, "settled");
         Assert.False(await ReadLockedAsync(api, p));
         Assert.Equal(HttpStatusCode.OK, (await EditAsync(api, p, 1)).Status);
 

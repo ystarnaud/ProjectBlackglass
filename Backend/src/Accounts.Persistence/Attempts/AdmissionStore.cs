@@ -71,8 +71,9 @@ public sealed record DeployInsurance(bool Covered, string? PolicyId, int? Policy
 /// (<see cref="EnergyLedgerWriter.MaterializeLockedAsync"/>, which takes the shared policy lock and reads the clock after it);
 /// no wallet, or a materialized balance below the cost, is InsufficientEnergy and everything rolls back. A zero cost takes no
 /// wallet, materialization or policy lock: the clock is read directly.</item>
-/// <item>Inserts of new rows only (F1, in foreign-key order): the attempt (UUIDv7, seed and salt from
-/// <see cref="IAttemptSecrets"/>, <c>assign_deadline</c> = now + the configured seconds), the participant, the hold (the
+/// <item>Inserts of new rows only (F1, in foreign-key order): the attempt (UUIDv7, the API catalogue's version,
+/// <c>assign_deadline</c> = now + the configured seconds), its <c>attempt_secrets</c> row (seed and salt from
+/// <see cref="IAttemptSecrets"/>, owner ruling B1), the participant, the hold (the
 /// cost, 0 for a zero-cost template), for a positive cost one wallet UPDATE and the <c>reserve:&lt;attempt&gt;</c> entry,
 /// the insurance snapshot when the coverage (read without a lock) is active at now (its policy version's complete terms,
 /// copied in SQL, and the coverage's activation), and the <c>deploy_requests</c> row, whose <c>response::text</c> is the body
@@ -81,7 +82,7 @@ public sealed record DeployInsurance(bool Covered, string? PolicyId, int? Policy
 /// A 23505 on <c>one_active_participation</c> (a race the inventories lock already prevents) is AttemptActive; one on
 /// <c>deploy_requests_pkey</c> re-reads the key and answers as the first step. Any other failure rolls everything back and
 /// propagates (a 23514 is a bug, a timeout is busy). Nothing here retries, and nothing here logs: the seed and salt never
-/// leave the attempt row.
+/// leave the attempt_secrets row.
 /// </summary>
 public sealed class AdmissionStore
 {
@@ -180,9 +181,12 @@ public sealed class AdmissionStore
         {
             await ExactlyOneAsync(conn, tx, ct,
                 """
-                insert into mission_attempts (attempt_id, created_by, template_id, template_version, seed, retention_salt, assign_deadline)
-                values (@attemptId, @accountId, @TemplateId, @Version, @seed, @salt, @deadline)
-                """, new { attemptId, accountId, template.TemplateId, template.Version, seed = secrets.NextSeed(), salt, deadline = now.AddSeconds(assignDeadlineSeconds) });
+                insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
+                values (@attemptId, @accountId, @TemplateId, @Version, @catalogueVersion, @deadline)
+                """, new { attemptId, accountId, template.TemplateId, template.Version, catalogueVersion = catalogue.Version, deadline = now.AddSeconds(assignDeadlineSeconds) });
+            await ExactlyOneAsync(conn, tx, ct,
+                "insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attemptId, @seed, @salt)",
+                new { attemptId, seed = secrets.NextSeed(), salt });
         }
         finally { CryptographicOperations.ZeroMemory(salt); }
         await ExactlyOneAsync(conn, tx, ct,

@@ -85,7 +85,7 @@ public class AssignDeadlineWorkerTests : IAsyncLifetime
 
     NpgsqlConnectionStringBuilder AppConnection(int maxPoolSize) => new()
     {
-        Host = "127.0.0.1", Port = int.Parse(db.EnvFor("app")[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture), Database = db.Name,
+        Host = db.Host, Port = int.Parse(db.EnvFor("app")[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture), Database = db.Name,
         Username = "accounts_app", Password = db.Password("app"), ApplicationName = "blackglass-tests", MaxPoolSize = maxPoolSize,
     };
 
@@ -199,7 +199,7 @@ public class AssignDeadlineWorkerTests : IAsyncLifetime
         var selected = Assert.Single(await attempts.DueAsync(10));
         foreach (var state in new[] { "assigned", "launching", "ready", "running", "ending" })
         {
-            await ExecuteAsSuperuserAsync(db, "update mission_attempts set state = @state where attempt_id = @attempt", new { state, attempt });
+            await AttemptFixtures.MoveAsync(db, attempt, state);
             var before = await StateOfAsync(attempt);
 
             Assert.Equal(new SweepReport(0, 0, 0, 0, []), await attempts.SweepAsync(10), SweepComparer.Instance);
