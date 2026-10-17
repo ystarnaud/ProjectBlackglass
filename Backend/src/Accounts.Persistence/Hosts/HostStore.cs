@@ -3,6 +3,7 @@ using Dapper;
 using Npgsql;
 using Blackglass.Accounts.Domain.Attempts;
 using Blackglass.Accounts.Domain.Auth;
+using Blackglass.Accounts.Persistence.Attempts;
 
 namespace Blackglass.Accounts.Persistence.Hosts;
 
@@ -173,6 +174,53 @@ public sealed class HostStore
             "update mission_attempts set state = 'launching' where attempt_id = @attemptId and state = 'assigned'", new { attemptId }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         return new LaunchingResult.Accepted("launching");
+    }
+
+    /// <summary>
+    /// The agent's exit report for one of its attempts (B11 revised, R6, R7). Release lock order (no host lock): the
+    /// participants' accounts FOR KEY SHARE, the attempt FOR UPDATE (this host's only, else NotFound), its participants, then,
+    /// before any start, the release of every admitted participant with <c>process_exited</c> (which cancels the attempt).
+    /// After a start nothing is cancelled, released or refunded. Either way the report is stored once (insert-only evidence:
+    /// exit code, signal, per-participant result presence, the state seen and whether anyone had started) and the slot is
+    /// released (the unit is gone, B6). An identical repeat answers the stored outcome and writes nothing; a different report
+    /// is Conflicting and writes nothing. A result naming an account that is not a participant is UnknownParticipant.
+    /// </summary>
+    public async Task<ExitReportResult> ExitedAsync(string hostId, Guid attemptId, ExitedRequest report, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        var owner = await conn.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            "select host_id from mission_attempts where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct));
+        if (owner != hostId) return new ExitReportResult.NotFound();
+        var participants = (await conn.QueryAsync<long>(new CommandDefinition(
+            "select account_id from attempt_participants where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct))).ToHashSet();
+        if (report.Results.Any(r => !participants.Contains(r.AccountId))) return new ExitReportResult.UnknownParticipant();
+
+        var stored = await ExitReports.StoredAgentAsync(conn, tx, attemptId, ct);
+        if (stored is not null) return ExitReports.Same(stored, report) ? new ExitReportResult.Applied(stored.Outcome) : new ExitReportResult.Conflicting();
+
+        var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.ProcessExited,
+            AttemptStore.PreStartStates, ct) ?? throw new InvalidOperationException("An attempt has no participants.");
+        // A concurrent first report committed while this one waited on the attempt: answer from it.
+        stored = await ExitReports.StoredAgentAsync(conn, tx, attemptId, ct);
+        if (stored is not null) return ExitReports.Same(stored, report) ? new ExitReportResult.Applied(stored.Outcome) : new ExitReportResult.Conflicting();
+        var outcome = batch.ReleasedAny ? "cancelled" : "none";
+        await conn.ExecuteAsync(new CommandDefinition(
+            """
+            insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, signal, outcome)
+            select @attemptId, 'agent', @hostId, @seen, @AnyStarted, @ExitCode, @Signal, @outcome
+            """, new { attemptId, hostId, seen = batch.StateBefore, batch.AnyStarted, report.ExitCode, report.Signal, outcome },
+            tx, cancellationToken: ct));
+        foreach (var r in report.Results)
+            await conn.ExecuteAsync(new CommandDefinition(
+                "insert into attempt_exit_results (attempt_id, account_id, present) values (@attemptId, @AccountId, @Present)",
+                new { attemptId, r.AccountId, r.Present }, tx, cancellationToken: ct));
+        await conn.ExecuteAsync(new CommandDefinition(
+            "update mission_attempts set slot_released_at = clock_timestamp() where attempt_id = @attemptId and slot_released_at is null",
+            new { attemptId }, tx, cancellationToken: ct));
+        await tx.CommitAsync(ct);
+        return new ExitReportResult.Applied(outcome);
     }
 
     static DateTime Utc(DateTime value) =>

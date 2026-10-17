@@ -113,6 +113,27 @@ public static class AttemptFixtures
                 """, new { attempt });
     }
 
+    /// <summary>A participant's start as the start commit writes it (direct SQL, as the superuser): the attempt moved to running
+    /// along its edges if it isn't yet, the participant joined with started_at, its hold charged and, for a positive hold, one
+    /// zero-delta <c>charge:&lt;attempt&gt;</c> entry at its wallet's balance.</summary>
+    public static async Task StartAsync(TestDatabase db, Guid attempt, long account)
+    {
+        var state = await AccountTestKit.ScalarAsSuperuserAsync<string>(db, "select state from mission_attempts where attempt_id = @attempt", new { attempt });
+        var path = new[] { "assigned", "launching", "ready", "running" };
+        foreach (var s in path.Skip(Array.IndexOf(path, state) + 1)) await MoveAsync(db, attempt, s);
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+        await conn.ExecuteAsync("""
+            update attempt_participants set state = 'joined', started_at = clock_timestamp() where attempt_id = @attempt and account_id = @account;
+            update energy_holds set state = 'charged' where attempt_id = @attempt and account_id = @account;
+            insert into energy_ledger (account_id, attempt_id, kind, delta, balance_after, idempotency_key)
+            select @account, @attempt, 'charge', 0, w.balance, 'charge:' || @attempt::text
+            from energy_wallets w join energy_holds h on h.account_id = w.account_id
+            where w.account_id = @account and h.attempt_id = @attempt and h.amount > 0;
+            """, new { attempt, account }, tx);
+        await tx.CommitAsync();
+    }
+
     /// <summary>
     /// Sets an attempt's <c>assign_deadline</c> to exactly <paramref name="deadline"/>, as the superuser under
     /// <c>session_replication_role = replica</c>: the column is immutable through the transition trigger, so a test backdates

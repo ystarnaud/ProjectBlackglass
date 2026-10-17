@@ -20,12 +20,12 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 /// The assignment deadline (Task 7; owner ruling S7-D6) against a real PostgreSQL 17: <see cref="AttemptStore.SweepAsync"/>
 /// selects admitted attempts whose <c>assign_deadline &lt;= clock_timestamp()</c> (database time) FOR UPDATE SKIP LOCKED in a
 /// short transaction, then releases each in its own transaction with <c>cancel_reason = 'no_capacity'</c>; and
-/// <see cref="AssignDeadlineWorker"/>, the hosted service that runs it every BLACKGLASS_ATTEMPT_SWEEP_SECONDS. Deadlines are
+/// <see cref="AttemptDeadlineWorker"/>, the hosted service that runs it every BLACKGLASS_ATTEMPT_SWEEP_SECONDS. Deadlines are
 /// made due by backdating the row as the superuser (time is never mocked, spec §18.1), or, for the exact boundary, by a
 /// frozen <c>clock_timestamp()</c> on the store's connections. The 0000-0007 invariants hold after every test.
 /// </summary>
 [Trait("Requires", "Postgres")]
-public class AssignDeadlineWorkerTests : IAsyncLifetime
+public class AttemptDeadlineWorkerTests : IAsyncLifetime
 {
     TestDatabase db = null!;
     AccountAdminStore accounts = null!;
@@ -204,7 +204,8 @@ public class AssignDeadlineWorkerTests : IAsyncLifetime
 
             Assert.Equal(new SweepReport(0, 0, 0, 0, []), await attempts.SweepAsync(10), SweepComparer.Instance);
             Assert.Equal(ExpireResult.NotAdmitted, await attempts.ExpireAsync(selected));
-            Assert.Equal(AttemptError.InvalidState, (await Assert.ThrowsAsync<AttemptException>(() => attempts.CancelAsync(account, attempt))).Error);
+            if (state is "running" or "ending") // before that, Stage 8's cancel still releases (any pre-start state)
+                Assert.Equal(AttemptError.InvalidState, (await Assert.ThrowsAsync<AttemptException>(() => attempts.CancelAsync(account, attempt))).Error);
             Assert.Equal(before, await StateOfAsync(attempt));
         }
         Assert.Equal(0L, await ReleaseEntriesAsync(attempt));
@@ -265,7 +266,7 @@ public class AssignDeadlineWorkerTests : IAsyncLifetime
         var sweeps = 0;
         using (var quiet = LoggerFactory.Create(b => b.AddProvider(new CapturingLoggerProvider())))
         {
-            var idle = new AssignDeadlineWorker(_ =>
+            var idle = new AttemptDeadlineWorker(_ =>
             {
                 Interlocked.Increment(ref sweeps);
                 return Task.FromResult(new SweepReport(0, 0, 0, 0, []));
@@ -289,7 +290,7 @@ public class AssignDeadlineWorkerTests : IAsyncLifetime
             "create trigger bg_test_fail before update on mission_attempts for each row execute function bg_test_fail();");
         var logs = new CapturingLoggerProvider();
         using var factory = LoggerFactory.Create(b => b.SetMinimumLevel(LogLevel.Trace).AddProvider(logs));
-        var worker = new AssignDeadlineWorker(ct => attempts.SweepAsync(AssignDeadlineWorker.BatchSize, ct), TimeSpan.FromMilliseconds(200), factory);
+        var worker = new AttemptDeadlineWorker(ct => attempts.SweepAsync(AttemptDeadlineWorker.BatchSize, ct), TimeSpan.FromMilliseconds(200), factory);
         await worker.StartAsync(default);
         try
         {
@@ -304,8 +305,8 @@ public class AssignDeadlineWorkerTests : IAsyncLifetime
 
         Assert.True(worker.ExecuteTask!.IsCompletedSuccessfully); // failures never ended it; cancellation ends it cleanly
         var text = logs.Text;
-        Assert.Contains($"{AttemptSettings.LogCategory}: Assignment deadline release failed for 1 of 1 due attempts: SQLSTATE P0001", text);
-        Assert.Contains($"{AttemptSettings.LogCategory}: Assignment deadline sweep failed: SQLSTATE 42501", text);
+        Assert.Contains($"{AttemptSettings.LogCategory}: Deadline release failed for 1 of 1 due attempts: SQLSTATE P0001", text);
+        Assert.Contains($"{AttemptSettings.LogCategory}: Deadline sweep failed: SQLSTATE 42501", text);
         Assert.DoesNotContain(Leak, text); // the server's message can quote values: never logged
         Assert.DoesNotContain(db.Password("app"), text);
         Assert.DoesNotContain(db.Name, text);
@@ -318,7 +319,7 @@ public class AssignDeadlineWorkerTests : IAsyncLifetime
     {
         await using (var api = await ApiServer.StartAsync(db, new() { [AttemptSettings.AttemptSweepSecondsVar] = "1" }))
         {
-            Assert.Single(api.App.Services.GetServices<IHostedService>().OfType<AssignDeadlineWorker>());
+            Assert.Single(api.App.Services.GetServices<IHostedService>().OfType<AttemptDeadlineWorker>());
             var (account, attempt) = await AdmittedAsync();
             await AttemptFixtures.ExpireDeadlineAsync(db, attempt);
             await WaitUntilAsync(async () => await ScalarAsync<string>("select state from mission_attempts where attempt_id = @attempt", new { attempt }) == "cancelled",
@@ -328,16 +329,7 @@ public class AssignDeadlineWorkerTests : IAsyncLifetime
         }
         // The default (15 s) is on too: the worker is required for the exactly-once release, so it cannot be switched off.
         await using (var api = await ApiServer.StartAsync(db))
-            Assert.Single(api.App.Services.GetServices<IHostedService>().OfType<AssignDeadlineWorker>());
+            Assert.Single(api.App.Services.GetServices<IHostedService>().OfType<AttemptDeadlineWorker>());
     }
 
-    /// <summary>Compares reports by value, the failure list included (a record compares lists by reference).</summary>
-    sealed class SweepComparer : IEqualityComparer<SweepReport>
-    {
-        public static readonly SweepComparer Instance = new();
-        public bool Equals(SweepReport? x, SweepReport? y) =>
-            x is not null && y is not null && (x.Due, x.Released, x.AlreadyEnded, x.NotAdmitted) == (y.Due, y.Released, y.AlreadyEnded, y.NotAdmitted)
-            && x.Failures.SequenceEqual(y.Failures);
-        public int GetHashCode(SweepReport obj) => obj.Due;
-    }
 }

@@ -517,9 +517,10 @@ public class AttemptApiTests : IAsyncLifetime
         Assert.Equal(("cancelled", "released", "released"), (read.GetProperty("state").GetString(), read.GetProperty("participantState").GetString(),
             read.GetProperty("energy").GetProperty("state").GetString()));
 
-        // After start (assigned here by SQL), a cancel is 409 InvalidState with nothing written.
+        // After this participant's start (written by SQL), a cancel is 409 InvalidState with nothing written. (Stage 8: before
+        // the start, a cancel releases in any pre-start attempt state.)
         var started = await DeployedAsync(api, p);
-        await AttemptFixtures.MoveAsync(db, Guid.Parse(started), "assigned");
+        await AttemptFixtures.StartAsync(db, Guid.Parse(started), p.Account);
         var before = await StateAsync();
         AssertProblem(await SendAsync(api, Cancel(p.Token, started)), HttpStatusCode.Conflict, "InvalidState");
         Assert.Equal(before, await StateAsync());

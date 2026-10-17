@@ -12,7 +12,7 @@ public enum AttemptError
     /// <summary>No attempt with that id has the account as a participant: an unknown attempt and another account's are the same.</summary>
     NotFound,
 
-    /// <summary>The attempt is past admission (assigned or later), or ended in a way this release did not write.</summary>
+    /// <summary>The participant started, or the attempt is past the states a release may cancel, or ended in a way this release did not write.</summary>
     InvalidState,
 }
 
@@ -22,7 +22,7 @@ public sealed class AttemptException(AttemptError error) : Exception(error.ToStr
     public AttemptError Error { get; } = error;
 }
 
-/// <summary>The stored <c>mission_attempts.cancel_reason</c> values of a release.</summary>
+/// <summary>The stored <c>cancel_reason</c> and <c>release_reason</c> values (0008's lists).</summary>
 public static class CancelReasons
 {
     /// <summary>The player cancelled before start (S7-D7).</summary>
@@ -30,6 +30,24 @@ public static class CancelReasons
 
     /// <summary>No host assigned the attempt before its deadline (S7-D6).</summary>
     public const string NoCapacity = "no_capacity";
+
+    /// <summary>The claimed attempt did not report ready before its launch deadline.</summary>
+    public const string LaunchTimeout = "launch_timeout";
+
+    /// <summary>The participant did not start before the join deadline.</summary>
+    public const string JoinTimeout = "join_timeout";
+
+    /// <summary>The agent reported the unit gone before any start.</summary>
+    public const string ProcessExited = "process_exited";
+
+    /// <summary>The process reported a failure before any start.</summary>
+    public const string ProcessFailed = "process_failed";
+
+    /// <summary>The ready report's loot pool was outside the catalogue's table, or its hash was wrong (spec §7.4, R3).</summary>
+    public const string InvalidPool = "invalid_pool";
+
+    public static readonly IReadOnlySet<string> All = new HashSet<string>(
+        [PlayerCancel, NoCapacity, LaunchTimeout, JoinTimeout, ProcessExited, ProcessFailed, InvalidPool], StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -44,45 +62,82 @@ public sealed record AttemptView(Guid AttemptId, string State, string Participan
 /// What a release did, or, when <paramref name="Replayed"/>, what the earlier release stored: the participant's state
 /// (<c>released</c>), the energy given back (the hold's amount, 0 for a zero-cost template), the wallet balance right after the
 /// <c>release:&lt;attempt&gt;</c> entry (null for a zero amount, which writes no entry and takes no wallet lock, so no balance
-/// is known exactly), and the attempt's stored cancel reason (the winner's, when a cancel and the deadline worker raced).
+/// is known exactly), and the participant's stored release reason (the winner's, when a cancel and a deadline raced).
 /// </summary>
 public sealed record ReleaseOutcome(string ParticipantState, int Released, int? BalanceAfter, string CancelReason, bool Replayed);
 
-/// <summary>An admitted attempt past its assignment deadline, and its participant (Stage 7: the account that created it).</summary>
-public sealed record DueAttempt(Guid AttemptId, long AccountId);
+/// <summary>Which deadline made an attempt due.</summary>
+public enum DeadlineKind { Assign, Launch, Join }
+
+/// <summary>An attempt past one of its deadlines (and its creator, informational: a release names its participants itself).</summary>
+public sealed record DueAttempt(Guid AttemptId, long AccountId, DeadlineKind Kind = DeadlineKind.Assign);
 
 /// <summary>What the deadline release of one due attempt found.</summary>
 public enum ExpireResult
 {
-    /// <summary>Released now, with <c>cancel_reason = 'no_capacity'</c>.</summary>
+    /// <summary>Released now: at least one participant, with the deadline's reason.</summary>
     Released,
 
-    /// <summary>Already released (a player cancel or another worker committed first): the stored outcome, nothing written.</summary>
+    /// <summary>Already released (a cancel, an exit or another worker committed first): the stored outcome, nothing written.</summary>
     AlreadyEnded,
 
-    /// <summary>Moved past admission since it was selected (a later state is never cancelled): nothing written.</summary>
+    /// <summary>Moved past the deadline's states since it was selected, or (join) every participant started: nothing written.</summary>
     NotAdmitted,
 }
 
-/// <param name="Due">How many attempts the selection returned (at most the batch).</param>
+/// <param name="Due">How many attempts the selections returned (at most the batch each).</param>
 /// <param name="Failures">One safe description per due attempt whose release failed and rolled back (a SQLSTATE and
-/// constraint, or an exception type), never a server message; that attempt stays due for the next sweep.</param>
+/// constraint, or an exception type), never a server message; that attempt cools down before it is selected again.</param>
 public sealed record SweepReport(int Due, int Released, int AlreadyEnded, int NotAdmitted, IReadOnlyList<string> Failures);
 
 /// <summary>
-/// The attempt read, the player cancel before start and the assignment deadline release (Stage 7 Task 7; owner rulings
-/// S7-D6 and S7-D7). Every release goes through <see cref="ReleaseLockedAsync"/>: one READ COMMITTED transaction, the
-/// documented lock order, guarded transitions, and the reserved energy given back exactly once with its ledger entry. A
-/// release never retries; a failure rolls everything back and propagates (a 23514 is a bug, answered 500; a timeout is busy).
+/// The deadline worker's memory of items whose release keeps failing (Stage 7 CP2 M3): after its n-th consecutive failure an
+/// attempt is left out of the selections for min(2^n, 64) sweeps, so it can't hold the head of the batch; a success forgets
+/// it. In memory and bounded (<see cref="MaxEntries"/>; past that, a new failing item is simply not cooled down). One per
+/// worker; not thread-safe (the worker's sweeps never overlap).
+/// </summary>
+public sealed class SweepCooldown
+{
+    public const int MaxEntries = 10_000;
+    readonly Dictionary<Guid, (int Failures, long Until)> items = new();
+    long sweep;
+
+    public int Count => items.Count;
+
+    internal void BeginSweep() => sweep++;
+
+    internal Guid[] Excluded() => items.Where(i => i.Value.Until >= sweep).Select(i => i.Key).ToArray(); // the next n sweeps after a failure
+
+    internal void Failed(Guid attempt)
+    {
+        var failures = items.TryGetValue(attempt, out var known) ? known.Failures + 1 : 1;
+        if (!items.ContainsKey(attempt) && items.Count >= MaxEntries) return;
+        items[attempt] = (failures, sweep + Math.Min(1L << Math.Min(failures, 6), 64));
+    }
+
+    internal void Succeeded(Guid attempt) => items.Remove(attempt);
+}
+
+/// <summary>
+/// The attempt read, the player cancel before start, and the release behind every pre-start exit: the assignment, launch and
+/// join deadlines (this store's sweep), the exit and failure reports and an invalid pool (their stores call
+/// <see cref="ReleaseParticipantsLockedAsync"/>). One READ COMMITTED transaction per release, the documented lock order,
+/// guarded transitions, and each participant's reserved energy given back exactly once with its ledger entry. A release never
+/// retries; a failure rolls everything back and propagates (a 23514 is a bug, answered 500; a timeout is busy).
 /// </summary>
 public sealed class AttemptStore(NpgsqlDataSource db)
 {
     readonly NpgsqlDataSource db = db ?? throw new ArgumentNullException(nameof(db));
 
+    /// <summary>The attempt states a release may cancel (the §7.2 edges to cancelled).</summary>
+    public static readonly string[] PreStartStates = ["admitted", "assigned", "launching", "ready"];
+
+    /// <summary>The participant states after a start (0008's attempt_participant_started).</summary>
+    static readonly string[] StartedStates = ["joined", "left", "result_pending", "unresponsive", "quarantined", "settled"];
+
     /// <summary>
     /// The account's participation in <paramref name="attemptId"/>, or null when the attempt is unknown or the account is not
-    /// its participant (the two are indistinguishable). One statement, so one snapshot: the attempt, participant, hold and
-    /// insurance snapshot are seen as of one instant. Selects neither the seed nor the salt.
+    /// its participant (the two are indistinguishable). One statement, so one snapshot. Selects neither the seed nor the salt.
     /// </summary>
     public async Task<AttemptView?> GetAsync(long accountId, Guid attemptId, CancellationToken ct = default)
     {
@@ -103,162 +158,230 @@ public sealed class AttemptStore(NpgsqlDataSource db)
     }
 
     /// <summary>
-    /// The player cancel before start (S7-D7): <see cref="ReleaseLockedAsync"/> with <c>player_cancel</c> in its own
-    /// transaction. NotFound for an unknown or foreign attempt, InvalidState after start; a repeat returns the stored outcome.
+    /// The player cancel before this participant's start (S7-D7; Stage 8: in any pre-start attempt state, B6): releases this
+    /// participant only, in its own transaction; the attempt is cancelled when no participant remains. NotFound for an unknown
+    /// or foreign attempt; InvalidState after this participant's start (or when the attempt runs with another participant); a
+    /// repeat returns the stored outcome.
     /// </summary>
     public async Task<ReleaseOutcome> CancelAsync(long accountId, Guid attemptId, CancellationToken ct = default)
     {
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        var outcome = await ReleaseLockedAsync(conn, tx, attemptId, accountId, CancelReasons.PlayerCancel, ct);
+        var batch = await ReleaseParticipantsLockedAsync(conn, tx, attemptId, [accountId], CancelReasons.PlayerCancel, PreStartStates, ct)
+            ?? throw new AttemptException(AttemptError.NotFound);
+        var mine = batch.Participants.Single();
+        if (mine.Outcome is null) throw new AttemptException(AttemptError.InvalidState); // disposing rolls back (nothing was written)
         await tx.CommitAsync(ct);
-        return outcome;
+        return mine.Outcome;
+    }
+
+    /// <summary>One participant in a <see cref="ReleaseBatch"/>: its outcome (released now, or the stored release), or null when
+    /// it could not be released (it started, or the attempt was not in an allowed state while it was still admitted).</summary>
+    public sealed record ParticipantRelease(long AccountId, ReleaseOutcome? Outcome);
+
+    /// <param name="StateBefore">The attempt's state when locked.</param>
+    /// <param name="AttemptState">The attempt's state after this release.</param>
+    public sealed record ReleaseBatch(string StateBefore, string AttemptState, IReadOnlyList<ParticipantRelease> Participants, bool AnyStarted)
+    {
+        public bool ReleasedAny => Participants.Any(p => p.Outcome is { Replayed: false });
     }
 
     /// <summary>
-    /// Releases <paramref name="accountId"/>'s participation in an admitted attempt, inside the caller's READ COMMITTED
-    /// transaction (never commits). In the documented lock order (Global Constraints, Release; spec §15.3):
+    /// Releases the named participants of <paramref name="attemptId"/> (all of them when <paramref name="only"/> is null) that
+    /// are still admitted, inside the caller's READ COMMITTED transaction (never commits), when the attempt is in one of
+    /// <paramref name="allowed"/>. Null when the attempt doesn't exist or (with <paramref name="only"/>) an account isn't its
+    /// participant: nothing is locked or written. Lock order (Global Constraints, Release; spec §15.3), in ascending account id
+    /// throughout, the participant set read unlocked first (insert-only, fixed at admission):
     /// <list type="number">
-    /// <item>the participant's accounts row FOR KEY SHARE, first, as admission and inventory edits take it. A positive release
-    /// writes the wallet twice (the materialization, then the credit), and the second UPDATE of a row this transaction already
-    /// wrote re-runs energy_wallets' account foreign-key check, which takes this key share. Taken there, it would follow the
-    /// wallet and the policy lock, and a same-account grant (accounts FOR UPDATE, then the wallet) would close a cycle (40P01).
-    /// It is the caller's own account (the session's, or the worker's <c>created_by</c>), so locking it reveals nothing;</item>
-    /// <item>the attempt FOR UPDATE, only when the account is its participant (another account's attempt is the same NotFound
-    /// as an unknown one, and its row is never locked);</item>
-    /// <item>the attempt's participants FOR UPDATE (Stage 7 attempts are solo; anything else is refused as a bug);</item>
-    /// <item>the participant's hold FOR UPDATE;</item>
-    /// <item>the account's inventories row FOR UPDATE: the inventory lock (S7-D4) changes while it is held, so an edit or a
-    /// pick waiting on it sees the terminal state, and an admission waiting on it sees the participation released;</item>
-    /// <item>for a positive amount only: the wallet FOR UPDATE and its materialization
-    /// (<see cref="EnergyLedgerWriter.MaterializeLockedAsync"/>: the shared policy lock, then the clock), then
-    /// <see cref="EnergyMath.Credit"/> (checked; it may exceed the cap, E6), one wallet UPDATE and the
-    /// <c>release:&lt;attempt&gt;</c> entry (delta +amount, the attempt id). A 0-amount hold takes no wallet or policy lock and
-    /// writes no entry;</item>
-    /// <item>the guarded transitions, each of which must touch exactly one row: the attempt <c>admitted → cancelled</c> with
-    /// <paramref name="reason"/> and <c>ended_at = clock_timestamp()</c> in one UPDATE, the participant
-    /// <c>admitted → released</c>, the hold <c>reserved → released</c> (its <c>updated_at</c> is the trigger's).</item>
+    /// <item>the participants' accounts FOR KEY SHARE (a positive release writes a wallet twice, and the second write re-checks
+    /// the account foreign key: taken after the wallet and the policy lock, it could deadlock with a same-account grant);</item>
+    /// <item>the attempt FOR UPDATE;</item>
+    /// <item>every participant of the attempt FOR UPDATE (whether any remains decides the attempt's cancellation);</item>
+    /// <item>the released participants' holds FOR UPDATE, then their inventories rows FOR UPDATE (the inventory lock changes
+    /// while they are held);</item>
+    /// <item>every positive hold's wallet FOR UPDATE, all before any materialization; then each materialization
+    /// (<see cref="EnergyLedgerWriter.MaterializeLockedAsync"/>: the shared policy lock, then the clock), the checked credit,
+    /// one wallet UPDATE and the <c>release:&lt;attempt&gt;</c> entry per account;</item>
+    /// <item>when no participant remains active or started, the attempt <c>→ cancelled</c> with <paramref name="reason"/> and
+    /// <c>ended_at</c>; then each participant <c>admitted → released</c> with its release reason, and each hold
+    /// <c>reserved → released</c>.</item>
     /// </list>
-    /// When the locked attempt is not admitted: already cancelled with this participant and hold released is the stored
-    /// outcome (Replayed, nothing written); anything else is InvalidState, so a later state is never cancelled. The attempt,
-    /// participant, loadout and insurance snapshots, hold and deploy request all remain.
+    /// A participant already released returns its stored outcome (Replayed); one that started, or any participant while the
+    /// attempt is outside <paramref name="allowed"/>, gets a null outcome and nothing is written for it.
     /// </summary>
-    public static async Task<ReleaseOutcome> ReleaseLockedAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Guid attemptId, long accountId, string reason,
-        CancellationToken ct)
+    public static async Task<ReleaseBatch?> ReleaseParticipantsLockedAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Guid attemptId, IReadOnlyCollection<long>? only,
+        string reason, IReadOnlyCollection<string> allowed, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(conn);
         ArgumentNullException.ThrowIfNull(tx);
-        if (reason is not (CancelReasons.PlayerCancel or CancelReasons.NoCapacity)) throw new ArgumentOutOfRangeException(nameof(reason));
+        if (!CancelReasons.All.Contains(reason)) throw new ArgumentOutOfRangeException(nameof(reason));
         EnergyPolicies.RequireReadCommitted(tx);
 
-        // accounts first (see the lock order above). An unknown account has no participation: the same NotFound.
-        if (await conn.QuerySingleOrDefaultAsync<int?>(new CommandDefinition(
-                "select 1 from accounts where account_id = @accountId for key share", new { accountId }, tx, cancellationToken: ct)) is null)
-            throw new AttemptException(AttemptError.NotFound);
-        var attempt = await conn.QuerySingleOrDefaultAsync<(string State, string? CancelReason)?>(new CommandDefinition(
-            """
-            select a.state, a.cancel_reason from mission_attempts a
-            where a.attempt_id = @attemptId
-              and exists (select 1 from attempt_participants p where p.attempt_id = a.attempt_id and p.account_id = @accountId)
-            for update
-            """, new { attemptId, accountId }, tx, cancellationToken: ct))
-            ?? throw new AttemptException(AttemptError.NotFound);
-        var participants = (await conn.QueryAsync<(long AccountId, string State)>(new CommandDefinition(
-            "select account_id, state from attempt_participants where attempt_id = @attemptId order by account_id for update",
-            new { attemptId }, tx, cancellationToken: ct))).ToList();
-        if (participants.Count != 1 || participants[0].AccountId != accountId)
-            throw new InvalidOperationException("A Stage 7 attempt has exactly one participant.");
-        var participant = participants[0].State;
-        var hold = await conn.QuerySingleAsync<(int Amount, string State)>(new CommandDefinition(
-            "select amount, state from energy_holds where attempt_id = @attemptId and account_id = @accountId for update",
-            new { attemptId, accountId }, tx, cancellationToken: ct));
+        var all = (await conn.QueryAsync<long>(new CommandDefinition(
+            "select account_id from attempt_participants where attempt_id = @attemptId order by account_id", new { attemptId }, tx, cancellationToken: ct))).ToArray();
+        if (all.Length == 0 || (only is not null && only.Any(a => Array.IndexOf(all, a) < 0))) return null;
+        var targets = (only ?? all).Distinct().Order().ToArray();
 
-        if (attempt.State != AdmissionStore.AdmittedState)
+        await conn.ExecuteAsync(new CommandDefinition(
+            "select 1 from accounts where account_id = any(@targets) order by account_id for key share", new { targets }, tx, cancellationToken: ct));
+        var state = await conn.QuerySingleAsync<string>(new CommandDefinition(
+            "select state from mission_attempts where attempt_id = @attemptId for update", new { attemptId }, tx, cancellationToken: ct));
+        var participants = (await conn.QueryAsync<(long AccountId, string State, string? ReleaseReason)>(new CommandDefinition(
+            "select account_id, state, release_reason from attempt_participants where attempt_id = @attemptId order by account_id for update",
+            new { attemptId }, tx, cancellationToken: ct))).ToDictionary(p => p.AccountId);
+        var anyStarted = participants.Values.Any(p => StartedStates.Contains(p.State));
+
+        var releasable = allowed.Contains(state) ? targets.Where(a => participants[a].State == "admitted").ToArray() : [];
+        var holds = (await conn.QueryAsync<(long AccountId, int Amount, string State)>(new CommandDefinition(
+            "select account_id, amount, state from energy_holds where attempt_id = @attemptId and account_id = any(@targets) order by account_id for update",
+            new { attemptId, targets }, tx, cancellationToken: ct))).ToDictionary(h => h.AccountId);
+
+        var results = new Dictionary<long, ReleaseOutcome?>();
+        foreach (var account in targets.Except(releasable))
         {
-            if (attempt is { State: "cancelled", CancelReason: { } stored } && participant == "released" && hold.State == "released")
-                return new ReleaseOutcome("released", hold.Amount, await ReleasedBalanceAsync(conn, tx, attemptId, accountId, hold.Amount, ct), stored, Replayed: true);
-            throw new AttemptException(AttemptError.InvalidState);
+            var p = participants[account];
+            results[account] = p.State == "released" && holds[account].State == "released"
+                ? new ReleaseOutcome("released", holds[account].Amount, await ReleasedBalanceAsync(conn, tx, attemptId, account, holds[account].Amount, ct),
+                    p.ReleaseReason ?? throw new InvalidOperationException("A released participant has no release reason."), Replayed: true)
+                : null;
         }
-        if (participant != AdmissionStore.AdmittedState || hold.State != "reserved") throw new AttemptException(AttemptError.InvalidState);
+        var before = state;
+        if (releasable.Length == 0) return new ReleaseBatch(before, state, targets.Select(a => new ParticipantRelease(a, results[a])).ToList(), anyStarted);
 
-        await conn.QueryAsync<long>(new CommandDefinition(
-            "select account_id from inventories where account_id = @accountId for update", new { accountId }, tx, cancellationToken: ct));
+        foreach (var account in releasable)
+            if (holds[account].State != "reserved") throw new InvalidOperationException("An admitted participant's hold is not reserved.");
+        await conn.ExecuteAsync(new CommandDefinition(
+            "select 1 from inventories where account_id = any(@releasable) order by account_id for update", new { releasable }, tx, cancellationToken: ct));
 
-        int? balanceAfter = null;
-        if (hold.Amount > 0)
+        var positive = releasable.Where(a => holds[a].Amount > 0).ToArray();
+        var balances = new Dictionary<long, int>();
+        if (positive.Length > 0)
         {
-            var materialized = await EnergyLedgerWriter.MaterializeLockedAsync(conn, tx, accountId, ct)
-                ?? throw new InvalidOperationException("A positive energy hold has no wallet to release into.");
-            var after = EnergyMath.Credit(materialized.Wallet.Balance, hold.Amount);
-            await ExactlyOneAsync(conn, tx, ct, "update energy_wallets set balance = @after where account_id = @accountId", new { accountId, after });
+            await conn.ExecuteAsync(new CommandDefinition(
+                "select 1 from energy_wallets where account_id = any(@positive) order by account_id for update", new { positive }, tx, cancellationToken: ct));
+            foreach (var account in positive)
+            {
+                var materialized = await EnergyLedgerWriter.MaterializeLockedAsync(conn, tx, account, ct)
+                    ?? throw new InvalidOperationException("A positive energy hold has no wallet to release into.");
+                var after = EnergyMath.Credit(materialized.Wallet.Balance, holds[account].Amount);
+                await ExactlyOneAsync(conn, tx, ct, "update energy_wallets set balance = @after where account_id = @account", new { account, after });
+                await ExactlyOneAsync(conn, tx, ct,
+                    """
+                    insert into energy_ledger (account_id, attempt_id, kind, delta, balance_after, idempotency_key)
+                    values (@account, @attemptId, 'release', @delta, @after, @key)
+                    """, new { account, attemptId, delta = holds[account].Amount, after, key = ReleaseKey(attemptId) });
+                balances[account] = after;
+            }
+        }
+
+        // The attempt is cancelled when nothing remains to play: every participant released, none started.
+        var remaining = participants.Values.Any(p => !releasable.Contains(p.AccountId) && (p.State == "admitted" || StartedStates.Contains(p.State)));
+        if (!remaining)
+        {
             await ExactlyOneAsync(conn, tx, ct,
-                """
-                insert into energy_ledger (account_id, attempt_id, kind, delta, balance_after, idempotency_key)
-                values (@accountId, @attemptId, 'release', @delta, @after, @key)
-                """, new { accountId, attemptId, delta = hold.Amount, after, key = ReleaseKey(attemptId) });
-            balanceAfter = after;
+                "update mission_attempts set state = 'cancelled', cancel_reason = @reason, ended_at = clock_timestamp() where attempt_id = @attemptId and state = any(@allowed)",
+                new { attemptId, reason, allowed = allowed.ToArray() });
+            state = "cancelled";
         }
-
-        await ExactlyOneAsync(conn, tx, ct,
-            "update mission_attempts set state = 'cancelled', cancel_reason = @reason, ended_at = clock_timestamp() where attempt_id = @attemptId and state = 'admitted'",
-            new { attemptId, reason });
-        await ExactlyOneAsync(conn, tx, ct,
-            "update attempt_participants set state = 'released', release_reason = @reason where attempt_id = @attemptId and account_id = @accountId and state = 'admitted'",
-            new { attemptId, accountId, reason });
-        await ExactlyOneAsync(conn, tx, ct,
-            "update energy_holds set state = 'released' where attempt_id = @attemptId and account_id = @accountId and state = 'reserved'",
-            new { attemptId, accountId });
-        return new ReleaseOutcome("released", hold.Amount, balanceAfter, reason, Replayed: false);
+        foreach (var account in releasable)
+        {
+            await ExactlyOneAsync(conn, tx, ct,
+                "update attempt_participants set state = 'released', release_reason = @reason where attempt_id = @attemptId and account_id = @account and state = 'admitted'",
+                new { attemptId, account, reason });
+            await ExactlyOneAsync(conn, tx, ct,
+                "update energy_holds set state = 'released' where attempt_id = @attemptId and account_id = @account and state = 'reserved'",
+                new { attemptId, account });
+            results[account] = new ReleaseOutcome("released", holds[account].Amount, balances.TryGetValue(account, out var b) ? b : null, reason, Replayed: false);
+        }
+        return new ReleaseBatch(before, state, targets.Select(a => new ParticipantRelease(a, results[a])).ToList(), anyStarted);
     }
 
     /// <summary>
-    /// The admitted attempts whose <c>assign_deadline &lt;= clock_timestamp()</c> (database time: a deadline exactly at now is
-    /// due), oldest deadline first, at most <paramref name="limit"/>, selected FOR UPDATE SKIP LOCKED in a short transaction
-    /// that commits at once: an attempt a release is working on (its row locked) is skipped, never waited for. The lock ends
-    /// with the transaction, so two workers can still select one attempt; each release re-locks it and the later one sees the
-    /// stored outcome.
+    /// The attempts past <paramref name="kind"/>'s deadline by the database clock (a deadline exactly at now is due), oldest
+    /// deadline first, at most <paramref name="limit"/>, minus <paramref name="excluded"/>, selected FOR UPDATE SKIP LOCKED in
+    /// a short transaction that commits at once (an attempt a release is working on is skipped, never waited for). Assign:
+    /// admitted. Launch: assigned or launching. Join: ready or running with a participant still admitted. Never any other
+    /// state: a running attempt is never released here (D-11), only its unstarted participants by the join deadline.
     /// </summary>
-    public async Task<IReadOnlyList<DueAttempt>> DueAsync(int limit, CancellationToken ct = default)
+    public async Task<IReadOnlyList<DueAttempt>> DueAsync(DeadlineKind kind, int limit, Guid[]? excluded = null, CancellationToken ct = default)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(limit, 1);
+        var sql = kind switch
+        {
+            DeadlineKind.Assign => """
+                select attempt_id, created_by from mission_attempts
+                where state = 'admitted' and assign_deadline <= clock_timestamp() and attempt_id <> all(@excluded)
+                order by assign_deadline limit @limit for update skip locked
+                """,
+            DeadlineKind.Launch => """
+                select attempt_id, created_by from mission_attempts
+                where state in ('assigned', 'launching') and launch_deadline <= clock_timestamp() and attempt_id <> all(@excluded)
+                order by launch_deadline limit @limit for update skip locked
+                """,
+            DeadlineKind.Join => """
+                select a.attempt_id, a.created_by from mission_attempts a
+                where a.state in ('ready', 'running') and a.join_deadline <= clock_timestamp() and a.attempt_id <> all(@excluded)
+                  and exists (select 1 from attempt_participants p where p.attempt_id = a.attempt_id and p.state = 'admitted')
+                order by a.join_deadline limit @limit for update of a skip locked
+                """,
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        var due = (await conn.QueryAsync<(Guid AttemptId, long AccountId)>(new CommandDefinition(
-            """
-            select attempt_id, created_by from mission_attempts
-            where state = 'admitted' and assign_deadline <= clock_timestamp()
-            order by assign_deadline limit @limit
-            for update skip locked
-            """, new { limit }, tx, cancellationToken: ct))).Select(r => new DueAttempt(r.AttemptId, r.AccountId)).ToList();
+        var due = (await conn.QueryAsync<(Guid AttemptId, long AccountId)>(new CommandDefinition(sql, new { limit, excluded = excluded ?? [] }, tx, cancellationToken: ct)))
+            .Select(r => new DueAttempt(r.AttemptId, r.AccountId, kind)).ToList();
         await tx.CommitAsync(ct);
         return due;
     }
 
+    /// <summary>The admitted attempts past their assignment deadline (Stage 7's selection).</summary>
+    public Task<IReadOnlyList<DueAttempt>> DueAsync(int limit, CancellationToken ct = default) => DueAsync(DeadlineKind.Assign, limit, null, ct);
+
     /// <summary>
-    /// The deadline release of one selected attempt (S7-D6): <see cref="ReleaseLockedAsync"/> with <c>no_capacity</c> in its
-    /// own transaction. It re-locks the attempt, so a player cancel or another worker that committed in between makes this the
-    /// stored outcome (AlreadyEnded), and an attempt that moved past admission is left alone (NotAdmitted, rolled back).
+    /// The deadline release of one selected attempt, in its own transaction: every participant still admitted, with
+    /// <c>no_capacity</c>, <c>launch_timeout</c> or <c>join_timeout</c>. It re-locks the attempt, so a release that committed in
+    /// between makes this the stored outcome (AlreadyEnded), and an attempt that moved past the deadline's states is left
+    /// alone (NotAdmitted, rolled back).
     /// </summary>
     public async Task<ExpireResult> ExpireAsync(DueAttempt due, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(due);
+        var (reason, allowed) = due.Kind switch
+        {
+            DeadlineKind.Assign => (CancelReasons.NoCapacity, new[] { "admitted" }),
+            DeadlineKind.Launch => (CancelReasons.LaunchTimeout, new[] { "assigned", "launching" }),
+            DeadlineKind.Join => (CancelReasons.JoinTimeout, new[] { "ready", "running" }),
+            _ => throw new ArgumentOutOfRangeException(nameof(due)),
+        };
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        ReleaseOutcome outcome;
-        try { outcome = await ReleaseLockedAsync(conn, tx, due.AttemptId, due.AccountId, CancelReasons.NoCapacity, ct); }
-        catch (AttemptException e) when (e.Error == AttemptError.InvalidState) { return ExpireResult.NotAdmitted; } // disposing rolls back
-        await tx.CommitAsync(ct);
-        return outcome.Replayed ? ExpireResult.AlreadyEnded : ExpireResult.Released;
+        var batch = await ReleaseParticipantsLockedAsync(conn, tx, due.AttemptId, null, reason, allowed, ct)
+            ?? throw new InvalidOperationException("A due attempt has no participants.");
+        if (batch.ReleasedAny)
+        {
+            await tx.CommitAsync(ct);
+            return ExpireResult.Released;
+        }
+        return batch.AttemptState == "cancelled" && batch.Participants.All(p => p.Outcome is { Replayed: true }) ? ExpireResult.AlreadyEnded : ExpireResult.NotAdmitted;
     }
 
+    /// <summary>One sweep with no memory of earlier failures (tests and one-off runs).</summary>
+    public Task<SweepReport> SweepAsync(int limit, CancellationToken ct = default) => SweepAsync(limit, new SweepCooldown(), ct);
+
     /// <summary>
-    /// One deadline sweep: <see cref="DueAsync"/>, then <see cref="ExpireAsync"/> for each due attempt, each in its own
-    /// transaction. A release that fails rolls back alone and is reported by its safe description (the attempt stays due for
-    /// the next sweep; nothing retries here); the others still run. A failing selection propagates. Cancellation propagates.
+    /// One deadline sweep: the assign, launch and join selections (each at most <paramref name="limit"/>, minus the attempts
+    /// cooling down), then <see cref="ExpireAsync"/> for each due attempt, each in its own transaction. A release that fails
+    /// rolls back alone, is reported by its safe description and cools down; the others still run. A failing selection
+    /// propagates. Cancellation propagates.
     /// </summary>
-    public async Task<SweepReport> SweepAsync(int limit, CancellationToken ct = default)
+    public async Task<SweepReport> SweepAsync(int limit, SweepCooldown cooldown, CancellationToken ct = default)
     {
-        var due = await DueAsync(limit, ct);
+        ArgumentNullException.ThrowIfNull(cooldown);
+        cooldown.BeginSweep();
+        var excluded = cooldown.Excluded();
+        var due = new List<DueAttempt>();
+        foreach (var kind in new[] { DeadlineKind.Assign, DeadlineKind.Launch, DeadlineKind.Join })
+            due.AddRange(await DueAsync(kind, limit, excluded, ct));
         int released = 0, ended = 0, notAdmitted = 0;
         var failures = new List<string>();
         foreach (var attempt in due)
@@ -271,15 +394,16 @@ public sealed class AttemptStore(NpgsqlDataSource db)
                     case ExpireResult.AlreadyEnded: ended++; break;
                     case ExpireResult.NotAdmitted: notAdmitted++; break;
                 }
+                cooldown.Succeeded(attempt.AttemptId);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-            catch (NpgsqlException e) { failures.Add(DbFailure.SafeDescription(e)); }
-            catch (Exception e) { failures.Add(e.GetType().Name); } // a bug in one release must not stop the others
+            catch (NpgsqlException e) { failures.Add(DbFailure.SafeDescription(e)); cooldown.Failed(attempt.AttemptId); }
+            catch (Exception e) { failures.Add(e.GetType().Name); cooldown.Failed(attempt.AttemptId); } // a bug in one release must not stop the others
         }
         return new SweepReport(due.Count, released, ended, notAdmitted, failures);
     }
 
-    /// <summary>The ledger key of an attempt's release (0006/0007: unique per account, naming the attempt).</summary>
+    /// <summary>The ledger key of a participant's release (0006/0007: unique per account, naming the attempt).</summary>
     public static string ReleaseKey(Guid attemptId) => "release:" + attemptId.ToString("D");
 
     /// <summary>The balance the stored release entry recorded; null for a zero amount (no entry).</summary>

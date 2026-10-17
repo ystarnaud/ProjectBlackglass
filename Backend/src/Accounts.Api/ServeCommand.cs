@@ -93,9 +93,10 @@ public static class ServeCommand
         // own registration, so a test's configure can replace the worker (and its sweep) as a whole.
         builder.Services.AddSingleton(new AttemptStore(dataSource));
         var sweepInterval = TimeSpan.FromSeconds(attempts.AttemptSweepSeconds);
-        builder.Services.AddSingleton(sp => new AssignDeadlineWorker(ct => sp.GetRequiredService<AttemptStore>().SweepAsync(AssignDeadlineWorker.BatchSize, ct),
+        var cooldown = new SweepCooldown(); // the worker's memory of releases that keep failing (sweeps never overlap)
+        builder.Services.AddSingleton(sp => new AttemptDeadlineWorker(ct => sp.GetRequiredService<AttemptStore>().SweepAsync(AttemptDeadlineWorker.BatchSize, cooldown, ct),
             sweepInterval, sp.GetRequiredService<ILoggerFactory>()));
-        builder.Services.AddHostedService(sp => sp.GetRequiredService<AssignDeadlineWorker>());
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<AttemptDeadlineWorker>());
         if (energy.ReconcileSeconds != 0)
         {
             // The periodic reconciliation (E4): its first sweep waits one interval, so startup never waits for one. Resolved
@@ -137,6 +138,7 @@ public static class ServeCommand
         app.MapPlayer(auth);
         app.MapAttempts(attempts);
         app.MapAgent(attempts);
+        app.MapProcess();
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
     }

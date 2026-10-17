@@ -73,7 +73,29 @@ public static class AgentEndpoints
                 _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
             };
         });
+
+        // POST /agent/v1/attempts/{attemptId}/exited, body {exitCode, signal, results:[{accountId, present}]} → {applied}.
+        agent.MapPost("/attempts/{attemptId}/exited", async (string attemptId, HttpContext http, HostStore hosts) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var (body, refusal) = await MissionBodies.ReadAsync(http, ExitedRequest.Parse);
+            if (refusal is not null) return refusal;
+            if (!CanonicalUuid.TryParse(attemptId, out var id)) return MissionBodies.Problem(StatusCodes.Status404NotFound, "AttemptNotFound");
+            return ReportResult(await hosts.ExitedAsync(MissionClaims.HostOf(http.User), id, body!, http.RequestAborted));
+        });
     }
+
+    /// <summary>The answer to an exit or failure report, shared with the process route.</summary>
+    public static IResult ReportResult(Blackglass.Accounts.Persistence.Attempts.ExitReportResult result) => result switch
+    {
+        Blackglass.Accounts.Persistence.Attempts.ExitReportResult.Applied a => Results.Json(new AppliedResponse(a.Outcome), Web),
+        Blackglass.Accounts.Persistence.Attempts.ExitReportResult.Conflicting => MissionBodies.Problem(StatusCodes.Status409Conflict, "ConflictingReport"),
+        Blackglass.Accounts.Persistence.Attempts.ExitReportResult.UnknownParticipant => MissionBodies.Problem(StatusCodes.Status400BadRequest, "UnknownParticipant"),
+        Blackglass.Accounts.Persistence.Attempts.ExitReportResult.WrongSession => MissionBodies.Problem(StatusCodes.Status409Conflict, "WrongSession"),
+        _ => MissionBodies.Problem(StatusCodes.Status404NotFound, "AttemptNotFound"),
+    };
+
+    public sealed record AppliedResponse(string Applied);
 
     public sealed record HeartbeatResponse(bool Drained, string[] Stop);
 

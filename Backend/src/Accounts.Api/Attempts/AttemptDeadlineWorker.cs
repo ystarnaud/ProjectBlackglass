@@ -5,9 +5,10 @@ using Blackglass.Accounts.Persistence.Attempts;
 namespace Blackglass.Accounts.Api.Attempts;
 
 /// <summary>
-/// The assignment deadline worker in the API process (owner ruling S7-D6): every BLACKGLASS_ATTEMPT_SWEEP_SECONDS it runs one
-/// sweep (<see cref="AttemptStore.SweepAsync"/> in serve, with <see cref="BatchSize"/>), which cancels admitted attempts past
-/// their deadline with <c>no_capacity</c> and releases their energy exactly once. serve always registers it: the release of an
+/// The attempt deadline worker in the API process (owner ruling S7-D6; Stage 8 Task 6): every BLACKGLASS_ATTEMPT_SWEEP_SECONDS it
+/// runs one sweep (<see cref="AttemptStore.SweepAsync"/> in serve, with <see cref="BatchSize"/> per deadline and the process's
+/// <see cref="SweepCooldown"/>), which releases, exactly once per participant, the unstarted participants of attempts past their
+/// assignment, launch or join deadline (cancelling the attempt when none remains), and never touches a started participant. serve always registers it: the release of an
 /// expired attempt depends on it, so it cannot be switched off. Like the energy reconciliation it first waits one whole
 /// interval, so startup never waits for (or runs) a sweep; sweeps never overlap within one process (a missed tick is
 /// coalesced), and several processes are safe (the selection skips locked rows and each release re-locks its attempt). A
@@ -17,7 +18,7 @@ namespace Blackglass.Accounts.Api.Attempts;
 /// </summary>
 /// <param name="sweep">One sweep. A delegate rather than the store, so a test can count, hold or fail sweeps inside the real
 /// host without an interface that has only one implementation.</param>
-public sealed class AssignDeadlineWorker(Func<CancellationToken, Task<SweepReport>> sweep, TimeSpan interval, ILoggerFactory logs) : BackgroundService
+public sealed class AttemptDeadlineWorker(Func<CancellationToken, Task<SweepReport>> sweep, TimeSpan interval, ILoggerFactory logs) : BackgroundService
 {
     /// <summary>The most attempts one sweep releases; more wait for the next sweep (provisional).</summary>
     public const int BatchSize = 100;
@@ -43,23 +44,23 @@ public sealed class AssignDeadlineWorker(Func<CancellationToken, Task<SweepRepor
         {
             var report = await sweep(ct);
             if (report.Released > 0 || report.AlreadyEnded > 0 || report.NotAdmitted > 0)
-                log.LogInformation("Assignment deadline released {Released} attempts ({AlreadyEnded} already ended, {NotAdmitted} past admission) of {Due} due",
+                log.LogInformation("Deadline sweep released {Released} attempts ({AlreadyEnded} already ended, {NotAdmitted} moved on) of {Due} due",
                     report.Released, report.AlreadyEnded, report.NotAdmitted, report.Due);
             if (report.Failures.Count > 0)
-                log.LogError("Assignment deadline release failed for {Failed} of {Due} due attempts: {Failures}; they stay due for the next sweep in {IntervalSeconds} s",
+                log.LogError("Deadline release failed for {Failed} of {Due} due attempts: {Failures}; they cool down before the next tries; the next sweep runs in {IntervalSeconds} s",
                     report.Failures.Count, report.Due, string.Join("; ", report.Failures), interval.TotalSeconds);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (NpgsqlException e)
         {
             // Not the exception itself: its message and detail are the server's and can quote values.
-            log.LogError("Assignment deadline sweep failed: {Failure}; nothing was released by it; the next sweep runs in {IntervalSeconds} s",
+            log.LogError("Deadline sweep failed: {Failure}; nothing was released by it; the next sweep runs in {IntervalSeconds} s",
                 DbFailure.SafeDescription(e), interval.TotalSeconds);
         }
         catch (Exception e)
         {
             // Anything else is a bug; its type is enough to find it, and the host must keep serving.
-            log.LogError("Assignment deadline sweep failed: {Failure}; nothing was released by it; the next sweep runs in {IntervalSeconds} s",
+            log.LogError("Deadline sweep failed: {Failure}; nothing was released by it; the next sweep runs in {IntervalSeconds} s",
                 e.GetType().Name, interval.TotalSeconds);
         }
     }

@@ -249,12 +249,12 @@ public class AttemptStoreTests : IAsyncLifetime
         Assert.Null(await attempts.GetAsync(account, Guid.CreateVersion7()));
         Assert.Equal(before, await StateAsync());
 
-        // After start (any state but admitted) a cancel is InvalidState and never cancels: the attempt is assigned here by SQL.
-        await AttemptFixtures.MoveAsync(db, mine, "assigned");
+        // After this participant's start a cancel is InvalidState and never cancels: the start is written here by SQL.
+        await AttemptFixtures.StartAsync(db, mine, account);
         before = await StateAsync();
         Assert.Equal(AttemptError.InvalidState, (await RefusedAsync(attempts.CancelAsync(account, mine))).Error);
         Assert.Equal(before, await StateAsync());
-        Assert.Equal(1L, await ActiveParticipationsAsync(account));
+        Assert.Equal("joined", await ScalarAsync<string>("select state from attempt_participants where attempt_id = @mine", new { mine }));
     }
 
     [Fact]
