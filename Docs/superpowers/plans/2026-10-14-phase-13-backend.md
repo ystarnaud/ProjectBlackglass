@@ -210,7 +210,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 6: energy
 
-**Status: implemented on branch `phase13-stage6`, awaiting the owner's review; not merged, implementation commits not pushed, not deployed.** Authorized by the owner on 2026-10-16 with rulings E1–E7 (spec revision 2.6, §0.6). Schema version 6. Measured counts, VM evidence, reviews and rulings: the detailed plan's "As built". Detailed plan: `Docs/superpowers/plans/2026-10-16-phase-13-stage6-energy.md` (revision 2). It supersedes the work list below where they differ: non-retroactive policy versions with database-set effective times, a stored partial-progress column, the explicit `energy open` verb, CLI-only grants, and the reconciliation hosted service.
+**Status: done, approved by the owner and merged into `main` and pushed (2026-10-17), including the owner-required grant-replay correction; not deployed.** Authorized by the owner on 2026-10-16 with rulings E1–E7 (spec revision 2.6, §0.6). Schema version 6. Measured counts, VM evidence, reviews and rulings: the detailed plan's "As built". Detailed plan: `Docs/superpowers/plans/2026-10-16-phase-13-stage6-energy.md` (revision 2). It supersedes the work list below where they differ: non-retroactive policy versions with database-set effective times, a stored partial-progress column, the explicit `energy open` verb, CLI-only grants, and the reconciliation hosted service.
 
 **Touches:** `Backend/` only.
 
