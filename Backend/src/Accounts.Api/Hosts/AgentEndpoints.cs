@@ -92,6 +92,7 @@ public static class AgentEndpoints
         Blackglass.Accounts.Persistence.Attempts.ExitReportResult.Conflicting => MissionBodies.Problem(StatusCodes.Status409Conflict, "ConflictingReport"),
         Blackglass.Accounts.Persistence.Attempts.ExitReportResult.UnknownParticipant => MissionBodies.Problem(StatusCodes.Status400BadRequest, "UnknownParticipant"),
         Blackglass.Accounts.Persistence.Attempts.ExitReportResult.WrongSession => MissionBodies.Problem(StatusCodes.Status409Conflict, "WrongSession"),
+        Blackglass.Accounts.Persistence.Attempts.ExitReportResult.Ended => UniformUnauthorized.Result,
         _ => MissionBodies.Problem(StatusCodes.Status404NotFound, "AttemptNotFound"),
     };
 

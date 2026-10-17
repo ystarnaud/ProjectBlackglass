@@ -18,6 +18,8 @@ public abstract record RegisterResult
     /// <summary>Not exactly the claimed build, or that build is no longer enabled or allowlisted for the template: nothing written.</summary>
     public sealed record BuildNotAllowed : RegisterResult;
     public sealed record InvalidState : RegisterResult;
+    /// <summary>The presenting credential is no longer the attempt's (a recovery replaced it after authentication): the uniform 401.</summary>
+    public sealed record Unauthenticated : RegisterResult;
 }
 
 public abstract record ReadyResult
@@ -28,7 +30,9 @@ public abstract record ReadyResult
     /// <summary>The objectives break the rules: nothing written.</summary>
     public sealed record InvalidObjectives(IReadOnlyList<string> Errors) : ReadyResult;
     public sealed record WrongSession : ReadyResult;
-    /// <summary>Not launching, or already ready with a different report: nothing written.</summary>
+    /// <summary>The attempt was admitted under another catalogue than the one judging its pool: nothing written, nothing cancelled.</summary>
+    public sealed record CatalogueMismatch : ReadyResult;
+    /// <summary>Not launching, past its launch deadline, or already ready with a different report: nothing written.</summary>
     public sealed record InvalidState : ReadyResult;
 }
 
@@ -65,8 +69,11 @@ public sealed class ProcessStore(NpgsqlDataSource db)
     /// nothing written). The first call writes a new UUIDv7 session; a repeat while launching returns the same session and
     /// configuration. The seed is read from attempt_secrets for this response only; the salt is never read here.
     /// </summary>
-    public async Task<RegisterResult> RegisterAsync(Guid attemptId, RegisterRequest request, CancellationToken ct)
+    /// <param name="credentialHash">The SHA-256 of the credential this request presented: it must still be the attempt's under the
+    /// attempt lock (a recovery that committed after authentication makes it Unauthenticated, nothing written; R1).</param>
+    public async Task<RegisterResult> RegisterAsync(Guid attemptId, byte[] credentialHash, RegisterRequest request, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(credentialHash);
         ArgumentNullException.ThrowIfNull(request);
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
@@ -74,9 +81,10 @@ public sealed class ProcessStore(NpgsqlDataSource db)
             Guid? Session, DateTime? LaunchDeadline)?>(new CommandDefinition(
             """
             select state, build_revision, catalogue_version, template_id, template_version, process_session_id, launch_deadline
-            from mission_attempts where attempt_id = @attemptId for update
-            """, new { attemptId }, tx, cancellationToken: ct));
-        if (attempt is not { } a || a.State is not ("assigned" or "launching")) return new RegisterResult.InvalidState();
+            from mission_attempts where attempt_id = @attemptId and process_credential_hash = @credentialHash for update
+            """, new { attemptId, credentialHash }, tx, cancellationToken: ct));
+        if (attempt is not { } a) return new RegisterResult.Unauthenticated();
+        if (a.State is not ("assigned" or "launching")) return new RegisterResult.InvalidState();
         var allowed = request.Build.Revision == a.BuildRevision && request.Build.CatalogueVersion == a.CatalogueVersion
             && await conn.ExecuteScalarAsync<bool>(new CommandDefinition(
                 """
@@ -109,7 +117,10 @@ public sealed class ProcessStore(NpgsqlDataSource db)
     /// table version and the loot hash, and the objectives and pool inserted (all written once). A repeat while ready with the
     /// identical report answers the stored join deadline; any difference is InvalidState.
     /// </summary>
-    public async Task<ReadyResult> ReadyAsync(Guid attemptId, ReadyReport report, Blackglass.Accounts.Domain.Catalogue.LootTable table, int joinDeadlineSeconds, CancellationToken ct)
+    /// <param name="tableCatalogueVersion">The version of the catalogue <paramref name="table"/> comes from: an attempt admitted under
+    /// another is CatalogueMismatch (its pool is never judged against the wrong table, and nothing is cancelled).</param>
+    public async Task<ReadyResult> ReadyAsync(Guid attemptId, ReadyReport report, Blackglass.Accounts.Domain.Catalogue.LootTable table, string tableCatalogueVersion,
+        int joinDeadlineSeconds, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(report);
         ArgumentNullException.ThrowIfNull(table);
@@ -120,10 +131,12 @@ public sealed class ProcessStore(NpgsqlDataSource db)
 
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        // The session is written once: an unlocked read decides WrongSession before any lock or write.
-        if (await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-                "select process_session_id from mission_attempts where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct)) != report.ProcessSessionId)
-            return new ReadyResult.WrongSession();
+        // The session and the catalogue are written once: an unlocked read decides WrongSession and CatalogueMismatch before any
+        // lock or write.
+        var identity = await conn.QuerySingleOrDefaultAsync<(Guid? Session, string Catalogue)?>(new CommandDefinition(
+            "select process_session_id, catalogue_version from mission_attempts where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct));
+        if (identity is not { } id || id.Session != report.ProcessSessionId) return new ReadyResult.WrongSession();
+        if (id.Catalogue != tableCatalogueVersion) return new ReadyResult.CatalogueMismatch();
         if (poolErrors.Count > 0)
         {
             var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.InvalidPool, ["launching"], ct)
@@ -133,8 +146,11 @@ public sealed class ProcessStore(NpgsqlDataSource db)
             return new ReadyResult.InvalidLootPool(poolErrors);
         }
 
-        var stored = await conn.QuerySingleAsync<(string State, string? LayoutHash, int? TableVersion, string? LootHash, DateTime? JoinDeadline)>(new CommandDefinition(
-            "select state, layout_hash, loot_table_version, loot_hash, join_deadline from mission_attempts where attempt_id = @attemptId for update",
+        var stored = await conn.QuerySingleAsync<(string State, string? LayoutHash, int? TableVersion, string? LootHash, DateTime? JoinDeadline, bool LaunchExpired)>(new CommandDefinition(
+            """
+            select state, layout_hash, loot_table_version, loot_hash, join_deadline, coalesce(launch_deadline <= clock_timestamp(), false)
+            from mission_attempts where attempt_id = @attemptId for update
+            """,
             new { attemptId }, tx, cancellationToken: ct));
         if (stored.State == "ready")
         {
@@ -145,7 +161,8 @@ public sealed class ProcessStore(NpgsqlDataSource db)
                 && objectives.SequenceEqual(report.Objectives);
             return same ? new ReadyResult.Ready(Utc(stored.JoinDeadline!.Value)) : new ReadyResult.InvalidState();
         }
-        if (stored.State != "launching") return new ReadyResult.InvalidState();
+        // The launch deadline is authoritative (database clock, after the lock): past it, ready is refused and the worker cancels.
+        if (stored.State != "launching" || stored.LaunchExpired) return new ReadyResult.InvalidState();
 
         var joinDeadline = await conn.ExecuteScalarAsync<DateTime>(new CommandDefinition(
             """
@@ -237,6 +254,9 @@ public sealed class ProcessStore(NpgsqlDataSource db)
         var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.ProcessFailed, AttemptStore.PreStartStates, ct)
             ?? throw new InvalidOperationException("An attempt has no participants.");
         if (await StoredAsync() is { } raced) return raced;
+        // An attempt that ended before this report (its credential was valid when the request authenticated): the uniform 401,
+        // nothing stored (R4; Final M1).
+        if (batch.StateBefore is "cancelled" or "settled") return new ExitReportResult.Ended();
         var outcome = batch.ReleasedAny ? "cancelled" : "none";
         await conn.ExecuteAsync(new CommandDefinition(
             """

@@ -23,10 +23,15 @@ public static class MissionClaims
     public const string ProcessPolicy = "process";
     public const string HostId = "host";
     public const string AttemptId = "attempt";
+    public const string CredentialHash = "credential";
 
     public static string HostOf(ClaimsPrincipal user) => user.FindFirstValue(HostId)!;
 
     public static Guid AttemptOf(ClaimsPrincipal user) => Guid.Parse(user.FindFirstValue(AttemptId)!);
+
+    /// <summary>The SHA-256 of the process credential the request presented (a hash, never the credential), for stores that must
+    /// re-check it under their own lock (R1).</summary>
+    public static byte[] CredentialHashOf(ClaimsPrincipal user) => Convert.FromHexString(user.FindFirstValue(CredentialHash)!);
 
     public static void AddMissionPolicies(this Microsoft.AspNetCore.Authorization.AuthorizationOptions o)
     {
@@ -105,6 +110,6 @@ public sealed class ProcessAuthenticationHandler(IOptionsMonitor<AuthenticationS
         var process = await processes.AuthenticateAsync(hash, Context.RequestAborted);
         if (process is null) return (null, "unknown, superseded or ended process credential");
         if (process.AttemptId != routeAttempt) return (null, "process credential presented on another attempt's route");
-        return ([new Claim(MissionClaims.AttemptId, process.AttemptId.ToString("D"))], null);
+        return ([new Claim(MissionClaims.AttemptId, process.AttemptId.ToString("D")), new Claim(MissionClaims.CredentialHash, Convert.ToHexStringLower(hash))], null);
     }
 }

@@ -116,10 +116,10 @@ public class StartTests : IAsyncLifetime
         var account = (await kit.Accounts.CreateAccountAsync(null, null, Op)).AccountId;
         var attempt = await AttemptFixtures.AdmitAsync(db, account);
         var claim = Assert.IsType<Blackglass.Accounts.Persistence.Hosts.ClaimResult.Claimed>(await kit.Hosts.ClaimAsync("h1", Guid.NewGuid(), 120, default));
-        var session = Assert.IsType<RegisterResult.Registered>(await kit.Processes.RegisterAsync(attempt, new RegisterRequest(zeroBuild), default)).ProcessSessionId;
+        var session = Assert.IsType<RegisterResult.Registered>(await kit.Processes.RegisterAsync(attempt, claim.Credential.Hash(), new RegisterRequest(zeroBuild), default)).ProcessSessionId;
         PoolLine[] pool = [new(0, 0, "item.medkit", 1)];
         Assert.IsType<ReadyResult.Ready>(await kit.Processes.ReadyAsync(attempt, new ReadyReport(session, "cf2e14dece9cc2a6", MissionKit.Table.Version,
-            LootHash.Compute(MissionKit.Table.Version, pool), [new Objective("extract", true)], pool), MissionKit.Table, 120, default));
+            LootHash.Compute(MissionKit.Table.Version, pool), [new Objective("extract", true)], pool), MissionKit.Table, zeroBuild.CatalogueVersion, 120, default));
         var m = new MissionKit.Mission(account, attempt, session, claim.Credential);
         await kit.RedeemAsync(m);
         Assert.IsType<StartResult.Started>(await StartAsync(m));
@@ -225,7 +225,8 @@ public class StartTests : IAsyncLifetime
             if (s is StartResult.Started) Assert.Equal(("running", "joined", "charged", 1L, 40), await SnapshotAsync(m));
             else
             {
-                Assert.IsType<StartResult.DeadlinePassed>(s);
+                // The start came after the deadline (refused) or after the worker's release (cancelled); either way never charged.
+                Assert.True(s is StartResult.DeadlinePassed or StartResult.Cancelled, s.GetType().Name);
                 await attempts.SweepAsync(10); // a sweep that met the start's lock skipped the attempt (SKIP LOCKED); the next one releases
                 Assert.Equal(("cancelled", "released", "released", 0L, 50), await SnapshotAsync(m));
             }

@@ -72,7 +72,7 @@ public class ProcessSessionTests : IAsyncLifetime
     async Task<(Claimed Claim, Guid Session)> RegisteredAsync()
     {
         var claim = await ClaimedAsync();
-        var r = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, new RegisterRequest(Build), default));
+        var r = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(Build), default));
         return (claim, r.ProcessSessionId);
     }
 
@@ -88,7 +88,7 @@ public class ProcessSessionTests : IAsyncLifetime
     async Task<(Claimed Claim, Guid Session)> ReadyAsync()
     {
         var (claim, session) = await RegisteredAsync();
-        Assert.IsType<ReadyResult.Ready>(await processes.ReadyAsync(claim.Attempt, Ready(session), Table, 120, default));
+        Assert.IsType<ReadyResult.Ready>(await processes.ReadyAsync(claim.Attempt, Ready(session), Table, Catalogue, 120, default));
         return (claim, session);
     }
 
@@ -101,7 +101,7 @@ public class ProcessSessionTests : IAsyncLifetime
     {
         var claim = await ClaimedAsync();
         Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", claim.Attempt, 1, default));
-        var r = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, new RegisterRequest(Build), default));
+        var r = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(Build), default));
         await using var su = await db.AsSuperuser().OpenConnectionAsync();
         var (seed, salt) = await su.QuerySingleAsync<(int, byte[])>("select seed, retention_salt from attempt_secrets where attempt_id = @a", new { a = claim.Attempt });
         Assert.Equal((seed, "procedural-standard", 1, Catalogue), (r.Seed, r.TemplateId, r.TemplateVersion, r.CatalogueVersion));
@@ -117,9 +117,9 @@ public class ProcessSessionTests : IAsyncLifetime
     public async Task Register_from_assigned_moves_to_launching_and_a_replay_returns_the_same_session()
     {
         var claim = await ClaimedAsync();
-        var first = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, new RegisterRequest(Build), default));
+        var first = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(Build), default));
         Assert.Equal("launching:-", await StateAsync(claim.Attempt));
-        var again = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, new RegisterRequest(Build), default));
+        var again = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(Build), default));
         Assert.Equal(first.ProcessSessionId, again.ProcessSessionId);
         Assert.Equal(JsonSerializer.Serialize(first), JsonSerializer.Serialize(again));
         // The agent's late launching report, with the current generation, is a lost acknowledgement.
@@ -140,7 +140,7 @@ public class ProcessSessionTests : IAsyncLifetime
             _ => Build,
         };
         if (fault == "build-disabled") await new HostAdminStore(db.AsApp()).DisableBuildAsync(Build, Op);
-        Assert.IsType<RegisterResult.BuildNotAllowed>(await processes.RegisterAsync(claim.Attempt, new RegisterRequest(build), default));
+        Assert.IsType<RegisterResult.BuildNotAllowed>(await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(build), default));
         Assert.Equal("assigned:-", await StateAsync(claim.Attempt));
         Assert.Null(await ScalarAsSuperuserAsync<Guid?>(db, "select process_session_id from mission_attempts where attempt_id = @a", new { a = claim.Attempt }));
     }
@@ -153,25 +153,38 @@ public class ProcessSessionTests : IAsyncLifetime
             var claim = await ClaimedAsync();
             var start = new TaskCompletionSource();
             var recovery = Task.Run(async () => { await start.Task; return await hosts.ClaimAsync("h1", claim.Key, 120, default); });
-            var register = Task.Run(async () => { await start.Task; return await processes.RegisterAsync(claim.Attempt, new RegisterRequest(Build), default); });
+            var register = Task.Run(async () => { await start.Task; return await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(Build), default); });
             start.SetResult();
             var (r, g) = (await recovery, await register);
-            Assert.IsType<RegisterResult.Registered>(g); // register is store-level here: the credential check is the handler's (below)
             if (r is ClaimResult.Claimed c)
             {
-                // The recovery committed first (still assigned): register then moved the attempt to launching; the old credential is void.
+                // The recovery committed first (still assigned): the old credential can't register (checked inside register's own
+                // transaction, Final M1), nothing was written, and the new credential registers.
                 Assert.Equal(2, c.CredentialGeneration);
-                Assert.Null(await processes.AuthenticateAsync(claim.Credential.Hash(), default));
+                Assert.IsType<RegisterResult.Unauthenticated>(g);
+                Assert.Equal("assigned:-", await StateAsync(claim.Attempt));
+                Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, c.Credential.Hash(), new RegisterRequest(Build), default));
             }
             else
             {
                 Assert.IsType<ClaimResult.InvalidState>(r); // register committed first: launching, the running credential kept
+                Assert.IsType<RegisterResult.Registered>(g);
                 Assert.Equal(claim.Attempt, (await processes.AuthenticateAsync(claim.Credential.Hash(), default))?.AttemptId);
             }
             Assert.Equal("launching:-", await StateAsync(claim.Attempt));
             await AttemptFixtures.MoveAsync(db, claim.Attempt, "cancelled", "h1");
             await hosts.HeartbeatAsync("h1", new HeartbeatRequest(Build, true, [], 0), default); // confirm the slot free
         }
+    }
+
+    [Fact]
+    public async Task A_superseded_credential_cannot_register_even_after_it_authenticated()
+    {
+        var claim = await ClaimedAsync();
+        var recovered = Assert.IsType<ClaimResult.Claimed>(await hosts.ClaimAsync("h1", claim.Key, 120, default));
+        Assert.IsType<RegisterResult.Unauthenticated>(await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(Build), default));
+        Assert.Equal("assigned:-", await StateAsync(claim.Attempt));
+        Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, recovered.Credential.Hash(), new RegisterRequest(Build), default));
     }
 
     // ---- ready ----
@@ -181,7 +194,7 @@ public class ProcessSessionTests : IAsyncLifetime
     {
         var (claim, session) = await RegisteredAsync();
         var now = await ScalarAsSuperuserAsync<DateTime>(db, "select clock_timestamp()");
-        var ready = Assert.IsType<ReadyResult.Ready>(await processes.ReadyAsync(claim.Attempt, Ready(session), Table, 120, default));
+        var ready = Assert.IsType<ReadyResult.Ready>(await processes.ReadyAsync(claim.Attempt, Ready(session), Table, Catalogue, 120, default));
         Assert.InRange(ready.JoinDeadline, now.AddSeconds(110), now.AddSeconds(125));
         await using var su = await db.AsSuperuser().OpenConnectionAsync();
         Assert.Equal(("ready", "cf2e14dece9cc2a6", Table.Version, LootHash.Compute(Table.Version, Pool)), await su.QuerySingleAsync<(string, string, int, string)>(
@@ -191,9 +204,9 @@ public class ProcessSessionTests : IAsyncLifetime
             .Select(s => s.Replace("true", "True").Replace("false", "False")));
         Assert.Equal(3L, await su.ExecuteScalarAsync<long>("select count(*) from attempt_loot_pool where attempt_id = @a", new { a = claim.Attempt }));
         // A repeat with the identical body is a lost acknowledgement; any difference is refused and changes nothing.
-        Assert.Equal(ready, await processes.ReadyAsync(claim.Attempt, Ready(session), Table, 120, default));
-        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session, layout: "0000000000000000"), Table, 120, default));
-        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session, objectives: [new("extract", true)]), Table, 120, default));
+        Assert.Equal(ready, await processes.ReadyAsync(claim.Attempt, Ready(session), Table, Catalogue, 120, default));
+        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session, layout: "0000000000000000"), Table, Catalogue, 120, default));
+        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session, objectives: [new("extract", true)]), Table, Catalogue, 120, default));
         Assert.Equal(3L, await su.ExecuteScalarAsync<long>("select count(*) from attempt_loot_pool where attempt_id = @a", new { a = claim.Attempt }));
     }
 
@@ -213,7 +226,7 @@ public class ProcessSessionTests : IAsyncLifetime
             "table-version" => Ready(session) with { LootTableVersion = Table.Version + 1, LootHash = LootHash.Compute(Table.Version + 1, Pool) },
             _ => Ready(session, lootHash: "sha256:" + new string('0', 64)),
         };
-        var refused = Assert.IsType<ReadyResult.InvalidLootPool>(await processes.ReadyAsync(claim.Attempt, report, Table, 120, default));
+        var refused = Assert.IsType<ReadyResult.InvalidLootPool>(await processes.ReadyAsync(claim.Attempt, report, Table, Catalogue, 120, default));
         Assert.NotEmpty(refused.Errors);
         Assert.Equal("cancelled:invalid_pool", await StateAsync(claim.Attempt));
         Assert.Equal("released:invalid_pool", await ScalarAsSuperuserAsync<string>(db,
@@ -222,11 +235,47 @@ public class ProcessSessionTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Ready_after_the_launch_deadline_is_refused_and_the_worker_then_cancels()
+    {
+        var (claim, session) = await RegisteredAsync();
+        await using (var su = await db.AsSuperuser().OpenConnectionAsync())
+        await using (var tx = await su.BeginTransactionAsync())
+        {
+            await su.ExecuteAsync("set local session_replication_role = replica", transaction: tx);
+            await su.ExecuteAsync("update mission_attempts set launch_deadline = clock_timestamp() - interval '1 second' where attempt_id = @a", new { a = claim.Attempt }, tx);
+            await tx.CommitAsync();
+        }
+        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session), Table, Catalogue, 120, default)); // Final M2
+        Assert.Equal("launching:-", await StateAsync(claim.Attempt));
+        Assert.Equal(1, (await attempts.SweepAsync(10)).Released);
+        Assert.Equal("cancelled:launch_timeout", await StateAsync(claim.Attempt));
+    }
+
+    [Fact]
+    public async Task Ready_under_another_catalogue_is_refused_without_cancelling()
+    {
+        // Final M4: the attempt was admitted under another catalogue than the one this API judges pools with.
+        var (claim, session) = await RegisteredAsync();
+        var refused = await processes.ReadyAsync(claim.Attempt, Ready(session, [new(0, 0, "item.rocket", 1)]), Table, "sha256:" + new string('c', 64), 120, default);
+        Assert.IsType<ReadyResult.CatalogueMismatch>(refused);
+        Assert.Equal("launching:-", await StateAsync(claim.Attempt));
+    }
+
+    [Fact]
+    public async Task A_failure_report_after_the_attempt_ended_is_refused_and_stores_nothing()
+    {
+        var (claim, session) = await ReadyAsync();
+        await attempts.CancelAsync(claim.Account, claim.Attempt);
+        Assert.Equal(new ExitReportResult.Ended(), await processes.FailedAsync(claim.Attempt, new FailedRequest(session, "late"), default)); // Final M1
+        Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(db, "select count(*) from attempt_exit_reports"));
+    }
+
+    [Fact]
     public async Task Invalid_objectives_write_nothing()
     {
         var (claim, session) = await RegisteredAsync();
         foreach (var objectives in new[] { Array.Empty<Objective>(), [new Objective("extract", false)], [new Objective("Extract!", true)] })
-            Assert.IsType<ReadyResult.InvalidObjectives>(await processes.ReadyAsync(claim.Attempt, Ready(session, objectives: objectives), Table, 120, default));
+            Assert.IsType<ReadyResult.InvalidObjectives>(await processes.ReadyAsync(claim.Attempt, Ready(session, objectives: objectives), Table, Catalogue, 120, default));
         Assert.Equal("launching:-", await StateAsync(claim.Attempt));
     }
 
@@ -235,8 +284,8 @@ public class ProcessSessionTests : IAsyncLifetime
     {
         var (claim, _) = await ReadyAsync();
         var other = Guid.CreateVersion7();
-        Assert.IsType<ReadyResult.WrongSession>(await processes.ReadyAsync(claim.Attempt, Ready(other), Table, 120, default));
-        Assert.IsType<ReadyResult.WrongSession>(await processes.ReadyAsync(claim.Attempt, Ready(other, lootHash: "sha256:" + new string('0', 64)), Table, 120, default)); // never cancels
+        Assert.IsType<ReadyResult.WrongSession>(await processes.ReadyAsync(claim.Attempt, Ready(other), Table, Catalogue, 120, default));
+        Assert.IsType<ReadyResult.WrongSession>(await processes.ReadyAsync(claim.Attempt, Ready(other, lootHash: "sha256:" + new string('0', 64)), Table, Catalogue, 120, default)); // never cancels
         Assert.IsType<ProcessHeartbeatResult.WrongSession>(await processes.HeartbeatAsync(claim.Attempt, new ProcessHeartbeatRequest(other, "running", []), default));
         Assert.Equal(new ExitReportResult.WrongSession(), await processes.FailedAsync(claim.Attempt, new FailedRequest(other, "x"), default));
         Assert.Equal("ready:-", await StateAsync(claim.Attempt));
@@ -360,9 +409,11 @@ public class ProcessSessionTests : IAsyncLifetime
             objectives = Objectives.Select(o => new { objectiveId = o.ObjectiveId, required = o.Required }),
             lootPool = Pool.Select(l => new { containerIndex = l.ContainerIndex, line = l.Line, definitionId = l.DefinitionId, quantity = l.Quantity }),
         });
+        // This fixture attempt was admitted under a stand-in catalogue, not the API's: its pool is never judged against the wrong
+        // table and nothing is cancelled (Final M4). The ready happy path over HTTP is LifecycleTests'.
         var readied = await PostAsync($"/server/v1/attempts/{claim.Attempt}/ready", ready);
-        Assert.Equal(HttpStatusCode.OK, readied.Status);
-        Assert.True(JsonDocument.Parse(readied.Body).RootElement.TryGetProperty("joinDeadline", out _));
+        Assert.Equal(HttpStatusCode.Conflict, readied.Status);
+        Assert.Contains("\"code\":\"CatalogueMismatch\"", readied.Body);
         var hb = await PostAsync($"/server/v1/attempts/{claim.Attempt}/heartbeat", $$"""{"processSessionId":"{{session}}","phase":"lobby","participants":[]}""");
         Assert.Equal((HttpStatusCode.OK, "{}"), hb);
     }

@@ -17,6 +17,8 @@ public abstract record ExitReportResult
     public sealed record UnknownParticipant : ExitReportResult;
     /// <summary>The body names another process session than the attempt's.</summary>
     public sealed record WrongSession : ExitReportResult;
+    /// <summary>The attempt had already ended (a process report): the uniform 401, nothing stored.</summary>
+    public sealed record Ended : ExitReportResult;
 }
 
 /// <summary>Reading and comparing stored exit evidence (<c>attempt_exit_reports</c>, <c>attempt_exit_results</c>).</summary>

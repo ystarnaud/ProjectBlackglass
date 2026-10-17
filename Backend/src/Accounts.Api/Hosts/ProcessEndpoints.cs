@@ -35,12 +35,13 @@ public static class ProcessEndpoints
             http.Response.Headers.CacheControl = "no-store";
             var (body, refusal) = await MissionBodies.ReadAsync(http, RegisterRequest.Parse);
             if (refusal is not null) return refusal;
-            return await processes.RegisterAsync(MissionClaims.AttemptOf(http.User), body!, http.RequestAborted) switch
+            return await processes.RegisterAsync(MissionClaims.AttemptOf(http.User), MissionClaims.CredentialHashOf(http.User), body!, http.RequestAborted) switch
             {
                 RegisterResult.Registered r => Results.Json(new RegisterResponse(r.ProcessSessionId.ToString("D"), r.Seed, new TemplateDto(r.TemplateId, r.TemplateVersion),
                     r.CatalogueVersion, r.Participants.Select(p => new ParticipantDto(p.AccountId, JsonNode.Parse(p.LoadoutJson)!)).ToArray(),
                     new LaunchDeadlineDto(r.LaunchDeadline)), Web),
                 RegisterResult.BuildNotAllowed => MissionBodies.Problem(StatusCodes.Status409Conflict, "BuildNotAllowed"),
+                RegisterResult.Unauthenticated => UniformUnauthorized.Result,
                 _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
             };
         });
@@ -51,7 +52,7 @@ public static class ProcessEndpoints
             http.Response.Headers.CacheControl = "no-store";
             var (body, refusal) = await MissionBodies.ReadAsync(http, ReadyReport.Parse);
             if (refusal is not null) return refusal;
-            return await processes.ReadyAsync(MissionClaims.AttemptOf(http.User), body!, catalogue.Document.LootTable, settings.JoinDeadlineSeconds, http.RequestAborted) switch
+            return await processes.ReadyAsync(MissionClaims.AttemptOf(http.User), body!, catalogue.Document.LootTable, catalogue.Version, settings.JoinDeadlineSeconds, http.RequestAborted) switch
             {
                 ReadyResult.Ready r => Results.Json(new ReadyResponse(r.JoinDeadline), Web),
                 ReadyResult.InvalidLootPool e => Results.Problem(statusCode: StatusCodes.Status422UnprocessableEntity,
@@ -59,6 +60,7 @@ public static class ProcessEndpoints
                 ReadyResult.InvalidObjectives e => Results.Problem(statusCode: StatusCodes.Status422UnprocessableEntity,
                     extensions: new Dictionary<string, object?> { ["code"] = "InvalidObjectives", ["errors"] = e.Errors }),
                 ReadyResult.WrongSession => MissionBodies.Problem(StatusCodes.Status409Conflict, "WrongSession"),
+                ReadyResult.CatalogueMismatch => MissionBodies.Problem(StatusCodes.Status409Conflict, "CatalogueMismatch"),
                 _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
             };
         });

@@ -68,10 +68,10 @@ public sealed class MissionKit
         await BeatAsync();
         var claim = (ClaimResult.Claimed)await Hosts.ClaimAsync("h1", Guid.NewGuid(), 120, default);
         if (claim.AttemptId != attempt) throw new InvalidOperationException("The claim took another attempt.");
-        var session = ((RegisterResult.Registered)await Processes.RegisterAsync(attempt, new RegisterRequest(Build), default)).ProcessSessionId;
+        var session = ((RegisterResult.Registered)await Processes.RegisterAsync(attempt, claim.Credential.Hash(), new RegisterRequest(Build), default)).ProcessSessionId;
         PoolLine[] pool = [new(0, 0, "item.medkit", 1)];
         var ready = await Processes.ReadyAsync(attempt, new ReadyReport(session, "cf2e14dece9cc2a6", Table.Version, LootHash.Compute(Table.Version, pool),
-            [new Objective("extract", true)], pool), Table, 120, default);
+            [new Objective("extract", true)], pool), Table, Catalogue.Version, 120, default);
         if (ready is not ReadyResult.Ready) throw new InvalidOperationException($"Ready failed: {ready}");
         return new Mission(account, attempt, session, claim.Credential);
     }

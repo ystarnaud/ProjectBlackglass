@@ -67,11 +67,11 @@ public class TicketTests : IAsyncLifetime
         await hosts.HeartbeatAsync("h1", new HeartbeatRequest(Build, true, [], 0), default);
         var claim = Assert.IsType<ClaimResult.Claimed>(await hosts.ClaimAsync("h1", Guid.NewGuid(), 120, default));
         Assert.Equal(attempt, claim.AttemptId);
-        var session = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(attempt, new RegisterRequest(Build), default)).ProcessSessionId;
+        var session = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(attempt, claim.Credential.Hash(), new RegisterRequest(Build), default)).ProcessSessionId;
         PoolLine[] pool = [new(0, 0, "item.medkit", 1)];
         var table = Catalogue.Document.LootTable;
         Assert.IsType<ReadyResult.Ready>(await processes.ReadyAsync(attempt,
-            new ReadyReport(session, "cf2e14dece9cc2a6", table.Version, LootHash.Compute(table.Version, pool), [new Objective("extract", true)], pool), table, 120, default));
+            new ReadyReport(session, "cf2e14dece9cc2a6", table.Version, LootHash.Compute(table.Version, pool), [new Objective("extract", true)], pool), table, Catalogue.Version, 120, default));
         return new Ready(issued.AccountId, attempt, session, claim.Credential, operatives.Select(Base58Id.Format).ToArray());
     }
 
