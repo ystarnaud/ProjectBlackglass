@@ -4,6 +4,16 @@ using Blackglass.Accounts.Domain.Ids;
 
 namespace Blackglass.Accounts.Domain.Attempts;
 
+/// <summary>The canonical spelling of an attempt, session or key UUID: lowercase 8-4-4-4-12, nothing else.</summary>
+public static class CanonicalUuid
+{
+    public static bool TryParse(string? text, out Guid id)
+    {
+        id = Guid.Empty;
+        return text is { Length: 36 } && Guid.TryParseExact(text, "D", out id) && id.ToString("D") == text;
+    }
+}
+
 /// <summary>A refused agent or process body. The message is "InvalidBody" only: no part of the request is echoed.</summary>
 public sealed class RequestFormatException() : Exception("InvalidBody");
 
@@ -88,11 +98,7 @@ internal static partial class StrictJson
         return TryCanonicalUuid(s, out var id) ? id : throw Refuse();
     }
 
-    public static bool TryCanonicalUuid(string? text, out Guid id)
-    {
-        id = Guid.Empty;
-        return text is { Length: 36 } && Guid.TryParseExact(text, "D", out id) && id.ToString("D") == text;
-    }
+    public static bool TryCanonicalUuid(string? text, out Guid id) => CanonicalUuid.TryParse(text, out id);
 
     public static long AccountId(JsonElement e)
     {

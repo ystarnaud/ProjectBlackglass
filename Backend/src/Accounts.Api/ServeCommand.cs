@@ -3,6 +3,7 @@ using Npgsql;
 using Blackglass.Accounts.Api.Attempts;
 using Blackglass.Accounts.Api.Auth;
 using Blackglass.Accounts.Api.Energy;
+using Blackglass.Accounts.Api.Hosts;
 using Blackglass.Accounts.Api.Player;
 using Blackglass.Accounts.Domain.Attempts;
 using Blackglass.Accounts.Domain.Catalogue;
@@ -10,6 +11,7 @@ using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
 using Blackglass.Accounts.Persistence.Attempts;
 using Blackglass.Accounts.Persistence.Energy;
+using Blackglass.Accounts.Persistence.Hosts;
 using Blackglass.Accounts.Persistence.Migrations;
 using Blackglass.Accounts.Persistence.Player;
 
@@ -103,9 +105,21 @@ public static class ServeCommand
             builder.Services.AddSingleton(sp => new EnergyReconcileService(sp.GetRequiredService<EnergyReconciler>().RunAsync, interval, sp.GetRequiredService<ILoggerFactory>()));
             builder.Services.AddHostedService(sp => sp.GetRequiredService<EnergyReconcileService>());
         }
-        builder.Services.AddAuthentication(AccountClaims.Scheme)
-            .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null);
-        builder.Services.AddAuthorization();
+        // Stage 8 (B3): three credentials, three schemes. The default authentication forwards by the token's prefix, so the
+        // per-host and per-process rate limits see their principal before authorization; every route still requires exactly
+        // its own scheme (the default policy is the account's Bearer scheme alone), so no credential opens another's routes.
+        builder.Services.AddSingleton(new HostStore(dataSource));
+        builder.Services.AddSingleton(new ProcessStore(dataSource));
+        builder.Services.AddAuthentication(o => { o.DefaultScheme = CredentialSelector; o.DefaultChallengeScheme = AccountClaims.Scheme; })
+            .AddPolicyScheme(CredentialSelector, null, o => o.ForwardDefaultSelector = SelectScheme)
+            .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null)
+            .AddScheme<AuthenticationSchemeOptions, HostAuthenticationHandler>(MissionClaims.HostScheme, null)
+            .AddScheme<AuthenticationSchemeOptions, ProcessAuthenticationHandler>(MissionClaims.ProcessScheme, null);
+        builder.Services.AddAuthorization(o =>
+        {
+            o.DefaultPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder(AccountClaims.Scheme).RequireAuthenticatedUser().Build();
+            o.AddMissionPolicies();
+        });
         builder.Services.AddAccountRateLimits(auth, attempts.DeployPerMinute);
         configure?.Invoke(builder);
         var app = builder.Build();
@@ -122,8 +136,23 @@ public static class ServeCommand
         app.MapAdmin(auth);
         app.MapPlayer(auth);
         app.MapAttempts(attempts);
+        app.MapAgent();
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
+    }
+
+    const string CredentialSelector = "Credential";
+
+    /// <summary>The scheme a request's credential belongs to, by its prefix alone (the scheme's handler then parses it strictly).</summary>
+    static string SelectScheme(HttpContext http)
+    {
+        var header = http.Request.Headers.Authorization;
+        if (header.Count == 1 && header[0] is { } value)
+        {
+            if (value.StartsWith("Bearer " + Domain.Auth.OpaqueSecret.HostSecretPrefix + "_", StringComparison.Ordinal)) return MissionClaims.HostScheme;
+            if (value.StartsWith("Bearer " + Domain.Auth.OpaqueSecret.ProcessCredentialPrefix + "_", StringComparison.Ordinal)) return MissionClaims.ProcessScheme;
+        }
+        return AccountClaims.Scheme;
     }
 
     internal static string Describe(NpgsqlException e) => e is PostgresException pg ? $"{pg.SqlState} {pg.MessageText}" : e.Message;

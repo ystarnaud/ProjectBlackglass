@@ -12,6 +12,14 @@ public static class RateLimits
     public const string PerAccount = "per-account";
     public const string Admin = "admin";
     public const string Deploy = "deploy";
+    public const string PerHost = "per-host";
+    public const string PerProcess = "per-process";
+
+    /// <summary>Agent requests per host per minute (provisional): heartbeats every 10 s, long-poll claims and reports fit far below it.</summary>
+    public const int HostPerMinute = 600;
+
+    /// <summary>Process requests per attempt per minute (provisional): heartbeats, redeems and starts for up to 16 participants.</summary>
+    public const int ProcessPerMinute = 600;
 
     public static IServiceCollection AddAccountRateLimits(this IServiceCollection services, AuthSettings settings, int deployPerMinute) =>
         services.AddRateLimiter(o =>
@@ -30,5 +38,11 @@ public static class RateLimits
             o.AddPolicy(Deploy, http => RateLimitPartition.GetFixedWindowLimiter(
                 "deploy:" + (http.User.FindFirst(AccountClaims.AccountId)?.Value ?? "anonymous"),
                 _ => new FixedWindowRateLimiterOptions { PermitLimit = deployPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+            o.AddPolicy(PerHost, http => RateLimitPartition.GetFixedWindowLimiter(
+                "host:" + (http.User.FindFirst(MissionClaims.HostId)?.Value ?? "anonymous"),
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = HostPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+            o.AddPolicy(PerProcess, http => RateLimitPartition.GetFixedWindowLimiter(
+                "process:" + (http.User.FindFirst(MissionClaims.AttemptId)?.Value ?? "anonymous"),
+                _ => new FixedWindowRateLimiterOptions { PermitLimit = ProcessPerMinute, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
         });
 }

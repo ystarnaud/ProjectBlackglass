@@ -115,7 +115,10 @@ public sealed class AdmissionStore
 
         await using var conn = await DbFailure.OpenAsync(db, ct);
         if (await RecordedAsync(conn, null, accountId, idempotencyKey, hash, ct) is { } recorded) return recorded;
-        if (!await health.CheckAsync(conn, null, ct)) throw new AdmissionException(AdmissionError.ServiceUnavailable);
+        // The requested template's latest version first (read without a lock): health is per template (B5), and an unknown
+        // template is UnknownTemplate whatever the capacity. Admission re-reads the latest version under its locks.
+        var requested = await MissionTemplates.LatestAsync(conn, null, request.MissionTemplate, ct) ?? throw new AdmissionException(AdmissionError.UnknownTemplate);
+        if (!await health.CheckAsync(conn, null, requested.TemplateId, requested.Version, catalogue.Version, ct)) throw new AdmissionException(AdmissionError.ServiceUnavailable);
 
         try { return await AdmitLockedAsync(conn, accountId, idempotencyKey, request, hash, ct); }
         catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.UniqueViolation && e.ConstraintName == "one_active_participation")

@@ -179,14 +179,14 @@ public sealed class HostAdminStore(NpgsqlDataSource db)
     public async Task<HostSummary> SwitchAsync(string hostId, HostSwitch change, OperatorContext op, CancellationToken ct = default)
     {
         DevHosts.ValidateHostId(hostId);
-        var (set, action) = change switch
+        var (sql, action) = change switch
         {
-            HostSwitch.Drain => ("drained = true", "host_drain"),
-            HostSwitch.Enable => ("enabled = true, drained = false", "host_enable"),
-            HostSwitch.Disable => ("enabled = false", "host_disable"),
+            HostSwitch.Drain => ("update mission_hosts set drained = true where host_id = @hostId", "host_drain"),
+            HostSwitch.Enable => ("update mission_hosts set enabled = true, drained = false where host_id = @hostId", "host_enable"),
+            HostSwitch.Disable => ("update mission_hosts set enabled = false where host_id = @hostId", "host_disable"),
             _ => throw new ArgumentOutOfRangeException(nameof(change)),
         };
-        return await ChangeAsync(hostId, $"update mission_hosts set {set} where host_id = @hostId", new { hostId }, action, op, ct);
+        return await ChangeAsync(hostId, sql, new { hostId }, action, op, ct);
     }
 
     /// <summary>Sets the capacity (1 to <see cref="MaxCapacity"/>; the ports must stay below 65536, else InvalidHost). A capacity

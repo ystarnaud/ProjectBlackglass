@@ -25,7 +25,14 @@ public class ServiceHealthTests : IAsyncLifetime
 {
     TestDatabase db = null!;
 
-    public async Task InitializeAsync() => db = await MigratedAsync();
+    public async Task InitializeAsync()
+    {
+        db = await MigratedAsync();
+        await ExecuteAsSuperuserAsync(db, $"""
+            insert into allowed_builds (build_revision, catalogue_version) values ('{Build}', '{Catalogue}');
+            insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('{Build}', '{Catalogue}', 'procedural-standard', 1);
+            """);
+    }
 
     public async Task DisposeAsync()
     {
@@ -35,21 +42,31 @@ public class ServiceHealthTests : IAsyncLifetime
 
     /// <summary>A host row written as the superuser (the app never inserts drained or last_heartbeat_at): its heartbeat
     /// <paramref name="heartbeatAgeSeconds"/> before the database clock, or none.</summary>
-    Task InsertHostAsync(string hostId, string kind = "agent", bool enabled = true, bool drained = false, int capacity = 3, double? heartbeatAgeSeconds = 1) =>
+    /// <summary>The catalogue every health check here asks for, and the build agent hosts report (allowlisted in
+    /// <see cref="InitializeAsync"/> for procedural-standard v1 under it).</summary>
+    const string Catalogue = "sha256:abababababababababababababababababababababababababababababababab";
+    const string Build = "r1";
+
+    /// <remarks>An agent host reports <see cref="Build"/> under <see cref="Catalogue"/> unless <paramref name="build"/> says
+    /// otherwise ("" for none reported); a development fixture reports nothing.</remarks>
+    Task InsertHostAsync(string hostId, string kind = "agent", bool enabled = true, bool drained = false, int capacity = 3, double? heartbeatAgeSeconds = 1,
+        string? build = Build, string catalogue = Catalogue) =>
         ExecuteAsSuperuserAsync(db,
             """
-            insert into mission_hosts (host_id, kind, secret_hash, enabled, drained, capacity, port_base, last_heartbeat_at)
+            insert into mission_hosts (host_id, kind, secret_hash, enabled, drained, capacity, port_base, build_revision, catalogue_version, last_heartbeat_at)
             values (@hostId, @kind, @hash, @enabled, @drained, @capacity, case when @kind = 'agent' then 7000 end,
+                    case when @kind = 'agent' and @build <> '' then @build end, case when @kind = 'agent' and @build <> '' then @catalogue end,
                     case when @age::double precision is null then null else clock_timestamp() - make_interval(secs => @age::double precision) end)
             """,
-            new { hostId, kind, hash = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32), enabled, drained, capacity, age = heartbeatAgeSeconds });
+            new { hostId, kind, hash = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32), enabled, drained, capacity, age = heartbeatAgeSeconds,
+                  build = build ?? "", catalogue });
 
-    async Task<bool> CheckAsync(bool devHostsEnabled, int leaseSeconds = 30, bool inTransaction = false)
+    async Task<bool> CheckAsync(bool devHostsEnabled, int leaseSeconds = 30, bool inTransaction = false, string catalogue = Catalogue)
     {
         await using var conn = await db.AsApp().OpenConnectionAsync();
-        if (!inTransaction) return await ServiceHealth.CheckAsync(conn, null, devHostsEnabled, leaseSeconds, default);
+        if (!inTransaction) return await ServiceHealth.CheckAsync(conn, null, devHostsEnabled, leaseSeconds, "procedural-standard", 1, catalogue, default);
         await using var tx = await conn.BeginTransactionAsync();
-        var healthy = await ServiceHealth.CheckAsync(conn, tx, devHostsEnabled, leaseSeconds, default);
+        var healthy = await ServiceHealth.CheckAsync(conn, tx, devHostsEnabled, leaseSeconds, "procedural-standard", 1, catalogue, default);
         await tx.RollbackAsync();
         return healthy;
     }
@@ -87,6 +104,54 @@ public class ServiceHealthTests : IAsyncLifetime
             _ => "update mission_hosts set capacity = 1",
         });
         Assert.True(await CheckAsync(devHostsEnabled: true));
+    }
+
+    [Theory]
+    [InlineData("no-build-reported")]
+    [InlineData("build-disabled")]
+    [InlineData("template-not-listed")]
+    [InlineData("catalogue-mismatch")]
+    [InlineData("build-not-allowlisted")]
+    public async Task Health_requires_an_allowed_build_for_the_template_and_catalogue(string fault)
+    {
+        // B4, B5: an agent host counts only with a reported, enabled build allowlisted for the template's latest version under
+        // exactly the requested catalogue.
+        await InsertHostAsync("host-a", build: fault switch { "no-build-reported" => "", "build-not-allowlisted" => "r9", _ => Build });
+        if (fault == "build-disabled") await ExecuteAsSuperuserAsync(db, "update allowed_builds set enabled = false");
+        if (fault == "template-not-listed")
+            await ExecuteAsSuperuserAsync(db, "insert into mission_templates (template_id, version, energy_cost, min_operatives, max_operatives) values ('procedural-standard', 2, 10, 1, 3)");
+        var catalogue = fault == "catalogue-mismatch" ? "sha256:" + new string('c', 64) : Catalogue;
+        if (fault == "template-not-listed")
+        {
+            // The check asks for v1 here, but the template's latest is v2, which the build doesn't list.
+            await using var conn = await db.AsApp().OpenConnectionAsync();
+            Assert.False(await ServiceHealth.CheckAsync(conn, null, false, 30, "procedural-standard", 2, Catalogue, default));
+            Assert.True(await ServiceHealth.CheckAsync(conn, null, false, 30, "procedural-standard", 1, Catalogue, default));
+            return;
+        }
+        Assert.False(await CheckAsync(devHostsEnabled: true, catalogue: catalogue));
+        // The same host with the build that is allowed is healthy: that was the only reason.
+        await ExecuteAsSuperuserAsync(db, $"update allowed_builds set enabled = true; update mission_hosts set build_revision = '{Build}', catalogue_version = '{Catalogue}'");
+        Assert.True(await CheckAsync(devHostsEnabled: true));
+    }
+
+    [Fact]
+    public async Task Health_counts_live_slots_not_capacity()
+    {
+        // B5, B6: a host whose live slots fill its capacity is full, whether those attempts run or were cancelled with their
+        // slot release unconfirmed; a confirmed release frees the slot.
+        await InsertHostAsync("host-a", capacity: 2);
+        var account = (await new AccountAdminStore(db.AsApp()).CreateAccountAsync("slots", null, Op)).AccountId;
+        var running = await AttemptFixtures.AdmitAsync(db, account);
+        foreach (var s in new[] { "assigned", "launching", "ready", "running" }) await AttemptFixtures.MoveAsync(db, running, s, "host-a");
+        Assert.True(await CheckAsync(devHostsEnabled: false));
+        var other = (await new AccountAdminStore(db.AsApp()).CreateAccountAsync("slots-2", null, Op)).AccountId;
+        var cancelled = await AttemptFixtures.AdmitAsync(db, other);
+        await AttemptFixtures.MoveAsync(db, cancelled, "assigned", "host-a");
+        await AttemptFixtures.MoveAsync(db, cancelled, "cancelled", "host-a");
+        Assert.False(await CheckAsync(devHostsEnabled: false)); // cancelled, but its unit may still hold the port
+        await ExecuteAsSuperuserAsync(db, "update mission_attempts set slot_released_at = clock_timestamp() where attempt_id = @cancelled", new { cancelled });
+        Assert.True(await CheckAsync(devHostsEnabled: false));
     }
 
     [Fact]
@@ -141,16 +206,16 @@ public class ServiceHealthTests : IAsyncLifetime
         {
             var pid = conn.ProcessID;
             await ExecuteAsSuperuserAsync(db, "select pg_terminate_backend(@pid)", new { pid });
-            await Assert.ThrowsAnyAsync<NpgsqlException>(() => ServiceHealth.CheckAsync(conn, null, false, 30, default));
+            await Assert.ThrowsAnyAsync<NpgsqlException>(() => ServiceHealth.CheckAsync(conn, null, false, 30, "procedural-standard", 1, Catalogue, default));
         }
 
         // And a cancelled call is cancelled, not answered.
         await using (var conn = await db.AsApp().OpenConnectionAsync())
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ServiceHealth.CheckAsync(conn, null, false, 30, new CancellationToken(canceled: true)));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ServiceHealth.CheckAsync(conn, null, false, 30, "procedural-standard", 1, Catalogue, new CancellationToken(canceled: true)));
 
         // A lease the settings could never produce is a bug, refused before any statement.
         await using (var conn = await db.AsApp().OpenConnectionAsync())
-            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => ServiceHealth.CheckAsync(conn, null, false, 0, default));
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => ServiceHealth.CheckAsync(conn, null, false, 0, "procedural-standard", 1, Catalogue, default));
         Assert.True(await CheckAsync(devHostsEnabled: false));
     }
 
@@ -167,7 +232,7 @@ public class ServiceHealthTests : IAsyncLifetime
         await using (var conn = await db.AsApp().OpenConnectionAsync())
         await using (var tx = await conn.BeginTransactionAsync())
         {
-            Assert.False(await ServiceHealth.CheckAsync(conn, tx, false, 30, default));
+            Assert.False(await ServiceHealth.CheckAsync(conn, tx, false, 30, "procedural-standard", 1, Catalogue, default));
             // Still inside the refused call's transaction: whatever it locked is still held, so it would show here.
             var locks = await ScalarAsSuperuserAsync<long>(db,
                 """

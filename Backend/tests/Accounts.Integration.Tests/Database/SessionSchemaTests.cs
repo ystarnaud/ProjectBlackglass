@@ -347,6 +347,7 @@ public class SessionSchemaTests : IAsyncLifetime
             "insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', 'sha256:' || repeat('ab', 32), 'procedural-standard', 9)")) is var t ? (t.SqlState, t.ConstraintName) : default));
         // An attempt's build must be allowlisted (the foreign key), for its own catalogue.
         var (_, attempt) = await AdmitAsync();
+        await SuperExecuteAsync($"insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled, port_base) values ('{AttemptFixtures.FixtureHost}', 'agent', decode(repeat('0a', 32), 'hex'), 4, true, 7000)");
         var e = await FailureOf(db.AsSuperuser(), $"update mission_attempts set {AttemptFixtures.StateSet("assigned").Replace(AttemptFixtures.FixtureBuild, "unlisted")} where attempt_id = @attempt", new { attempt });
         Assert.Equal("23503", e.SqlState);
     }

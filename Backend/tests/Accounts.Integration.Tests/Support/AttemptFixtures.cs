@@ -64,14 +64,14 @@ public static class AttemptFixtures
     /// assigned on (the fixture host, a port and claim key per attempt, a credential hash derived from the attempt id), ready's
     /// from ready on, the start from running on. Written-once columns already set are kept; cancelled touches none of them.
     /// </summary>
-    public static string StateSet(string state)
+    public static string StateSet(string state, string hostId = FixtureHost)
     {
         var set = $"state = '{state}', cancel_reason = {(state == "cancelled" ? "coalesce(cancel_reason, 'no_capacity')" : "null")}, " +
                   $"ended_at = {(state is "cancelled" or "settled" ? "coalesce(ended_at, clock_timestamp())" : "null")}";
         var level = state switch { "assigned" or "launching" => 1, "ready" => 2, "running" or "ending" or "unresponsive" or "settled" => 3, _ => 0 };
         if (level >= 1)
-            set += $", host_id = '{FixtureHost}', build_revision = '{FixtureBuild}', credential_generation = coalesce(credential_generation, 1), " +
-                   "mission_port = coalesce(mission_port, 7000 + (select count(*) from mission_attempts m where m.host_id is not null)::int), " +
+            set += $", host_id = '{hostId}', build_revision = '{FixtureBuild}', credential_generation = coalesce(credential_generation, 1), " +
+                   $"mission_port = coalesce(mission_port, (select port_base from mission_hosts where host_id = '{hostId}') + (select count(*) from mission_attempts m where m.host_id = '{hostId}')::int), " +
                    "process_credential_hash = coalesce(process_credential_hash, sha256(convert_to(attempt_id::text, 'UTF8'))), " +
                    "claim_key = coalesce(claim_key, attempt_id), launch_deadline = coalesce(launch_deadline, clock_timestamp() + interval '120 seconds')";
         if (level >= 2)
@@ -84,11 +84,13 @@ public static class AttemptFixtures
 
     /// <summary>
     /// Moves an attempt along an allowed edge to <paramref name="state"/> as the superuser, through every trigger, with the
-    /// columns <see cref="StateSet"/> writes. Registers the fixture host (agent, ports from 7000, capacity 64) and allowlists
+    /// columns <see cref="StateSet"/> writes (a move to cancelled also releases the admitted participants and their zero-amount
+    /// holds, as a pre-start release does). Registers the fixture host (agent, ports from 7000, capacity 64) and allowlists
     /// the fixture build for the attempt's catalogue and template first; a move to ready also registers one required objective
     /// (the empty pool matches StateSet's loot hash).
     /// </summary>
-    public static async Task MoveAsync(TestDatabase db, Guid attempt, string state)
+    /// <param name="hostId">The host the claim binds (at the first move to assigned); it must exist unless it is the fixture host.</param>
+    public static async Task MoveAsync(TestDatabase db, Guid attempt, string state, string hostId = FixtureHost)
     {
         await using var conn = await db.AsSuperuser().OpenConnectionAsync();
         await conn.ExecuteAsync(
@@ -100,9 +102,15 @@ public static class AttemptFixtures
             insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version)
               select '{FixtureBuild}', catalogue_version, template_id, template_version from mission_attempts where attempt_id = @attempt on conflict do nothing;
             """, new { attempt });
-        Assert.Equal(1, await conn.ExecuteAsync($"update mission_attempts set {StateSet(state)} where attempt_id = @attempt", new { attempt }));
+        Assert.Equal(1, await conn.ExecuteAsync($"update mission_attempts set {StateSet(state, hostId)} where attempt_id = @attempt", new { attempt }));
         if (state == "ready")
             await conn.ExecuteAsync("insert into attempt_objectives (attempt_id, objective_id, required, ordinal) values (@attempt, 'extract', true, 0) on conflict do nothing", new { attempt });
+        if (state == "cancelled") // as a pre-start release does: every admitted participant and its (zero-amount) hold released
+            await conn.ExecuteAsync("""
+                update attempt_participants p set state = 'released', release_reason = a.cancel_reason
+                from mission_attempts a where a.attempt_id = p.attempt_id and p.attempt_id = @attempt and p.state = 'admitted';
+                update energy_holds set state = 'released' where attempt_id = @attempt and state = 'reserved' and amount = 0;
+                """, new { attempt });
     }
 
     /// <summary>
