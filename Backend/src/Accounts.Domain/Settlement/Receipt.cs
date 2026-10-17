@@ -90,13 +90,13 @@ public static class ReceiptWriter
             [.. m.Operatives.Select(o => new ReceiptOperative(o.OperativeId, o.Alive))], cover, inventoryVersion));
     }
 
-    /// <summary>The receipt of a protective void (plan §C): energy refunded in full, nothing consumed, granted or paid.</summary>
-    public static byte[] ForVoid(Guid attemptId, string catalogueVersion, LoadoutSnapshot snapshot, InsuranceSnapshot? insurance, int energyCost,
+    /// <summary>The receipt of a protective void (plan §C): the energy refunded (the policy's void refund), nothing consumed, granted or paid.</summary>
+    public static byte[] ForVoid(Guid attemptId, string catalogueVersion, LoadoutSnapshot snapshot, InsuranceSnapshot? insurance, int energyCost, int refunded,
         long inventoryVersion, DateTime settledAt)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         var cover = insurance is null ? ReceiptInsurance.NotCovered : new ReceiptInsurance(true, insurance.PolicyId, insurance.PolicyVersion, false, [], [], []);
-        return Write(new ReceiptData(attemptId, snapshot.AccountId, ResultManifest.InfraVoid, settledAt, catalogueVersion, energyCost, "refunded", energyCost,
+        return Write(new ReceiptData(attemptId, snapshot.AccountId, ResultManifest.InfraVoid, settledAt, catalogueVersion, energyCost, "refunded", refunded,
             [], [], [], [.. snapshot.Operatives.Select(o => new ReceiptOperative(o.OperativeId, null))], cover, inventoryVersion));
     }
 

@@ -130,8 +130,9 @@ create trigger result_submission_payloads_no_truncate before truncate on result_
 
 -- Exactly one per settled participant (the primary key makes a second impossible). A settlement references the submission
 -- it settled (its own participant's: the composite key) and whether a recorded hash matched it; a protective void
--- (outcome infra_void) references none and records its basis. The receipt is stored as the exact bytes served (text, not
--- jsonb, which would reformat them). Immutable.
+-- (outcome infra_void) references none and records its basis. catalogue_version is the attempt's (a result settlement's has a
+-- history row: the 0009 invariants check both; a void needs no catalogue, so a schema-8 attempt can be voided before an import).
+-- The receipt is stored as the exact bytes served (text, not jsonb, which would reformat them). Immutable.
 create table participant_settlements (
   attempt_id uuid not null,
   account_id bigint not null,
@@ -140,7 +141,7 @@ create table participant_settlements (
   void_basis text check (void_basis in ('exit_evidence', 'operator_quarantine', 'operator_revoked_unrecoverable', 'host_declared_lost')),
   recorded_hash text check (recorded_hash in ('matched', 'absent')),
   manifest_hash text check (manifest_hash ~ '^sha256:[0-9a-f]{64}$'),
-  catalogue_version text not null references catalogue_versions,
+  catalogue_version text not null check (catalogue_version ~ '^sha256:[0-9a-f]{64}$'),
   retention_selection jsonb not null default '[]' check (jsonb_typeof(retention_selection) = 'array'),
   receipt text not null check (length(receipt) between 2 and 65536),
   settled_at timestamptz not null,

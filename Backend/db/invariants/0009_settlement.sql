@@ -13,7 +13,8 @@
 --   pool_collection           a pool_collections row that differs from the sum of its attempt's settled manifests' collected
 --                             quantities (read from the stored canonical manifests), or a settled line missing from it;
 --   minted_not_in_receipt     a settlement: or insurance: item whose id its participant's receipt does not list;
---   catalogue_version         a settlement whose catalogue is not its attempt's;
+--   catalogue_version         a settlement whose catalogue is not its attempt's, or a result settlement's catalogue missing
+--                             from the history;
 --   quarantine_unalerted      a quarantined participant without a result_quarantined, result_malformed, catalogue_unavailable,
 --                             recorded_hash_mismatch or quarantine_escalation anomaly naming it (reviewed or not);
 --   settled_attempt_open      a settled attempt with a participant neither settled nor released;
@@ -99,6 +100,7 @@ union all
 select 'catalogue_version', s.attempt_id::text || '/' || s.account_id::text
 from participant_settlements s join mission_attempts a using (attempt_id)
 where s.catalogue_version <> a.catalogue_version
+   or (s.outcome <> 'infra_void' and not exists (select 1 from catalogue_versions c where c.version = s.catalogue_version))
 union all
 select 'quarantine_unalerted', p.attempt_id::text || '/' || p.account_id::text
 from attempt_participants p

@@ -182,13 +182,21 @@ public sealed class HostStore
     }
 
     /// <summary>
-    /// The agent's exit report for one of its attempts (B11 revised, R6, R7). Release lock order (no host lock): the
-    /// participants' accounts FOR KEY SHARE, the attempt FOR UPDATE (this host's only, else NotFound), its participants, then,
-    /// before any start, the release of every admitted participant with <c>process_exited</c> (which cancels the attempt).
-    /// After a start nothing is cancelled, released or refunded. Either way the report is stored once (insert-only evidence:
-    /// exit code, signal, per-participant result presence, the state seen and whether anyone had started) and the slot is
-    /// released (the unit is gone, B6). An identical repeat answers the stored outcome and writes nothing; a different report
-    /// is Conflicting and writes nothing. A result naming an account that is not a participant is UnknownParticipant.
+    /// The agent's exit report for one of its attempts (B11 revised, R6, R7; Stage 9 S9-B1, S9-B5, S9-B7, revision 3). Release lock
+    /// order (no host lock): every participant's accounts row FOR KEY SHARE, the attempt FOR UPDATE (this host's only, else
+    /// NotFound), its participants, then, before any start, the release of every admitted participant with <c>process_exited</c>
+    /// (which cancels the attempt). The presented secret is re-checked under the attempt lock. The report is stored once
+    /// (insert-only evidence: exit code, signal, per-participant presence, the outbox scan's completeness, whether the attempt was
+    /// already revoked, the state seen, and whether anyone had started) and the slot is released (the unit is gone, B6).
+    /// <para>After a start (S9-B7), a participant listed absent is voided (positive evidence) only when the report has an exit
+    /// status, declares a complete outbox scan, the attempt is not revoked, the participant started, is neither settled nor
+    /// quarantined, and has no stored submission and no recorded hash; one listed present moves joined | left → result_pending.
+    /// Anything less voids nothing and raises exit_evidence_inconclusive; a recorded hash or a submission against an absence
+    /// raises exit_evidence_contradiction; a revoked attempt's report raises exit_evidence_post_revocation and changes no state.
+    /// A report declaring a complete scan must list every started participant (IncompleteResults, nothing written).</para>
+    /// <para>An identical repeat answers the stored outcome. After a stored report of an incomplete scan, a report with the same
+    /// exit status and a complete scan is stored as the attempt's one outbox observation and evaluated the same way (the first
+    /// report is never changed); any other different report is Conflicting and writes nothing.</para>
     /// </summary>
     public async Task<ExitReportResult> ExitedAsync(string hostId, byte[] secretHash, Guid attemptId, ExitedRequest report, CancellationToken ct)
     {
@@ -203,7 +211,8 @@ public sealed class HostStore
         if (report.Results.Any(r => !participants.Contains(r.AccountId))) return new ExitReportResult.UnknownParticipant();
 
         var stored = await ExitReports.StoredAgentAsync(conn, tx, attemptId, ct);
-        if (stored is not null) return ExitReports.Same(stored, report) ? new ExitReportResult.Applied(stored.Outcome) : new ExitReportResult.Conflicting();
+        if (stored is not null && ExitReports.Same(stored, report)) return new ExitReportResult.Applied(stored.Outcome);
+        if (stored is not null && !ExitReports.CanObserve(stored, report)) return new ExitReportResult.Conflicting();
 
         var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.ProcessExited,
             AttemptStore.PreStartStates, ct) ?? throw new InvalidOperationException("An attempt has no participants.");
@@ -211,16 +220,42 @@ public sealed class HostStore
         // the host's attempts after the host) either committed first and is seen here, or waits for this report (R8). Nothing
         // the release wrote survives a stale secret: the transaction rolls back.
         if (!await SecretCurrentAsync(conn, tx, hostId, secretHash, ct)) return new ExitReportResult.Ended();
+        var revoked = await conn.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "select credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct));
+        var started = (await conn.QueryAsync<long>(new CommandDefinition(
+            "select account_id from attempt_participants where attempt_id = @attemptId and started_at is not null", new { attemptId }, tx, cancellationToken: ct))).ToHashSet();
+        if (report.OutboxComplete && !started.IsSubsetOf(report.Results.Select(r => r.AccountId))) return new ExitReportResult.IncompleteResults();
+
         // A concurrent first report committed while this one waited on the attempt: answer from it.
         stored = await ExitReports.StoredAgentAsync(conn, tx, attemptId, ct);
-        if (stored is not null) return ExitReports.Same(stored, report) ? new ExitReportResult.Applied(stored.Outcome) : new ExitReportResult.Conflicting();
-        var outcome = batch.ReleasedAny ? "cancelled" : "none";
+        if (stored is not null)
+        {
+            if (ExitReports.Same(stored, report)) return new ExitReportResult.Applied(stored.Outcome);
+            if (!ExitReports.CanObserve(stored, report)) return new ExitReportResult.Conflicting();
+            var observed = await ExitReports.StoredObservationAsync(conn, tx, attemptId, ct);
+            if (observed is not null)
+                return observed.Results.SetEquals(report.Results.Select(r => (r.AccountId, r.Present))) ? new ExitReportResult.Applied(observed.Outcome) : new ExitReportResult.Conflicting();
+            var firstPresent = stored.Results.Where(r => r.Item2).Select(r => r.Item1).ToHashSet();
+            var observedOutcome = await EvaluateExitEvidenceAsync(conn, tx, hostId, attemptId, revoked, report, firstPresent, ct);
+            await conn.ExecuteAsync(new CommandDefinition(
+                "insert into attempt_outbox_observations (attempt_id, host_id, attempt_revoked, outcome) values (@attemptId, @hostId, @revoked, @observedOutcome)",
+                new { attemptId, hostId, revoked, observedOutcome }, tx, cancellationToken: ct));
+            foreach (var r in report.Results)
+                await conn.ExecuteAsync(new CommandDefinition(
+                    "insert into attempt_outbox_observation_results (attempt_id, account_id, present) values (@attemptId, @AccountId, @Present)",
+                    new { attemptId, r.AccountId, r.Present }, tx, cancellationToken: ct));
+            await tx.CommitAsync(ct);
+            return new ExitReportResult.Applied(observedOutcome);
+        }
+
+        var outcome = batch.ReleasedAny ? "cancelled"
+            : batch.AnyStarted ? await EvaluateExitEvidenceAsync(conn, tx, hostId, attemptId, revoked, report, new HashSet<long>(), ct)
+            : "none";
         await conn.ExecuteAsync(new CommandDefinition(
             """
             insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, signal, outcome, outbox_complete, attempt_revoked)
-            select @attemptId, 'agent', @hostId, @seen, @AnyStarted, @ExitCode, @Signal, @outcome, @OutboxComplete,
-                   (select credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId)
-            """, new { attemptId, hostId, seen = batch.StateBefore, batch.AnyStarted, report.ExitCode, report.Signal, outcome, report.OutboxComplete },
+            values (@attemptId, 'agent', @hostId, @seen, @AnyStarted, @ExitCode, @Signal, @outcome, @OutboxComplete, @revoked)
+            """, new { attemptId, hostId, seen = batch.StateBefore, batch.AnyStarted, report.ExitCode, report.Signal, outcome, report.OutboxComplete, revoked },
             tx, cancellationToken: ct));
         foreach (var r in report.Results)
             await conn.ExecuteAsync(new CommandDefinition(
@@ -231,6 +266,75 @@ public sealed class HostStore
             new { attemptId }, tx, cancellationToken: ct));
         await tx.CommitAsync(ct);
         return new ExitReportResult.Applied(outcome);
+    }
+
+    sealed record EvidenceParticipant(long AccountId, string State, bool Started, bool Recorded, bool Submitted);
+
+    /// <summary>
+    /// S9-B7 over one report or observation, inside the exit transaction (accounts, attempt and participants locked by the
+    /// release): returns "voided" when it voided someone, else "none". Only positive evidence voids; see <see cref="ExitedAsync"/>.
+    /// </summary>
+    static async Task<string> EvaluateExitEvidenceAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string hostId, Guid attemptId, bool revoked, ExitedRequest report,
+        IReadOnlySet<long> presentInFirstReport, CancellationToken ct)
+    {
+        var build = await conn.ExecuteScalarAsync<string?>(new CommandDefinition("select build_revision from mission_attempts where attempt_id = @attemptId",
+            new { attemptId }, tx, cancellationToken: ct));
+        if (revoked)
+        {
+            await Settlement.Anomalies.RaiseAsync(conn, tx, Settlement.Anomalies.ExitEvidencePostRevocation, $"{attemptId}:{(report.OutboxComplete ? "complete" : "incomplete")}",
+                new { hostId, report.ExitCode, report.Signal, outboxComplete = report.OutboxComplete }, ct, hostId: hostId, buildRevision: build, attemptId: attemptId);
+            return "none";
+        }
+        var rows = (await conn.QueryAsync<EvidenceParticipant>(new CommandDefinition(
+            """
+            select p.account_id as AccountId, p.state as State, p.started_at is not null as Started, p.recorded_manifest_hash is not null as Recorded,
+                   exists (select 1 from result_submissions s where s.attempt_id = p.attempt_id and s.account_id = p.account_id) as Submitted
+            from attempt_participants p where p.attempt_id = @attemptId order by p.account_id
+            """, new { attemptId }, tx, cancellationToken: ct))).ToList();
+        var presence = report.Results.ToDictionary(r => r.AccountId, r => r.Present);
+        var proof = report.OutboxComplete && (report.ExitCode is not null || report.Signal is not null);
+        var voided = false;
+        var inconclusive = new List<long>();
+        foreach (var p in rows.Where(p => p.Started))
+        {
+            var listed = presence.TryGetValue(p.AccountId, out var present);
+            if (listed && !present && (p.Recorded || p.Submitted || presentInFirstReport.Contains(p.AccountId)))
+            {
+                await Settlement.Anomalies.RaiseAsync(conn, tx, Settlement.Anomalies.ExitEvidenceContradiction, $"{attemptId}:{p.AccountId}",
+                    new { hostId, recorded = p.Recorded, submitted = p.Submitted, presentInFirstReport = presentInFirstReport.Contains(p.AccountId) }, ct,
+                    accountId: p.AccountId, hostId: hostId, buildRevision: build, attemptId: attemptId);
+                continue;
+            }
+            if (p.State is not ("joined" or "left" or "result_pending")) continue; // settled, quarantined (its own recovery) or released
+            if (listed && present)
+            {
+                if (p.State is "joined" or "left")
+                    await conn.ExecuteAsync(new CommandDefinition(
+                        "update attempt_participants set state = 'result_pending' where attempt_id = @attemptId and account_id = @AccountId and state in ('joined', 'left')",
+                        new { attemptId, p.AccountId }, tx, cancellationToken: ct));
+                continue;
+            }
+            if (listed && proof)
+            {
+                var state = await conn.ExecuteScalarAsync<string>(new CommandDefinition("select state from mission_attempts where attempt_id = @attemptId",
+                    new { attemptId }, tx, cancellationToken: ct));
+                await Settlement.VoidStore.VoidParticipantLockedAsync(conn, tx, attemptId, p.AccountId, state!, "exit_evidence", ct);
+                await Settlement.Anomalies.RaiseAsync(conn, tx, Settlement.Anomalies.InfraVoid, $"{attemptId}:{p.AccountId}",
+                    new { hostId, buildRevision = build, report.ExitCode, report.Signal, basis = "exit_evidence" }, ct,
+                    accountId: p.AccountId, hostId: hostId, buildRevision: build, attemptId: attemptId);
+                voided = true;
+                continue;
+            }
+            inconclusive.Add(p.AccountId);
+        }
+        if (inconclusive.Count > 0)
+            await Settlement.Anomalies.RaiseAsync(conn, tx, Settlement.Anomalies.ExitEvidenceInconclusive, $"{attemptId}:{(report.OutboxComplete ? "complete" : "incomplete")}",
+                new { hostId, report.ExitCode, report.Signal, outboxComplete = report.OutboxComplete, unproven = inconclusive.Select(Blackglass.Accounts.Domain.Ids.Base58Id.Format) }, ct,
+                hostId: hostId, buildRevision: build, attemptId: attemptId);
+        var after = await conn.ExecuteScalarAsync<string>(new CommandDefinition("select state from mission_attempts where attempt_id = @attemptId",
+            new { attemptId }, tx, cancellationToken: ct));
+        await Settlement.SettlementStore.MarkEndingAsync(conn, tx, new Settlement.SettlementStore.Link(attemptId, 0), after!, ct);
+        return voided ? "voided" : "none";
     }
 
     /// <summary>Whether <paramref name="secretHash"/> is still the enabled, unrevoked host's secret (a plain read: no host lock).</summary>

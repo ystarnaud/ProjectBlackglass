@@ -19,6 +19,8 @@ public abstract record ExitReportResult
     public sealed record WrongSession : ExitReportResult;
     /// <summary>The attempt had already ended (a process report): the uniform 401, nothing stored.</summary>
     public sealed record Ended : ExitReportResult;
+    /// <summary>A report declaring a complete outbox scan left out a started participant: nothing stored (400).</summary>
+    public sealed record IncompleteResults : ExitReportResult;
 }
 
 /// <summary>Reading and comparing stored exit evidence (<c>attempt_exit_reports</c>, <c>attempt_exit_results</c>).</summary>
@@ -35,6 +37,23 @@ internal static class ExitReports
             "select account_id, present from attempt_exit_results where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct))).ToHashSet();
         return new StoredAgent(r.ExitCode, r.Signal, r.Outcome, results, r.OutboxComplete);
     }
+
+    internal sealed record StoredObservation(string Outcome, IReadOnlySet<(long, bool)> Results);
+
+    internal static async Task<StoredObservation?> StoredObservationAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Guid attemptId, CancellationToken ct)
+    {
+        var outcome = await conn.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            "select outcome from attempt_outbox_observations where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct));
+        if (outcome is null) return null;
+        var results = (await conn.QueryAsync<(long, bool)>(new CommandDefinition(
+            "select account_id, present from attempt_outbox_observation_results where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct))).ToHashSet();
+        return new StoredObservation(outcome, results);
+    }
+
+    /// <summary>Whether <paramref name="report"/> may be stored as the supplementary outbox observation after <paramref name="stored"/>
+    /// (revision 3): the stored report declared an incomplete scan, and this one has the same exit status and a complete scan.</summary>
+    internal static bool CanObserve(StoredAgent stored, ExitedRequest report) =>
+        !stored.OutboxComplete && report.OutboxComplete && stored.ExitCode == report.ExitCode && stored.Signal == report.Signal;
 
     internal static bool Same(StoredAgent stored, ExitedRequest report) =>
         stored.ExitCode == report.ExitCode && stored.Signal == report.Signal && stored.OutboxComplete == report.OutboxComplete

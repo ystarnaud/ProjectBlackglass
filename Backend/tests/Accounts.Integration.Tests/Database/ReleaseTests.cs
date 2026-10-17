@@ -301,7 +301,8 @@ public class ReleaseTests : IAsyncLifetime
         await MoveAsync(attempt, "assigned", "launching", "ready");
         await StartAsync(attempt, account);
         Assert.Equal(new ExitReportResult.Applied("none"), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, await AttemptFixtures.HostSecretHashAsync(db, AttemptFixtures.FixtureHost), attempt, Exit(null, "SIGKILL", (account, true)), default));
-        Assert.Equal(("running:-", "joined:-:charged"), (await AttemptStateAsync(attempt), await ParticipantAsync(attempt, account)));
+        Assert.Equal(("ending:-", "result_pending:-:charged"), // Stage 9 (S9-B5): a present result moves the participant to result_pending
+             (await AttemptStateAsync(attempt), await ParticipantAsync(attempt, account)));
         Assert.Equal(0L, await EntriesAsync(attempt, account, "release"));
         Assert.NotNull(await ScalarAsSuperuserAsync<DateTime?>(db, "select slot_released_at from mission_attempts where attempt_id = @attempt", new { attempt })); // the unit is gone
         Assert.Equal("agent:fixture-host:running:True::SIGKILL:none|" + account + ":True", await EvidenceAsync(attempt));
