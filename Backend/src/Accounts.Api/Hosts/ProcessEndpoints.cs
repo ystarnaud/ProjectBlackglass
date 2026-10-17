@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc;
 using Blackglass.Accounts.Api.Auth;
+using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Domain.Attempts;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Domain.Ids;
@@ -36,7 +37,7 @@ public static class ProcessEndpoints
             return await processes.RegisterAsync(MissionClaims.AttemptOf(http.User), body!, http.RequestAborted) switch
             {
                 RegisterResult.Registered r => Results.Json(new RegisterResponse(r.ProcessSessionId.ToString("D"), r.Seed, new TemplateDto(r.TemplateId, r.TemplateVersion),
-                    r.CatalogueVersion, r.Participants.Select(p => new ParticipantDto(Base58Id.Format(p.AccountId), JsonNode.Parse(p.LoadoutJson)!)).ToArray(),
+                    r.CatalogueVersion, r.Participants.Select(p => new ParticipantDto(p.AccountId, JsonNode.Parse(p.LoadoutJson)!)).ToArray(),
                     new LaunchDeadlineDto(r.LaunchDeadline)), Web),
                 RegisterResult.BuildNotAllowed => MissionBodies.Problem(StatusCodes.Status409Conflict, "BuildNotAllowed"),
                 _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
@@ -75,6 +76,23 @@ public static class ProcessEndpoints
             };
         });
 
+        // POST .../tickets/redeem, body {processSessionId, ticket} -> {accountId, operativeIds} (single use; a repeat by the same
+        // session answers the same). An unknown, expired, revoked or foreign-session ticket is the uniform 401.
+        process.MapPost("/tickets/redeem", async (HttpContext http, TicketStore tickets) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var (body, refusal) = await MissionBodies.ReadAsync(http, RedeemRequest.Parse);
+            if (refusal is not null) return refusal;
+            return await tickets.RedeemAsync(MissionClaims.AttemptOf(http.User), body!.ProcessSessionId, body.Ticket, http.RequestAborted) switch
+            {
+                RedeemResult.Redeemed r => Results.Json(new RedeemResponse(r.AccountId, r.OperativeIds.ToArray()), Web),
+                RedeemResult.WrongAttempt => MissionBodies.Problem(StatusCodes.Status409Conflict, "WrongAttempt"),
+                RedeemResult.WrongSession => MissionBodies.Problem(StatusCodes.Status409Conflict, "WrongSession"),
+                RedeemResult.InvalidState => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
+                _ => UniformUnauthorized.Result,
+            };
+        });
+
         // POST …/failed, body {processSessionId, reason} → {applied: "cancelled" | "none"} (B11 revised: evidence after a start).
         process.MapPost("/failed", async (HttpContext http, ProcessStore processes) =>
         {
@@ -86,9 +104,10 @@ public static class ProcessEndpoints
     }
 
     public sealed record TemplateDto(string Id, int Version);
-    public sealed record ParticipantDto(string AccountId, JsonNode Loadout);
+    public sealed record ParticipantDto([property: System.Text.Json.Serialization.JsonConverter(typeof(AccountIdJsonConverter))] long AccountId, JsonNode Loadout);
     public sealed record LaunchDeadlineDto(DateTime Launch);
     public sealed record RegisterResponse(string ProcessSessionId, int Seed, TemplateDto MissionTemplate, string CatalogueVersion, ParticipantDto[] Participants,
         LaunchDeadlineDto Deadlines);
     public sealed record ReadyResponse(DateTime JoinDeadline);
+    public sealed record RedeemResponse([property: System.Text.Json.Serialization.JsonConverter(typeof(AccountIdJsonConverter))] long AccountId, string[] OperativeIds);
 }

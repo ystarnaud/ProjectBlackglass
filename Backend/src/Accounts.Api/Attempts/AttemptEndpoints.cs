@@ -68,6 +68,22 @@ public static class AttemptEndpoints
             return view is null ? NotFound() : Results.Json(AttemptResponse.From(view), Web);
         }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount);
 
+        // POST /v1/attempts/{attemptId}/tickets, body {} -> 201 {ticket, ticketExpiresAt} (B7: only a POST mints; earlier live
+        // tickets of this participant are revoked). The ticket is shown here once (no-store).
+        app.MapPost("/v1/attempts/{attemptId}/tickets", async (string attemptId, HttpContext http, TicketStore tickets) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            var (_, refusal) = await Hosts.MissionBodies.ReadAsync(http, b => { EmptyRequest.Parse(b); return string.Empty; });
+            if (refusal is not null) return refusal;
+            if (!TryParseAttemptId(attemptId, out var id)) return NotFound();
+            return await tickets.MintAsync(AccountClaims.AccountOf(http.User), id, settings.TicketSeconds, http.RequestAborted) switch
+            {
+                MintResult.Minted m => Results.Json(new TicketResponse(m.Ticket.Text, m.ExpiresAt), Web, statusCode: StatusCodes.Status201Created),
+                MintResult.NotFound => NotFound(),
+                _ => Problem(StatusCodes.Status409Conflict, "InvalidState"),
+            };
+        }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount).WithMetadata(new RequestSizeLimitAttribute(1024));
+
         app.MapPost("/v1/attempts/{attemptId}/cancel", async (string attemptId, HttpContext http, AttemptStore attempts) =>
         {
             http.Response.Headers.CacheControl = "no-store";

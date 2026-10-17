@@ -56,7 +56,7 @@ public static class CancelReasons
 /// or the retention salt.
 /// </summary>
 public sealed record AttemptView(Guid AttemptId, string State, string ParticipantState, DateTime AssignDeadline, int EnergyAmount, string EnergyState,
-    string? InsurancePolicyId, int? InsurancePolicyVersion);
+    string? InsurancePolicyId, int? InsurancePolicyVersion, DateTime? LaunchDeadline = null, DateTime? JoinDeadline = null, string? HostId = null, int? MissionPort = null);
 
 /// <summary>
 /// What a release did, or, when <paramref name="Replayed"/>, what the earlier release stored: the participant's state
@@ -147,7 +147,8 @@ public sealed class AttemptStore(NpgsqlDataSource db, int processLeaseSeconds = 
         var row = await conn.QuerySingleOrDefaultAsync<ViewRow>(new CommandDefinition(
             """
             select a.attempt_id as AttemptId, a.state as State, p.state as ParticipantState, a.assign_deadline as AssignDeadline,
-              h.amount as EnergyAmount, h.state as EnergyState, i.policy_id as InsurancePolicyId, i.policy_version as InsurancePolicyVersion
+              h.amount as EnergyAmount, h.state as EnergyState, i.policy_id as InsurancePolicyId, i.policy_version as InsurancePolicyVersion,
+              a.launch_deadline as LaunchDeadline, a.join_deadline as JoinDeadline, a.host_id as HostId, a.mission_port as MissionPort
             from mission_attempts a
               join attempt_participants p on p.attempt_id = a.attempt_id and p.account_id = @accountId
               join energy_holds h on h.attempt_id = p.attempt_id and h.account_id = p.account_id
@@ -156,7 +157,8 @@ public sealed class AttemptStore(NpgsqlDataSource db, int processLeaseSeconds = 
             """, new { accountId, attemptId }, cancellationToken: ct));
         return row is null ? null
             : new AttemptView(row.AttemptId, row.State, row.ParticipantState, Utc(row.AssignDeadline), row.EnergyAmount, row.EnergyState,
-                row.InsurancePolicyId, row.InsurancePolicyVersion);
+                row.InsurancePolicyId, row.InsurancePolicyVersion, row.LaunchDeadline is { } l ? Utc(l) : null, row.JoinDeadline is { } j ? Utc(j) : null,
+                row.HostId, row.MissionPort);
     }
 
     /// <summary>
@@ -449,5 +451,5 @@ public sealed class AttemptStore(NpgsqlDataSource db, int processLeaseSeconds = 
         value.Kind == DateTimeKind.Utc ? value : throw new InvalidOperationException($"A timestamptz was read as {value.Kind}, not UTC.");
 
     sealed record ViewRow(Guid AttemptId, string State, string ParticipantState, DateTime AssignDeadline, int EnergyAmount, string EnergyState,
-        string? InsurancePolicyId, int? InsurancePolicyVersion);
+        string? InsurancePolicyId, int? InsurancePolicyVersion, DateTime? LaunchDeadline, DateTime? JoinDeadline, string? HostId, int? MissionPort);
 }

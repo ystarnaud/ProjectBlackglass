@@ -111,6 +111,7 @@ public static class ServeCommand
         // its own scheme (the default policy is the account's Bearer scheme alone), so no credential opens another's routes.
         builder.Services.AddSingleton(new HostStore(dataSource, attempts.HostLeaseSeconds));
         builder.Services.AddSingleton(new ProcessStore(dataSource));
+        builder.Services.AddSingleton(new TicketStore(dataSource));
         builder.Services.AddAuthentication(o => { o.DefaultScheme = CredentialSelector; o.DefaultChallengeScheme = AccountClaims.Scheme; })
             .AddPolicyScheme(CredentialSelector, null, o => o.ForwardDefaultSelector = SelectScheme)
             .AddScheme<AuthenticationSchemeOptions, BearerAuthenticationHandler>(AccountClaims.Scheme, null)
