@@ -32,8 +32,8 @@ public class InventoryEditStoreTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         db = await MigratedAsync();
-        edits = new InventoryEditStore(db.AsApp());
-        reads = new PlayerReadStore(db.AsApp());
+        edits = new InventoryEditStore(db.AsApp(), new ParticipationLock());
+        reads = new PlayerReadStore(db.AsApp(), new ParticipationLock());
         admin = new AccountAdminStore(db.AsApp());
     }
 
@@ -143,20 +143,6 @@ public class InventoryEditStoreTests : IAsyncLifetime
         {
             if (DateTime.UtcNow > deadline) throw new TimeoutException($"Fewer than {count} backends waited on the lock.");
             await Task.Delay(5);
-        }
-    }
-
-    /// <summary>Holds the caller inside its transaction, under the row lock, at the seam's call until released.</summary>
-    sealed class Gate : IInventoryLock
-    {
-        public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public async Task<bool> IsLockedAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, CancellationToken ct)
-        {
-            Reached.TrySetResult();
-            await Release.Task.WaitAsync(ct);
-            return false;
         }
     }
 
@@ -442,7 +428,7 @@ public class InventoryEditStoreTests : IAsyncLifetime
             LootTable = doc.LootTable with { Entries = doc.LootTable.Entries.Where(e => e.ItemId != Boots).ToList() },
             Starter = doc.Starter with { Stash = doc.Starter.Stash.Where(s => s.ItemId != Boots).ToList() },
         }));
-        var store = new InventoryEditStore(db.AsApp(), retired);
+        var store = new InventoryEditStore(db.AsApp(), new ParticipationLock(), retired);
         var origin = (await ItemsAsync(a.Id)).Single(i => i.ItemId == boots);
 
         Assert.Equal((0, InventoryRefusal.UnknownItem), await CodeAsync([new Equip(op0, boots)]));
@@ -531,7 +517,7 @@ public class InventoryEditStoreTests : IAsyncLifetime
         await holder.ExecuteAsync("select 1 from item_instances where account_id = @account for update", new { account = b.Id }, tx);
         await holder.ExecuteAsync("select 1 from item_stacks where account_id = @account for update", new { account = b.Id }, tx);
 
-        var bounded = new InventoryEditStore(db.AsAppWith(Short));
+        var bounded = new InventoryEditStore(db.AsAppWith(Short), new ParticipationLock());
         var (version, view) = await bounded.ApplyAsync(a.Id, 1, [
             new EquipFromStash(op0, vest), new Unequip(op0, ItemSlot.Weapon), new MoveInstance(op0, r0, Destination.Stash),
             new EquipFromStash(op1, r0), new MoveStack(op0, Medkit, 2, Destination.Stash), new MoveStack(op1, Medkit, 3, Destination.Bag),
@@ -583,7 +569,7 @@ public class InventoryEditStoreTests : IAsyncLifetime
         var a = await NewAccountAsync();
         var vest = await StashItemAsync(a.Id, Vest);
         await ExecuteAsSuperuserAsync(db, "update operatives set experience = 700 where operative_id = @operative", new { operative = a.Ops[0] }); // picks pending
-        var picks = new PickStore(db.AsApp());
+        var picks = new PickStore(db.AsApp(), new ParticipationLock());
         Task<long> ChoicesAsync() => ScalarAsSuperuserAsync<long>(db, "select count(*) from operative_choices where operative_id = @operative", new { operative = a.Ops[0] });
         await using var holder = await db.AsSuperuser().OpenConnectionAsync();
         await using var tx = await holder.BeginTransactionAsync();
@@ -645,7 +631,7 @@ public class InventoryEditStoreTests : IAsyncLifetime
         var a = await NewAccountAsync();
         var vest = await StashItemAsync(a.Id, Vest);
         var before = await SnapshotAsync(a.Id);
-        var bounded = new InventoryEditStore(db.AsAppWith(Short));
+        var bounded = new InventoryEditStore(db.AsAppWith(Short), new ParticipationLock());
         await using var holder = await db.AsSuperuser().OpenConnectionAsync();
         await using var tx = await holder.BeginTransactionAsync();
         await holder.ExecuteAsync("select 1 from inventories where account_id = @account for update", new { account = a.Id }, tx);
@@ -664,7 +650,7 @@ public class InventoryEditStoreTests : IAsyncLifetime
         var op0 = a.Ops[0];
         var (version, _) = await edits.ApplyAsync(a.Id, 1, [new MoveStack(op0, Medkit, 2, Destination.Stash)]); // op0 has no medkit row now
         var before = await SnapshotAsync(a.Id);
-        var bounded = new InventoryEditStore(db.AsAppWith(Short));
+        var bounded = new InventoryEditStore(db.AsAppWith(Short), new ParticipationLock());
         await using var holder = await db.AsSuperuser().OpenConnectionAsync();
         await using var tx = await holder.BeginTransactionAsync();
         await holder.ExecuteAsync("select 1 from accounts where account_id = @account for update", new { account = a.Id }, tx); // an operator lifecycle lock
@@ -819,7 +805,7 @@ public class InventoryEditStoreTests : IAsyncLifetime
             var (account, operatives, items) = await SeedAsync(c);
             long Operative(string label) => label == "opX" ? long.MaxValue - 1 : operatives[label];
             long Item(string label) => label == "ghost" ? Ghost : items[label];
-            var store = new InventoryEditStore(db.AsApp(), c.Catalogue());
+            var store = new InventoryEditStore(db.AsApp(), new ParticipationLock(), c.Catalogue());
             var operations = c.BuildOperations(Operative, Item);
             var before = await SnapshotAsync(account);
             var initial = await RowsAsync(account);

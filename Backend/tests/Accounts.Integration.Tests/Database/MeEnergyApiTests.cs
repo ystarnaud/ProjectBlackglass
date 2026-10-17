@@ -387,13 +387,13 @@ public class MeEnergyApiTests : IAsyncLifetime
         var footprint = await FootprintAsync(issued.AccountId);
 
         // The read-only source's transactions default to read only (25006 on any write); the store must succeed on it.
-        var me = await new PlayerReadStore(db.AsAppReadOnly()).GetMeAsync(issued.AccountId, default);
+        var me = await new PlayerReadStore(db.AsAppReadOnly(), new ParticipationLock()).GetMeAsync(issued.AccountId, default);
         Assert.Equal(1L, me.InventoryVersion);
         Assert.Equal((13, 50), (me.Energy!.Balance, me.Energy.Cap));
         Assert.Equal(DateTimeKind.Utc, me.Energy.NextRegenAt!.Value.Kind);
         Assert.Equal(footprint, await FootprintAsync(issued.AccountId));
 
-        var nobody = await new PlayerReadStore(db.AsApp()).GetMeAsync(424242, default);
+        var nobody = await new PlayerReadStore(db.AsApp(), new ParticipationLock()).GetMeAsync(424242, default);
         Assert.Equal(new MeView(null, null), nobody);
     }
 
@@ -420,7 +420,7 @@ public class MeEnergyApiTests : IAsyncLifetime
             Assert.Equal(0L, await conn.ExecuteScalarAsync<long>("select count(*) from energy_policies", transaction: tx));
         }
 
-        var me = await new PlayerReadStore(db.AsApp()).GetMeAsync(issued.AccountId, default);
+        var me = await new PlayerReadStore(db.AsApp(), new ParticipationLock()).GetMeAsync(issued.AccountId, default);
         Assert.Equal((13, 50), (me.Energy!.Balance, me.Energy.Cap));
 
         await ExecuteAsSuperuserAsync(db,

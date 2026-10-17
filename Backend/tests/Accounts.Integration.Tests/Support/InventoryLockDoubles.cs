@@ -4,7 +4,7 @@ using Blackglass.Accounts.Persistence.Player;
 
 namespace Blackglass.Accounts.IntegrationTests.Support;
 
-/// <summary>Every account is in a mission. Stage 5 production code never locks anyone, so tests substitute this.</summary>
+/// <summary>Every account is in a mission, without a participation row (production uses ParticipationLock only).</summary>
 public sealed class AlwaysLocked : IInventoryLock
 {
     public int Calls { get; private set; }
@@ -36,5 +36,19 @@ public sealed class RowProbe(NpgsqlDataSource probeSource, bool answer = false) 
         }
         catch (PostgresException e) { Outcomes.Add(e.SqlState); }
         return answer;
+    }
+}
+
+/// <summary>Holds the caller inside its transaction, under the row lock, at the lock's call until released; then answers unlocked.</summary>
+public sealed class Gate : IInventoryLock
+{
+    public TaskCompletionSource Reached { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    public async Task<bool> IsLockedAsync(NpgsqlConnection conn, NpgsqlTransaction tx, long accountId, CancellationToken ct)
+    {
+        Reached.TrySetResult();
+        await Release.Task.WaitAsync(ct);
+        return false;
     }
 }

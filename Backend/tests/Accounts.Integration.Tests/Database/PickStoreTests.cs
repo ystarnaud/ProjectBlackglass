@@ -29,7 +29,7 @@ public class PickStoreTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         db = await MigratedAsync();
-        picks = new PickStore(db.AsApp());
+        picks = new PickStore(db.AsApp(), new ParticipationLock());
         admin = new AccountAdminStore(db.AsApp());
     }
 
@@ -110,7 +110,7 @@ public class PickStoreTests : IAsyncLifetime
     {
         var (account, operative) = await AccountWithXpAsync(700);
         var track = Catalogue.Document.Progression with { ChoiceIds = Catalogue.Document.Progression.ChoiceIds.Where(c => c != "combat").ToList() };
-        var narrowed = new PickStore(db.AsApp(), GameCatalogue.Load(CanonicalCatalogueJson.ToBytes(Catalogue.Document with { Progression = track })));
+        var narrowed = new PickStore(db.AsApp(), new ParticipationLock(), GameCatalogue.Load(CanonicalCatalogueJson.ToBytes(Catalogue.Document with { Progression = track })));
 
         Assert.Equal(PlayerError.UnknownChoice, await RefusalAsync(narrowed.PickAsync(account, operative, "combat", 1)));
         await AssertUnchangedAsync(account, operative, 1, 0);
@@ -210,8 +210,8 @@ public class PickStoreTests : IAsyncLifetime
         await new Migrator(old.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync(2);
         var account = await AccountTestKit.PreStage4AccountAsync(old);
 
-        Assert.Equal(PlayerError.NotProvisioned, await RefusalAsync(new PickStore(old.AsApp()).PickAsync(account, 1, "combat", 1)));
-        Assert.Equal(PlayerError.NotProvisioned, await RefusalAsync(new PickStore(old.AsApp()).PickAsync(long.MaxValue, 1, "combat", 1))); // no such account either
+        Assert.Equal(PlayerError.NotProvisioned, await RefusalAsync(new PickStore(old.AsApp(), new ParticipationLock()).PickAsync(account, 1, "combat", 1)));
+        Assert.Equal(PlayerError.NotProvisioned, await RefusalAsync(new PickStore(old.AsApp(), new ParticipationLock()).PickAsync(long.MaxValue, 1, "combat", 1))); // no such account either
         Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(old, "select count(*) from inventories"));
         Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(old, "select count(*) from operative_choices"));
     }
@@ -260,7 +260,7 @@ public class PickStoreTests : IAsyncLifetime
     public async Task A_pick_behind_a_held_inventory_lock_times_out_and_writes_nothing()
     {
         var (account, operative) = await AccountWithXpAsync(700);
-        var bounded = new PickStore(db.AsAppWith(Short));
+        var bounded = new PickStore(db.AsAppWith(Short), new ParticipationLock());
         await using var holder = await db.AsSuperuser().OpenConnectionAsync();
         await using var tx = await holder.BeginTransactionAsync();
         await holder.ExecuteAsync("select 1 from inventories where account_id = @account for update", new { account }, tx);

@@ -11,14 +11,14 @@ namespace Blackglass.Accounts.Persistence.Player;
 /// no rank gained to spend. One transaction at READ COMMITTED under the account's inventories row lock (the app role has
 /// no lock on operatives), so two picks never read the same pick count and the version is checked after the lock: the
 /// loser of a race with the same expected version is <see cref="PlayerError.VersionMismatch"/>. An account in a mission (the
-/// <see cref="IInventoryLock"/> seam, asked under the row lock) is <see cref="PlayerError.InventoryLocked"/>, checked before the
+/// mandatory <see cref="IInventoryLock"/>, asked under the row lock) is <see cref="PlayerError.InventoryLocked"/>, checked before the
 /// version (owner ruling S5-D5). The choice is validated in
 /// code before the insert, so an unknown or malformed id is never a check violation. A refusal writes nothing.
 /// </summary>
-public sealed class PickStore(NpgsqlDataSource db, GameCatalogue? catalogue = null, IInventoryLock? inventoryLock = null)
+public sealed class PickStore(NpgsqlDataSource db, IInventoryLock inventoryLock, GameCatalogue? catalogue = null)
 {
     readonly GameCatalogue known = catalogue ?? GameCatalogue.Embedded;
-    readonly IInventoryLock mission = inventoryLock ?? new NoParticipationsYet();
+    readonly IInventoryLock mission = inventoryLock ?? throw new ArgumentNullException(nameof(inventoryLock)); // mandatory: there is no unlocked default (S7-D4)
 
     public async Task<(long Version, OperativeView Operative)> PickAsync(long accountId, long operativeId, string choiceId, long expectedVersion, CancellationToken ct = default)
     {

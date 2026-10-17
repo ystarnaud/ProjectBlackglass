@@ -10,7 +10,8 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 /// <summary>
 /// The IInventoryLock seam (owner ruling S5-D5): under the inventories row lock the refusal order is NotProvisioned,
 /// InventoryLocked, VersionMismatch, then the operation; a locked pick writes nothing; the inventory read reports Locked
-/// from the same seam, inside its snapshot. Stage 5 ships NoParticipationsYet, which never locks.
+/// from the same seam, inside its snapshot. Production's only implementation is ParticipationLock (S7-D4); the doubles force
+/// an answer.
 /// </summary>
 [Trait("Requires", "Postgres")]
 public class InventoryLockTests : IAsyncLifetime
@@ -111,15 +112,34 @@ public class InventoryLockTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Unlocked_is_the_Stage_5_default()
+    public async Task Only_the_accounts_own_active_participation_locks_it()
     {
         var (account, operative) = await AccountWithPickAsync();
+        var (other, _) = await AccountWithPickAsync();
+        var participations = new ParticipationLock();
+        async Task<bool> LockedAsync(long id)
+        {
+            await using var conn = await db.AsApp().OpenConnectionAsync();
+            await using var tx = await conn.BeginTransactionAsync();
+            return await participations.IsLockedAsync(conn, tx, id, default);
+        }
 
-        Assert.False((await new PlayerReadStore(db.AsApp()).GetInventoryAsync(account)).Locked);
-        var (version, view) = await new PickStore(db.AsApp()).PickAsync(account, operative, "combat", 1);
+        // No participation, a released one, and another account's active one: unlocked.
+        Assert.False(await LockedAsync(account));
+        await AttemptFixtures.ReleaseAsync(db, await AttemptFixtures.AdmitAsync(db, account));
+        await AttemptFixtures.AdmitAsync(db, other);
+        Assert.False(await LockedAsync(account));
+        Assert.True(await LockedAsync(other));
+
+        Assert.False((await new PlayerReadStore(db.AsApp(), participations).GetInventoryAsync(account)).Locked);
+        var (version, view) = await new PickStore(db.AsApp(), participations).PickAsync(account, operative, "combat", 1);
         Assert.Equal(2L, version);
         Assert.Equal(["combat"], view.Choices);
 
-        Assert.False(await new NoParticipationsYet().IsLockedAsync(null!, null!, account, default));
+        // Its own active participation locks it. The lock never answers without asking the database.
+        await AttemptFixtures.AdmitAsync(db, account);
+        Assert.True(await LockedAsync(account));
+        Assert.True((await new PlayerReadStore(db.AsApp(), participations).GetInventoryAsync(account)).Locked);
+        await Assert.ThrowsAsync<ArgumentNullException>(() => participations.IsLockedAsync(null!, null!, account, default));
     }
 }

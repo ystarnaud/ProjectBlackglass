@@ -322,7 +322,7 @@ public class BackfillTests : IAsyncLifetime
         var granted = Planned(account).Item3;
         var operative = await ScalarAsync<long>("select min(operative_id) from operatives where account_id = @account", new { account });
         var quantity = await ScalarAsync<int>("select quantity from item_stacks where account_id = @account and operative_id = @operative and definition_id = 'item.medkit'", new { account, operative });
-        var edits = new Blackglass.Accounts.Persistence.Player.InventoryEditStore(db.AsApp(), forEdits);
+        var edits = new Blackglass.Accounts.Persistence.Player.InventoryEditStore(db.AsApp(), new Blackglass.Accounts.Persistence.Player.ParticipationLock(), forEdits);
         await edits.ApplyAsync(account, 1, [new MoveStack(operative, "item.medkit", quantity, Destination.Stash)]);
         var now = (await RowCountsAsync(account)).Stacks;
         Assert.NotEqual(granted, now);

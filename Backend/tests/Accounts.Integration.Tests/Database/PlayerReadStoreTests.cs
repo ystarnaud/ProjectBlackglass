@@ -25,7 +25,7 @@ public class PlayerReadStoreTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         db = await MigratedAsync();
-        reads = new PlayerReadStore(db.AsApp());
+        reads = new PlayerReadStore(db.AsApp(), new ParticipationLock());
         admin = new AccountAdminStore(db.AsApp());
     }
 
@@ -95,7 +95,7 @@ public class PlayerReadStoreTests : IAsyncLifetime
         await using var old = await (await TestCluster.Instance).CreateDatabaseAsync();
         await new Migrator(old.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync(2);
         var account = await PreStage4AccountAsync(old);
-        var store = new PlayerReadStore(old.AsApp());
+        var store = new PlayerReadStore(old.AsApp(), new ParticipationLock());
 
         Assert.Equal(PlayerError.NotProvisioned, (await Assert.ThrowsAsync<PlayerException>(() => store.GetRosterAsync(account, default))).Error);
         Assert.Equal(PlayerError.NotProvisioned, (await Assert.ThrowsAsync<PlayerException>(() => store.GetInventoryAsync(account, default))).Error);
@@ -156,7 +156,7 @@ public class PlayerReadStoreTests : IAsyncLifetime
 
         // The connections of this data source default to read-only transactions (25006 on any write the store attempted outside
         // a read-only one); the store must succeed on them, and read the same thing.
-        var readOnly = new PlayerReadStore(db.AsAppReadOnly());
+        var readOnly = new PlayerReadStore(db.AsAppReadOnly(), new ParticipationLock());
         var viaReadOnly = (await readOnly.GetRosterAsync(account, default), await readOnly.GetInventoryAsync(account, default), await readOnly.GetInventoryVersionAsync(account, default));
         Assert.Equal(1L, viaReadOnly.Item3);
         Assert.Equal(ordinary.Item3, viaReadOnly.Item3);
@@ -256,7 +256,7 @@ public class PlayerReadStoreTests : IAsyncLifetime
         var track = Catalogue.Document.Progression with { XpThresholds = [0, 50, 100, 150, 200] };
         var other = GameCatalogue.Load(CanonicalCatalogueJson.ToBytes(Catalogue.Document with { Progression = track }));
 
-        var view = Assert.Single((await new PlayerReadStore(db.AsApp(), other).GetRosterAsync(account, default)).Operatives, o => o.OperativeId == operative);
+        var view = Assert.Single((await new PlayerReadStore(db.AsApp(), new ParticipationLock(), other).GetRosterAsync(account, default)).Operatives, o => o.OperativeId == operative);
         Assert.Equal((3, 2), (view.Rank, view.PendingPicks));
     }
 

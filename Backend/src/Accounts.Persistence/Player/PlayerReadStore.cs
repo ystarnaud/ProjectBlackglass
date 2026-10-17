@@ -21,7 +21,7 @@ public sealed record BagView(long OperativeId, LocationView Bag, EquipmentView E
 
 /// <param name="Energy">The projected wallet, or null when the account has none (owner ruling E3), never a zero balance.</param>
 public sealed record MeView(long? InventoryVersion, EnergyView? Energy);
-/// <param name="Locked">Whether the account is in a mission (the <see cref="IInventoryLock"/> seam; never true until Stage 7 connects participations).</param>
+/// <param name="Locked">Whether the account is in a mission (the mandatory <see cref="IInventoryLock"/>: an active mission participation, S7-D4); a failed lock query fails the read, never false.</param>
 public sealed record InventoryView(long Version, bool Locked, LocationView Stash, IReadOnlyList<BagView> Operatives);
 
 /// <summary>
@@ -33,10 +33,10 @@ public sealed record InventoryView(long Version, bool Locked, LocationView Stash
 /// here. A stored definition id the catalogue does not know is returned with its Known flag false, never an error: a
 /// later catalogue can retire an id the database still holds.
 /// </summary>
-public sealed class PlayerReadStore(NpgsqlDataSource db, GameCatalogue? catalogue = null, IInventoryLock? inventoryLock = null)
+public sealed class PlayerReadStore(NpgsqlDataSource db, IInventoryLock inventoryLock, GameCatalogue? catalogue = null)
 {
     readonly GameCatalogue known = catalogue ?? GameCatalogue.Embedded;
-    readonly IInventoryLock mission = inventoryLock ?? new NoParticipationsYet();
+    readonly IInventoryLock mission = inventoryLock ?? throw new ArgumentNullException(nameof(inventoryLock)); // mandatory: there is no unlocked default (S7-D4)
 
     /// <summary>The inventory version, or null when the account has no inventories row with the starter granted.</summary>
     public async Task<long?> GetInventoryVersionAsync(long accountId, CancellationToken ct = default)

@@ -16,7 +16,7 @@ namespace Blackglass.Accounts.Persistence.Player;
 /// change before commit.
 /// <list type="number">
 /// <item>Lock the accounts row (key share) and the inventories row, then refuse in this order: <see cref="PlayerError.NotProvisioned"/>, <see cref="PlayerError.InventoryLocked"/>
-/// (the <see cref="IInventoryLock"/> seam, asked under the lock), <see cref="PlayerError.VersionMismatch"/>.</item>
+/// (the mandatory <see cref="IInventoryLock"/>, asked under the lock, so a stale version never hides it), <see cref="PlayerError.VersionMismatch"/>.</item>
 /// <item>Load every operative, instance and stack of the account (only <c>account_id = @a</c> rows, so the queries never
 /// depend on whether a guessed id exists in another account) and replay the batch with <see cref="InventoryEditor"/>. A
 /// refusal is <see cref="InventoryRefusedException"/> with nothing written.</item>
@@ -32,10 +32,10 @@ namespace Blackglass.Accounts.Persistence.Player;
 /// batch back. Nothing here ever retries or replays a batch (S5-D6): not on a version mismatch, a busy or unavailable
 /// database, or an ambiguous commit.
 /// </summary>
-public sealed class InventoryEditStore(NpgsqlDataSource db, GameCatalogue? catalogue = null, IInventoryLock? inventoryLock = null)
+public sealed class InventoryEditStore(NpgsqlDataSource db, IInventoryLock inventoryLock, GameCatalogue? catalogue = null)
 {
     readonly GameCatalogue known = catalogue ?? GameCatalogue.Embedded;
-    readonly IInventoryLock mission = inventoryLock ?? new NoParticipationsYet();
+    readonly IInventoryLock mission = inventoryLock ?? throw new ArgumentNullException(nameof(inventoryLock)); // mandatory: there is no unlocked default (S7-D4)
 
     public async Task<(long Version, InventoryView Inventory)> ApplyAsync(long accountId, long expectedVersion, IReadOnlyList<InventoryOperation> operations, CancellationToken ct = default)
     {
@@ -71,7 +71,7 @@ public sealed class InventoryEditStore(NpgsqlDataSource db, GameCatalogue? catal
         var version = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
             "update inventories set version = version + 1 where account_id = @accountId returning version", new { accountId }, tx, cancellationToken: ct));
         if (version != expectedVersion + 1) throw new InventoryInvariantException("The inventory version did not advance by exactly one.");
-        var view = await ReadAsync(known, conn, tx, accountId, version, locked: false, ct); // the seam said unlocked under this lock
+        var view = await ReadAsync(known, conn, tx, accountId, version, locked: false, ct); // the lock said unlocked under this row lock
         await tx.CommitAsync(ct);
         return (version, view);
     }

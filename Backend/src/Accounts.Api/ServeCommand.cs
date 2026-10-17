@@ -71,10 +71,11 @@ public static class ServeCommand
         builder.Services.AddSingleton(auth);
         builder.Services.AddSingleton(new SessionStore(dataSource));
         builder.Services.AddSingleton(new AccountAdminStore(dataSource, catalogue));
-        builder.Services.AddSingleton<IInventoryLock, NoParticipationsYet>(); // Stage 7 connects this to the participation records
-        builder.Services.AddSingleton(sp => new PlayerReadStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
-        builder.Services.AddSingleton(sp => new PickStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
-        builder.Services.AddSingleton(sp => new InventoryEditStore(dataSource, catalogue, sp.GetRequiredService<IInventoryLock>()));
+        // The mandatory, fail-closed participation lock (S7-D4) for inventory reads, edits and picks: the only implementation.
+        builder.Services.AddSingleton<IInventoryLock, ParticipationLock>();
+        builder.Services.AddSingleton(sp => new PlayerReadStore(dataSource, sp.GetRequiredService<IInventoryLock>(), catalogue));
+        builder.Services.AddSingleton(sp => new PickStore(dataSource, sp.GetRequiredService<IInventoryLock>(), catalogue));
+        builder.Services.AddSingleton(sp => new InventoryEditStore(dataSource, sp.GetRequiredService<IInventoryLock>(), catalogue));
         builder.Services.AddSingleton<LoginThrottle>();
         // The fail-closed host-health check (S7-D2) with this process's development-host setting and lease, for admission.
         builder.Services.AddSingleton(attempts);

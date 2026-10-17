@@ -675,7 +675,7 @@ public class EnergyAdminStoreTests : IAsyncLifetime
         await using var wide = Wide(8);
         var racingEnergy = new EnergyAdminStore(wide, GrantMax);
         var racingAccounts = new AccountAdminStore(wide);
-        var reads = new PlayerReadStore(wide);
+        var reads = new PlayerReadStore(wide, new ParticipationLock());
         const string AdvisoryWaiters = "select count(*) from pg_stat_activity where datname = current_database() and wait_event = 'advisory'";
         const string SharedPolicyHolders =
             "select count(*) from pg_locks where locktype = 'advisory' and mode = 'ShareLock' and granted and database = (select oid from pg_database where datname = current_database())";
