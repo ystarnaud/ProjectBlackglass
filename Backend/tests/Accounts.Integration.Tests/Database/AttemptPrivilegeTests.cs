@@ -24,7 +24,7 @@ public class AttemptPrivilegeTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         db = await (await TestCluster.Instance).CreateDatabaseAsync();
-        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync();
+        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync(); await AttemptFixtures.RegisterTestCatalogueAsync(db);
     }
 
     public async Task DisposeAsync() => await db.DisposeAsync();
@@ -73,8 +73,12 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "attempt_participants.account_id:INSERT,SELECT",
             "attempt_participants.attempt_id:INSERT,SELECT",
             "attempt_participants.energy_cost:INSERT,SELECT",
+            "attempt_participants.escalate_at:SELECT,UPDATE",
             "attempt_participants.inventory_version:INSERT,SELECT",
             "attempt_participants.loadout_snapshot:INSERT,SELECT",
+            "attempt_participants.quarantine_reason:SELECT,UPDATE",
+            "attempt_participants.quarantined_at:SELECT,UPDATE",
+            "attempt_participants.recorded_manifest_hash:SELECT,UPDATE",
             "attempt_participants.release_reason:SELECT,UPDATE",
             "attempt_participants.started_at:SELECT,UPDATE",
             "attempt_participants.state:SELECT,UPDATE",
@@ -142,6 +146,7 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "mission_hosts.capacity:INSERT,SELECT,UPDATE",
             "mission_hosts.catalogue_version:SELECT,UPDATE",
             "mission_hosts.created_at:SELECT",
+            "mission_hosts.declared_lost_at:SELECT,UPDATE",
             "mission_hosts.drained:SELECT,UPDATE",
             "mission_hosts.enabled:INSERT,SELECT,UPDATE",
             "mission_hosts.host_id:INSERT,SELECT",
@@ -191,7 +196,7 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             insert into insurance_coverages (account_id, policy_id, policy_version, activation_id, starts_at, expires_at)
             values (@account, 'standard', 1, @activation, clock_timestamp(), clock_timestamp() + interval '1 day');
             insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
-            values (@attempt, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            values (@attempt, @account, 'procedural-standard', 1, (select min(version) from catalogue_versions), clock_timestamp() + interval '60 seconds');
             insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 1, decode(repeat('ab', 32), 'hex'));
             insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost)
             values (@attempt, @account, 'procedural-standard', 1, '{}', 1, 0);
@@ -283,8 +288,8 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "update mission_hosts set port_base = 7000",
             "update mission_hosts set created_at = now()",
             // The database sets times, stamps and initial states.
-            "insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline, state) values (gen_random_uuid(), @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), now(), 'admitted')",
-            "insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline, created_at) values (gen_random_uuid(), @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), now(), now())",
+            "insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline, state) values (gen_random_uuid(), @account, 'procedural-standard', 1, (select min(version) from catalogue_versions), now(), 'admitted')",
+            "insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline, created_at) values (gen_random_uuid(), @account, 'procedural-standard', 1, (select min(version) from catalogue_versions), now(), now())",
             "insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost, state) values (@attempt, @account, 'procedural-standard', 1, '{}', 1, 0, 'admitted')",
             "insert into energy_holds (attempt_id, account_id, amount, state) values (@attempt, @account, 0, 'reserved')",
             "insert into energy_holds (attempt_id, account_id, amount, updated_at) values (@attempt, @account, 0, now())",
@@ -349,6 +354,7 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "mission_attempts.mission_attempt_is_permanent:O:row:refuse_row_change:mission_attempt_is_permanent\\000",
             "mission_attempts.mission_attempt_transition:O:row:mission_attempt_transition:",
             "mission_attempts.mission_attempts_no_truncate:O:statement:refuse_row_change:mission_attempt_is_permanent\\000",
+            "mission_hosts.mission_host_declared_lost:O:row:mission_host_declared_lost:",
             "mission_templates.mission_template_is_immutable:O:row:refuse_row_change:mission_template_is_immutable\\000",
             "mission_templates.mission_templates_no_truncate:O:statement:refuse_row_change:mission_template_is_immutable\\000",
         }, triggers.OrderBy(t => t, StringComparer.Ordinal));

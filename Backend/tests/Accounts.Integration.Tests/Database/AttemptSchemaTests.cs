@@ -40,7 +40,7 @@ public class AttemptSchemaTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         db = await (await TestCluster.Instance).CreateDatabaseAsync();
-        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync();
+        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync(); await AttemptFixtures.RegisterTestCatalogueAsync(db);
     }
 
     public async Task DisposeAsync() => await db.DisposeAsync();
@@ -91,7 +91,7 @@ public class AttemptSchemaTests : IAsyncLifetime
 
     const string InsertAttempt = """
         insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
-        values (@attempt, @account, @template, 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+        values (@attempt, @account, @template, 1, (select min(version) from catalogue_versions), clock_timestamp() + interval '60 seconds');
         insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 12345, @salt)
         """;
     /// <summary>Schema 7's attempt insert (seed and salt on the row), for the Stage 6 to 7 upgrade only.</summary>
@@ -409,8 +409,8 @@ public class AttemptSchemaTests : IAsyncLifetime
     [Theory]
     // The attempt-bound kinds need an attempt; reserve and release keys then can't name one either.
     [InlineData("charge", 0, 40, "'charge:x'", false, "energy_ledger_idempotency_key_check")]   // 0008: a charge key names its attempt
-    [InlineData("settle", 0, 40, "'settle:x'", false, "energy_ledger_kind_attempt_check")]
-    [InlineData("void_refund", 1, 41, "'void_refund:x'", false, "energy_ledger_kind_attempt_check")]
+    [InlineData("settle", 0, 40, "'settle:x'", false, "energy_ledger_idempotency_key_check")] // 0009: settle keys name their attempt exactly
+    [InlineData("void_refund", 1, 41, "'void_refund:x'", false, "energy_ledger_idempotency_key_check")] // 0009: void_refund keys too
     [InlineData("reserve", -1, 39, "'reserve:' || @other", false, "energy_ledger_idempotency_key_check")]
     [InlineData("release", 1, 41, "'release:' || @other", false, "energy_ledger_idempotency_key_check")]
     // The account kinds must not carry one.
@@ -499,9 +499,10 @@ public class AttemptSchemaTests : IAsyncLifetime
         ("admitted", "joined"), ("admitted", "released"), ("joined", "left"), ("left", "joined"), ("joined", "result_pending"),
         ("left", "result_pending"), ("result_pending", "settled"), ("joined", "quarantined"), ("left", "quarantined"),
         ("result_pending", "quarantined"), ("quarantined", "settled"),
+        ("joined", "settled"), ("left", "settled"), // 0009 (S9-B16 option (a))
     ];
 
-    static readonly (string From, string To)[] HoldEdges = [("reserved", "released"), ("reserved", "charged")];
+    static readonly (string From, string To)[] HoldEdges = [("reserved", "released"), ("reserved", "charged"), ("charged", "settled"), ("charged", "refunded")]; // 0009 adds the last two
 
     /// <summary>The state with the columns 0008 requires of it (the claim's from assigned on, ready's from ready on, the
     /// start from running on), each written-once column kept when already set; a cancelled state touches none of them.</summary>
@@ -521,15 +522,19 @@ public class AttemptSchemaTests : IAsyncLifetime
 
     static string ParticipantSet(string state) => $"state = '{state}'"
         + (state is "joined" or "left" or "result_pending" or "unresponsive" or "quarantined" or "settled" ? ", started_at = coalesce(started_at, clock_timestamp())" : "")
-        + (state == "released" ? ", release_reason = coalesce(release_reason, 'player_cancel')" : "");
+        + (state == "released" ? ", release_reason = coalesce(release_reason, 'player_cancel')" : "")
+        // 0009: the quarantine columns a quarantined participant needs, and no pending escalation in any other state.
+        + (state == "quarantined"
+            ? ", quarantined_at = coalesce(quarantined_at, clock_timestamp()), quarantine_reason = coalesce(quarantine_reason, 'invalid_manifest'), escalate_at = clock_timestamp() + interval '1 day'"
+            : ", escalate_at = null");
 
     /// <summary>The host and allowlisted build <see cref="AttemptSet"/> names (0008's foreign keys check them outside replica mode).</summary>
     async Task SeedHostAndBuildAsync()
     {
         await SuperExecuteAsync("""
             insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled, port_base) values ('h1', 'agent', decode(repeat('dd', 32), 'hex'), 4, true, 7000);
-            insert into allowed_builds (build_revision, catalogue_version) values ('r1', 'sha256:' || repeat('ab', 32));
-            insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', 'sha256:' || repeat('ab', 32), 'procedural-standard', 1);
+            insert into allowed_builds (build_revision, catalogue_version) values ('r1', (select min(version) from catalogue_versions));
+            insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', (select min(version) from catalogue_versions), 'procedural-standard', 1);
             """);
     }
 
@@ -680,7 +685,7 @@ public class AttemptSchemaTests : IAsyncLifetime
     }
 
     [Theory]
-    [InlineData("mission_attempts", "insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline, state) values (@attempt2, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), now(), 'assigned')", "mission_attempt_transition")]
+    [InlineData("mission_attempts", "insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline, state) values (@attempt2, @account, 'procedural-standard', 1, (select min(version) from catalogue_versions), now(), 'assigned')", "mission_attempt_transition")]
     [InlineData("attempt_participants", "insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost, state) values (@attempt, @other, 'procedural-standard', 1, '{}', 1, 0, 'joined')", "attempt_participant_transition")]
     [InlineData("energy_holds", "insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost) values (@attempt, @other, 'procedural-standard', 1, '{}', 1, 0); insert into energy_holds (attempt_id, account_id, amount, state) values (@attempt, @other, 0, 'charged')", "energy_hold_transition")]
     public async Task Rows_start_in_their_initial_state(string table, string sql, string constraint)

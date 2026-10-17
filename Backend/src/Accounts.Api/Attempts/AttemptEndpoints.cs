@@ -84,6 +84,22 @@ public static class AttemptEndpoints
             };
         }).RequireAuthorization().RequireRateLimiting(RateLimits.PerAccount).WithMetadata(new RequestSizeLimitAttribute(1024));
 
+        // GET /v1/attempts/{attemptId}/receipt (S9-B6): 200 with the stored receipt bytes verbatim; 202 {state} while there is none
+        // yet (running, result_pending, unresponsive, under_review); 409 NoReceipt for a participant released before its start; 404
+        // AttemptNotFound for a foreign, unknown or non-canonical id. The client polls; only committed rewards are ever shown.
+        app.MapGet("/v1/attempts/{attemptId}/receipt", async (string attemptId, HttpContext http, Persistence.Settlement.ReceiptStore receipts) =>
+        {
+            http.Response.Headers.CacheControl = "no-store";
+            if (!CanonicalUuid.TryParse(attemptId, out var id)) return NotFound();
+            return await receipts.ReceiptAsync(AccountClaims.AccountOf(http.User), id, http.RequestAborted) switch
+            {
+                Persistence.Settlement.ReceiptView.Settled s => Results.Text(s.Receipt, "application/json", Encoding.UTF8),
+                Persistence.Settlement.ReceiptView.Pending p => Results.Json(new PendingReceipt(p.State), Web, statusCode: StatusCodes.Status202Accepted),
+                Persistence.Settlement.ReceiptView.NoReceipt => Problem(StatusCodes.Status409Conflict, "NoReceipt"),
+                _ => NotFound(),
+            };
+        });
+
         app.MapPost("/v1/attempts/{attemptId}/cancel", async (string attemptId, HttpContext http, AttemptStore attempts) =>
         {
             http.Response.Headers.CacheControl = "no-store";
@@ -99,6 +115,8 @@ public static class AttemptEndpoints
 
     /// <summary>The code of the one 404 the attempt routes answer, for an unknown attempt, another account's or a malformed id.</summary>
     public const string AttemptNotFoundCode = "AttemptNotFound";
+
+    public sealed record PendingReceipt(string State);
 
     /// <summary>The status of every <see cref="AttemptError"/>; no default arm, so a new member is a compile error until mapped.</summary>
 #pragma warning disable CS8524

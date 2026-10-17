@@ -109,9 +109,8 @@ public class StartTests : IAsyncLifetime
     public async Task A_zero_cost_start_charges_with_no_ledger_entry()
     {
         // A fixture attempt (zero-amount hold) on h1's build, through the real claim, register, ready, ticket and start.
-        await using (var su = await db.AsSuperuser().OpenConnectionAsync())
-            await su.ExecuteAsync("insert into allowed_builds (build_revision, catalogue_version) values ('r1', 'sha256:' || repeat('ab', 32)); insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', 'sha256:' || repeat('ab', 32), 'procedural-standard', 1)");
-        var zeroBuild = new Blackglass.Accounts.Domain.Hosts.BuildIdentity("r1", "sha256:" + new string('a', 0) + string.Concat(Enumerable.Repeat("ab", 32)));
+        // Since 0009 the fixture attempt is admitted under the embedded catalogue, which h1's build r1 already reports.
+        var zeroBuild = MissionKit.Build;
         await kit.Hosts.HeartbeatAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), new HeartbeatRequest(zeroBuild, true, [], 0), default);
         var account = (await kit.Accounts.CreateAccountAsync(null, null, Op)).AccountId;
         var attempt = await AttemptFixtures.AdmitAsync(db, account);
@@ -119,7 +118,7 @@ public class StartTests : IAsyncLifetime
         var session = Assert.IsType<RegisterResult.Registered>(await kit.Processes.RegisterAsync(attempt, claim.Credential.Hash(), new RegisterRequest(zeroBuild), default)).ProcessSessionId;
         PoolLine[] pool = [new(0, 0, "item.medkit", 1)];
         Assert.IsType<ReadyResult.Ready>(await kit.Processes.ReadyAsync(attempt, new ReadyReport(session, "cf2e14dece9cc2a6", MissionKit.Table.Version,
-            LootHash.Compute(MissionKit.Table.Version, pool), [new Objective("extract", true)], pool), MissionKit.Table, zeroBuild.CatalogueVersion, 120, default));
+            LootHash.Compute(MissionKit.Table.Version, pool), [new Objective("extract", true)], pool), kit.Catalogues, 120, default));
         var m = new MissionKit.Mission(account, attempt, session, claim.Credential);
         await kit.RedeemAsync(m);
         Assert.IsType<StartResult.Started>(await StartAsync(m));

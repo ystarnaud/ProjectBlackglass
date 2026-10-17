@@ -27,7 +27,7 @@ public class HostSessionTests : IAsyncLifetime
     TestDatabase db = null!;
     ApiServer api = null!;
     OpaqueSecret secret = null!;
-    const string Catalogue = "sha256:abababababababababababababababababababababababababababababababab";
+    static readonly string Catalogue = Blackglass.Accounts.Domain.Catalogue.GameCatalogue.Embedded.Version;
     static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
     public async Task InitializeAsync()

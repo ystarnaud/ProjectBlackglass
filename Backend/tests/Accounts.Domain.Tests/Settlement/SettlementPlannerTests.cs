@@ -198,3 +198,17 @@ public class SettlementPlannerTests
         Assert.Contains("\"receiptVersion\":1", text, StringComparison.Ordinal);
     }
 }
+
+/// <summary>The stored admission snapshot reads back exactly what <see cref="Attempts.LoadoutSnapshot.ToJson"/> wrote.</summary>
+public class SnapshotParseTests
+{
+    [Fact]
+    public void A_snapshot_round_trips_through_its_json()
+    {
+        var snapshot = SettlementFixtures.Snapshot();
+        var read = Blackglass.Accounts.Domain.Attempts.LoadoutSnapshot.Parse(snapshot.ToJson());
+        Assert.Equal(snapshot.ToJson(), read.ToJson());
+        Assert.Equal((snapshot.AccountId, snapshot.InventoryVersion, snapshot.CatalogueVersion), (read.AccountId, read.InventoryVersion, read.CatalogueVersion));
+        Assert.Equal(snapshot.Operatives.Select(o => o.Equipment), read.Operatives.Select(o => o.Equipment));
+    }
+}

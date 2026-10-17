@@ -23,7 +23,7 @@ public class EnergySchemaTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         db = await (await TestCluster.Instance).CreateDatabaseAsync();
-        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync();
+        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync(); await AttemptFixtures.RegisterTestCatalogueAsync(db);
     }
 
     public async Task DisposeAsync() => await db.DisposeAsync();
@@ -91,7 +91,7 @@ public class EnergySchemaTests : IAsyncLifetime
         await using var conn = await db.AsApp().OpenConnectionAsync();
         await conn.ExecuteAsync("""
             insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
-            values (@attempt, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            values (@attempt, @account, 'procedural-standard', 1, (select min(version) from catalogue_versions), clock_timestamp() + interval '60 seconds');
             insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 1, decode(repeat('ab', 32), 'hex'))
             """, new { attempt, account });
         return attempt;

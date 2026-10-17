@@ -26,7 +26,7 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 public class ClaimTests : IAsyncLifetime
 {
     TestDatabase db = null!;
-    const string Catalogue = "sha256:abababababababababababababababababababababababababababababababab";
+    static readonly string Catalogue = Blackglass.Accounts.Domain.Catalogue.GameCatalogue.Embedded.Version;
     static readonly BuildIdentity Build = new("r1", Catalogue);
     NpgsqlDataSource wide = null!;
     HostStore hosts = null!;

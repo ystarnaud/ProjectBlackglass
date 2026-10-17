@@ -167,6 +167,28 @@ public sealed record LoadoutSnapshot(long AccountId, long InventoryVersion, stri
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
+    /// <summary>Reads a stored snapshot (the <see cref="ToJson"/> shape; jsonb may have reordered its members). Anything else is a
+    /// FormatException: a stored snapshot is backend-written, so a malformed one is an invariant failure, not bad input.</summary>
+    public static LoadoutSnapshot Parse(string json)
+    {
+        ArgumentNullException.ThrowIfNull(json);
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        static long Id(JsonElement e) => Base58Id.TryParse(e.GetString(), out var id) ? id : throw new FormatException("A snapshot id is not canonical Base58.");
+        static long? OptionalId(JsonElement e) => e.ValueKind == JsonValueKind.Null ? null : Id(e);
+        var operatives = root.GetProperty("operatives").EnumerateArray().Select(o =>
+        {
+            var bag = o.GetProperty("bag");
+            var equipment = o.GetProperty("equipment");
+            return new SnapshotOperative(o.GetProperty("slot").GetInt32(), Id(o.GetProperty("operativeId")), o.GetProperty("definitionId").GetString()!,
+                o.GetProperty("experience").GetInt32(), o.GetProperty("rank").GetInt32(), [.. o.GetProperty("choices").EnumerateArray().Select(c => c.GetString()!)],
+                [.. bag.GetProperty("instances").EnumerateArray().Select(i => new SnapshotInstance(Id(i.GetProperty("itemId")), i.GetProperty("definitionId").GetString()!))],
+                [.. bag.GetProperty("stacks").EnumerateArray().Select(s => new SnapshotStack(s.GetProperty("definitionId").GetString()!, s.GetProperty("quantity").GetInt32()))],
+                new SnapshotEquipment(OptionalId(equipment.GetProperty("weapon")), OptionalId(equipment.GetProperty("armor")), OptionalId(equipment.GetProperty("utility"))));
+        }).OrderBy(o => o.Slot).ToList();
+        return new LoadoutSnapshot(Id(root.GetProperty("accountId")), root.GetProperty("inventoryVersion").GetInt64(), root.GetProperty("catalogueVersion").GetString()!, operatives);
+    }
+
     static void WriteSlot(Utf8JsonWriter w, string name, long? itemId)
     {
         if (itemId is { } id) w.WriteString(name, Base58Id.Format(id));

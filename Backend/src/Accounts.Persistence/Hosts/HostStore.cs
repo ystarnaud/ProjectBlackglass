@@ -217,9 +217,10 @@ public sealed class HostStore
         var outcome = batch.ReleasedAny ? "cancelled" : "none";
         await conn.ExecuteAsync(new CommandDefinition(
             """
-            insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, signal, outcome)
-            select @attemptId, 'agent', @hostId, @seen, @AnyStarted, @ExitCode, @Signal, @outcome
-            """, new { attemptId, hostId, seen = batch.StateBefore, batch.AnyStarted, report.ExitCode, report.Signal, outcome },
+            insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, signal, outcome, outbox_complete, attempt_revoked)
+            select @attemptId, 'agent', @hostId, @seen, @AnyStarted, @ExitCode, @Signal, @outcome, @OutboxComplete,
+                   (select credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId)
+            """, new { attemptId, hostId, seen = batch.StateBefore, batch.AnyStarted, report.ExitCode, report.Signal, outcome, report.OutboxComplete },
             tx, cancellationToken: ct));
         foreach (var r in report.Results)
             await conn.ExecuteAsync(new CommandDefinition(

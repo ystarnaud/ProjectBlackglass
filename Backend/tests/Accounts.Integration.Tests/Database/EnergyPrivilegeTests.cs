@@ -87,6 +87,8 @@ public class EnergyPrivilegeTests : IAsyncLifetime
             "anomaly_events.detail:INSERT",
             "anomaly_events.host_id:INSERT",
             "anomaly_events.kind:INSERT",
+            "anomaly_events.reviewed_at:UPDATE",
+            "anomaly_events.reviewed_note:UPDATE",
             "energy_ledger.account_id:INSERT",
             "energy_ledger.attempt_id:INSERT",
             "energy_ledger.balance_after:INSERT",
@@ -127,8 +129,8 @@ public class EnergyPrivilegeTests : IAsyncLifetime
             "anomaly_events.host_id:INSERT,SELECT",
             "anomaly_events.id:SELECT",
             "anomaly_events.kind:INSERT,SELECT",
-            "anomaly_events.reviewed_at:SELECT",
-            "anomaly_events.reviewed_note:SELECT",
+            "anomaly_events.reviewed_at:SELECT,UPDATE",
+            "anomaly_events.reviewed_note:SELECT,UPDATE",
             "energy_ledger.account_id:INSERT,SELECT",
             "energy_ledger.attempt_id:INSERT,SELECT",
             "energy_ledger.balance_after:INSERT,SELECT",
@@ -191,8 +193,7 @@ public class EnergyPrivilegeTests : IAsyncLifetime
             "delete from energy_ledger where account_id = @account",
             "truncate energy_ledger",
             "insert into energy_ledger (account_id, kind, delta, balance_after, idempotency_key, created_at) values (@account, 'regen', 1, 51, 'regen:1', now())",
-            // anomalies: the app records, it never reviews or removes
-            "update anomaly_events set reviewed_at = now(), reviewed_note = 'n'",
+            // anomalies: the app records and (0009, `anomaly review`) reviews once through the review trigger; it never removes
             "insert into anomaly_events (kind, dedupe_key, detail, reviewed_at) values ('probe', 'e', '{}', now())",
             "delete from anomaly_events",
             "truncate anomaly_events",
@@ -285,6 +286,8 @@ public class EnergyPrivilegeTests : IAsyncLifetime
             """, new { EnergyTables })).ToList();
         Assert.Equal(new[]
         {
+            "anomaly_events.anomaly_event_is_permanent:O:immediate:row:refuse_row_change",
+            "anomaly_events.anomaly_event_review:O:immediate:row:anomaly_event_review",
             "energy_ledger.energy_ledger_chain:O:immediate:row:energy_ledger_chain",
             "energy_ledger.energy_ledger_is_append_only:O:immediate:row:energy_ledger_is_append_only",
             "energy_ledger.energy_ledger_matches_wallet:O:deferrable:row:energy_wallet_matches_ledger",

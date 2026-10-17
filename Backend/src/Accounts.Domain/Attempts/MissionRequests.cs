@@ -56,13 +56,17 @@ public sealed record ExitResult(long AccountId, bool Present);
 /// The agent's exit report: {exitCode (0..255 or null), signal ("SIG…" or null), results: [{accountId, present}]} with each
 /// account at most once (plan revision 2 R6).
 /// </summary>
-public sealed record ExitedRequest(int? ExitCode, string? Signal, IReadOnlyList<ExitResult> Results)
+/// <param name="OutboxComplete">The agent declared a complete, successful outbox scan (S9-B7): the optional
+/// <c>outbox: {complete: boolean}</c>, false when absent.</param>
+public sealed record ExitedRequest(int? ExitCode, string? Signal, IReadOnlyList<ExitResult> Results, bool OutboxComplete = false)
 {
     public const int MaxResults = 16;
 
     public static ExitedRequest Parse(ReadOnlySpan<byte> utf8Json) => StrictJson.Read(utf8Json, root =>
     {
-        var m = StrictJson.Members(root, "exitCode", "signal", "results");
+        var hasOutbox = root.ValueKind == System.Text.Json.JsonValueKind.Object && root.TryGetProperty("outbox", out _);
+        var m = hasOutbox ? StrictJson.Members(root, "exitCode", "signal", "results", "outbox") : StrictJson.Members(root, "exitCode", "signal", "results");
+        var complete = hasOutbox && StrictJson.Bool(StrictJson.Members(m["outbox"], "complete")["complete"]);
         var signal = StrictJson.NullableString(m["signal"], 16);
         if (signal is not null && !IsSignal(signal)) throw StrictJson.Refuse();
         var results = StrictJson.Distinct(StrictJson.Array(m["results"], 0, MaxResults, e =>
@@ -70,7 +74,7 @@ public sealed record ExitedRequest(int? ExitCode, string? Signal, IReadOnlyList<
             var r = StrictJson.Members(e, "accountId", "present");
             return new ExitResult(StrictJson.AccountId(r["accountId"]), StrictJson.Bool(r["present"]));
         }), r => r.AccountId);
-        return new ExitedRequest(StrictJson.NullableInt(m["exitCode"], 0, 255), signal, results);
+        return new ExitedRequest(StrictJson.NullableInt(m["exitCode"], 0, 255), signal, results, complete);
     });
 
     static bool IsSignal(string s) =>

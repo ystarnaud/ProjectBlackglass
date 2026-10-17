@@ -22,7 +22,7 @@ public static class ProcessEndpoints
 {
     static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
-    public static void MapProcess(this WebApplication app, Attempts.AttemptSettings settings, GameCatalogue catalogue)
+    public static void MapProcess(this WebApplication app, Attempts.AttemptSettings settings)
     {
         var process = app.MapGroup("/server/v1/attempts/{attemptId}").RequireAuthorization(MissionClaims.ProcessPolicy).RequireRateLimiting(RateLimits.PerProcess)
             .WithMetadata(new RequestSizeLimitAttribute(MissionBodies.MaxBodyBytes));
@@ -47,12 +47,12 @@ public static class ProcessEndpoints
         });
 
         // POST …/ready, body {processSessionId, layoutHash, lootTableVersion, lootHash, objectives, lootPool} → {joinDeadline}.
-        process.MapPost("/ready", async (HttpContext http, ProcessStore processes) =>
+        process.MapPost("/ready", async (HttpContext http, ProcessStore processes, Persistence.Catalogue.CatalogueHistoryStore catalogues) =>
         {
             http.Response.Headers.CacheControl = "no-store";
             var (body, refusal) = await MissionBodies.ReadAsync(http, ReadyReport.Parse);
             if (refusal is not null) return refusal;
-            return await processes.ReadyAsync(MissionClaims.AttemptOf(http.User), body!, catalogue.Document.LootTable, catalogue.Version, settings.JoinDeadlineSeconds, http.RequestAborted) switch
+            return await processes.ReadyAsync(MissionClaims.AttemptOf(http.User), body!, catalogues, settings.JoinDeadlineSeconds, http.RequestAborted) switch
             {
                 ReadyResult.Ready r => Results.Json(new ReadyResponse(r.JoinDeadline), Web),
                 ReadyResult.InvalidLootPool e => Results.Problem(statusCode: StatusCodes.Status422UnprocessableEntity,

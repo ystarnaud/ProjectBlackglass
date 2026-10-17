@@ -419,6 +419,7 @@ public class PlayerSchemaTests : IAsyncLifetime
             "operative_choices.ordinal:INSERT",
             "operatives.account_id:INSERT",
             "operatives.definition_id:INSERT",
+            "operatives.experience:UPDATE",
             "operatives.origin:INSERT",
             "operatives.origin_ref:INSERT",
         }, columns.OrderBy(c => c, StringComparer.Ordinal));
@@ -427,16 +428,16 @@ public class PlayerSchemaTests : IAsyncLifetime
         // and the only UPDATEs on the four stage 4 tables are 0005's inventory-edit columns.
         Assert.Equal(new[] { "item_stacks:DELETE" }, await conn.QueryAsync<string>(
             "select table_name || ':' || privilege_type from information_schema.role_table_grants where grantee = 'accounts_app' and privilege_type in ('DELETE', 'TRUNCATE')"));
-        Assert.Equal(new[] { "item_instances.equipped_slot", "item_instances.operative_id", "item_stacks.quantity" }, (await conn.QueryAsync<string>(
+        Assert.Equal(new[] { "item_instances.equipped_slot", "item_instances.operative_id", "item_stacks.quantity", "operatives.experience" }, (await conn.QueryAsync<string>(
             "select table_name || '.' || column_name from information_schema.column_privileges where grantee = 'accounts_app' and privilege_type = 'UPDATE' and table_name in ('operatives', 'operative_choices', 'item_instances', 'item_stacks')")).OrderBy(c => c, StringComparer.Ordinal));
         // No sequence privilege at all: identities are minted by inserts, which need none.
         Assert.Empty(await conn.QueryAsync<string>(
             "select relname::text from pg_class where case when relkind = 'S' then has_sequence_privilege('accounts_app', oid, 'USAGE, SELECT, UPDATE') else false end"));
-        Assert.Equal(7L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'")); // 0006 adds three
+        Assert.Equal(8L, await conn.ExecuteScalarAsync<long>("select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'S'")); // 0006 adds three; 0009 one (result_submissions)
     }
 
     [Theory]
-    [InlineData("update operatives set experience = 100", "42501")]
+    [InlineData("update operatives set definition_id = 'operative.x'", "42501")]
     [InlineData("update operatives set account_id = 1", "42501")]
     [InlineData("delete from operatives", "42501")]
     [InlineData("truncate operatives cascade", "42501")]

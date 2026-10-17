@@ -242,9 +242,9 @@ public class HostDisableTests : IAsyncLifetime
         await admin.DisableAsync("h1", Op);
         PoolLine[] pool = [new(0, 0, "item.medkit", 1)];
         var report = new ReadyReport(session, "cf2e14dece9cc2a6", MissionKit.Table.Version, LootHash.Compute(MissionKit.Table.Version, pool), [new Objective("extract", true)], pool);
-        Assert.IsType<ReadyResult.Revoked>(await kit.Processes.ReadyAsync(claim.AttemptId, report, MissionKit.Table, MissionKit.Catalogue.Version, 120, default));
+        Assert.IsType<ReadyResult.Revoked>(await kit.Processes.ReadyAsync(claim.AttemptId, report, kit.Catalogues, 120, default));
         var invalid = report with { LootHash = "sha256:" + new string('0', 64) }; // the invalid-pool cancel is refused too
-        Assert.IsType<ReadyResult.Revoked>(await kit.Processes.ReadyAsync(claim.AttemptId, invalid, MissionKit.Table, MissionKit.Catalogue.Version, 120, default));
+        Assert.IsType<ReadyResult.Revoked>(await kit.Processes.ReadyAsync(claim.AttemptId, invalid, kit.Catalogues, 120, default));
         Assert.Equal("launching", await ScalarAsSuperuserAsync<string>(db, "select state from mission_attempts where attempt_id = @a", new { a = claim.AttemptId }));
     }
 

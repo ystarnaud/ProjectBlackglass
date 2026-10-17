@@ -44,13 +44,13 @@ public class ServiceHealthTests : IAsyncLifetime
     /// <paramref name="heartbeatAgeSeconds"/> before the database clock, or none.</summary>
     /// <summary>The catalogue every health check here asks for, and the build agent hosts report (allowlisted in
     /// <see cref="InitializeAsync"/> for procedural-standard v1 under it).</summary>
-    const string Catalogue = "sha256:abababababababababababababababababababababababababababababababab";
+    static readonly string Catalogue = Blackglass.Accounts.Domain.Catalogue.GameCatalogue.Embedded.Version;
     const string Build = "r1";
 
     /// <remarks>An agent host reports <see cref="Build"/> under <see cref="Catalogue"/> unless <paramref name="build"/> says
     /// otherwise ("" for none reported); a development fixture reports nothing.</remarks>
     Task InsertHostAsync(string hostId, string kind = "agent", bool enabled = true, bool drained = false, int capacity = 3, double? heartbeatAgeSeconds = 1,
-        string? build = Build, string catalogue = Catalogue) =>
+        string? build = Build, string? catalogue = null) =>
         ExecuteAsSuperuserAsync(db,
             """
             insert into mission_hosts (host_id, kind, secret_hash, enabled, drained, capacity, port_base, build_revision, catalogue_version, last_heartbeat_at)
@@ -59,10 +59,11 @@ public class ServiceHealthTests : IAsyncLifetime
                     case when @age::double precision is null then null else clock_timestamp() - make_interval(secs => @age::double precision) end)
             """,
             new { hostId, kind, hash = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32), enabled, drained, capacity, age = heartbeatAgeSeconds,
-                  build = build ?? "", catalogue });
+                  build = build ?? "", catalogue = catalogue ?? Catalogue });
 
-    async Task<bool> CheckAsync(bool devHostsEnabled, int leaseSeconds = 30, bool inTransaction = false, string catalogue = Catalogue)
+    async Task<bool> CheckAsync(bool devHostsEnabled, int leaseSeconds = 30, bool inTransaction = false, string? catalogue = null)
     {
+        catalogue ??= Catalogue;
         await using var conn = await db.AsApp().OpenConnectionAsync();
         if (!inTransaction) return await ServiceHealth.CheckAsync(conn, null, devHostsEnabled, leaseSeconds, "procedural-standard", 1, catalogue, default);
         await using var tx = await conn.BeginTransactionAsync();

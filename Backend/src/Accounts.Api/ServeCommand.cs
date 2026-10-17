@@ -67,6 +67,22 @@ public static class ServeCommand
             return new(ExitCodes.SchemaNotCurrent, null);
         }
 
+        // S9-B20.2: the catalogue this API admits under is registered in the immutable history before anything is served.
+        var catalogues = new Persistence.Catalogue.CatalogueHistoryStore(dataSource);
+        try { await catalogues.RegisterAsync(catalogue, null, ct); }
+        catch (Persistence.Catalogue.CatalogueRegistrationException e)
+        {
+            await dataSource.DisposeAsync();
+            error.WriteLine($"Refusing to start: {e.Message}");
+            return new(ExitCodes.CatalogueIdentityChanged, null);
+        }
+        catch (NpgsqlException e)
+        {
+            await dataSource.DisposeAsync();
+            error.WriteLine($"Database unavailable at startup ({settings}): {DbFailure.SafeDescription(e)}");
+            return new(ExitCodes.Failure, null);
+        }
+
         var builder = WebApplication.CreateBuilder(); // no command-line arguments: see Cli
         if (ApiHost.ResolveUrls(env) is { } urls) builder.WebHost.UseUrls(urls);
         builder.Services.AddSingleton(dataSource);
@@ -110,6 +126,11 @@ public static class ServeCommand
         // per-host and per-process rate limits see their principal before authorization; every route still requires exactly
         // its own scheme (the default policy is the account's Bearer scheme alone), so no credential opens another's routes.
         builder.Services.AddSingleton(new HostStore(dataSource, attempts.HostLeaseSeconds));
+        builder.Services.AddSingleton(catalogues);
+        builder.Services.AddSingleton(new Persistence.Settlement.SettlementStore(dataSource, catalogues, new Persistence.Settlement.SettlementOptions(
+            attempts.ResultSubmissionsMax, attempts.ResultUnidentifiedMax, attempts.QuarantineEscalationHours,
+            new Domain.Settlement.SettlementLimits(attempts.ManifestMaxElapsedMs, attempts.ManifestElapsedToleranceMs))));
+        builder.Services.AddSingleton(new Persistence.Settlement.ReceiptStore(dataSource));
         builder.Services.AddSingleton(new ProcessStore(dataSource));
         builder.Services.AddSingleton(new TicketStore(dataSource));
         builder.Services.AddSingleton(new StartStore(dataSource));
@@ -140,7 +161,8 @@ public static class ServeCommand
         app.MapPlayer(auth);
         app.MapAttempts(attempts);
         app.MapAgent(attempts);
-        app.MapProcess(attempts, catalogue);
+        app.MapResults();
+        app.MapProcess(attempts);
         await app.StartAsync(ct);
         return new(ExitCodes.Ok, app);
     }

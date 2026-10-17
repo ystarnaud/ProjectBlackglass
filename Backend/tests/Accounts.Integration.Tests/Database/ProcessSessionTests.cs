@@ -11,6 +11,7 @@ using Blackglass.Accounts.Domain.Hosts;
 using Blackglass.Accounts.IntegrationTests.Support;
 using Blackglass.Accounts.Persistence.Accounts;
 using Blackglass.Accounts.Persistence.Attempts;
+using Blackglass.Accounts.Persistence.Catalogue;
 using Blackglass.Accounts.Persistence.Hosts;
 using static Blackglass.Accounts.IntegrationTests.Support.AccountTestKit;
 
@@ -29,7 +30,8 @@ public class ProcessSessionTests : IAsyncLifetime
     HostStore hosts = null!;
     ProcessStore processes = null!;
     AttemptStore attempts = null!;
-    const string Catalogue = "sha256:abababababababababababababababababababababababababababababababab";
+    CatalogueHistoryStore catalogues = null!;
+    static readonly string Catalogue = GameCatalogue.Embedded.Version;
     static readonly BuildIdentity Build = new("r1", Catalogue);
     static readonly LootTable Table = GameCatalogue.Embedded.Document.LootTable;
 
@@ -38,6 +40,7 @@ public class ProcessSessionTests : IAsyncLifetime
         db = await MigratedAsync();
         hosts = new HostStore(db.AsApp(), leaseSeconds: 30);
         processes = new ProcessStore(db.AsApp());
+        catalogues = new CatalogueHistoryStore(db.AsApp());
         attempts = new AttemptStore(db.AsApp(), processLeaseSeconds: 30);
         var admin = new HostAdminStore(db.AsApp());
         await admin.AllowBuildAsync(Build, [new TemplateRef("procedural-standard", 1)], Op);
@@ -88,7 +91,7 @@ public class ProcessSessionTests : IAsyncLifetime
     async Task<(Claimed Claim, Guid Session)> ReadyAsync()
     {
         var (claim, session) = await RegisteredAsync();
-        Assert.IsType<ReadyResult.Ready>(await processes.ReadyAsync(claim.Attempt, Ready(session), Table, Catalogue, 120, default));
+        Assert.IsType<ReadyResult.Ready>(await processes.ReadyAsync(claim.Attempt, Ready(session), catalogues, 120, default));
         return (claim, session);
     }
 
@@ -194,7 +197,7 @@ public class ProcessSessionTests : IAsyncLifetime
     {
         var (claim, session) = await RegisteredAsync();
         var now = await ScalarAsSuperuserAsync<DateTime>(db, "select clock_timestamp()");
-        var ready = Assert.IsType<ReadyResult.Ready>(await processes.ReadyAsync(claim.Attempt, Ready(session), Table, Catalogue, 120, default));
+        var ready = Assert.IsType<ReadyResult.Ready>(await processes.ReadyAsync(claim.Attempt, Ready(session), catalogues, 120, default));
         Assert.InRange(ready.JoinDeadline, now.AddSeconds(110), now.AddSeconds(125));
         await using var su = await db.AsSuperuser().OpenConnectionAsync();
         Assert.Equal(("ready", "cf2e14dece9cc2a6", Table.Version, LootHash.Compute(Table.Version, Pool)), await su.QuerySingleAsync<(string, string, int, string)>(
@@ -204,9 +207,9 @@ public class ProcessSessionTests : IAsyncLifetime
             .Select(s => s.Replace("true", "True").Replace("false", "False")));
         Assert.Equal(3L, await su.ExecuteScalarAsync<long>("select count(*) from attempt_loot_pool where attempt_id = @a", new { a = claim.Attempt }));
         // A repeat with the identical body is a lost acknowledgement; any difference is refused and changes nothing.
-        Assert.Equal(ready, await processes.ReadyAsync(claim.Attempt, Ready(session), Table, Catalogue, 120, default));
-        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session, layout: "0000000000000000"), Table, Catalogue, 120, default));
-        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session, objectives: [new("extract", true)]), Table, Catalogue, 120, default));
+        Assert.Equal(ready, await processes.ReadyAsync(claim.Attempt, Ready(session), catalogues, 120, default));
+        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session, layout: "0000000000000000"), catalogues, 120, default));
+        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session, objectives: [new("extract", true)]), catalogues, 120, default));
         Assert.Equal(3L, await su.ExecuteScalarAsync<long>("select count(*) from attempt_loot_pool where attempt_id = @a", new { a = claim.Attempt }));
     }
 
@@ -226,7 +229,7 @@ public class ProcessSessionTests : IAsyncLifetime
             "table-version" => Ready(session) with { LootTableVersion = Table.Version + 1, LootHash = LootHash.Compute(Table.Version + 1, Pool) },
             _ => Ready(session, lootHash: "sha256:" + new string('0', 64)),
         };
-        var refused = Assert.IsType<ReadyResult.InvalidLootPool>(await processes.ReadyAsync(claim.Attempt, report, Table, Catalogue, 120, default));
+        var refused = Assert.IsType<ReadyResult.InvalidLootPool>(await processes.ReadyAsync(claim.Attempt, report, catalogues, 120, default));
         Assert.NotEmpty(refused.Errors);
         Assert.Equal("cancelled:invalid_pool", await StateAsync(claim.Attempt));
         Assert.Equal("released:invalid_pool", await ScalarAsSuperuserAsync<string>(db,
@@ -245,18 +248,25 @@ public class ProcessSessionTests : IAsyncLifetime
             await su.ExecuteAsync("update mission_attempts set launch_deadline = clock_timestamp() - interval '1 second' where attempt_id = @a", new { a = claim.Attempt }, tx);
             await tx.CommitAsync();
         }
-        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session), Table, Catalogue, 120, default)); // Final M2
+        Assert.IsType<ReadyResult.InvalidState>(await processes.ReadyAsync(claim.Attempt, Ready(session), catalogues, 120, default)); // Final M2
         Assert.Equal("launching:-", await StateAsync(claim.Attempt));
         Assert.Equal(1, (await attempts.SweepAsync(10)).Released);
         Assert.Equal("cancelled:launch_timeout", await StateAsync(claim.Attempt));
     }
 
     [Fact]
-    public async Task Ready_under_another_catalogue_is_refused_without_cancelling()
+    public async Task Ready_under_a_genuinely_unavailable_catalogue_is_refused_without_cancelling()
     {
-        // Final M4: the attempt was admitted under another catalogue than the one this API judges pools with.
+        // Final M4, rewritten for S9-B20.3 (ruling): ready judges the pool under the attempt's admission catalogue from the history,
+        // so CatalogueMismatch remains only for a version the history lacks (here a schema-8 style attempt, its version unregistered).
         var (claim, session) = await RegisteredAsync();
-        var refused = await processes.ReadyAsync(claim.Attempt, Ready(session, [new(0, 0, "item.rocket", 1)]), Table, "sha256:" + new string('c', 64), 120, default);
+        var missing = "sha256:" + new string('c', 64);
+        await ExecuteAsSuperuserAsync(db, """
+            insert into allowed_builds (build_revision, catalogue_version) values ('r1', @missing);
+            insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', @missing, 'procedural-standard', 1);
+            begin; set local session_replication_role = replica; update mission_attempts set catalogue_version = @missing where attempt_id = @attempt; commit;
+            """, new { missing, attempt = claim.Attempt });
+        var refused = await processes.ReadyAsync(claim.Attempt, Ready(session, [new(0, 0, "item.rocket", 1)]), catalogues, 120, default);
         Assert.IsType<ReadyResult.CatalogueMismatch>(refused);
         Assert.Equal("launching:-", await StateAsync(claim.Attempt));
     }
@@ -275,7 +285,7 @@ public class ProcessSessionTests : IAsyncLifetime
     {
         var (claim, session) = await RegisteredAsync();
         foreach (var objectives in new[] { Array.Empty<Objective>(), [new Objective("extract", false)], [new Objective("Extract!", true)] })
-            Assert.IsType<ReadyResult.InvalidObjectives>(await processes.ReadyAsync(claim.Attempt, Ready(session, objectives: objectives), Table, Catalogue, 120, default));
+            Assert.IsType<ReadyResult.InvalidObjectives>(await processes.ReadyAsync(claim.Attempt, Ready(session, objectives: objectives), catalogues, 120, default));
         Assert.Equal("launching:-", await StateAsync(claim.Attempt));
     }
 
@@ -284,8 +294,8 @@ public class ProcessSessionTests : IAsyncLifetime
     {
         var (claim, _) = await ReadyAsync();
         var other = Guid.CreateVersion7();
-        Assert.IsType<ReadyResult.WrongSession>(await processes.ReadyAsync(claim.Attempt, Ready(other), Table, Catalogue, 120, default));
-        Assert.IsType<ReadyResult.WrongSession>(await processes.ReadyAsync(claim.Attempt, Ready(other, lootHash: "sha256:" + new string('0', 64)), Table, Catalogue, 120, default)); // never cancels
+        Assert.IsType<ReadyResult.WrongSession>(await processes.ReadyAsync(claim.Attempt, Ready(other), catalogues, 120, default));
+        Assert.IsType<ReadyResult.WrongSession>(await processes.ReadyAsync(claim.Attempt, Ready(other, lootHash: "sha256:" + new string('0', 64)), catalogues, 120, default)); // never cancels
         Assert.IsType<ProcessHeartbeatResult.WrongSession>(await processes.HeartbeatAsync(claim.Attempt, new ProcessHeartbeatRequest(other, "running", []), default));
         Assert.Equal(new ExitReportResult.WrongSession(), await processes.FailedAsync(claim.Attempt, new FailedRequest(other, "x"), default));
         Assert.Equal("ready:-", await StateAsync(claim.Attempt));
@@ -409,11 +419,11 @@ public class ProcessSessionTests : IAsyncLifetime
             objectives = Objectives.Select(o => new { objectiveId = o.ObjectiveId, required = o.Required }),
             lootPool = Pool.Select(l => new { containerIndex = l.ContainerIndex, line = l.Line, definitionId = l.DefinitionId, quantity = l.Quantity }),
         });
-        // This fixture attempt was admitted under a stand-in catalogue, not the API's: its pool is never judged against the wrong
-        // table and nothing is cancelled (Final M4). The ready happy path over HTTP is LifecycleTests'.
+        // Since S9-B20.3 the pool is judged under the attempt's admission catalogue from the history (here the API's own); the
+        // genuinely-unavailable case is Ready_under_a_genuinely_unavailable_catalogue_is_refused_without_cancelling.
         var readied = await PostAsync($"/server/v1/attempts/{claim.Attempt}/ready", ready);
-        Assert.Equal(HttpStatusCode.Conflict, readied.Status);
-        Assert.Contains("\"code\":\"CatalogueMismatch\"", readied.Body);
+        Assert.Equal(HttpStatusCode.OK, readied.Status);
+        Assert.Contains("\"joinDeadline\"", readied.Body);
         var hb = await PostAsync($"/server/v1/attempts/{claim.Attempt}/heartbeat", $$"""{"processSessionId":"{{session}}","phase":"lobby","participants":[]}""");
         Assert.Equal((HttpStatusCode.OK, "{}"), hb);
     }

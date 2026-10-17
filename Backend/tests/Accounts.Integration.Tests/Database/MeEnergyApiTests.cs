@@ -440,10 +440,11 @@ public class MeEnergyApiTests : IAsyncLifetime
         var attempt = Guid.CreateVersion7();
         var activation = Guid.CreateVersion7();
         var expiresAt = await conn.ExecuteScalarAsync<DateTime>("select date_trunc('second', clock_timestamp()) + interval '1 day'", transaction: tx);
+        await AttemptFixtures.RegisterTestCatalogueAsync(conn, tx);
         await conn.ExecuteAsync(
             """
             insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
-            values (@attempt, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            values (@attempt, @account, 'procedural-standard', 1, (select min(version) from catalogue_versions), clock_timestamp() + interval '60 seconds');
             insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 12345, @salt);
             insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost)
             values (@attempt, @account, 'procedural-standard', 1, '{"operatives":[]}'::jsonb, 1, 0);

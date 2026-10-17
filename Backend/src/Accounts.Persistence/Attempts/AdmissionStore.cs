@@ -98,6 +98,8 @@ public sealed class AdmissionStore
     readonly IAttemptSecrets secrets;
     readonly GameCatalogue catalogue;
     readonly int assignDeadlineSeconds;
+    readonly Catalogue.CatalogueHistoryStore history;
+    volatile bool registered;
 
     public AdmissionStore(NpgsqlDataSource db, ServiceHealth health, IAttemptSecrets secrets, GameCatalogue catalogue, int assignDeadlineSeconds)
     {
@@ -106,6 +108,16 @@ public sealed class AdmissionStore
         (this.db, this.health, this.secrets, this.catalogue, this.assignDeadlineSeconds) = (
             db ?? throw new ArgumentNullException(nameof(db)), health ?? throw new ArgumentNullException(nameof(health)),
             secrets ?? throw new ArgumentNullException(nameof(secrets)), catalogue ?? throw new ArgumentNullException(nameof(catalogue)), assignDeadlineSeconds);
+        history = new Catalogue.CatalogueHistoryStore(db);
+    }
+
+    /// <summary>Every admission names a registered catalogue (0009's foreign key, S9-B20): the first admission through this store
+    /// registers its catalogue once (serve has normally done so at startup; the registration's identity check applies either way).</summary>
+    async Task EnsureCatalogueRegisteredAsync(CancellationToken ct)
+    {
+        if (registered) return;
+        await history.RegisterAsync(catalogue, null, ct);
+        registered = true;
     }
 
     public async Task<Admission> AdmitAsync(long accountId, Guid idempotencyKey, DeployRequest request, CancellationToken ct = default)
@@ -113,6 +125,7 @@ public sealed class AdmissionStore
         ArgumentNullException.ThrowIfNull(request);
         var hash = request.RequestHash(); // the normalized, validated request (S7-D5): an unparseable one throws here, before any connection
 
+        await EnsureCatalogueRegisteredAsync(ct);
         await using var conn = await DbFailure.OpenAsync(db, ct);
         if (await RecordedAsync(conn, null, accountId, idempotencyKey, hash, ct) is { } recorded) return recorded;
         // The requested template's latest version first (read without a lock): health is per template (B5), and an unknown

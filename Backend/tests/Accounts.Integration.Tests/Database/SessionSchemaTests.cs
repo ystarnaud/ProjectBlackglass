@@ -20,7 +20,7 @@ public class SessionSchemaTests : IAsyncLifetime
     public async Task InitializeAsync()
     {
         db = await (await TestCluster.Instance).CreateDatabaseAsync();
-        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync();
+        await new Migrator(db.AsMigrator(), MigrationCatalog.Embedded).MigrateAsync(); await AttemptFixtures.RegisterTestCatalogueAsync(db);
     }
 
     public async Task DisposeAsync() => await db.DisposeAsync();
@@ -42,7 +42,7 @@ public class SessionSchemaTests : IAsyncLifetime
         await using var tx = await conn.BeginTransactionAsync();
         await conn.ExecuteAsync("""
             insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
-            values (@attempt, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            values (@attempt, @account, 'procedural-standard', 1, (select min(version) from catalogue_versions), clock_timestamp() + interval '60 seconds');
             insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, @seed, @salt);
             insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost)
             values (@attempt, @account, 'procedural-standard', 1, '{}', 1, 0);
@@ -123,7 +123,7 @@ public class SessionSchemaTests : IAsyncLifetime
             "7a2bfbb3de2664bdafee878dd334c43696f89ce9c6c9fb10fafc64241ea400ff", "fe9f01840312c97e13ae5e79dcd7a6fb222b4aad6f456d8447d5475ed9773773",
         ];
         Assert.Equal(pinned, MigrationCatalog.Embedded.Scripts.Take(8).Select(s => Convert.ToHexStringLower(s.Checksum)));
-        Assert.Equal(8, MigrationCatalog.Embedded.LatestVersion);
+        Assert.True(MigrationCatalog.Embedded.LatestVersion >= 8);
     }
 
     // ---- attempt secrets (B1) ----
@@ -173,7 +173,7 @@ public class SessionSchemaTests : IAsyncLifetime
         var attempt = Guid.CreateVersion7();
         await SuperExecuteAsync("""
             insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
-            values (@attempt, @account, 'procedural-standard', 1, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds')
+            values (@attempt, @account, 'procedural-standard', 1, (select min(version) from catalogue_versions), clock_timestamp() + interval '60 seconds')
             """, new { attempt, account });
         Assert.Contains($"attempt_secrets_missing:{attempt}", await SessionInvariantsAsync());
     }
@@ -333,7 +333,7 @@ public class SessionSchemaTests : IAsyncLifetime
         const string Release = "update mission_attempts set slot_released_at = clock_timestamp() where attempt_id = @attempt";
         Assert.Equal("mission_attempt_transition", (await FailureOf(db.AsApp(), Release, new { attempt })).ConstraintName);
         await SuperExecuteAsync("insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled, port_base) values ('other-host', 'agent', decode(repeat('0b', 32), 'hex'), 1, true, 9000)");
-        const string Report = "insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, outcome) values (@attempt, 'agent', @host, 'running', true, 0, 'none')";
+        const string Report = "insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, outcome, outbox_complete, attempt_revoked) values (@attempt, 'agent', @host, 'running', true, 0, 'none', false, false)";
         var foreign = await FailureOf(db.AsApp(), Report, new { attempt, host = "other-host" });
         Assert.Equal(("23503", "attempt_exit_reports_host_fkey"), (foreign.SqlState, foreign.ConstraintName));
         await using var conn = await db.AsApp().OpenConnectionAsync();
@@ -347,8 +347,8 @@ public class SessionSchemaTests : IAsyncLifetime
         await using (var conn = await db.AsApp().OpenConnectionAsync())
         {
             await conn.ExecuteAsync("""
-                insert into allowed_builds (build_revision, catalogue_version) values ('r1', 'sha256:' || repeat('ab', 32));
-                insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', 'sha256:' || repeat('ab', 32), 'procedural-standard', 1);
+                insert into allowed_builds (build_revision, catalogue_version) values ('r1', (select min(version) from catalogue_versions));
+                insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', (select min(version) from catalogue_versions), 'procedural-standard', 1);
                 update allowed_builds set enabled = false;
                 """);
         }
@@ -362,10 +362,10 @@ public class SessionSchemaTests : IAsyncLifetime
                      ("delete from allowed_build_templates", "allowed_build_template_is_immutable"),
                  })
             Assert.Equal(("23514", constraint), ((await FailureOf(db.AsMigrator(), sql)).SqlState, (await FailureOf(db.AsMigrator(), sql)).ConstraintName));
-        Assert.Equal("23514", (await FailureOf(db.AsApp(), "insert into allowed_builds (build_revision, catalogue_version) values ('-bad', 'sha256:' || repeat('ab', 32))")).SqlState);
+        Assert.Equal("23514", (await FailureOf(db.AsApp(), "insert into allowed_builds (build_revision, catalogue_version) values ('-bad', (select min(version) from catalogue_versions))")).SqlState);
         Assert.Equal("23514", (await FailureOf(db.AsApp(), "insert into allowed_builds (build_revision, catalogue_version) values ('r3', 'sha256:AB')")).SqlState);
         Assert.Equal(("23503", "allowed_build_templates_template_fkey"), ((await FailureOf(db.AsApp(),
-            "insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', 'sha256:' || repeat('ab', 32), 'procedural-standard', 9)")) is var t ? (t.SqlState, t.ConstraintName) : default));
+            "insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version) values ('r1', (select min(version) from catalogue_versions), 'procedural-standard', 9)")) is var t ? (t.SqlState, t.ConstraintName) : default));
         // An attempt's build must be allowlisted (the foreign key), for its own catalogue.
         var (_, attempt) = await AdmitAsync();
         await SuperExecuteAsync($"insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled, port_base) values ('{AttemptFixtures.FixtureHost}', 'agent', decode(repeat('0a', 32), 'hex'), 4, true, 7000)");
@@ -433,9 +433,10 @@ public class SessionSchemaTests : IAsyncLifetime
                      ("update attempt_objectives set required = false", "attempt_objective_is_immutable"),
                      ("truncate attempt_objectives", "attempt_objective_is_immutable"),
                      ("update attempt_loot_pool set quantity = 9", "attempt_loot_pool_is_immutable"),
-                     ("truncate attempt_loot_pool", "attempt_loot_pool_is_immutable"),
                  })
             Assert.Equal(constraint, (await FailureOf(db.AsMigrator(), sql)).ConstraintName);
+        // Since 0009 pool_collections references the pool, so a truncate is refused before its trigger (0A000).
+        Assert.Equal("0A000", (await FailureOf(db.AsMigrator(), "truncate attempt_loot_pool")).SqlState);
         Assert.Equal("23514", (await FailureOf(db.AsApp(), "insert into attempt_loot_pool (attempt_id, container_index, line, definition_id, quantity) values (@attempt, 0, 1, 'item.kit', 0)", new { attempt })).SqlState);
     }
 
@@ -447,15 +448,15 @@ public class SessionSchemaTests : IAsyncLifetime
         var stranger = await NewAccountAsync();
         await using var conn = await db.AsApp().OpenConnectionAsync();
         await conn.ExecuteAsync("""
-            insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, signal, outcome)
-            values (@attempt, 'agent', 'fixture-host', 'ready', false, null, 'SIGKILL', 'cancelled');
+            insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, signal, outcome, outbox_complete, attempt_revoked)
+            values (@attempt, 'agent', 'fixture-host', 'ready', false, null, 'SIGKILL', 'cancelled', false, false);
             insert into attempt_exit_results (attempt_id, account_id, present) values (@attempt, @account, false);
             """, new { attempt, account });
         var foreign = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(
             "insert into attempt_exit_results (attempt_id, account_id, present) values (@attempt, @stranger, true)", new { attempt, stranger }));
         Assert.Equal(("23503", "attempt_exit_results_participant_fkey"), (foreign.SqlState, foreign.ConstraintName));
         var second = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(
-            "insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, outcome) values (@attempt, 'agent', 'fixture-host', 'ready', false, 0, 'none')", new { attempt }));
+            "insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, exit_code, outcome, outbox_complete, attempt_revoked) values (@attempt, 'agent', 'fixture-host', 'ready', false, 0, 'none', false, false)", new { attempt }));
         Assert.Equal("23505", second.SqlState);
         var shape = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(
             "insert into attempt_exit_reports (attempt_id, source, host_id, attempt_state, any_started, reason, outcome) values (@attempt, 'process', 'fixture-host', 'ready', false, 'oom', 'none')", new { attempt }));

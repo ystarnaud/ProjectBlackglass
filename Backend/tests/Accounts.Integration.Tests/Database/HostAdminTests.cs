@@ -22,7 +22,7 @@ public class HostAdminTests : IAsyncLifetime
 {
     TestDatabase db = null!;
     HostAdminStore hosts = null!;
-    const string Catalogue = "sha256:abababababababababababababababababababababababababababababababab";
+    static readonly string Catalogue = Blackglass.Accounts.Domain.Catalogue.GameCatalogue.Embedded.Version;
 
     public async Task InitializeAsync()
     {

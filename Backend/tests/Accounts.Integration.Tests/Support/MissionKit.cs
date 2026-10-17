@@ -27,6 +27,7 @@ public sealed class MissionKit
     public HostStore Hosts { get; }
     public ProcessStore Processes { get; }
     public TicketStore Tickets { get; }
+    public Blackglass.Accounts.Persistence.Catalogue.CatalogueHistoryStore Catalogues { get; }
 
     MissionKit(TestDatabase db)
     {
@@ -36,6 +37,7 @@ public sealed class MissionKit
         Hosts = new HostStore(db.AsApp(), leaseSeconds: 30);
         Processes = new ProcessStore(db.AsApp());
         Tickets = new TicketStore(db.AsApp());
+        Catalogues = new Blackglass.Accounts.Persistence.Catalogue.CatalogueHistoryStore(db.AsApp());
     }
 
     public static async Task<MissionKit> CreateAsync(TestDatabase db, int capacity = 16)
@@ -71,7 +73,7 @@ public sealed class MissionKit
         var session = ((RegisterResult.Registered)await Processes.RegisterAsync(attempt, claim.Credential.Hash(), new RegisterRequest(Build), default)).ProcessSessionId;
         PoolLine[] pool = [new(0, 0, "item.medkit", 1)];
         var ready = await Processes.ReadyAsync(attempt, new ReadyReport(session, "cf2e14dece9cc2a6", Table.Version, LootHash.Compute(Table.Version, pool),
-            [new Objective("extract", true)], pool), Table, Catalogue.Version, 120, default);
+            [new Objective("extract", true)], pool), Catalogues, 120, default);
         if (ready is not ReadyResult.Ready) throw new InvalidOperationException($"Ready failed: {ready}");
         return new Mission(account, attempt, session, claim.Credential);
     }

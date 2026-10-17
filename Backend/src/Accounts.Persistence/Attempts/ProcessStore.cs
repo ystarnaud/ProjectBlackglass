@@ -30,7 +30,7 @@ public abstract record ReadyResult
     /// <summary>The objectives break the rules: nothing written.</summary>
     public sealed record InvalidObjectives(IReadOnlyList<string> Errors) : ReadyResult;
     public sealed record WrongSession : ReadyResult;
-    /// <summary>The attempt was admitted under another catalogue than the one judging its pool: nothing written, nothing cancelled.</summary>
+    /// <summary>The attempt's admission catalogue is genuinely unavailable in the history (S9-B20.3): nothing written, nothing cancelled.</summary>
     public sealed record CatalogueMismatch : ReadyResult;
     /// <summary>The attempt's process credential was revoked (its host was disabled, R8): the uniform 401, nothing written.</summary>
     public sealed record Revoked : ReadyResult;
@@ -121,17 +121,15 @@ public sealed class ProcessStore(NpgsqlDataSource db)
     /// table version and the loot hash, and the objectives and pool inserted (all written once). A repeat while ready with the
     /// identical report answers the stored join deadline; any difference is InvalidState.
     /// </summary>
-    /// <param name="tableCatalogueVersion">The version of the catalogue <paramref name="table"/> comes from: an attempt admitted under
-    /// another is CatalogueMismatch (its pool is never judged against the wrong table, and nothing is cancelled).</param>
-    public async Task<ReadyResult> ReadyAsync(Guid attemptId, ReadyReport report, Blackglass.Accounts.Domain.Catalogue.LootTable table, string tableCatalogueVersion,
-        int joinDeadlineSeconds, CancellationToken ct)
+    /// <param name="catalogues">The catalogue history (S9-B20.3): the pool is judged against the loot table of the catalogue the
+    /// attempt was admitted under, whatever catalogue this API runs; only a genuinely unavailable admission catalogue is
+    /// CatalogueMismatch (nothing written, nothing cancelled).</param>
+    public async Task<ReadyResult> ReadyAsync(Guid attemptId, ReadyReport report, Catalogue.CatalogueHistoryStore catalogues, int joinDeadlineSeconds, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(report);
-        ArgumentNullException.ThrowIfNull(table);
+        ArgumentNullException.ThrowIfNull(catalogues);
         var objectiveErrors = ObjectiveList.Validate(report.Objectives);
         if (objectiveErrors.Count > 0) return new ReadyResult.InvalidObjectives(objectiveErrors);
-        var poolErrors = LootPoolValidator.Validate(table, report.LootTableVersion, report.LootPool).ToList();
-        if (LootHash.Compute(report.LootTableVersion, report.LootPool) != report.LootHash) poolErrors.Add("lootHash is not the pool's canonical hash");
 
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
@@ -142,7 +140,11 @@ public sealed class ProcessStore(NpgsqlDataSource db)
             new { attemptId }, tx, cancellationToken: ct));
         if (identity is { Revoked: true }) return new ReadyResult.Revoked();
         if (identity is not { } id || id.Session != report.ProcessSessionId) return new ReadyResult.WrongSession();
-        if (id.Catalogue != tableCatalogueVersion) return new ReadyResult.CatalogueMismatch();
+        if (await catalogues.LookupLockedAsync(conn, tx, id.Catalogue, ct) is not Catalogue.CatalogueLookup.Found { Catalogue: var admission })
+            return new ReadyResult.CatalogueMismatch();
+        var table = admission.Document.LootTable;
+        var poolErrors = LootPoolValidator.Validate(table, report.LootTableVersion, report.LootPool).ToList();
+        if (LootHash.Compute(report.LootTableVersion, report.LootPool) != report.LootHash) poolErrors.Add("lootHash is not the pool's canonical hash");
         if (poolErrors.Count > 0)
         {
             var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.InvalidPool, ["launching"], ct)

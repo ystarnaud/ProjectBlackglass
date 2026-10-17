@@ -13,6 +13,21 @@ public static class AttemptFixtures
     public const string Template = "procedural-standard";
     public const int TemplateVersion = 1;
 
+    /// <summary>The catalogue attempts written by direct SQL are admitted under: the embedded one, which
+    /// <see cref="RegisterTestCatalogueAsync(TestDatabase)"/> registers in the catalogue history (0009's foreign key, S9-B20).
+    /// Raw SQL names it as <c>(select min(version) from catalogue_versions)</c>, the only registered version in such a database.</summary>
+    public static readonly string TestCatalogueVersion = Blackglass.Accounts.Domain.Catalogue.GameCatalogue.Embedded.Version;
+
+    const string RegisterSql = "insert into catalogue_versions (version, bytes) values (@version, @bytes) on conflict do nothing";
+
+    static object RegisterArgs => new { version = TestCatalogueVersion, bytes = Blackglass.Accounts.Domain.Catalogue.GameCatalogue.EmbeddedBytes() };
+
+    /// <summary>Registers <see cref="TestCatalogueVersion"/> in a database migrated to schema 9 or later (idempotent).</summary>
+    public static Task RegisterTestCatalogueAsync(TestDatabase db) => AccountTestKit.ExecuteAsSuperuserAsync(db, RegisterSql, RegisterArgs);
+
+    /// <summary>The same, inside the caller's transaction.</summary>
+    public static Task RegisterTestCatalogueAsync(Npgsql.NpgsqlConnection conn, Npgsql.NpgsqlTransaction tx) => conn.ExecuteAsync(RegisterSql, RegisterArgs, tx);
+
     /// <summary>An active (admitted) solo participation of <paramref name="accountId"/>, with its inventory version at that
     /// moment in the participant row. Returns the attempt id (UUIDv7).</summary>
     public static async Task<Guid> AdmitAsync(TestDatabase db, long accountId)
@@ -20,12 +35,13 @@ public static class AttemptFixtures
         var attempt = Guid.CreateVersion7();
         await using var conn = await db.AsSuperuser().OpenConnectionAsync();
         await using var tx = await conn.BeginTransactionAsync();
+        await RegisterTestCatalogueAsync(conn, tx);
         await conn.ExecuteAsync(
             """
             insert into mission_attempts (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline)
-            values (@attempt, @accountId, @Template, @TemplateVersion, 'sha256:' || repeat('ab', 32), clock_timestamp() + interval '60 seconds');
+            values (@attempt, @accountId, @Template, @TemplateVersion, @catalogue, clock_timestamp() + interval '60 seconds');
             insert into attempt_secrets (attempt_id, seed, retention_salt) values (@attempt, 12345, @salt)
-            """, new { attempt, accountId, Template, TemplateVersion, salt = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) }, tx);
+            """, new { attempt, accountId, Template, TemplateVersion, catalogue = TestCatalogueVersion, salt = System.Security.Cryptography.RandomNumberGenerator.GetBytes(32) }, tx);
         await conn.ExecuteAsync(
             """
             insert into attempt_participants (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost)
