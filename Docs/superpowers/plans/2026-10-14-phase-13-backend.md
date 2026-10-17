@@ -233,11 +233,13 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 7: insurance, participants and admission
 
+**Status: detailed plan proposed, awaiting the owner's rulings S7-D1–S7-D9 and go-ahead; nothing implemented.** Detailed plan: `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admission.md`. It supersedes the work list below where they differ (the migration is narrowed to what Stage 7 uses; the `accounts` key-share step in admission's lock order).
+
 **Touches:** `Backend/` only.
 
 **Work:**
 - insurance policies, coverage and activations: the same policy **extends** (`greatest(expires_at, now) + duration`), a different policy while active is refused (`409 CrossTierDeferred`), an idempotency key is honoured once; immutability triggers;
-- migration `0007` (insurance, attempts, participants with the `one_active_participation` partial unique index, holds, snapshots, tickets, deploy requests, hosts, builds);
+- migration `0007` (`0007_attempts_and_insurance`: insurance, mission templates, the host rows the health check reads, attempts, participants with the `one_active_participation` partial unique index, holds, snapshots, deploy requests; builds, tickets, loot pools, objectives and the host agent columns move to Stage 8's `0008`);
 - `POST /v1/attempts`, following the spec's §7.3 and the §15.3 lock order;
 - the service-health admission check, with a host-health seam until stage 8;
 - `GET /v1/attempts/{id}` and `cancel`;
@@ -272,6 +274,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Touches:** `Backend/` only.
 
 **Work:**
+- migration `0008` (the build allowlist, join tickets, loot pools and objectives, and the attempt and host columns that claims and process sessions need);
 - host heartbeat and drain;
 - claim (`SKIP LOCKED`, port allocation, process credential);
 - `launching` and `exited` (pre-start cancel);
@@ -295,7 +298,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Touches:** `Backend/` only.
 
 **Work:**
-- migration `0007`;
+- migration `0009` (settlement, review and monitoring; was sketched as `0007`);
 - domain validation V4–V14, including conservation;
 - the retention selection (category priority plus salted hash), payout and settlement plan;
 - the settlement transaction (spec §10.3), with stack consumption as `DELETE` when fully consumed and `UPDATE … WHERE quantity > q` when partial, and per-unit `origin_ref` minting;

@@ -1374,6 +1374,9 @@ create trigger auth_sessions_revocation_is_final before update on auth_sessions 
 
 -- Revision 2.5: 0005 is 0005_inventory_edits (Stage 5, §0.5); the sketches below shift by one when planned.
 -- Revision 2.6: energy is 0006_energy (Stage 6, §0.6, with the schema departures listed there); insurance moves to 0007.
+-- Numbering as planned (Stage 7 plan, 2026-10-17): 0007_attempts_and_insurance (insurance, templates, health-check host rows,
+-- attempts, participants, holds, snapshots, deploy requests); builds, tickets, pools, objectives and host agent columns are
+-- Stage 8's 0008; settlement, review and monitoring are Stage 9's 0009. The labels below are the original sketch's.
 -- 0005 energy and insurance
 create table energy_policies (
   version integer primary key, cap integer not null check (cap > 0),
