@@ -1,0 +1,60 @@
+{
+  "attemptId": "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",
+  "accountId": "JG",
+  "outcome": "defeat",
+  "settledAt": "2026-10-17T12:30:00.000001Z",
+  "catalogueVersion": "sha256:5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c",
+  "energy": {
+    "cost": 10,
+    "state": "settled",
+    "refunded": 0
+  },
+  "consumed": [
+    {
+      "operativeId": "C",
+      "definitionId": "item.medkit",
+      "quantity": 3
+    }
+  ],
+  "granted": [],
+  "xp": [],
+  "operatives": [
+    {
+      "operativeId": "C",
+      "alive": false
+    }
+  ],
+  "insurance": {
+    "covered": true,
+    "policyId": "standard",
+    "policyVersion": 1,
+    "applied": true,
+    "refunds": [
+      {
+        "definitionId": "item.medkit",
+        "quantity": 1
+      }
+    ],
+    "retained": [
+      {
+        "definitionId": "item.service-rifle",
+        "quantity": 1,
+        "itemIds": [
+          "GX"
+        ]
+      },
+      {
+        "definitionId": "item.medkit",
+        "quantity": 2,
+        "itemIds": []
+      }
+    ],
+    "xp": [
+      {
+        "operativeId": "C",
+        "amount": 60
+      }
+    ]
+  },
+  "inventoryVersion": 9
+}

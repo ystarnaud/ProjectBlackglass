@@ -1,0 +1,109 @@
+{
+  "saltHex": "0000000000000000000000000000000000000000000000000000000000000001",
+  "accountId": "2G",
+  "terms": {
+    "covers": [
+      "defeat",
+      "abandoned",
+      "disconnected",
+      "expired"
+    ],
+    "consumableRefund": {
+      "percent": 50,
+      "rounding": "floor",
+      "destination": "stash"
+    },
+    "lootRetention": {
+      "maxEntries": 3,
+      "maxUnitsPerEntry": 2,
+      "eligibleCategories": [
+        "Consumable"
+      ],
+      "rank": [
+        "categoryPriority",
+        "saltedHash"
+      ],
+      "categoryPriority": [
+        "Consumable",
+        "Weapon",
+        "Armor",
+        "Utility"
+      ]
+    },
+    "progressXp": {
+      "percent": 40,
+      "basis": "requiredObjectivesCompleted"
+    }
+  },
+  "candidates": [
+    {
+      "containerIndex": 0,
+      "line": 0,
+      "definitionId": "item.medkit",
+      "category": "Consumable",
+      "quantity": 1
+    },
+    {
+      "containerIndex": 0,
+      "line": 1,
+      "definitionId": "item.medkit",
+      "category": "Consumable",
+      "quantity": 2
+    },
+    {
+      "containerIndex": 1,
+      "line": 0,
+      "definitionId": "item.medkit",
+      "category": "Consumable",
+      "quantity": 2
+    },
+    {
+      "containerIndex": 1,
+      "line": 1,
+      "definitionId": "item.medkit",
+      "category": "Consumable",
+      "quantity": 3
+    },
+    {
+      "containerIndex": 2,
+      "line": 0,
+      "definitionId": "item.medkit",
+      "category": "Consumable",
+      "quantity": 3
+    },
+    {
+      "containerIndex": 2,
+      "line": 1,
+      "definitionId": "item.medkit",
+      "category": "Consumable",
+      "quantity": 4
+    },
+    {
+      "containerIndex": 9,
+      "line": 0,
+      "definitionId": "item.light-vest",
+      "category": "Armor",
+      "quantity": 1
+    }
+  ],
+  "expected": [
+    {
+      "containerIndex": 0,
+      "line": 1,
+      "definitionId": "item.medkit",
+      "units": 2
+    },
+    {
+      "containerIndex": 1,
+      "line": 0,
+      "definitionId": "item.medkit",
+      "units": 2
+    },
+    {
+      "containerIndex": 0,
+      "line": 0,
+      "definitionId": "item.medkit",
+      "units": 1
+    }
+  ]
+}

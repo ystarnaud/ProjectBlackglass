@@ -1,0 +1,85 @@
+{
+  "saltHex": "030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dc",
+  "accountId": "JG",
+  "terms": {
+    "covers": [
+      "defeat",
+      "abandoned",
+      "disconnected",
+      "expired"
+    ],
+    "consumableRefund": {
+      "percent": 50,
+      "rounding": "floor",
+      "destination": "stash"
+    },
+    "lootRetention": {
+      "maxEntries": 2,
+      "maxUnitsPerEntry": 3,
+      "eligibleCategories": [
+        "Consumable",
+        "Armor",
+        "Utility",
+        "Weapon"
+      ],
+      "rank": [
+        "categoryPriority",
+        "saltedHash"
+      ],
+      "categoryPriority": [
+        "Weapon",
+        "Armor",
+        "Utility",
+        "Consumable"
+      ]
+    },
+    "progressXp": {
+      "percent": 40,
+      "basis": "requiredObjectivesCompleted"
+    }
+  },
+  "candidates": [
+    {
+      "containerIndex": 0,
+      "line": 0,
+      "definitionId": "item.medkit",
+      "category": "Consumable",
+      "quantity": 5
+    },
+    {
+      "containerIndex": 0,
+      "line": 1,
+      "definitionId": "item.service-rifle",
+      "category": "Weapon",
+      "quantity": 1
+    },
+    {
+      "containerIndex": 1,
+      "line": 0,
+      "definitionId": "item.light-vest",
+      "category": "Armor",
+      "quantity": 1
+    },
+    {
+      "containerIndex": 2,
+      "line": 0,
+      "definitionId": "item.combat-blade",
+      "category": "Weapon",
+      "quantity": 1
+    }
+  ],
+  "expected": [
+    {
+      "containerIndex": 0,
+      "line": 1,
+      "definitionId": "item.service-rifle",
+      "units": 1
+    },
+    {
+      "containerIndex": 2,
+      "line": 0,
+      "definitionId": "item.combat-blade",
+      "units": 1
+    }
+  ]
+}

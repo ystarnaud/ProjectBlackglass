@@ -1,0 +1,29 @@
+{
+  "attemptId": "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",
+  "accountId": "JG",
+  "outcome": "infra_void",
+  "settledAt": "2026-10-17T13:00:00.000000Z",
+  "catalogueVersion": "sha256:5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c",
+  "energy": {
+    "cost": 10,
+    "state": "refunded",
+    "refunded": 10
+  },
+  "consumed": [],
+  "granted": [],
+  "xp": [],
+  "operatives": [
+    {
+      "operativeId": "D",
+      "alive": null
+    },
+    {
+      "operativeId": "C",
+      "alive": null
+    }
+  ],
+  "insurance": {
+    "covered": false
+  },
+  "inventoryVersion": 7
+}

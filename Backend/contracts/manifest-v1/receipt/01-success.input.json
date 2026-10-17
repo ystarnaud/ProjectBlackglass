@@ -1,0 +1,74 @@
+{
+  "attemptId": "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",
+  "accountId": "JG",
+  "outcome": "success",
+  "settledAt": "2026-10-17T12:30:00.123456Z",
+  "catalogueVersion": "sha256:5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c5f2c",
+  "energy": {
+    "cost": 10,
+    "state": "settled",
+    "refunded": 0
+  },
+  "consumed": [
+    {
+      "operativeId": "C",
+      "definitionId": "item.medkit",
+      "quantity": 1
+    }
+  ],
+  "granted": [
+    {
+      "operativeId": "D",
+      "definitionId": "item.servo-boots",
+      "quantity": 1,
+      "itemIds": [
+        "9e"
+      ]
+    },
+    {
+      "operativeId": "C",
+      "definitionId": "item.service-rifle",
+      "quantity": 2,
+      "itemIds": [
+        "9g",
+        "9d"
+      ]
+    },
+    {
+      "operativeId": "C",
+      "definitionId": "item.medkit",
+      "quantity": 1,
+      "itemIds": []
+    }
+  ],
+  "xp": [
+    {
+      "operativeId": "D",
+      "amount": 150
+    },
+    {
+      "operativeId": "C",
+      "amount": 150
+    }
+  ],
+  "operatives": [
+    {
+      "operativeId": "D",
+      "alive": false
+    },
+    {
+      "operativeId": "C",
+      "alive": true
+    }
+  ],
+  "insurance": {
+    "covered": true,
+    "policyId": "standard",
+    "policyVersion": 1,
+    "applied": false,
+    "refunds": [],
+    "retained": [],
+    "xp": []
+  },
+  "inventoryVersion": 6
+}

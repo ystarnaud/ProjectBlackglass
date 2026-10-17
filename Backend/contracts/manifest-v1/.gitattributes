@@ -1,0 +1,2 @@
+# Golden vectors are exact bytes (some inputs use CRLF on purpose): never convert line endings.
+* -text
