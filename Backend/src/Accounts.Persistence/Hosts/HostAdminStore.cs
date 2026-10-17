@@ -17,7 +17,10 @@ public sealed record RotatedHostSecret(string HostId, OpaqueSecret Secret, DateT
 
 /// <summary>A host as the operator sees it before a change: live slots are its attempts whose slot release is unconfirmed.</summary>
 public sealed record HostSummary(string HostId, string Kind, bool Enabled, bool Drained, int Capacity, int? PortBase, long LiveSlots,
-    DateTime? LastHeartbeatAt, string? BuildRevision, string? CatalogueVersion);
+    DateTime? LastHeartbeatAt, string? BuildRevision, string? CatalogueVersion, bool SecretRevoked = false);
+
+/// <summary>A disabled host and how many of its attempts' process credentials the disable revoked.</summary>
+public sealed record DisabledHost(HostSummary Host, int RevokedCredentials);
 
 public enum HostSwitch { Drain, Enable, Disable }
 
@@ -104,7 +107,8 @@ public sealed class HostAdminStore(NpgsqlDataSource db)
             """
             select h.host_id as HostId, h.kind as Kind, h.enabled as Enabled, h.drained as Drained, h.capacity as Capacity, h.port_base as PortBase,
                    (select count(*) from mission_attempts a where a.host_id = h.host_id and a.slot_released_at is null) as LiveSlots,
-                   h.last_heartbeat_at as LastHeartbeatAt, h.build_revision as BuildRevision, h.catalogue_version as CatalogueVersion
+                   h.last_heartbeat_at as LastHeartbeatAt, h.build_revision as BuildRevision, h.catalogue_version as CatalogueVersion,
+                   h.secret_revoked as SecretRevoked
             from mission_hosts h where h.host_id = @hostId
             """, new { hostId }, tx, cancellationToken: ct));
         return row?.ToSummary();
@@ -122,8 +126,9 @@ public sealed class HostAdminStore(NpgsqlDataSource db)
         public DateTime? LastHeartbeatAt { get; init; }
         public string? BuildRevision { get; init; }
         public string? CatalogueVersion { get; init; }
+        public bool SecretRevoked { get; init; }
 
-        public HostSummary ToSummary() => new(HostId, Kind, Enabled, Drained, Capacity, PortBase, LiveSlots, LastHeartbeatAt, BuildRevision, CatalogueVersion);
+        public HostSummary ToSummary() => new(HostId, Kind, Enabled, Drained, Capacity, PortBase, LiveSlots, LastHeartbeatAt, BuildRevision, CatalogueVersion, SecretRevoked);
     }
 
     /// <summary>
@@ -154,8 +159,9 @@ public sealed class HostAdminStore(NpgsqlDataSource db)
 
     /// <summary>
     /// Replaces an agent host's secret: the old one is refused from the commit on (authentication is one indexed lookup per
-    /// request, never cached). Stamps <c>secret_rotated_at</c>. A development fixture or an unknown id is UnknownHost.
-    /// Audited as <c>host_rotate_secret</c> {hostId, rotatedAt}.
+    /// request, never cached). Stamps <c>secret_rotated_at</c> and clears <c>secret_revoked</c> (the recovery step after a
+    /// disable; it does not enable the host, and it restores no process credential). A development fixture or an unknown id is
+    /// UnknownHost. Audited as <c>host_rotate_secret</c> {hostId, rotatedAt}.
     /// </summary>
     public async Task<RotatedHostSecret> RotateSecretAsync(string hostId, OperatorContext op, CancellationToken ct = default)
     {
@@ -164,7 +170,7 @@ public sealed class HostAdminStore(NpgsqlDataSource db)
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         var rotatedAt = await conn.ExecuteScalarAsync<DateTime?>(new CommandDefinition(
-            "update mission_hosts set secret_hash = @hash, secret_rotated_at = clock_timestamp() where host_id = @hostId and kind = 'agent' returning secret_rotated_at",
+            "update mission_hosts set secret_hash = @hash, secret_rotated_at = clock_timestamp(), secret_revoked = false where host_id = @hostId and kind = 'agent' returning secret_rotated_at",
             new { hostId, hash = secret.Hash() }, tx, cancellationToken: ct))
             ?? throw new MissionAdminException(MissionAdminError.UnknownHost, $"No agent host has id {hostId}: nothing was changed.");
         await AuditHostAsync(conn, tx, op, "host_rotate_secret", hostId, new { hostId, rotatedAt = Utc(rotatedAt) }, ct);
@@ -173,21 +179,68 @@ public sealed class HostAdminStore(NpgsqlDataSource db)
     }
 
     /// <summary>
-    /// Drain (no new claims; running attempts continue), enable (enabled and undrained) or disable (no claims, no
-    /// authentication). Changes only those columns. Audited as <c>host_drain</c>, <c>host_enable</c> or <c>host_disable</c>
-    /// {hostId, enabled, drained}. An unknown id is UnknownHost.
+    /// Drain (planned maintenance: no new claims; the agent and its running processes keep working), enable (enabled and
+    /// undrained; SecretRevoked while a disable's revocation awaits `host rotate-secret`) or disable (<see cref="DisableAsync"/>).
+    /// Drain and enable change only those columns. Audited as <c>host_drain</c> or <c>host_enable</c> {hostId, enabled,
+    /// drained}. An unknown id is UnknownHost.
     /// </summary>
     public async Task<HostSummary> SwitchAsync(string hostId, HostSwitch change, OperatorContext op, CancellationToken ct = default)
     {
         DevHosts.ValidateHostId(hostId);
-        var (sql, action) = change switch
+        switch (change)
         {
-            HostSwitch.Drain => ("update mission_hosts set drained = true where host_id = @hostId", "host_drain"),
-            HostSwitch.Enable => ("update mission_hosts set enabled = true, drained = false where host_id = @hostId", "host_enable"),
-            HostSwitch.Disable => ("update mission_hosts set enabled = false where host_id = @hostId", "host_disable"),
-            _ => throw new ArgumentOutOfRangeException(nameof(change)),
-        };
-        return await ChangeAsync(hostId, sql, new { hostId }, action, op, ct);
+            case HostSwitch.Drain:
+                return await ChangeAsync(hostId, "update mission_hosts set drained = true where host_id = @hostId", new { hostId }, "host_drain", op, ct);
+            case HostSwitch.Enable:
+                if (await DescribeAsync(hostId, ct) is { SecretRevoked: true })
+                    throw new MissionAdminException(MissionAdminError.SecretRevoked,
+                        $"Host {hostId} was disabled and its secret revoked: run `host rotate-secret` and install the new secret before enabling it. Nothing was changed.");
+                // The guard repeats in the UPDATE, so a disable committing in between can't be undone by this enable.
+                return await ChangeAsync(hostId, "update mission_hosts set enabled = true, drained = false where host_id = @hostId and not secret_revoked",
+                    new { hostId }, "host_enable", op, ct);
+            case HostSwitch.Disable:
+                return (await DisableAsync(hostId, op, ct)).Host;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(change));
+        }
+    }
+
+    /// <summary>
+    /// Emergency isolation (owner decision of 2026-10-17; plan revision 2 R8), one READ COMMITTED transaction in the host lock
+    /// order (the host row FOR UPDATE, then its attempts): the host is disabled (no claims), its secret replaced by the hash of an
+    /// unknown random secret and marked revoked (its old secret is refused at once and never valid again; enabling needs `host
+    /// rotate-secret` first), and every attempt assigned to it that is not yet cancelled or settled gets
+    /// <c>credential_revoked_at</c> (written once): its process credential is revoked for good, whatever later happens to the
+    /// host. Process routes refuse it at authentication and every process store re-checks it under the attempt lock, so no
+    /// process write commits after the disable. Nothing is cancelled, released, voided or refunded, no slot is freed, and no
+    /// attempt, participant, energy, insurance or inventory record changes otherwise. Audited as <c>host_disable</c>
+    /// {operation: disable, hostId, revokedCredentials} with the operator's reason, in the same transaction. A development
+    /// fixture is disabled the same way (it has no attempts). An unknown id is UnknownHost.
+    /// </summary>
+    public async Task<DisabledHost> DisableAsync(string hostId, OperatorContext op, CancellationToken ct = default)
+    {
+        DevHosts.ValidateHostId(hostId);
+        var unknown = OpaqueSecret.New(OpaqueSecret.HostSecretPrefix); // its hash replaces the secret; the secret itself is discarded
+        await using var conn = await DbFailure.OpenAsync(db, ct);
+        await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
+        if (await conn.ExecuteScalarAsync<int?>(new CommandDefinition(
+                "select 1 from mission_hosts where host_id = @hostId for update", new { hostId }, tx, cancellationToken: ct)) is null)
+            throw new MissionAdminException(MissionAdminError.UnknownHost, $"No host has id {hostId}: nothing was changed.");
+        await conn.ExecuteAsync(new CommandDefinition(
+            "update mission_hosts set enabled = false, secret_hash = @hash, secret_revoked = true where host_id = @hostId",
+            new { hostId, hash = unknown.Hash() }, tx, cancellationToken: ct));
+        var revoked = await conn.ExecuteAsync(new CommandDefinition(
+            """
+            update mission_attempts set credential_revoked_at = clock_timestamp()
+            where attempt_id in (select attempt_id from mission_attempts
+                                 where host_id = @hostId and credential_revoked_at is null and state not in ('cancelled', 'settled')
+                                 order by attempt_id for update)
+            """, new { hostId }, tx, cancellationToken: ct));
+        var after = await DescribeAsync(conn, tx, hostId, ct) ?? throw new InvalidOperationException("The disabled host vanished.");
+        await AuditHostAsync(conn, tx, op, "host_disable", hostId,
+            new { operation = "disable", hostId, enabled = false, secretRevoked = true, revokedCredentials = revoked }, ct);
+        await tx.CommitAsync(ct);
+        return new DisabledHost(after, revoked);
     }
 
     /// <summary>Sets the capacity (1 to <see cref="MaxCapacity"/>; the ports must stay below 65536, else InvalidHost). A capacity
@@ -209,7 +262,9 @@ public sealed class HostAdminStore(NpgsqlDataSource db)
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         if (await conn.ExecuteAsync(new CommandDefinition(sql, args, tx, cancellationToken: ct)) != 1)
-            throw new MissionAdminException(MissionAdminError.UnknownHost, $"No host has id {hostId}: nothing was changed.");
+            throw await DescribeAsync(conn, tx, hostId, ct) is { SecretRevoked: true }
+                ? new MissionAdminException(MissionAdminError.SecretRevoked, $"Host {hostId} was disabled and its secret revoked: run `host rotate-secret` first. Nothing was changed.")
+                : new MissionAdminException(MissionAdminError.UnknownHost, $"No host has id {hostId}: nothing was changed.");
         var after = await DescribeAsync(conn, tx, hostId, ct) ?? throw new InvalidOperationException("The changed host vanished.");
         await AuditHostAsync(conn, tx, op, action, hostId, new { hostId, enabled = after.Enabled, drained = after.Drained, capacity = after.Capacity }, ct);
         await tx.CommitAsync(ct);

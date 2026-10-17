@@ -929,3 +929,50 @@ Fix Critical and Important findings in one pass, each with a failing test first.
 - **Stage 17:**
   - deploy with `log_error_verbosity=terse` (B2);
   - keep `BLACKGLASS_DEV_HOSTS` disabled, with no `dev_fixture` rows in production.
+
+## R8. Host disable semantics (owner decision after provisional approval, 2026-10-17)
+
+There are three distinct host administration operations:
+
+| Operation | Purpose and effect |
+|---|---|
+| **Drain** | Planned maintenance. No new claims. The agent and its processes keep their credentials and work normally: heartbeats, supervision, exit reports, and later result relay |
+| **Disable** | Emergency isolation (detailed below) |
+| **Declare lost** | Stage 9. Confirmed unrecoverable host or outbox loss, with positive recorded evidence and an explicit reason. Only that workflow may perform protective voids and refunds. Suspected compromise or credential revocation alone never triggers a void |
+
+**Disable** runs in one audited READ COMMITTED transaction, in the host lock order: the host row `FOR UPDATE`, then its attempts.
+- **What it changes:**
+  - `enabled = false`, so the host gets no claims;
+  - its secret is replaced by the hash of an unknown random secret, and `secret_revoked = true`;
+  - every attempt assigned to the host that is not yet cancelled or settled gets `credential_revoked_at`, written once.
+- **Mechanism:** the smallest permanent one, a revocation record per attempt plus a revoked flag on the host.
+  - A later enable never restores a revoked process credential.
+  - A claim retry never re-issues a revoked credential, and launching a revoked attempt is refused.
+  - `host enable` is refused (`SecretRevoked`, exit 69) until `host rotate-secret` issues a new secret. A rotation clears the flag but does not enable the host.
+- **Authentication:**
+  - The `Host` scheme refuses a disabled or revoked host.
+  - The `Process` scheme refuses an attempt with `credential_revoked_at`.
+  - Every process store re-checks the revocation under the attempt lock (register, ready, heartbeat, failed, redeem, start), and so does ticket minting. A request that authenticated before the disable committed therefore writes nothing after it: those answers are the uniform 401, and minting is a 409.
+  - Disable locks the attempt rows after the host row, which is the claim and heartbeat order. Process paths never lock a host row, so there is no reverse dependency.
+- **What it never does:**
+  - cancel a started attempt, release a charged hold, void, refund, or free a slot;
+  - delete or change any attempt, participant, energy, insurance, inventory or evidence record.
+
+  The re-enabled host's agent, with its new secret, can still report exits and heartbeat for the old attempts, freeing their slots on evidence.
+- **Agent exit reports** are not refused for revoked attempts: they are the evidence that frees slots.
+
+**Obligations:**
+- Backend revocation does not terminate a running Linux process.
+- **Stage 10:** a trusted emergency stop for mission units, including when the agent can no longer authenticate.
+- **Stage 12:** the server treats a revoked authorization (401) as a stop, keeping its durable results, without settlement or energy changes. The ordinary drain path never interrupts a legitimate running mission.
+- **Stage 9:** evidence from a disabled or compromised host is weighed as such. `host_declared_lost` needs positive recorded evidence and an explicit reason.
+
+**Tests** (`HostDisableTests`, plus the updated host tests):
+- drain keeps the agent and its processes working;
+- disable revokes the host secret and every process credential, and preserves every record;
+- disabled-host processes are refused at the store, even past authentication;
+- re-enabling needs a rotation and never restores a revoked credential, and the reauthorized host returns to service;
+- unknown, foreign, disabled and rotated host credentials get identical 401s;
+- a failed disable leaves no partial state;
+- disable races claims, registration and the start commit with serializable outcomes and no duplicate charge;
+- the CLI is confirmed and audited, with no secret printed.

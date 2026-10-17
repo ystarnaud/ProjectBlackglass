@@ -20,6 +20,8 @@ public abstract record StartResult
     public sealed record NotFound : StartResult;
     /// <summary>The attempt is not ready or running (nothing to start yet), or the participant can't start from its state.</summary>
     public sealed record InvalidState : StartResult;
+    /// <summary>The attempt's process credential was revoked (its host was disabled, R8): the uniform 401, nothing written.</summary>
+    public sealed record Revoked : StartResult;
 }
 
 /// <summary>
@@ -50,8 +52,10 @@ public sealed class StartStore(NpgsqlDataSource db)
             return new StartResult.NotFound();
 
         await conn.ExecuteAsync(new CommandDefinition("select 1 from accounts where account_id = @accountId for key share", new { accountId }, tx, cancellationToken: ct));
-        var attempt = await conn.QuerySingleAsync<(string State, Guid? Session, DateTime? JoinDeadline)>(new CommandDefinition(
-            "select state, process_session_id, join_deadline from mission_attempts where attempt_id = @attemptId for update", new { attemptId }, tx, cancellationToken: ct));
+        var attempt = await conn.QuerySingleAsync<(string State, Guid? Session, DateTime? JoinDeadline, bool Revoked)>(new CommandDefinition(
+            "select state, process_session_id, join_deadline, credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId for update",
+            new { attemptId }, tx, cancellationToken: ct));
+        if (attempt.Revoked) return new StartResult.Revoked(); // R8: checked under the lock, before any replay or write
         if (attempt.Session != session) return new StartResult.WrongSession();
         var participant = await conn.QuerySingleAsync<(string State, DateTime? StartedAt)>(new CommandDefinition(
             "select state, started_at from attempt_participants where attempt_id = @attemptId and account_id = @accountId for update",

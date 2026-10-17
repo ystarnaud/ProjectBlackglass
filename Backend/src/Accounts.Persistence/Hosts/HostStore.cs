@@ -87,14 +87,14 @@ public sealed class HostStore
             """, new { hostId, lease = (double)leaseSeconds }, tx, cancellationToken: ct));
         if (host is not { Enabled: true }) return new ClaimResult.Unauthenticated();
 
-        var retry = await conn.QuerySingleOrDefaultAsync<(Guid AttemptId, string State, int Port, int Generation, DateTime LaunchDeadline)?>(new CommandDefinition(
+        var retry = await conn.QuerySingleOrDefaultAsync<(Guid AttemptId, string State, int Port, int Generation, DateTime LaunchDeadline, bool Revoked)?>(new CommandDefinition(
             """
-            select attempt_id, state, mission_port, credential_generation, launch_deadline from mission_attempts
+            select attempt_id, state, mission_port, credential_generation, launch_deadline, credential_revoked_at is not null from mission_attempts
             where host_id = @hostId and claim_key = @claimKey for update
             """, new { hostId, claimKey }, tx, cancellationToken: ct));
         if (retry is { } prior)
         {
-            if (prior.State != "assigned") return new ClaimResult.InvalidState();
+            if (prior.State != "assigned" || prior.Revoked) return new ClaimResult.InvalidState(); // R8: a revoked credential is never re-issued
             var rotated = OpaqueSecret.New(OpaqueSecret.ProcessCredentialPrefix);
             var generation = await conn.ExecuteScalarAsync<int?>(new CommandDefinition(
                 """
@@ -163,11 +163,11 @@ public sealed class HostStore
     {
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        var row = await conn.QuerySingleOrDefaultAsync<(string State, int Generation)?>(new CommandDefinition(
-            "select state, credential_generation from mission_attempts where attempt_id = @attemptId and host_id = @hostId for update",
+        var row = await conn.QuerySingleOrDefaultAsync<(string State, int Generation, bool Revoked)?>(new CommandDefinition(
+            "select state, credential_generation, credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId and host_id = @hostId for update",
             new { attemptId, hostId }, tx, cancellationToken: ct));
         if (row is not { } attempt) return new LaunchingResult.NotFound();
-        if (Ended.Contains(attempt.State)) return new LaunchingResult.InvalidState();
+        if (Ended.Contains(attempt.State) || attempt.Revoked) return new LaunchingResult.InvalidState(); // R8: never launch a revoked credential
         if (attempt.Generation != credentialGeneration) return new LaunchingResult.CredentialSuperseded();
         if (attempt.State != "assigned") return new LaunchingResult.Accepted(attempt.State);
         await conn.ExecuteAsync(new CommandDefinition(
@@ -232,7 +232,7 @@ public sealed class HostStore
     {
         await using var conn = await DbFailure.OpenAsync(db, ct);
         var hostId = await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
-            "select host_id from mission_hosts where secret_hash = @secretHash and kind = 'agent' and enabled", new { secretHash }, cancellationToken: ct));
+            "select host_id from mission_hosts where secret_hash = @secretHash and kind = 'agent' and enabled and not secret_revoked", new { secretHash }, cancellationToken: ct));
         return hostId is null ? null : new AuthenticatedHost(hostId);
     }
 

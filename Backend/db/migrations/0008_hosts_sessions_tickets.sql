@@ -77,12 +77,15 @@ insert into attempt_secrets (attempt_id, seed, retention_salt, created_at)
 -- ---- hosts ----
 
 -- port_base: an agent host's mission ports are [port_base, port_base + capacity). build_revision and catalogue_version are
--- what its latest heartbeat reported (both or neither). secret_rotated_at is stamped by `host rotate-secret`.
+-- what its latest heartbeat reported (both or neither). secret_rotated_at is stamped by `host rotate-secret`. secret_revoked
+-- is set by `host disable` (emergency isolation, owner decision of 2026-10-17): the secret was replaced by an unknown one,
+-- and `host enable` refuses until `host rotate-secret` issues a new one (which clears it).
 alter table mission_hosts
   add column port_base integer,
   add column build_revision text,
   add column catalogue_version text,
   add column secret_rotated_at timestamptz,
+  add column secret_revoked boolean not null default false,
   add constraint mission_host_port_range check (port_base is null or (port_base >= 1024 and port_base + capacity <= 65536)),
   add constraint mission_host_agent_ports check (kind <> 'agent' or port_base is not null),
   add constraint mission_host_reported_build check ((build_revision is null) = (catalogue_version is null)
@@ -114,7 +117,10 @@ alter table mission_attempts
   add column loot_hash text,
   add column started_at timestamptz,
   add column last_process_heartbeat_at timestamptz,
-  add column slot_released_at timestamptz;
+  add column slot_released_at timestamptz,
+  -- Set once by `host disable` for every attempt then assigned to the host: its process credential is revoked for good (a
+  -- later re-enable or recovery never restores it). Nothing else about the attempt changes (no cancel, release or void).
+  add column credential_revoked_at timestamptz;
 
 -- Every Stage 7 attempt has at least one participant, inserted in admission's transaction, whose snapshot names the
 -- catalogue version (S7-D8). Runs under the Stage 7 trigger function, which allows it (state unchanged).
@@ -159,7 +165,8 @@ begin
      or (old.loot_table_version is not null and new.loot_table_version is distinct from old.loot_table_version)
      or (old.loot_hash is not null and new.loot_hash is distinct from old.loot_hash)
      or (old.started_at is not null and new.started_at is distinct from old.started_at)
-     or (old.slot_released_at is not null and new.slot_released_at is distinct from old.slot_released_at) then
+     or (old.slot_released_at is not null and new.slot_released_at is distinct from old.slot_released_at)
+     or (old.credential_revoked_at is not null and new.credential_revoked_at is distinct from old.credential_revoked_at) then
     raise exception 'a mission attempt''s assignment, session, ready, start and slot release are written once'
       using errcode = 'check_violation', constraint = 'mission_attempt_transition';
   end if;
@@ -173,7 +180,7 @@ begin
   if old.process_credential_hash is not null
      and (new.process_credential_hash is distinct from old.process_credential_hash
           or new.credential_generation is distinct from old.credential_generation)
-     and not (old.state = 'assigned' and new.state = 'assigned'
+     and not (old.state = 'assigned' and new.state = 'assigned' and old.credential_revoked_at is null
               and new.process_credential_hash is not null and new.credential_generation = old.credential_generation + 1) then
     raise exception 'a process credential is replaced only by a recovery while the attempt is assigned'
       using errcode = 'check_violation', constraint = 'mission_attempt_transition';
@@ -232,7 +239,8 @@ alter table mission_attempts
     and (state not in ('admitted', 'assigned', 'launching') or ready_at is null)),
   add constraint mission_attempt_started check ((started_at is not null) = (state in ('running', 'ending', 'unresponsive', 'settled'))),
   add constraint mission_attempt_process_heartbeat check (last_process_heartbeat_at is null or process_session_id is not null),
-  add constraint mission_attempt_slot_release check (slot_released_at is null or host_id is not null);
+  add constraint mission_attempt_slot_release check (slot_released_at is null or host_id is not null),
+  add constraint mission_attempt_credential_revoked check (credential_revoked_at is null or host_id is not null);
 
 -- One port per live slot on a host (B6): a slot stays live until its release is confirmed, whatever the attempt's state.
 create unique index one_port_per_live_slot on mission_attempts (host_id, mission_port)
@@ -449,7 +457,7 @@ alter table operator_actions add constraint operator_actions_action_check check 
 -- inserts; claim, recovery, launching, registration, ready, start, heartbeats, release and slot release update.
 revoke insert, update, delete on mission_hosts from accounts_app;
 grant insert (host_id, kind, secret_hash, capacity, enabled, port_base),
-  update (enabled, drained, capacity, secret_hash, secret_rotated_at, last_heartbeat_at, build_revision, catalogue_version)
+  update (enabled, drained, capacity, secret_hash, secret_rotated_at, secret_revoked, last_heartbeat_at, build_revision, catalogue_version)
   on mission_hosts to accounts_app;
 revoke insert, update, delete on allowed_builds from accounts_app;
 grant insert (build_revision, catalogue_version), update (enabled) on allowed_builds to accounts_app;
@@ -461,7 +469,7 @@ revoke insert, update, delete on mission_attempts from accounts_app;
 grant insert (attempt_id, created_by, template_id, template_version, catalogue_version, assign_deadline),
   update (state, cancel_reason, ended_at, host_id, mission_port, build_revision, process_credential_hash, credential_generation,
           claim_key, launch_deadline, process_session_id, ready_at, join_deadline, layout_hash, loot_table_version, loot_hash,
-          started_at, last_process_heartbeat_at, slot_released_at)
+          started_at, last_process_heartbeat_at, slot_released_at, credential_revoked_at)
   on mission_attempts to accounts_app;
 revoke insert, update, delete on attempt_participants from accounts_app;
 grant insert (attempt_id, account_id, template_id, template_version, loadout_snapshot, inventory_version, energy_cost),

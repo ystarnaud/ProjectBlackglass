@@ -119,20 +119,28 @@ public class HostAdminTests : IAsyncLifetime
         await hosts.RegisterAsync("h1", 2, 7000, Op);
         const string Fixed = "select row(host_id, kind, port_base, secret_hash, secret_rotated_at, last_heartbeat_at, build_revision, created_at)::text from mission_hosts";
         var fixedBefore = await ScalarAsSuperuserAsync<string>(db, Fixed);
-        async Task<(bool, bool, int)> SwitchesAsync() => await (await db.AsSuperuser().OpenConnectionAsync())
-            .QuerySingleAsync<(bool, bool, int)>("select enabled, drained, capacity from mission_hosts where host_id = 'h1'");
+        async Task<(bool, bool, int)> SwitchesAsync()
+        {
+            await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+            return await conn.QuerySingleAsync<(bool, bool, int)>("select enabled, drained, capacity from mission_hosts where host_id = 'h1'");
+        }
 
         var drained = await hosts.SwitchAsync("h1", HostSwitch.Drain, Op);
         Assert.Equal((true, true, 2), (drained.Enabled, drained.Drained, drained.Capacity));
         Assert.Equal((true, true, 2), await SwitchesAsync());
-        await hosts.SwitchAsync("h1", HostSwitch.Disable, Op);
-        Assert.Equal((false, true, 2), await SwitchesAsync());
         await hosts.SwitchAsync("h1", HostSwitch.Enable, Op); // enable also undrains
         Assert.Equal((true, false, 2), await SwitchesAsync());
         await hosts.SetCapacityAsync("h1", 5, Op);
         Assert.Equal((true, false, 5), await SwitchesAsync());
-        Assert.Equal(fixedBefore, await ScalarAsSuperuserAsync<string>(db, Fixed));
-        Assert.Equal(["host_register", "host_drain", "host_disable", "host_enable", "host_capacity"], (await AuditAsync()).Select(a => a.Action));
+        Assert.Equal(fixedBefore, await ScalarAsSuperuserAsync<string>(db, Fixed)); // drain, enable and capacity change only their columns
+        // Disable is emergency isolation (R8): disabled, the secret revoked (enable refused until a rotation), and audited.
+        await hosts.SwitchAsync("h1", HostSwitch.Disable, Op);
+        Assert.Equal((false, false, 5), await SwitchesAsync());
+        Assert.Equal(MissionAdminError.SecretRevoked, (await Assert.ThrowsAsync<MissionAdminException>(() => hosts.SwitchAsync("h1", HostSwitch.Enable, Op))).Error);
+        await hosts.RotateSecretAsync("h1", Op);
+        await hosts.SwitchAsync("h1", HostSwitch.Enable, Op);
+        Assert.Equal((true, false, 5), await SwitchesAsync());
+        Assert.Equal(["host_register", "host_drain", "host_enable", "host_capacity", "host_disable", "host_rotate_secret", "host_enable"], (await AuditAsync()).Select(a => a.Action));
         Assert.All(await AuditAsync(), a => Assert.Equal("h1", a.HostId));
 
         Assert.Equal(MissionAdminError.UnknownHost, (await Assert.ThrowsAsync<MissionAdminException>(() => hosts.SwitchAsync("nope", HostSwitch.Drain, Op))).Error);

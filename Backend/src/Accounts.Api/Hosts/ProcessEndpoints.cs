@@ -61,6 +61,7 @@ public static class ProcessEndpoints
                     extensions: new Dictionary<string, object?> { ["code"] = "InvalidObjectives", ["errors"] = e.Errors }),
                 ReadyResult.WrongSession => MissionBodies.Problem(StatusCodes.Status409Conflict, "WrongSession"),
                 ReadyResult.CatalogueMismatch => MissionBodies.Problem(StatusCodes.Status409Conflict, "CatalogueMismatch"),
+                ReadyResult.Revoked => UniformUnauthorized.Result,
                 _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
             };
         });
@@ -75,6 +76,7 @@ public static class ProcessEndpoints
             {
                 ProcessHeartbeatResult.Ok => Results.Text("{}", "application/json"),
                 ProcessHeartbeatResult.UnknownParticipant => MissionBodies.Problem(StatusCodes.Status400BadRequest, "UnknownParticipant"),
+                ProcessHeartbeatResult.Revoked => UniformUnauthorized.Result,
                 _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "WrongSession"),
             };
         });
@@ -123,6 +125,7 @@ public static class ProcessEndpoints
                 StartResult.Cancelled => MissionBodies.Problem(StatusCodes.Status409Conflict, "Cancelled"),
                 StartResult.DeadlinePassed => MissionBodies.Problem(StatusCodes.Status409Conflict, "DeadlinePassed"),
                 StartResult.WrongSession => MissionBodies.Problem(StatusCodes.Status409Conflict, "WrongSession"),
+                StartResult.Revoked => UniformUnauthorized.Result,
                 _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
             };
         });

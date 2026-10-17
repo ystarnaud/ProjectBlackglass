@@ -56,7 +56,7 @@ public sealed class TicketStore(NpgsqlDataSource db)
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         var state = await conn.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
             """
-            select a.state from mission_attempts a
+            select case when a.credential_revoked_at is null then a.state else 'revoked' end from mission_attempts a
             where a.attempt_id = @attemptId and exists (select 1 from attempt_participants p where p.attempt_id = a.attempt_id and p.account_id = @accountId)
             for share of a
             """, new { attemptId, accountId }, tx, cancellationToken: ct));
@@ -97,8 +97,10 @@ public sealed class TicketStore(NpgsqlDataSource db)
         if (owner is not { } t) return new RedeemResult.Unknown();
         if (t.AttemptId != attemptId) return new RedeemResult.WrongAttempt();
 
-        var attempt = await conn.QuerySingleAsync<(string State, Guid? Session)>(new CommandDefinition(
-            "select state, process_session_id from mission_attempts where attempt_id = @attemptId for share", new { attemptId }, tx, cancellationToken: ct));
+        var attempt = await conn.QuerySingleAsync<(string State, Guid? Session, bool Revoked)>(new CommandDefinition(
+            "select state, process_session_id, credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId for share",
+            new { attemptId }, tx, cancellationToken: ct));
+        if (attempt.Revoked) return new RedeemResult.Unknown(); // R8: a disabled host's process redeems nothing (the uniform 401)
         if (attempt.Session != session) return new RedeemResult.WrongSession();
         var participant = await conn.QuerySingleAsync<(string State, string Operatives)>(new CommandDefinition(
             """

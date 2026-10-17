@@ -20,6 +20,8 @@ public enum MissionAdminError
     UnknownBuild,
     /// <summary>A template version named for a build doesn't exist.</summary>
     UnknownTemplate,
+    /// <summary>The host was disabled (its secret revoked): it is enabled only after `host rotate-secret` issues a new one.</summary>
+    SecretRevoked,
 }
 
 /// <summary>A refused mission template or development host operation; nothing was written.</summary>

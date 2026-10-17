@@ -89,12 +89,14 @@ public class HostSessionTests : IAsyncLifetime
     public async Task A_disabled_host_and_a_rotated_secret_are_401()
     {
         var hosts = new HostAdminStore(db.AsApp());
-        await hosts.SwitchAsync("h1", HostSwitch.Disable, Op);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await HeartbeatAsync(HeartbeatBody())).Status);
-        await hosts.SwitchAsync("h1", HostSwitch.Enable, Op);
-        Assert.Equal(HttpStatusCode.OK, (await HeartbeatAsync(HeartbeatBody())).Status);
         var rotated = (await hosts.RotateSecretAsync("h1", Op)).Secret;
         Assert.Equal(HttpStatusCode.Unauthorized, (await HeartbeatAsync(HeartbeatBody())).Status);
+        Assert.Equal(HttpStatusCode.OK, (await HeartbeatAsync(HeartbeatBody(), rotated.Text)).Status);
+        // A disable revokes the secret for good: re-enabling needs a rotation, and the old secret never works again (R8).
+        await hosts.SwitchAsync("h1", HostSwitch.Disable, Op);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await HeartbeatAsync(HeartbeatBody(), rotated.Text)).Status);
+        rotated = (await hosts.RotateSecretAsync("h1", Op)).Secret;
+        await hosts.SwitchAsync("h1", HostSwitch.Enable, Op);
         Assert.Equal(HttpStatusCode.OK, (await HeartbeatAsync(HeartbeatBody(), rotated.Text)).Status);
         // A drained host still authenticates and heartbeats (its running attempts continue); it is told it is drained.
         await hosts.SwitchAsync("h1", HostSwitch.Drain, Op);

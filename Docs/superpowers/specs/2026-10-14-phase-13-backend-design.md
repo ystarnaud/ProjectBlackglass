@@ -273,6 +273,16 @@ The detailed plan is `Docs/superpowers/plans/2026-10-17-phase-13-stage8-hosts-st
   - stops the units in `stop`.
 - **Stage 12 obligation:** the server treats a 401 after registration as a stop and computes `lootHash` as specified.
 - **Stage 17 obligation:** deploy with `log_error_verbosity=terse`.
+- **Host disable (owner decision after provisional approval; plan R8).**
+  - **Drain** is planned maintenance: no new claims, and running processes continue.
+  - **Disable** is emergency isolation:
+    - the host gets no claims;
+    - its secret is replaced and marked revoked, and enabling needs `host rotate-secret` first;
+    - every live attempt of the host gets `credential_revoked_at`, so its process credential is revoked permanently and no re-enable or recovery restores it;
+    - process stores re-check this under the attempt lock, and ticket minting is refused.
+  - Disable never cancels, releases, voids, refunds, frees a slot or deletes evidence.
+  - **Declare lost** stays in Stage 9, with positive evidence and an explicit reason; it is the only path to protective voids and refunds.
+  - **Obligations:** Stage 10 provides a trusted emergency stop for mission units (revocation does not stop a Linux process). Stage 12 treats a revoked authorization as a stop, keeping its results.
 
 ---
 

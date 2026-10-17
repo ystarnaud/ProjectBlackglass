@@ -431,6 +431,21 @@ This section covers schema version 8 (`0008_hosts_sessions_tickets`), under owne
 
 The accounts PostgreSQL runs with `log_error_verbosity=terse` (B2). This takes effect at the next deployment the owner approves.
 
+**Drain versus disable (R8).**
+- **`host drain`** is planned maintenance: no new claims, while the agent and its running processes keep working.
+- **`host disable`** is emergency isolation, in one audited transaction:
+  - the host gets no claims;
+  - its secret is replaced by an unknown one and marked revoked;
+  - every live attempt of the host gets `credential_revoked_at`, so its process credential is refused for good.
+
+  Nothing is cancelled, released, voided or refunded, and no slot is freed. It prints `revokedCredentials=N`.
+- **Recovery:**
+  1. `host rotate-secret` issues a new secret.
+  2. Install it for the agent.
+  3. `host enable`, which is refused (exit 69) until step 1.
+
+  Revoked process credentials never come back. Their running units must be stopped by the host's operator (Stage 10).
+
 **Slots (B6).** A slot and its port stay occupied until an exit report or a complete inventory confirms that the process is gone. A database trigger refuses any other release of a live slot. A host whose lease lapses gets no claims and keeps its occupied ports.
 
 ## Restore limits

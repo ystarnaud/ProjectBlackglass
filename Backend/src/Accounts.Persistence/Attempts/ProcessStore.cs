@@ -32,6 +32,8 @@ public abstract record ReadyResult
     public sealed record WrongSession : ReadyResult;
     /// <summary>The attempt was admitted under another catalogue than the one judging its pool: nothing written, nothing cancelled.</summary>
     public sealed record CatalogueMismatch : ReadyResult;
+    /// <summary>The attempt's process credential was revoked (its host was disabled, R8): the uniform 401, nothing written.</summary>
+    public sealed record Revoked : ReadyResult;
     /// <summary>Not launching, past its launch deadline, or already ready with a different report: nothing written.</summary>
     public sealed record InvalidState : ReadyResult;
 }
@@ -42,6 +44,8 @@ public abstract record ProcessHeartbeatResult
     public sealed record WrongSession : ProcessHeartbeatResult;
     /// <summary>A listed account is not a participant of the attempt: nothing written.</summary>
     public sealed record UnknownParticipant : ProcessHeartbeatResult;
+    /// <summary>The attempt's process credential was revoked (R8): the uniform 401, nothing written.</summary>
+    public sealed record Revoked : ProcessHeartbeatResult;
 }
 
 /// <summary>
@@ -57,7 +61,7 @@ public sealed class ProcessStore(NpgsqlDataSource db)
     {
         await using var conn = await DbFailure.OpenAsync(db, ct);
         var attempt = await conn.ExecuteScalarAsync<Guid?>(new CommandDefinition(
-            "select attempt_id from mission_attempts where process_credential_hash = @credentialHash and state not in ('cancelled', 'settled')",
+            "select attempt_id from mission_attempts where process_credential_hash = @credentialHash and state not in ('cancelled', 'settled') and credential_revoked_at is null",
             new { credentialHash }, cancellationToken: ct));
         return attempt is { } id ? new AuthenticatedProcess(id) : null;
     }
@@ -81,7 +85,7 @@ public sealed class ProcessStore(NpgsqlDataSource db)
             Guid? Session, DateTime? LaunchDeadline)?>(new CommandDefinition(
             """
             select state, build_revision, catalogue_version, template_id, template_version, process_session_id, launch_deadline
-            from mission_attempts where attempt_id = @attemptId and process_credential_hash = @credentialHash for update
+            from mission_attempts where attempt_id = @attemptId and process_credential_hash = @credentialHash and credential_revoked_at is null for update
             """, new { attemptId, credentialHash }, tx, cancellationToken: ct));
         if (attempt is not { } a) return new RegisterResult.Unauthenticated();
         if (a.State is not ("assigned" or "launching")) return new RegisterResult.InvalidState();
@@ -133,8 +137,10 @@ public sealed class ProcessStore(NpgsqlDataSource db)
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         // The session and the catalogue are written once: an unlocked read decides WrongSession and CatalogueMismatch before any
         // lock or write.
-        var identity = await conn.QuerySingleOrDefaultAsync<(Guid? Session, string Catalogue)?>(new CommandDefinition(
-            "select process_session_id, catalogue_version from mission_attempts where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct));
+        var identity = await conn.QuerySingleOrDefaultAsync<(Guid? Session, string Catalogue, bool Revoked)?>(new CommandDefinition(
+            "select process_session_id, catalogue_version, credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId",
+            new { attemptId }, tx, cancellationToken: ct));
+        if (identity is { Revoked: true }) return new ReadyResult.Revoked();
         if (identity is not { } id || id.Session != report.ProcessSessionId) return new ReadyResult.WrongSession();
         if (id.Catalogue != tableCatalogueVersion) return new ReadyResult.CatalogueMismatch();
         if (poolErrors.Count > 0)
@@ -142,16 +148,18 @@ public sealed class ProcessStore(NpgsqlDataSource db)
             var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.InvalidPool, ["launching"], ct)
                 ?? throw new InvalidOperationException("An attempt has no participants.");
             if (batch.AttemptState != "cancelled") return new ReadyResult.InvalidState(); // not launching: nothing written
+            if (await RevokedLockedAsync(conn, tx, attemptId, ct)) return new ReadyResult.Revoked(); // a disable committed first: rolled back
             await tx.CommitAsync(ct);
             return new ReadyResult.InvalidLootPool(poolErrors);
         }
 
-        var stored = await conn.QuerySingleAsync<(string State, string? LayoutHash, int? TableVersion, string? LootHash, DateTime? JoinDeadline, bool LaunchExpired)>(new CommandDefinition(
+        var stored = await conn.QuerySingleAsync<(string State, string? LayoutHash, int? TableVersion, string? LootHash, DateTime? JoinDeadline, bool LaunchExpired, bool Revoked)>(new CommandDefinition(
             """
-            select state, layout_hash, loot_table_version, loot_hash, join_deadline, coalesce(launch_deadline <= clock_timestamp(), false)
+            select state, layout_hash, loot_table_version, loot_hash, join_deadline, coalesce(launch_deadline <= clock_timestamp(), false), credential_revoked_at is not null
             from mission_attempts where attempt_id = @attemptId for update
             """,
             new { attemptId }, tx, cancellationToken: ct));
+        if (stored.Revoked) return new ReadyResult.Revoked();
         if (stored.State == "ready")
         {
             var objectives = (await conn.QueryAsync<(string Id, bool Required)>(new CommandDefinition(
@@ -194,9 +202,11 @@ public sealed class ProcessStore(NpgsqlDataSource db)
         ArgumentNullException.ThrowIfNull(request);
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
-        var session = await conn.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
-            "select process_session_id from mission_attempts where attempt_id = @attemptId and state not in ('cancelled', 'settled') for update", new { attemptId }, tx, cancellationToken: ct));
-        if (session is null || session != request.ProcessSessionId) return new ProcessHeartbeatResult.WrongSession(); // an ended attempt has no live session
+        var row = await conn.QuerySingleOrDefaultAsync<(Guid? Session, bool Revoked)?>(new CommandDefinition(
+            "select process_session_id, credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId and state not in ('cancelled', 'settled') for update",
+            new { attemptId }, tx, cancellationToken: ct));
+        if (row is { Revoked: true }) return new ProcessHeartbeatResult.Revoked();
+        if (row?.Session is not { } session || session != request.ProcessSessionId) return new ProcessHeartbeatResult.WrongSession(); // an ended attempt has no live session
         var participants = (await conn.QueryAsync<(long AccountId, string State)>(new CommandDefinition(
             "select account_id, state from attempt_participants where attempt_id = @attemptId order by account_id for update",
             new { attemptId }, tx, cancellationToken: ct))).ToDictionary(p => p.AccountId, p => p.State);
@@ -227,6 +237,11 @@ public sealed class ProcessStore(NpgsqlDataSource db)
     static DateTime Utc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : throw new InvalidOperationException($"A timestamptz was read as {value.Kind}, not UTC.");
 
+    /// <summary>Whether the attempt's process credential was revoked, read while the caller holds the attempt row lock.</summary>
+    static Task<bool> RevokedLockedAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Guid attemptId, CancellationToken ct) =>
+        conn.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "select credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId", new { attemptId }, tx, cancellationToken: ct));
+
     /// <summary>
     /// The process's failure report (B11 revised, R6), in the release lock order: before any start, every admitted participant
     /// is released with <c>process_failed</c> (the attempt is cancelled; its slot stays until the agent confirms the unit gone);
@@ -254,9 +269,9 @@ public sealed class ProcessStore(NpgsqlDataSource db)
         var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.ProcessFailed, AttemptStore.PreStartStates, ct)
             ?? throw new InvalidOperationException("An attempt has no participants.");
         if (await StoredAsync() is { } raced) return raced;
-        // An attempt that ended before this report (its credential was valid when the request authenticated): the uniform 401,
-        // nothing stored (R4; Final M1).
-        if (batch.StateBefore is "cancelled" or "settled") return new ExitReportResult.Ended();
+        // An attempt that ended, or whose credential was revoked (R8), before this report: the uniform 401, nothing stored
+        // (R4; Final M1). Checked under the attempt lock the release took; anything it wrote rolls back.
+        if (batch.StateBefore is "cancelled" or "settled" || await RevokedLockedAsync(conn, tx, attemptId, ct)) return new ExitReportResult.Ended();
         var outcome = batch.ReleasedAny ? "cancelled" : "none";
         await conn.ExecuteAsync(new CommandDefinition(
             """

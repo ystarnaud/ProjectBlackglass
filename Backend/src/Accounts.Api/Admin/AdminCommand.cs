@@ -310,7 +310,14 @@ public static class AdminCommand
                     output.WriteLine($"secretRotatedAt={Timestamp(rotated.RotatedAt)}");
                     output.WriteLine($"hostSecret={rotated.Secret.Text}");
                     break;
-                case "host-drain" or "host-enable" or "host-disable" or "host-capacity":
+                case "host-disable":
+                    var disabled = await hostAdmin!.DisableAsync(a.HostId!, a.Operator, ct);
+                    output.WriteLine($"hostId={disabled.Host.HostId}");
+                    output.WriteLine("enabled=false");
+                    output.WriteLine("secretRevoked=true");
+                    output.WriteLine($"revokedCredentials={disabled.RevokedCredentials}");
+                    break;
+                case "host-drain" or "host-enable" or "host-capacity":
                     var changed = a.Verb == "host-capacity"
                         ? await hostAdmin!.SetCapacityAsync(a.HostId!, a.Capacity!.Value, a.Operator, ct)
                         : await hostAdmin!.SwitchAsync(a.HostId!, a.Verb switch { "host-drain" => HostSwitch.Drain, "host-enable" => HostSwitch.Enable, _ => HostSwitch.Disable },
@@ -364,7 +371,7 @@ public static class AdminCommand
             error.WriteLine(e.Message);
             return e.Error switch
             {
-                MissionAdminError.TemplateVersionConflict or MissionAdminError.HostExists => ExitCodes.Conflict,
+                MissionAdminError.TemplateVersionConflict or MissionAdminError.HostExists or MissionAdminError.SecretRevoked => ExitCodes.Conflict,
                 MissionAdminError.UnknownDevHost or MissionAdminError.UnknownHost or MissionAdminError.UnknownBuild or MissionAdminError.UnknownTemplate => ExitCodes.NotFound,
                 _ => ExitCodes.Usage,
             };
