@@ -10,6 +10,9 @@
 # Stage 6: account creation opens a full energy wallet; GET /v1/me shows {balance:50, cap:50, nextRegenAt:null}; a
 # development grant with a fresh idempotency key credits 5 once and its replay reports the stored result without
 # crediting again; /v1/me then shows 55 above the cap of 50; and an on-demand reconciliation finds no mismatch.
+# Stage 8: an agent host registered by the operator (its secret printed once), an allowlisted build and its heartbeat admit a
+# deploy; the agent claims and launches it, the process registers, reports ready, redeems a ticket minted by POST and starts
+# the participant: running, charged once; a second account cancels before start and is released once. No secret is printed.
 # Stage 7: with no verified capacity a deploy is 503 and touches no energy; with the development host fixture enabled for
 # that section only (BLACKGLASS_DEV_HOSTS=enabled on api and admin; never the stack default), a registered and heartbeating
 # fixture admits a deploy (201, energy 55 -> 45), the same key and body replay the identical body, the same key with another
@@ -239,7 +242,104 @@ check "GET /v1/attempts/{id} shows the attempt without seed or salt" attempt_rea
 check "the pre-start cancel releases (200)" cancel_releases
 check "the energy is released once (back to 55)" me_energy_is '{"balance":55,"cap":50,"nextRegenAt":null}'
 check "the inventory is unlocked after the release" inventory_is_unlocked
-unset inv_key inv_token inv_body
+# Stage 8: the lifecycle to running, with an agent host (development host fixtures off: the API counts only the agent host
+# and its allowlisted build). The host secret, the process credential and the join ticket are secrets: like the account key
+# and token they live in shell variables only, travel to curl in a config on stdin (header and body), and are never echoed,
+# on a command line or in a file. The seed is checked present in the register response and never printed.
+s8_cat="sha256:$(sha256sum "$here/../../catalogue/catalogue.json" | cut -d' ' -f1)"
+s8_host_secret= s8_credential= s8_ticket= s8_attempt= s8_session= s8_generation=
+# A POST with the bearer in the variable named by $1 and a JSON body ($3, escaped into the config). Sets s8_status, s8_body.
+s8_call() {
+  local token="${!1}" path="$2" body="${3//\\/\\\\}" resp; body="${body//\"/\\\"}"
+  resp="$({ printf 'header = "Authorization: Bearer %s"\n' "$token"; printf 'header = "Content-Type: application/json"\n';
+            printf 'url = "%s%s"\n' "$api_url" "$path"; printf 'data-binary = "%s"\n' "$body"; } \
+    | curl -s --max-time 30 --config - -w '\n%{http_code}' "${@:4}")" || resp=$'\n000'
+  s8_status="${resp##*$'\n'}"; s8_body="${resp%$'\n'*}"
+}
+s8_field() { printf '%s' "$s8_body" | sed -n "s/.*\"$1\": *\"\{0,1\}\([^\",}]*\)\"\{0,1\}.*/\1/p"; }
+s8_host_registers() {
+  local out
+  out="$(dc --profile tools run --rm -T admin host register --host-id smoke-agent --capacity 2 --port-base 7700 --operator smoke-test --reason smoke --yes 2>&1)" || return 1
+  s8_host_secret="$(printf '%s\n' "$out" | sed -n 's/^hostSecret=\(hs1_.*\)$/\1/p')"
+  printf '%s\n' "$out" | grep -qx 'kind=agent' && printf '%s\n' "$out" | grep -qx 'portBase=7700' || return 1
+  out=
+  [[ "$s8_host_secret" == hs1_* ]]
+}
+s8_build_allowed() {
+  admin_cli build allow --revision smoke-r1 --catalogue-version "$s8_cat" --templates procedural-standard:1 --operator smoke-test --reason smoke --yes > "$work/build.out" \
+    && grep -qx 'enabled=true' "$work/build.out"
+}
+s8_heartbeat() {
+  s8_call s8_host_secret /agent/v1/heartbeat "{\"buildRevision\":\"smoke-r1\",\"catalogueVersion\":\"$s8_cat\",\"inventory\":{\"complete\":true,\"units\":[]},\"outboxPending\":0}"
+  [[ "$s8_status" == 200 ]] && printf '%s' "$s8_body" | grep -q '"drained":false'
+}
+s8_deploys() {
+  deploy_key="$(cat /proc/sys/kernel/random/uuid)"; deploy_body procedural-standard
+  deploy_call && [[ "$inv_status" == 201 ]] || return 1
+  s8_attempt="$(printf '%s' "$inv_body" | sed -n 's/.*"attemptId": *"\([0-9a-f-]*\)".*/\1/p')"
+  [[ -n "$s8_attempt" ]]
+}
+s8_claims() {
+  s8_call s8_host_secret /agent/v1/claim '{}' -H "Idempotency-Key: $(cat /proc/sys/kernel/random/uuid)"
+  [[ "$s8_status" == 200 && "$(s8_field attemptId)" == "$s8_attempt" && "$(s8_field missionPort)" == 7700 ]] || return 1
+  s8_credential="$(s8_field processCredential)"; s8_generation="$(s8_field credentialGeneration)"; s8_body=
+  [[ "$s8_credential" == pc1_* && "$s8_generation" == 1 ]]
+}
+s8_launching() { s8_call s8_host_secret "/agent/v1/attempts/$s8_attempt/launching" "{\"credentialGeneration\":$s8_generation}" && [[ "$s8_status" == 200 ]]; }
+s8_registers() {
+  s8_call s8_credential "/server/v1/attempts/$s8_attempt/sessions" "{\"buildRevision\":\"smoke-r1\",\"catalogueVersion\":\"$s8_cat\"}"
+  [[ "$s8_status" == 200 ]] && printf '%s' "$s8_body" | grep -qE '"seed": ?[0-9]+' && ! printf '%s' "$s8_body" | grep -qi 'salt' || return 1
+  s8_session="$(s8_field processSessionId)"; s8_body=
+  [[ -n "$s8_session" ]]
+}
+s8_ready() {
+  local hash; hash="sha256:$(printf 'blackglass-loot-pool/1\ntable=1\n0,0,item.medkit,1\n' | sha256sum | cut -d' ' -f1)"
+  s8_call s8_credential "/server/v1/attempts/$s8_attempt/ready" "{\"processSessionId\":\"$s8_session\",\"layoutHash\":\"cf2e14dece9cc2a6\",\"lootTableVersion\":1,\"lootHash\":\"$hash\",\"objectives\":[{\"objectiveId\":\"extract\",\"required\":true}],\"lootPool\":[{\"containerIndex\":0,\"line\":0,\"definitionId\":\"item.medkit\",\"quantity\":1}]}"
+  [[ "$s8_status" == 200 ]]
+}
+s8_ticket_redeem_start() {
+  s8_call inv_token "/v1/attempts/$s8_attempt/tickets" '{}' && [[ "$s8_status" == 201 ]] || return 1
+  s8_ticket="$(s8_field ticket)"; s8_body=
+  [[ "$s8_ticket" == jt1_* ]] || return 1
+  s8_call s8_credential "/server/v1/attempts/$s8_attempt/tickets/redeem" "{\"processSessionId\":\"$s8_session\",\"ticket\":\"$s8_ticket\"}"
+  [[ "$s8_status" == 200 && "$(s8_field accountId)" == "$inv_account" ]] || return 1
+  s8_call s8_credential "/server/v1/attempts/$s8_attempt/participants/$inv_account/start" "{\"processSessionId\":\"$s8_session\"}"
+  [[ "$s8_status" == 200 ]] && printf '%s' "$s8_body" | grep -q '"started":true'
+}
+s8_running() { inv_call "/v1/attempts/$s8_attempt" && [[ "$inv_status" == 200 ]] && printf '%s' "$inv_body" | grep -q '"state":"running"' && no_secret_in "$inv_body"; }
+# A second account deploys and cancels before any start: released once.
+s8_second_cancel_releases() {
+  local out key token resp attempt
+  out="$(dc --profile tools run --rm -T admin account create --operator smoke-test --reason smoke 2>&1)" || return 1
+  key="$(printf '%s\n' "$out" | sed -n 's/^accountKey=\(dk1_.*\)$/\1/p')"; out=
+  resp="$(printf '{"accountKey":"%s"}' "$key" | curl -s --max-time 5 -X POST -H 'Content-Type: application/json' --data-binary @- "$api_url/v1/auth/dev/login")" || return 1
+  token="$(printf '%s' "$resp" | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')"; key= resp=
+  local saved="$inv_token"; inv_token="$token"
+  inv_call /v1/roster; local operative; operative="$(printf '%s' "$inv_body" | sed -n 's/.*"operativeId":"\([1-9A-HJ-NP-Za-km-z]*\)".*/\1/p' | head -n 1)"
+  printf '{"missionTemplate":"procedural-standard","operativeIds":["%s"]}' "$operative" > "$work/deploy2.json"
+  inv_call /v1/attempts -H 'Content-Type: application/json' -H "Idempotency-Key: $(cat /proc/sys/kernel/random/uuid)" --data-binary "@$work/deploy2.json"
+  attempt="$(printf '%s' "$inv_body" | sed -n 's/.*"attemptId": *"\([0-9a-f-]*\)".*/\1/p')"
+  local ok=1
+  [[ "$inv_status" == 201 && -n "$attempt" ]] && inv_call "/v1/attempts/$attempt/cancel" -X POST && [[ "$inv_status" == 200 ]] \
+    && printf '%s' "$inv_body" | grep -q '"released":10' && inv_call "/v1/attempts/$attempt/cancel" -X POST && [[ "$inv_status" == 200 ]] \
+    && me_energy_is '{"balance":50' && ok=0
+  inv_token="$saved"; token=
+  return $ok
+}
+check "the API is recreated with dev login only (development host fixtures off)" api_with_dev_auth_enabled
+check "host register creates an agent host and prints its secret once (kept in memory only)" s8_host_registers
+check "build allow allowlists the build for procedural-standard v1 under the image's catalogue" s8_build_allowed
+check "the agent heartbeats with its secret and build" s8_heartbeat
+check "a deploy is admitted (the agent host is the verified capacity)" s8_deploys
+check "the agent claims it: the attempt, port 7700, a process credential (in memory only), generation 1" s8_claims
+check "the agent reports launching with that generation" s8_launching
+check "the process registers: a session, the seed present (never printed), no salt" s8_registers
+check "the process reports ready with a pool inside the table and its canonical hash" s8_ready
+check "the player mints a ticket (POST), the process redeems it and starts the participant" s8_ticket_redeem_start
+check "the attempt is running, without seed or salt in the read" s8_running
+check "the energy was charged once (45: reserved, then charged, never released)" me_energy_is '{"balance":45,"cap":50,"nextRegenAt":"'
+check "a second account's deploy is cancelled before start and released once" s8_second_cancel_releases
+unset inv_key inv_token inv_body s8_host_secret s8_credential s8_ticket s8_body
 api_with_default_auth() { ( unset BLACKGLASS_DEV_AUTH BLACKGLASS_DEV_HOSTS; api_recreate ); }
 check "the API is recreated with the stack's default again" api_with_default_auth
 check "dev login is off again by default (404)" test "$(http_code -X POST -H 'Content-Type: application/json' -d '{}' "$api_url/v1/auth/dev/login")" = 404
