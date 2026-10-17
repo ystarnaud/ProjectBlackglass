@@ -4,8 +4,9 @@ using Npgsql;
 
 namespace Blackglass.Accounts.IntegrationTests.Support;
 
-/// <summary>The Blackglass integration-test cluster, reached through the SSH tunnel on 127.0.0.1 (port from
-/// BLACKGLASS_TEST_PG_PORT, default 55432). Passwords are read from ~/.blackglass/testdb-secrets (or
+/// <summary>The Blackglass integration-test cluster, reached through the SSH tunnel on 127.0.0.1 (host from BLACKGLASS_TEST_PG_HOST,
+/// port from BLACKGLASS_TEST_PG_PORT, default 55432). The VM runner (tools/vm-test.sh) sets the host to the cluster container's own
+/// address: a connection from its loopback would match the image's trust rule and skip password authentication. Passwords are read from ~/.blackglass/testdb-secrets (or
 /// BLACKGLASS_TEST_PG_SECRETS), filled by `tools/testdb.sh up`. Refuses any cluster but blackglass-test.</summary>
 public sealed class TestCluster
 {
@@ -15,14 +16,15 @@ public sealed class TestCluster
 
     public static Task<TestCluster> Instance => Shared.Value;
 
+    public string Host { get; }
     public int Port { get; }
     public string SuperuserPassword { get; }
     public string MigratorPassword { get; }
     public string AppPassword { get; }
     public string OutsiderPassword { get; } = Guid.NewGuid().ToString("N");
 
-    TestCluster(int port, string su, string migrator, string app) =>
-        (Port, SuperuserPassword, MigratorPassword, AppPassword) = (port, su, migrator, app);
+    TestCluster(string host, int port, string su, string migrator, string app) =>
+        (Host, Port, SuperuserPassword, MigratorPassword, AppPassword) = (host, port, su, migrator, app);
 
     public static void EnsureTestCluster(string clusterName)
     {
@@ -33,7 +35,7 @@ public sealed class TestCluster
     public NpgsqlDataSource DataSource(string database, string user, string password) =>
         NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder
         {
-            Host = "127.0.0.1", Port = Port, Database = database, Username = user, Password = password,
+            Host = Host, Port = Port, Database = database, Username = user, Password = password,
             MaxPoolSize = 5, Timeout = 10, ApplicationName = "blackglass-tests",
         });
 
@@ -54,7 +56,8 @@ public sealed class TestCluster
             throw new InvalidOperationException($"No test-cluster secrets at {dir}. Run `bash Backend/tools/testdb.sh up`, then keep `bash Backend/tools/testdb.sh tunnel` open.");
         string Read(string name) => File.ReadAllText(Path.Combine(dir, name)).Trim();
         var port = int.Parse(Environment.GetEnvironmentVariable("BLACKGLASS_TEST_PG_PORT") ?? "55432", CultureInfo.InvariantCulture);
-        var cluster = new TestCluster(port, Read("pg_superuser_password"), Read("pg_migrator_password"), Read("pg_app_password"));
+        var host = Environment.GetEnvironmentVariable("BLACKGLASS_TEST_PG_HOST") ?? "127.0.0.1";
+        var cluster = new TestCluster(host, port, Read("pg_superuser_password"), Read("pg_migrator_password"), Read("pg_app_password"));
 
         await using var admin = cluster.DataSource("postgres", "postgres", cluster.SuperuserPassword);
         await using var conn = await admin.OpenConnectionAsync();

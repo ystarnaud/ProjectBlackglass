@@ -12,6 +12,7 @@ public sealed class TestDatabase : IAsyncDisposable
     readonly List<NpgsqlDataSource> boundedSources = new();
 
     public string Name { get; }
+    public string Host => cluster.Host;
 
     internal TestDatabase(TestCluster cluster, string name) => (this.cluster, Name) = (cluster, name);
 
@@ -26,7 +27,7 @@ public sealed class TestDatabase : IAsyncDisposable
     /// <summary>The app role through the production factory (DbSettings.CreateDataSource), with these wait bounds.</summary>
     public NpgsqlDataSource AsAppWith(Blackglass.Accounts.Persistence.DbTimeouts timeouts)
     {
-        var ds = new Blackglass.Accounts.Persistence.DbSettings("127.0.0.1", cluster.Port, Name, "accounts_app", cluster.AppPassword)
+        var ds = new Blackglass.Accounts.Persistence.DbSettings(cluster.Host, cluster.Port, Name, "accounts_app", cluster.AppPassword)
             .CreateDataSource("blackglass-tests", maxPoolSize: 5, timeouts: timeouts);
         boundedSources.Add(ds);
         return ds;
@@ -38,7 +39,7 @@ public sealed class TestDatabase : IAsyncDisposable
     {
         var ds = NpgsqlDataSource.Create(new NpgsqlConnectionStringBuilder
         {
-            Host = "127.0.0.1", Port = cluster.Port, Database = Name, Username = "accounts_app", Password = cluster.AppPassword,
+            Host = cluster.Host, Port = cluster.Port, Database = Name, Username = "accounts_app", Password = cluster.AppPassword,
             ApplicationName = "blackglass-tests", Timeout = 5, MaxPoolSize = 5, Options = "-c default_transaction_read_only=on",
         });
         boundedSources.Add(ds);
@@ -60,7 +61,7 @@ public sealed class TestDatabase : IAsyncDisposable
         passwordFiles.Add(file);
         return new()
         {
-            ["BLACKGLASS_DB_HOST"] = "127.0.0.1",
+            ["BLACKGLASS_DB_HOST"] = cluster.Host,
             ["BLACKGLASS_DB_PORT"] = cluster.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["BLACKGLASS_DB_NAME"] = Name,
             ["BLACKGLASS_DB_USER"] = role == "migrator" ? "accounts_migrator" : "accounts_app",

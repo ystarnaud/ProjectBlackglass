@@ -51,6 +51,10 @@ flock -n 9 || { echo "another test run holds the lock" >&2; exit 75; }
 psql() { docker exec "$pg" psql -U postgres -d postgres -Atc "$1"; }
 cluster="$(psql "select current_setting('cluster_name')")"
 [[ "$cluster" == blackglass-test ]] || { echo "refusing: cluster_name is '$cluster', not 'blackglass-test'" >&2; exit 78; }
+# The tests connect to the cluster container's own address, never its loopback: the image's pg_hba trusts 127.0.0.1, which
+# would skip password authentication; the container address meets the scram-sha-256 rule, as the tunnel path does.
+pgip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$pg")"
+[[ "$pgip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing: no IPv4 address for $pg" >&2; exit 78; }
 docker rm -f bg-test-runner >/dev/null 2>&1 || true   # an orphan from a dropped session; we hold the lock
 docker volume create bg-test-nuget >/dev/null && docker volume create bg-test-work >/dev/null
 docker run --rm --network none --cap-drop ALL --cap-add CHOWN -v bg-test-nuget:/n -v bg-test-work:/w "$image" chown 999:999 /n /w
@@ -62,7 +66,7 @@ docker run --rm --name bg-test-runner \
   --user 999:999 --cpus 2 --memory 3g --memory-swap 3g --pids-limit 1024 \
   --cap-drop ALL --security-opt no-new-privileges \
   --network "container:$pg" \
-  -e BLACKGLASS_TEST_PG_PORT=5432 -e BLACKGLASS_TEST_PG_SECRETS=/secrets \
+  -e BLACKGLASS_TEST_PG_HOST="$pgip" -e BLACKGLASS_TEST_PG_PORT=5432 -e BLACKGLASS_TEST_PG_SECRETS=/secrets \
   -e HOME=/work/home -e DOTNET_CLI_HOME=/work/home -e NUGET_PACKAGES=/nuget \
   -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_NOLOGO=1 -e DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
   -v "$vm/test-src:/src:ro" \

@@ -21,6 +21,7 @@ ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loo
     - The tests run in a disposable, digest-pinned .NET 10 SDK container, `bg-test-runner`. It runs as uid 999, with 2 CPUs, 3 GB, 1024 pids, all capabilities dropped and a one-hour cap.
     - The container shares only the test cluster container's network namespace: no published port, no host network, no Docker socket.
     - Only the three test-cluster password files are mounted, read-only.
+    - Tests connect to the cluster container's own address (`BLACKGLASS_TEST_PG_HOST`), never its loopback. The image's `pg_hba` trusts 127.0.0.1, which would skip password checks; the container's address gets the same `scram-sha-256` authentication as the tunnel path.
     - Named volumes cache only NuGet packages and build output. The cached tree is brought to exactly the snapshot by content, so a stale build can't be tested.
   - **Safeguards:**
     - It refuses to run unless `cluster_name = blackglass-test`.
