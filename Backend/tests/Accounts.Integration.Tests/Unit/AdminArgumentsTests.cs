@@ -50,6 +50,7 @@ public class AdminArgumentsTests
     [InlineData("starter backfill --account-base58 BukQL --operator o --reason r")]
     [InlineData("energy open --account-base58 BukQL --operator o --reason r")]
     [InlineData("energy grant --account-base58 BukQL --amount 5 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]
+    [InlineData("insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 60 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]
     public void Every_change_to_an_existing_account_needs_confirmation_and_takes_yes(string line)
     {
         var a = Parse(line);
@@ -71,6 +72,8 @@ public class AdminArgumentsTests
     [InlineData("energy grant --account-base58 BukQL --amount 5 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r", false)]
     [InlineData("energy policy publish --cap 50 --opening-balance 50 --interval-seconds 600 --amount 1 --void-refund-pct 100 --operator o --reason r", false)]
     [InlineData("energy reconcile --operator o --reason r", false)]
+    [InlineData("insurance policy publish --policy-id standard --terms-file t.json --operator o --reason r", false)]
+    [InlineData("insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 60 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r", false)]
     public void Only_the_starter_granting_verbs_need_the_catalogue(string line, bool needs) =>
         Assert.Equal(needs, Parse(line).NeedsCatalogue);
 
@@ -78,7 +81,7 @@ public class AdminArgumentsTests
     public void Every_verb_is_classified_and_only_the_starter_granting_ones_need_the_catalogue() =>
         // A new verb fails this until it is listed here and classified in the theory above (security administration, or needing game definitions).
         Assert.Equal(new SortedSet<string>(["account-create", "account-reactivate", "account-suspend", "credential-revoke", "credential-rotate", "energy-grant", "energy-open",
-                "energy-policy-publish", "energy-reconcile", "sessions-revoke", "starter-backfill"]),
+                "energy-policy-publish", "energy-reconcile", "insurance-activate", "insurance-policy-publish", "sessions-revoke", "starter-backfill"]),
             new SortedSet<string>(AdminArguments.KnownVerbs));
 
     [Fact]
@@ -127,6 +130,17 @@ public class AdminArgumentsTests
     [InlineData("energy reconcile --operator o --reason r --yes")]                         // nothing to confirm
     [InlineData("energy reconcile --account-base58 BukQL --operator o --reason r")]        // takes no account
     [InlineData("energy close --account-base58 BukQL --operator o --reason r")]            // unknown verb
+    [InlineData("insurance policy publish --policy-id standard --operator o --reason r")]                  // terms file missing
+    [InlineData("insurance policy publish --terms-file t.json --operator o --reason r")]                   // policy id missing
+    [InlineData("insurance policy publish --policy-id standard --terms-file t.json --account-base58 BukQL --operator o --reason r")] // takes no account
+    [InlineData("insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 60 --operator o --reason r")]   // key missing
+    [InlineData("insurance activate --account-base58 BukQL --policy-id standard --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")] // duration missing
+    [InlineData("insurance activate --account-base58 BukQL --duration-seconds 60 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")] // policy missing
+    [InlineData("insurance activate --policy-id standard --duration-seconds 60 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]   // account missing
+    [InlineData("insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 1h --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --operator o --reason r")]
+    [InlineData("insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 60 --idempotency-key not-a-uuid --operator o --reason r")]
+    [InlineData("insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 60 --idempotency-key 0192f1a4-0000-7000-8000-000000000000 --terms-file t.json --operator o --reason r")]
+    [InlineData("insurance policy --policy-id standard --operator o --reason r")]                         // unknown verb
     [InlineData("account")]
     [InlineData("")]
     public void Bad_arguments_are_usage_errors(string line) =>
@@ -161,5 +175,24 @@ public class AdminArgumentsTests
         Assert.Contains("energy grant --account-base58", AdminArguments.Usage);
         Assert.Contains("energy policy publish", AdminArguments.Usage);
         Assert.Contains("energy reconcile", AdminArguments.Usage);
+    }
+
+    [Fact]
+    public void Insurance_verbs_parse_their_values()
+    {
+        var key = Guid.CreateVersion7();
+        var activate = Parse($"insurance activate --account-base58 BukQL --policy-id standard --duration-seconds 3600 --idempotency-key {key.ToString().ToUpperInvariant()} --operator o --reason r");
+        Assert.Equal(("insurance-activate", 123456789L, "standard", 3600, key, AdminConfirmation.Account),
+            (activate.Verb, activate.Account, activate.PolicyId, activate.DurationSeconds, activate.IdempotencyKey, activate.Confirmation));
+        Assert.Equal(-3, Parse($"insurance activate --account-base58 BukQL --policy-id standard --duration-seconds -3 --idempotency-key {key} --operator o --reason r").DurationSeconds); // the store refuses it
+        Assert.Equal("Not_A_Policy", Parse($"insurance activate --account-base58 BukQL --policy-id Not_A_Policy --duration-seconds 1 --idempotency-key {key} --operator o --reason r").PolicyId); // likewise
+
+        var publish = Parse("insurance policy publish --policy-id premium --terms-file /tmp/terms.json --operator o --reason r");
+        Assert.Equal(("insurance-policy-publish", "premium", "/tmp/terms.json", null, AdminConfirmation.Publish, false),
+            (publish.Verb, publish.PolicyId, publish.TermsFile, publish.Account, publish.Confirmation, publish.ChangesAnExistingAccount));
+        Assert.True(Parse("insurance policy publish --policy-id premium --terms-file t.json --operator o --reason r --yes").Confirmed);
+        Assert.False(publish.IsEnergyVerb);
+        Assert.Contains("insurance policy publish --policy-id", AdminArguments.Usage);
+        Assert.Contains("insurance activate --account-base58", AdminArguments.Usage);
     }
 }

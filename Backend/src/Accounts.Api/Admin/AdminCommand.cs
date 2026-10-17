@@ -1,11 +1,14 @@
 using System.Globalization;
+using System.Text;
 using Npgsql;
 using Blackglass.Accounts.Api.Energy;
 using Blackglass.Accounts.Domain.Accounts;
 using Blackglass.Accounts.Domain.Catalogue;
+using Blackglass.Accounts.Domain.Insurance;
 using Blackglass.Accounts.Persistence;
 using Blackglass.Accounts.Persistence.Accounts;
 using Blackglass.Accounts.Persistence.Energy;
+using Blackglass.Accounts.Persistence.Insurance;
 using Blackglass.Accounts.Persistence.Migrations;
 
 namespace Blackglass.Accounts.Api.Admin;
@@ -14,14 +17,15 @@ namespace Blackglass.Accounts.Api.Admin;
 /// The operator CLI on bg-dev-services01 (spec §4.2), run with `docker compose run --rm admin …` as accounts_app. A new
 /// key is printed once, on stdout, to the operator who asked for it; nothing else ever shows it. Every command prints
 /// the Base58 account id it acted on (when it acted on one) and the correlation id of its audit row (energy reconcile,
-/// which changes no account, and a replayed energy grant, which writes nothing, write no audit row: their correlation id is
-/// only printed; energy reconcile prints one
+/// which changes no account, and a replayed energy grant or insurance activation, which writes nothing, write no audit row:
+/// their correlation id is only printed; energy reconcile prints one
 /// "mismatch=&lt;Base58 account id&gt;:&lt;rule&gt;" line per finding, after its counts).
 /// A change to an existing account first prints its target ("target.*" lines: the canonical Base58 id, status, handle,
 /// display name, creation time, live credential and sessions, and whether its starter is granted; for the energy verbs also
-/// the stored energy balance) and then acts only when confirmed: --yes, or, at a terminal, typing that Base58 id. A policy
-/// publication first prints the current policy and the proposed one ("target.policy*" lines) and is confirmed by --yes or by
-/// typing "publish". Without confirmation nothing changes (exit 64 with no terminal, 67 on a wrong answer).
+/// the stored energy balance; for an insurance activation the stored coverage) and then acts only when confirmed: --yes, or,
+/// at a terminal, typing that Base58 id. A policy publication (energy or insurance) first prints the current policy and the
+/// proposed one ("target.policy*" lines) and is confirmed by --yes or by typing "publish". Without confirmation nothing
+/// changes (exit 64 with no terminal, 67 on a wrong answer).
 /// </summary>
 public static class AdminCommand
 {
@@ -66,12 +70,27 @@ public static class AdminCommand
             }
             catch (EnergyException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
         }
+        // The insurance inputs are checked before any connection too: the policy id's form, the duration's bounds, and the terms
+        // file, read and parsed here (an unreadable file or invalid terms never reaches the database).
+        InsuranceTerms? terms = null;
+        if (a.IsInsuranceVerb)
+        {
+            try
+            {
+                InsuranceAdminStore.ValidatePolicyId(a.PolicyId);
+                if (a.DurationSeconds is { } seconds) InsuranceAdminStore.ValidateDuration(seconds);
+                if (a.TermsFile is { } path) terms = InsuranceAdminStore.ParseTerms(ReadTermsFile(path));
+            }
+            catch (InsuranceException e) { error.WriteLine(e.Message); return ExitCodes.Usage; }
+        }
         await using var dataSource = settings.CreateDataSource("blackglass-admin", maxPoolSize: 2, timeouts: timeouts);
         // Without a loaded catalogue the store gets one that refuses: no security verb may come to depend on it unnoticed.
         var store = catalogue is not null
             ? new AccountAdminStore(dataSource, catalogue)
             : new AccountAdminStore(dataSource, () => throw new InvalidOperationException($"admin {a.Verb} does not load the catalogue."));
         var energy = energySettings is not null ? new EnergyAdminStore(dataSource, energySettings.GrantMax) : null;
+        var insurance = a.IsInsuranceVerb ? new InsuranceAdminStore(dataSource) : null;
+        var insuranceReader = a.IsInsuranceVerb ? new InsuranceReader(dataSource) : null;
         try
         {
             // The same schema policy as serve (Stage 1 ruling 4): behind, drifted or ahead, the CLI writes nothing.
@@ -83,7 +102,8 @@ public static class AdminCommand
             }
             var refused = a.Confirmation switch
             {
-                AdminConfirmation.Account => await ConfirmAsync(a, store, energy, output, error, input, ct),
+                AdminConfirmation.Account => await ConfirmAsync(a, store, energy, insuranceReader, output, error, input, ct),
+                AdminConfirmation.Publish when a.IsInsuranceVerb => await ConfirmInsurancePublishAsync(a, terms!, insuranceReader!, output, error, input, ct),
                 AdminConfirmation.Publish => await ConfirmPublishAsync(a, energy!, output, error, input, ct),
                 _ => null,
             };
@@ -183,6 +203,21 @@ public static class AdminCommand
                     foreach (var m in report.Mismatches)
                         output.WriteLine($"mismatch={AccountId.Format(m.AccountId)}:{m.Rule}");
                     break;
+                case "insurance-policy-publish":
+                    var published = await insurance!.PublishPolicyAsync(a.PolicyId!, terms!, a.Operator, ct);
+                    output.WriteLine($"policyId={published.PolicyId}");
+                    output.WriteLine($"policyVersion={published.Version}");
+                    break;
+                case "insurance-activate":
+                    var activated = await insurance!.ActivateAsync(a.Account!.Value, a.PolicyId!, a.DurationSeconds!.Value, a.IdempotencyKey!.Value, a.Operator, ct);
+                    output.WriteLine($"accountId={AccountId.Format(a.Account.Value)}");
+                    output.WriteLine($"policyId={activated.PolicyId}");
+                    output.WriteLine($"policyVersion={activated.PolicyVersion}");
+                    // The period this activation bought, from its stored row: a replay prints exactly what the first call did.
+                    output.WriteLine($"startsAt={Timestamp(activated.StartsAt)}");
+                    output.WriteLine($"expiresAt={Timestamp(activated.ExpiresAt)}");
+                    output.WriteLine($"replayed={(activated.Replayed ? "true" : "false")}");
+                    break;
             }
             output.WriteLine($"correlationId={a.Operator.CorrelationId}");
             return ExitCodes.Ok;
@@ -196,6 +231,16 @@ public static class AdminCommand
         {
             error.WriteLine(e.Message);
             return e.Error switch { EnergyError.NoWallet => ExitCodes.NotFound, EnergyError.IdempotencyKeyReused => ExitCodes.Conflict, _ => ExitCodes.Usage };
+        }
+        catch (InsuranceException e)
+        {
+            error.WriteLine(e.Message);
+            return e.Error switch
+            {
+                InsuranceError.UnknownPolicy => ExitCodes.NotFound,
+                InsuranceError.IdempotencyKeyReused or InsuranceError.CrossTierDeferred or InsuranceError.PolicyVersionConflict => ExitCodes.Conflict,
+                _ => ExitCodes.Usage,
+            };
         }
         catch (NpgsqlException e)
         {
@@ -219,9 +264,11 @@ public static class AdminCommand
 
     /// <summary>Prints the target, then returns null when the change is confirmed, else the exit code to stop with.
     /// An unknown account or credential throws NotFound before anything is printed. <paramref name="energy"/> is set for the
-    /// energy verbs, which also print the stored energy balance (read without regeneration or a lock), or "(no wallet)".</summary>
-    static async Task<int?> ConfirmAsync(AdminArguments a, AccountAdminStore store, EnergyAdminStore? energy, TextWriter output, TextWriter error, TextReader? input,
-        CancellationToken ct)
+    /// energy verbs, which also print the stored energy balance (read without regeneration or a lock), or "(no wallet)";
+    /// <paramref name="insurance"/> for an activation, which also prints the stored coverage (read without a lock, as stored:
+    /// an expired one too), or "(none)".</summary>
+    static async Task<int?> ConfirmAsync(AdminArguments a, AccountAdminStore store, EnergyAdminStore? energy, InsuranceReader? insurance, TextWriter output, TextWriter error,
+        TextReader? input, CancellationToken ct)
     {
         CredentialSummary? credential = null;
         if (a.Credential is { } credentialId)
@@ -247,6 +294,11 @@ public static class AdminCommand
         output.WriteLine($"target.starterGranted={(target.StarterGranted ? "true" : "false")}");
         if (energy is not null)
             output.WriteLine($"target.energyBalance={(await energy.DescribeStoredBalanceAsync(target.AccountId, ct))?.ToString(CultureInfo.InvariantCulture) ?? "(no wallet)"}");
+        if (insurance is not null)
+        {
+            var coverage = await insurance.DescribeCoverageAsync(target.AccountId, ct);
+            output.WriteLine($"target.coverage={(coverage is null ? "(none)" : $"{coverage.PolicyId} v{coverage.PolicyVersion} until {Timestamp(coverage.ExpiresAt)}")}");
+        }
 
         if (a.Confirmed) return null;
         var action = a.Verb.Replace('-', ' ');
@@ -294,12 +346,67 @@ public static class AdminCommand
         return ExitCodes.NotConfirmed;
     }
 
-    /// <summary>A grant whose connection broke (or failed oddly) may have committed before the failure was seen: a retry with a
-    /// new key could grant twice, while the same key replays or grants once.</summary>
+    /// <summary>An insurance policy publication: prints the policy's latest version and terms and the proposed ones (the
+    /// proposed version is advisory: the transaction mints it under the policy's lock), then returns null when confirmed (--yes,
+    /// or typing "publish"), else the exit code to stop with. Its transaction begins only after.</summary>
+    static async Task<int?> ConfirmInsurancePublishAsync(AdminArguments a, InsuranceTerms proposed, InsuranceReader insurance, TextWriter output, TextWriter error,
+        TextReader? input, CancellationToken ct)
+    {
+        var current = await insurance.DescribeLatestPolicyAsync(a.PolicyId!, ct);
+        output.WriteLine($"target.policyId={a.PolicyId}");
+        output.WriteLine($"target.policyCurrentVersion={current?.Version.ToString(CultureInfo.InvariantCulture) ?? "(none)"}");
+        output.WriteLine($"target.policyCurrentTerms={(current is null ? "(none)" : CanonicalOrStored(current.Terms))}");
+        output.WriteLine($"target.policyProposedVersion={(current?.Version ?? 0) + 1}");
+        output.WriteLine($"target.policyProposedTerms={proposed.Canonical()}");
+
+        if (a.Confirmed) return null;
+        if (input is null)
+        {
+            error.WriteLine($"Not confirmed, so nothing was changed. To publish this insurance policy version, run this at a terminal and type publish, or add {AdminArguments.YesSwitch}.");
+            return ExitCodes.Usage;
+        }
+        error.Write($"Type publish to confirm the new version of insurance policy {a.PolicyId} (later activations of it use it): ");
+        var typed = await input.ReadLineAsync(ct);
+        if (typed == "publish") return null;
+        error.WriteLine("Not confirmed, so nothing was changed.");
+        return ExitCodes.NotConfirmed;
+    }
+
+    /// <summary>Stored terms in the same canonical form as the proposed ones, so the two compare line for line; terms the parser
+    /// refuses (none should exist) are shown as stored.</summary>
+    static string CanonicalOrStored(string stored)
+    {
+        try { return InsuranceTerms.Parse(stored).Canonical(); }
+        catch (InsuranceTermsException) { return stored; }
+    }
+
+    /// <summary>The largest terms file read (64 KiB): terms are a few hundred bytes.</summary>
+    const int MaxTermsFileBytes = 64 * 1024;
+
+    /// <summary>The terms file's text, strict UTF-8; an unreadable, oversized or undecodable file is InvalidTerms.</summary>
+    static string ReadTermsFile(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (info.Exists && info.Length > MaxTermsFileBytes)
+                throw new InsuranceException(InsuranceError.InvalidTerms, $"The terms file is larger than {MaxTermsFileBytes} bytes. Nothing was published.");
+            return File.ReadAllText(path, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            throw new InsuranceException(InsuranceError.InvalidTerms, $"The terms file could not be read ({e.GetType().Name}). Nothing was published.");
+        }
+    }
+
+    /// <summary>A grant or activation whose connection broke (or failed oddly) may have committed before the failure was seen: a
+    /// retry with a new key could grant or extend twice, while the same key replays or acts once.</summary>
     static void WriteGrantOutcomeUnknown(AdminArguments a, TextWriter error)
     {
         if (a.Verb == "energy-grant")
             error.WriteLine($"The grant may or may not have committed: retry with the same --idempotency-key {a.IdempotencyKey!.Value:D}, never a new one.");
+        if (a.Verb == "insurance-activate")
+            error.WriteLine($"The activation may or may not have committed: retry with the same --idempotency-key {a.IdempotencyKey!.Value:D}, never a new one.");
     }
 
     /// <summary>A database time, UTC, to the microsecond.</summary>
