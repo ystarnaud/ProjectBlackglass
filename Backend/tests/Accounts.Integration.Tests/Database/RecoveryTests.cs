@@ -206,6 +206,63 @@ public class RecoveryTests : IAsyncLifetime
         Assert.Equal("operator_revoked_unrecoverable", (await recovery.VoidParticipantAsync(r.Attempt, r.Account, checks, "outbox lost", Op, default)).Basis);
     }
 
+    [Fact]
+    public async Task A_void_needs_a_failed_revalidation_of_every_stored_manifest()
+    {
+        // A damaged relay quarantines; the process's valid manifest then arrives and is held by the sticky quarantine (S9-B21).
+        var r = await ManifestKit.StartAsync(kit, db);
+        Assert.IsType<ResultOutcome.Quarantined>(await Relay(ManifestKit.Manifest(r) with { BuildRevision = "r9" }));
+        var bad = await LatestSubmissionAsync(r);
+        Assert.IsType<ResultOutcome.Quarantined>(await Relay(ManifestKit.Manifest(r)));
+        var good = await LatestSubmissionAsync(r);
+        Assert.Equal("failed", (await recovery.RevalidateAsync(r.Attempt, r.Account, bad, false, Op, default)).Result);
+        var all = new VoidChecks(true, true, false, false);
+        Assert.Equal(RecoveryError.NotAllowed, (await Assert.ThrowsAsync<RecoveryException>(() =>
+            recovery.VoidParticipantAsync(r.Attempt, r.Account, all, "outbox empty", Op, default))).Error); // the valid manifest was never revalidated
+        Assert.Equal("settled", (await recovery.RevalidateAsync(r.Attempt, r.Account, good, false, Op, default)).Result);
+    }
+
+    [Fact]
+    public async Task A_revalidation_that_failed_only_for_an_unavailable_catalogue_never_unlocks_a_void()
+    {
+        var r = await ManifestKit.StartAsync(kit, db);
+        var missing = "sha256:" + new string('e', 64);
+        await ExecuteAsSuperuserAsync(db, "begin; set local session_replication_role = replica; update mission_attempts set catalogue_version = @missing where attempt_id = @Attempt; commit",
+            new { missing, r.Attempt });
+        Assert.IsType<ResultOutcome.Held>(await Relay(ManifestKit.Manifest(r) with { CatalogueVersion = missing }));
+        var held = await LatestSubmissionAsync(r);
+        Assert.Equal(["catalogue_unavailable"], (await recovery.RevalidateAsync(r.Attempt, r.Account, held, false, Op, default)).Codes);
+        var all = new VoidChecks(true, true, false, false);
+        Assert.Equal(RecoveryError.NotAllowed, (await Assert.ThrowsAsync<RecoveryException>(() =>
+            recovery.VoidParticipantAsync(r.Attempt, r.Account, all, "outbox empty", Op, default))).Error); // importing the catalogue may still settle it
+        await ExecuteAsSuperuserAsync(db, "begin; set local session_replication_role = replica; update mission_attempts set catalogue_version = @v where attempt_id = @Attempt; commit",
+            new { v = Blackglass.Accounts.Domain.Catalogue.GameCatalogue.Embedded.Version, r.Attempt }); // keep the invariants about this attempt meaningful
+    }
+
+    [Fact]
+    public async Task Revalidate_refuses_a_participant_neither_quarantined_nor_of_a_revoked_attempt()
+    {
+        var r = await ManifestKit.StartAsync(kit, db);
+        Assert.IsType<ResultOutcome.Refused>(await Relay(ManifestKit.Manifest(r) with { ProcessSessionId = Guid.CreateVersion7() }));
+        Assert.Equal("joined", await StateAsync(r));
+        var refused = await LatestSubmissionAsync(r);
+        Assert.Equal(RecoveryError.NotAllowed, (await Assert.ThrowsAsync<RecoveryException>(() =>
+            recovery.RevalidateAsync(r.Attempt, r.Account, refused, false, Op, default))).Error);
+        Assert.Equal("joined", await StateAsync(r));
+    }
+
+    [Fact]
+    public async Task Revalidate_never_settles_a_manifest_naming_another_process_session()
+    {
+        var r = await ManifestKit.StartAsync(kit, db);
+        Assert.IsType<ResultOutcome.Quarantined>(await Relay(ManifestKit.Manifest(r) with { BuildRevision = "r9" }));
+        Assert.IsType<ResultOutcome.Refused>(await Relay(ManifestKit.Manifest(r) with { ProcessSessionId = Guid.CreateVersion7() }));
+        var forged = await LatestSubmissionAsync(r);
+        var result = await recovery.RevalidateAsync(r.Attempt, r.Account, forged, false, Op, default);
+        Assert.Equal(("failed", "V2.session"), (result.Result, result.Codes.Single()));
+        Assert.Equal("quarantined", await StateAsync(r));
+    }
+
     // ---- declare-lost ----
 
     [Fact]

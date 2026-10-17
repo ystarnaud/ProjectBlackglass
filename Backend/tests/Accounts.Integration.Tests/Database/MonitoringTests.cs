@@ -110,6 +110,23 @@ public class MonitoringTests : IAsyncLifetime
         Assert.IsType<ProcessHeartbeatResult.Ok>(await kit.Processes.HeartbeatAsync(running.Attempt, new ProcessHeartbeatRequest(running.Mission.Session, "play", []), default));
         Assert.IsType<ResultOutcome.Settled>(await ManifestKit.SubmitAsync(ManifestKit.Store(db), db, ManifestKit.Body(ManifestKit.Manifest(running))));
         Assert.Empty((await Monitor().SweepAsync(default)).Drained);
+        // The operator's re-enable sticks: voids before it are not counted again.
+        await new HostAdminStore(db.AsApp()).SwitchAsync("h1", HostSwitch.Enable, Op);
+        Assert.Empty((await Monitor().SweepAsync(default)).Drained);
+        Assert.False(await Scalar<bool>("select drained from mission_hosts where host_id = 'h1'"));
+    }
+
+    [Fact]
+    public async Task An_attempt_unresponsive_before_its_first_heartbeat_alerts_from_its_start()
+    {
+        var silent = await ManifestKit.StartAsync(kit, db);
+        await ExecuteAsSuperuserAsync(db, """
+            begin; set local session_replication_role = replica;
+            update mission_attempts set state = 'unresponsive', last_process_heartbeat_at = null, started_at = clock_timestamp() - interval '11 minutes' where attempt_id = @Attempt;
+            commit
+            """, new { silent.Attempt });
+        Assert.Equal(1, (await Monitor().SweepAsync(default)).Unresponsive);
+        Assert.Equal(0, (await Monitor().SweepAsync(default)).Unresponsive);
     }
 
     [Fact]

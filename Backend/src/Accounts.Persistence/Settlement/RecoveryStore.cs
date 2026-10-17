@@ -81,7 +81,9 @@ public sealed class RecoveryStore(NpgsqlDataSource db, CatalogueHistoryStore cat
     /// Re-runs validation (V4-V16) on the stored canonical bytes of <paramref name="submissionId"/>, a submission of this
     /// participant, under the attempt's admission catalogue; the host is not re-authenticated (the operator path). A pass settles
     /// through the route's own transaction code; a failure records "failed" with its codes and changes nothing else. A revoked
-    /// attempt, or a host_revoked quarantine, needs <paramref name="hostTrustReviewed"/>. A settled participant is refused.
+    /// attempt, or a host_revoked quarantine, needs <paramref name="hostTrustReviewed"/>. Only a quarantined participant, or a
+    /// started, unsettled participant of a revoked attempt, is revalidated (never one still in its mission); the manifest's process
+    /// session is re-checked (V2) as the route does.
     /// </summary>
     public async Task<RevalidateResult> RevalidateAsync(Guid attemptId, long accountId, long submissionId, bool hostTrustReviewed, OperatorContext op, CancellationToken ct)
     {
@@ -90,6 +92,8 @@ public sealed class RecoveryStore(NpgsqlDataSource db, CatalogueHistoryStore cat
         await using var __ = tx;
         if (participant.State is "settled" or "admitted" or "released")
             throw new RecoveryException(RecoveryError.NotAllowed, $"The participant is {participant.State}: only a started, unsettled participant is revalidated.");
+        if (participant.State != "quarantined" && !attempt.Revoked)
+            throw new RecoveryException(RecoveryError.NotAllowed, $"The participant is {participant.State}: only a quarantined participant, or one of a revoked attempt, is revalidated.");
         var reason = await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
             "select quarantine_reason from attempt_participants where attempt_id = @attemptId and account_id = @accountId", new { attemptId, accountId }, tx, cancellationToken: ct));
         if ((attempt.Revoked || reason == "host_revoked") && !hostTrustReviewed)
@@ -106,6 +110,7 @@ public sealed class RecoveryStore(NpgsqlDataSource db, CatalogueHistoryStore cat
         SettlementContext? context = null;
         if (row.Canonical is null) codes = ["malformed"];
         else if ((parsed = ResultManifest.Parse(row.Canonical) as ParseResult.Parsed) is null) codes = ["malformed"];
+        else if (parsed.Manifest.ProcessSessionId != attempt.ProcessSessionId) codes = ["V2.session"];
         else if (await catalogues.LookupLockedAsync(conn, tx, attempt.CatalogueVersion, ct) is not CatalogueLookup.Found { Catalogue: var admission }) codes = ["catalogue_unavailable"];
         else
         {
@@ -189,8 +194,9 @@ public sealed class RecoveryStore(NpgsqlDataSource db, CatalogueHistoryStore cat
 
     /// <summary>
     /// The operator-authorized protective void (S9-B9; revision 3). Always: <c>--outbox-checked</c> and evidence; a settled
-    /// participant is refused (nothing overwritten); with a stored submission, <c>--revalidated</c> and a revalidate action
-    /// with result "failed" recorded after the latest submission. Quarantine mode (attempt not revoked): the participant must
+    /// participant is refused (nothing overwritten); with stored submissions, <c>--revalidated</c> and, for every distinct stored
+    /// manifest, a revalidate action naming it with result "failed" recorded after it was stored, whose codes are not only
+    /// catalogue_unavailable (a transient failure: importing the catalogue may still settle it). Quarantine mode (attempt not revoked): the participant must
     /// be quarantined; basis operator_quarantine. Revoked mode (attempt revoked): the participant started and is unsettled, and
     /// <c>--host-trust-reviewed</c> and <c>--unrecoverable</c> are attested; basis operator_revoked_unrecoverable; the host
     /// need not be declared lost.
@@ -223,13 +229,18 @@ public sealed class RecoveryStore(NpgsqlDataSource db, CatalogueHistoryStore cat
         if (submissions.Count > 0)
         {
             if (!checks.Revalidated) throw new RecoveryException(RecoveryError.MissingCheck, "A submission is stored: revalidate it first and attest it (--revalidated).");
-            var latest = submissions.Max(s => s.Received);
-            if (!await conn.ExecuteScalarAsync<bool>(new CommandDefinition(
-                    """
-                    select exists (select 1 from operator_actions where action = 'revalidate' and attempt_id = @attemptId and account_id = @accountId
-                                   and result ->> 'result' = 'failed' and created_at >= @latest)
-                    """, new { attemptId, accountId, latest }, tx, cancellationToken: ct)))
-                throw new RecoveryException(RecoveryError.NotAllowed, "No failed revalidation is recorded after the latest submission.");
+            foreach (var manifest in submissions.Where(s => s.Hash is not null).GroupBy(s => s.Hash!))
+            {
+                var stored = manifest.Max(s => s.Received);
+                if (!await conn.ExecuteScalarAsync<bool>(new CommandDefinition(
+                        """
+                        select exists (select 1 from operator_actions where action = 'revalidate' and attempt_id = @attemptId and account_id = @accountId
+                                       and result ->> 'result' = 'failed' and result ->> 'manifestHash' = @hash and created_at >= @stored
+                                       and result -> 'codes' <> '["catalogue_unavailable"]'::jsonb)
+                        """, new { attemptId, accountId, hash = manifest.Key, stored }, tx, cancellationToken: ct)))
+                    throw new RecoveryException(RecoveryError.NotAllowed,
+                        $"Stored manifest {manifest.Key} (submission {manifest.First().Id}) has no failed revalidation recorded after it was stored (a catalogue_unavailable failure does not count).");
+            }
         }
         var refunded = await VoidStore.VoidParticipantLockedAsync(conn, tx, attemptId, accountId, attempt.State, basis, ct);
         await AuditAsync(conn, tx, op, "participant_void", attemptId, accountId, null,

@@ -5,7 +5,7 @@ using Npgsql;
 namespace Blackglass.Accounts.Persistence.Settlement;
 
 /// <summary>Stage 9's provisional monitoring values (S9-B18, spec §19).</summary>
-/// <param name="AutoDrainAttempts">Distinct attempts with an exit-evidence void within the window that drain a host; 0 turns it off.</param>
+/// <param name="AutoDrainAttempts">Distinct attempts with an exit-evidence void within the window (and since the host's last operator enable, so a re-enable sticks) that drain a host; 0 turns it off.</param>
 public sealed record MonitoringOptions(int EscalationHours, int UnresponsiveAlertSeconds, int RevokedAlertHours, int AutoDrainAttempts, int AutoDrainWindowMinutes)
 {
     public static readonly MonitoringOptions Default = new(24, 600, 24, 3, 60);
@@ -67,10 +67,10 @@ public sealed class MonitoringStore(NpgsqlDataSource db, MonitoringOptions optio
                 """
                 insert into anomaly_events (kind, host_id, build_revision, attempt_id, dedupe_key, detail)
                 select 'unresponsive_attempt', a.host_id, a.build_revision, a.attempt_id,
-                       a.attempt_id::text || ':' || floor(extract(epoch from clock_timestamp() - a.last_process_heartbeat_at) / @period)::bigint,
-                       jsonb_build_object('silentSeconds', floor(extract(epoch from clock_timestamp() - a.last_process_heartbeat_at))::bigint)
+                       a.attempt_id::text || ':' || floor(extract(epoch from clock_timestamp() - coalesce(a.last_process_heartbeat_at, a.started_at)) / @period)::bigint,
+                       jsonb_build_object('silentSeconds', floor(extract(epoch from clock_timestamp() - coalesce(a.last_process_heartbeat_at, a.started_at)))::bigint)
                 from mission_attempts a
-                where a.state = 'unresponsive' and a.last_process_heartbeat_at <= clock_timestamp() - make_interval(secs => @period)
+                where a.state = 'unresponsive' and coalesce(a.last_process_heartbeat_at, a.started_at) <= clock_timestamp() - make_interval(secs => @period)
                 on conflict (kind, dedupe_key) where reviewed_at is null do nothing
                 """, new { period = (double)options.UnresponsiveAlertSeconds }, tx, cancellationToken: ct));
             revoked = await conn.ExecuteAsync(new CommandDefinition(
@@ -96,7 +96,9 @@ public sealed class MonitoringStore(NpgsqlDataSource db, MonitoringOptions optio
                 hosts = (await conn.QueryAsync<string>(new CommandDefinition(
                     """
                     select a.host_id from participant_settlements s join mission_attempts a using (attempt_id) join mission_hosts h on h.host_id = a.host_id
-                    where s.void_basis = 'exit_evidence' and s.settled_at > clock_timestamp() - make_interval(mins => @window) and h.enabled and not h.drained
+                    where s.void_basis = 'exit_evidence' and h.enabled and not h.drained
+                      and s.settled_at > greatest(clock_timestamp() - make_interval(mins => @window),
+                      coalesce((select max(o.created_at) from operator_actions o where o.action = 'host_enable' and o.host_id = a.host_id), '-infinity'))
                     group by a.host_id having count(distinct s.attempt_id) >= @threshold
                     """, new { window = options.AutoDrainWindowMinutes, threshold = options.AutoDrainAttempts }, cancellationToken: ct))).ToList();
             foreach (var host in hosts)
@@ -106,7 +108,9 @@ public sealed class MonitoringStore(NpgsqlDataSource db, MonitoringOptions optio
                 var count = await conn.ExecuteScalarAsync<long>(new CommandDefinition(
                     """
                     select count(distinct s.attempt_id) from participant_settlements s join mission_attempts a using (attempt_id)
-                    where a.host_id = @host and s.void_basis = 'exit_evidence' and s.settled_at > clock_timestamp() - make_interval(mins => @window)
+                    where a.host_id = @host and s.void_basis = 'exit_evidence'
+                      and s.settled_at > greatest(clock_timestamp() - make_interval(mins => @window),
+                      coalesce((select max(o.created_at) from operator_actions o where o.action = 'host_enable' and o.host_id = a.host_id), '-infinity'))
                     """, new { host, window = options.AutoDrainWindowMinutes }, tx, cancellationToken: ct));
                 var locked = await conn.ExecuteScalarAsync<bool?>(new CommandDefinition(
                     "select enabled and not drained from mission_hosts where host_id = @host for update", new { host }, tx, cancellationToken: ct));
