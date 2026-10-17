@@ -324,6 +324,12 @@ The owner approved Stage 9 in principle, ruled on plan revision 1, then reviewed
 
 Not definitive, so the agent retries with backoff: `401`, `500`, `503` and timeouts. An invalid but well-formed manifest now answers 202, not §10.4's 422. The plan's §C is the authority.
 
+**As built (2026-10-17, branch `phase13-stage9`; amendment, nothing above is removed).** Schema version 9. Measured counts, reviews and rulings are in the detailed plan's "As built". Precisions:
+- The settlement lock order adds the host row `FOR KEY SHARE` after the account and before the attempt: a transaction that updates the attempt row twice re-checks its host foreign key, which deadlocked with `host disable`.
+- An operator void needs a failed revalidation of every distinct stored manifest, recorded after it was stored; a failure only for `catalogue_unavailable` doesn't count (R8: a recoverable result is never overwritten).
+- `attempt revalidate` re-checks the process session (V2) and runs only for a quarantined participant or one of a revoked attempt.
+- The auto-drain counts only exit-evidence voids after the host's last operator `host enable`, so a re-enable sticks.
+
 ---
 
 ## 1. Goal, scope and starting point
