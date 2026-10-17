@@ -239,7 +239,7 @@ Phase 13, stage by stage (plan revision 2.1).
 - Stage 4 is done, merged and pushed (`f3cada4`; live stack not deployed).
 - Stage 5 is done, merged and pushed (`62cbfcf`; live stack not deployed).
 - Stage 6 is done, merged and pushed (live stack not deployed).
-- Stage 7's detailed plan is proposed and awaits the owner's rulings; Stage 7 and every later stage start only when the owner says so.
+- Stage 7 and every later stage start only when the owner says so.
 - No merge, push or live accounts-stack deployment happens without the owner's approval.
 
 - Each stage records concrete evidence (test counts, transcripts, diff stat) and changes only the paths it lists.
