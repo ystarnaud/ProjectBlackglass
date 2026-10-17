@@ -117,8 +117,13 @@ public sealed class AttemptStore(NpgsqlDataSource db)
 
     /// <summary>
     /// Releases <paramref name="accountId"/>'s participation in an admitted attempt, inside the caller's READ COMMITTED
-    /// transaction (never commits). In the documented lock order (Global Constraints, Release):
+    /// transaction (never commits). In the documented lock order (Global Constraints, Release; spec §15.3):
     /// <list type="number">
+    /// <item>the participant's accounts row FOR KEY SHARE, first, as admission and inventory edits take it. A positive release
+    /// writes the wallet twice (the materialization, then the credit), and the second UPDATE of a row this transaction already
+    /// wrote re-runs energy_wallets' account foreign-key check, which takes this key share. Taken there, it would follow the
+    /// wallet and the policy lock, and a same-account grant (accounts FOR UPDATE, then the wallet) would close a cycle (40P01).
+    /// It is the caller's own account (the session's, or the worker's <c>created_by</c>), so locking it reveals nothing;</item>
     /// <item>the attempt FOR UPDATE, only when the account is its participant (another account's attempt is the same NotFound
     /// as an unknown one, and its row is never locked);</item>
     /// <item>the attempt's participants FOR UPDATE (Stage 7 attempts are solo; anything else is refused as a bug);</item>
@@ -146,6 +151,10 @@ public sealed class AttemptStore(NpgsqlDataSource db)
         if (reason is not (CancelReasons.PlayerCancel or CancelReasons.NoCapacity)) throw new ArgumentOutOfRangeException(nameof(reason));
         EnergyPolicies.RequireReadCommitted(tx);
 
+        // accounts first (see the lock order above). An unknown account has no participation: the same NotFound.
+        if (await conn.QuerySingleOrDefaultAsync<int?>(new CommandDefinition(
+                "select 1 from accounts where account_id = @accountId for key share", new { accountId }, tx, cancellationToken: ct)) is null)
+            throw new AttemptException(AttemptError.NotFound);
         var attempt = await conn.QuerySingleOrDefaultAsync<(string State, string? CancelReason)?>(new CommandDefinition(
             """
             select a.state, a.cancel_reason from mission_attempts a

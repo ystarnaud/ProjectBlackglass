@@ -19,8 +19,8 @@ namespace Blackglass.Accounts.IntegrationTests.Database;
 /// The player cancel before start and the exactly-once release of reserved energy (Task 7; owner rulings S7-D6, S7-D7)
 /// against a real PostgreSQL 17, through <see cref="AttemptStore"/>. Attempts are admitted by the real
 /// <see cref="AdmissionStore"/> (a reserve of 10 from a full wallet of 50), so every release has a real hold and ledger to
-/// undo. The release lock order is the attempt, its participants, the hold, the inventories row, then (positive amounts
-/// only) the wallet and the shared energy policy lock; races are built with the held-lock pattern on the inventories row,
+/// undo. The release lock order is the participant's accounts row (FOR KEY SHARE), the attempt, its participants, the hold,
+/// the inventories row, then (positive amounts only) the wallet and the shared energy policy lock; races are built with the held-lock pattern on the inventories row,
 /// which every release takes after the attempt row. The 0000-0007 invariants hold after every test.
 /// </summary>
 [Trait("Requires", "Postgres")]
@@ -548,11 +548,9 @@ public class AttemptStoreTests : IAsyncLifetime
         // inventories and wallet rows and the shared energy policy lock (its release entry already written). A publication P
         // queues for the exclusive policy lock behind R. Behind P queue: a grant G on another account (holding that account's
         // row and wallet), a /v1/me read M of the releasing account, and a grant S on the releasing account itself, which
-        // queues for that account row FOR UPDATE: R already holds its key share, taken by the foreign-key check of R's second
-        // wallet UPDATE (the old row is R's own version from the materialization, so PostgreSQL re-checks energy_wallets'
-        // account foreign key). Then R goes on, touching only rows it holds, and everything drains: no 40P01 (the pool has
-        // no lock_timeout) and no hang. This order does not cover a grant that takes the account row between R's
-        // materialization and its balance UPDATE; see the Checkpoint 2 fix report.
+        // queues for that account row FOR UPDATE: R already holds its key share, its first lock. Then R goes on, touching only
+        // rows it holds, and everything drains: no 40P01 (the pool has no lock_timeout) and no hang. A grant arriving between
+        // R's two wallet writes is A_release_racing_a_same_account_grant_between_its_wallet_writes_never_deadlocks.
         var (account, operatives) = await PlayerAsync();
         var (other, _) = await PlayerAsync();
         var attempt = await AdmitAsync(account, operatives[0]);
@@ -618,5 +616,59 @@ public class AttemptStoreTests : IAsyncLifetime
             select a.state, p.state, h.state from mission_attempts a join attempt_participants p using (attempt_id) join energy_holds h using (attempt_id)
             where a.attempt_id = @attempt
             """, new { attempt }));
+    }
+
+    [Fact]
+    public async Task A_release_racing_a_same_account_grant_between_its_wallet_writes_never_deadlocks()
+    {
+        // A positive release R writes the wallet twice: its materialization (under the shared policy lock), then its balance
+        // UPDATE. The second UPDATE of a row R's own transaction already wrote re-runs energy_wallets' account foreign-key
+        // check, which takes FOR KEY SHARE on the accounts row. A gate stops R just before that balance UPDATE (a BEFORE
+        // UPDATE trigger on energy_wallets for the +10 credit only), holding the wallet. A grant S on the same account then
+        // takes the accounts row FOR UPDATE and needs the wallet. Unless R took the account's key share before the wallet,
+        // opening the gate closes a cycle (S holds the account and waits on the wallet; R holds the wallet and waits on the
+        // account's key share) and one side dies with 40P01. The pool has no lock_timeout, so a cycle cannot hide as a timeout.
+        var (account, operatives) = await PlayerAsync();
+        var attempt = await AdmitAsync(account, operatives[0]);
+        await using var wide = Wide(4);
+        var racingAttempts = new AttemptStore(wide);
+        var racingEnergy = new EnergyAdminStore(wide, 1000);
+
+        await ExecuteAsSuperuserAsync(db,
+            "create function bg_test_gate() returns trigger language plpgsql as $$ begin perform pg_advisory_xact_lock(7007); return new; end $$; " +
+            "create trigger bg_test_gate before update on energy_wallets for each row when (new.balance = old.balance + 10) execute function bg_test_gate();");
+        Task<ReleaseOutcome> r;
+        Task<GrantResult> s;
+        string sWaitedOn;
+        try
+        {
+            await using var gate = await db.AsSuperuser().OpenConnectionAsync();
+            await using var gateTx = await gate.BeginTransactionAsync();
+            await gate.ExecuteAsync("select pg_advisory_xact_lock(@key)", new { key = GateKey }, gateTx);
+
+            r = Task.Run(() => racingAttempts.CancelAsync(account, attempt));
+            await WaitUntilAdvisoryWaitersAsync(1); // R at its balance UPDATE, after the materialization wrote the wallet
+            Assert.Equal(1L, await ScalarAsync<long>(
+                "select count(*) from pg_stat_activity where datname = current_database() and wait_event = 'advisory' and query like 'update energy_wallets set balance = $1%'"));
+            s = Task.Run(() => racingEnergy.GrantAsync(account, 5, Guid.CreateVersion7(), Op));
+            await AttemptFixtures.WaitForLockWaitersAsync(db, 2); // and S, queued behind R
+            sWaitedOn = await ScalarAsync<string>(
+                "select left(query, 80) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and wait_event <> 'advisory'");
+            Assert.False(r.IsCompleted || s.IsCompleted);
+
+            await gateTx.CommitAsync();
+            // Both complete: no 40P01, no other failure, no hang.
+            Assert.Equal(new ReleaseOutcome("released", 10, 50, CancelReasons.PlayerCancel, Replayed: false), await r.WaitAsync(TimeSpan.FromSeconds(30)));
+            Assert.False((await s.WaitAsync(TimeSpan.FromSeconds(30))).Replayed);
+        }
+        finally { await ExecuteAsSuperuserAsync(db, "drop trigger if exists bg_test_gate on energy_wallets; drop function if exists bg_test_gate();"); }
+
+        // S queued on the account row (R held its key share from the start), never on the wallet R held.
+        Assert.Contains("from accounts where account_id = $1 for update", sWaitedOn);
+        Assert.Equal(55, (await s).BalanceAfter);
+        Assert.Equal(55, await BalanceAsync(account));
+        Assert.Equal([new Entry("open", 50, 50), new Entry("reserve", -10, 40), new Entry("release", 10, 50), new Entry("dev_grant", 5, 55)], await EntriesAsync(account));
+        Assert.Equal(1L, await ReleaseEntriesAsync(attempt));
+        Assert.Equal(0L, await ActiveParticipationsAsync(account));
     }
 }
