@@ -1,4 +1,4 @@
-# Blackglass backend (Phase 13, Stages 1–7: foundation, catalogue, accounts and development authentication, operatives and inventory, inventory operations, energy accounting, insurance and admission)
+# Blackglass backend (Phase 13, Stages 1–8: foundation, catalogue, accounts and development authentication, operatives and inventory, inventory operations, energy accounting, insurance and admission, hosts, sessions, tickets and the start commit)
 
 ASP.NET Core on .NET 10, PostgreSQL 17, Npgsql and Dapper. Every listener is loopback only; the VM is reached by SSH alias `bg-dev-services01-admin` (user `admin`, `sudo -n`; root SSH login is disabled).
 
@@ -365,6 +365,73 @@ One active participation per account is enforced by the partial unique index `on
 ```
 - Templates: `procedural-standard` v1 is seeded (cost 10, 1–3 operatives; provisional). Zero cost is allowed. A new version is a new row.
 - `BLACKGLASS_DEV_HOSTS` is for isolated tests and the throwaway smoke stack only. Its compose default is `disabled`, `serve` warns when it is enabled, and it must never be set in production.
+
+## Hosts, claim, process sessions, tickets and the start commit (Stage 8)
+
+This section covers schema version 8 (`0008_hosts_sessions_tickets`), under owner rulings B1–B13 and design corrections R1–R7 (spec revision 2.8, §0.8). The attempt lifecycle now runs up to `running` over HTTP.
+
+**Not in Stage 8:** settlement, voids, refunds, payouts, the agent, Unity code and deployment.
+
+**Credentials.** Each is 256 bits, stored as SHA-256 only, and shown once:
+- `hs1_`: the host secret, printed by the CLI at registration;
+- `pc1_`: the process credential, in the claim response;
+- `jt1_`: the join ticket, in the mint response.
+
+**Schemes.** There are three authentication schemes, selected by the token's prefix. Every route requires exactly its own, and any other credential gets the uniform 401.
+- **Bearer `at1_`:** the `/v1/*` routes.
+- **Host `hs1_`:** the `/agent/v1/*` routes. Only an enabled agent host's current secret is accepted.
+- **Process `pc1_`:** the `/server/v1/attempts/{id}/*` routes.
+  - Accepted only on its own attempt's routes, and only until that attempt is `cancelled` or `settled`. The heartbeat has no exception (R4).
+  - A database outage answers 503, never 401.
+
+**Agent routes:**
+
+| Route | Answer |
+|---|---|
+| `POST /agent/v1/heartbeat`, body `{buildRevision, catalogueVersion, inventory:{complete, units:[{attemptId, activeState}]}, outboxPending}` | `{drained, stop:[attemptId]}`. Only a `complete` inventory frees the slots of ended attempts that it no longer lists (R2). `stop` lists ended attempts whose units remain |
+| `POST /agent/v1/claim` with `Idempotency-Key`, body `{}` | `200 {attemptId, missionPort, processCredential, credentialGeneration, launchDeadline, recovered}`, or `204` after the long poll. Errors: `409 HostUnavailable`, `InvalidState`. Retrying the key while the attempt is still `assigned` is a **recovery**: the same attempt with a new credential and the next generation (R1) |
+| `POST /agent/v1/attempts/{id}/launching`, body `{credentialGeneration}` | `{state}`. Errors: `409 CredentialSuperseded`, `InvalidState`; `404` |
+| `POST /agent/v1/attempts/{id}/exited`, body `{exitCode, signal, results:[{accountId, present}]}` | `{applied: "cancelled" \| "none"}`. Stores the report as evidence and frees the slot. Before any start it also cancels and releases. An identical repeat gets the same answer; a different report is `409 ConflictingReport` |
+
+**Process routes:**
+
+| Route | Answer |
+|---|---|
+| `POST …/sessions`, body `{buildRevision, catalogueVersion}` | `{processSessionId, seed, missionTemplate:{id, version}, catalogueVersion, participants:[{accountId, loadout}], deadlines:{launch}}`. The only response that carries the seed. Error: `409 BuildNotAllowed` |
+| `POST …/ready`, body `{processSessionId, layoutHash, lootTableVersion, lootHash, objectives, lootPool}` | `{joinDeadline}`. A pool outside the table, or a `lootHash` that isn't its canonical hash, is `422 InvalidLootPool` and cancels the attempt |
+| `POST …/heartbeat`, body `{processSessionId, phase, participants:[{accountId, connected}]}` | `{}`. Renews the lease, turns `unresponsive` back to `running`, and moves started participants between `joined` and `left` |
+| `POST …/tickets/redeem`, body `{processSessionId, ticket}` | `{accountId, operativeIds}`. Single use; a repeat by the same session gets the same answer |
+| `POST …/participants/{account}/start`, body `{processSessionId}` | `{started:true, startedAt}`. Charges exactly once. A repeat returns the stored start, even after the join deadline. Errors: `409 NotRedeemed`, `Cancelled`, `DeadlinePassed`, `WrongSession` |
+| `POST …/failed`, body `{processSessionId, reason}` | `{applied}`: stores the report; before any start it also cancels |
+
+**Client routes:**
+- `POST /v1/attempts/{id}/tickets`, body `{}`, returns `201 {ticket, ticketExpiresAt}` and revokes the participant's earlier live tickets.
+- `GET /v1/attempts/{id}` adds `deadlines.launch` and `deadlines.join`, and `join:{hostId, port}` once the attempt is ready or running. It never mints a ticket.
+- `cancel` now works in every pre-start attempt state, for this participant only. The attempt is cancelled when no participant remains.
+
+**Operator CLI.** Every verb is audited and confirmed (the confirmation word is noted below; `--yes` also confirms), and none loads the catalogue:
+```
+… admin host register --host-id <id> --capacity <1-64> --port-base <port>      (type: register; prints hostSecret once)
+… admin host rotate-secret --host-id <id>                                     (type the host id; prints the new secret once)
+… admin host drain|enable|disable --host-id <id>      … admin host capacity --host-id <id> --capacity <1-64>
+… admin build allow --revision <r> --catalogue-version sha256:<hex> --templates <id>:<v>[,…]   (type the revision)
+… admin build disable --revision <r> --catalogue-version sha256:<hex>
+```
+
+**Settings.** All provisional; leaving one empty uses its default:
+
+| Setting | Default |
+|---|---|
+| `BLACKGLASS_LAUNCH_DEADLINE_SECONDS` | 120 |
+| `BLACKGLASS_JOIN_DEADLINE_SECONDS` | 120 |
+| `BLACKGLASS_PROCESS_LEASE_SECONDS` | 30 |
+| `BLACKGLASS_TICKET_SECONDS` | 120 |
+| `BLACKGLASS_CLAIM_WAIT_SECONDS` | 25 |
+| `BLACKGLASS_CLAIM_POLL_MS` | 1000 |
+
+The accounts PostgreSQL runs with `log_error_verbosity=terse` (B2). This takes effect at the next deployment the owner approves.
+
+**Slots (B6).** A slot and its port stay occupied until an exit report or a complete inventory confirms that the process is gone. A database trigger refuses any other release of a live slot. A host whose lease lapses gets no claims and keeps its occupied ports.
 
 ## Restore limits
 Database-level privileges (`CONNECT`, `TEMPORARY`) are not inside a `pg_dump`. A real restore into a new cluster re-runs `initdb/00-roles.sh` first. Stage 17 and Phase 14 write the full recovery runbook.
