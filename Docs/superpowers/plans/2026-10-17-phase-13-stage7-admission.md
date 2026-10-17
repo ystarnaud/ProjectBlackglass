@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Date: 2026-10-17. **Revision 2, 2026-10-17: authorized by the owner with rulings S7-D1–S7-D9 (§A), which supersede revision 1's proposals.** Base: `main` @ `a9195ef` (Stage 6 merged and pushed; schema version 6; backend ALL 1561/0). Branch: `phase13-stage7`. Execution (proposed): subagent-driven, integrated by the primary session, with three independent review checkpoints: after Task 4 (schema, templates, insurance policies and the pure admission rules), after Task 7 (persistence, locking, endpoints and the deadline worker) and over the whole branch.
+Date: 2026-10-17. **Revision 2, 2026-10-17: authorized by the owner with rulings S7-D1–S7-D9 (§A), which supersede revision 1's proposals.** **Status: implemented on branch `phase13-stage7`, awaiting the owner's review; implementation commits not pushed, not merged, not deployed. See "As built".** Base: `main` @ `a9195ef` (Stage 6 merged and pushed; schema version 6; backend ALL 1561/0). Branch: `phase13-stage7`. Execution (proposed): subagent-driven, integrated by the primary session, with three independent review checkpoints: after Task 4 (schema, templates, insurance policies and the pure admission rules), after Task 7 (persistence, locking, endpoints and the deadline worker) and over the whole branch.
 
 **Goal:** a player can deploy: `POST /v1/attempts` with an `Idempotency-Key`. In one transaction, admission:
 - checks service health, failing closed;
@@ -582,3 +582,50 @@ The response is `201 {attemptId, state, energy:{cost, balanceAfter}, insurance:{
 - Enabling co-op.
 - Purchases, premium currency and trading.
 - The HTTP admin routes for insurance and hosts.
+
+---
+
+## As built (2026-10-17)
+
+**Branch `phase13-stage7`.** The documentation baseline `e615902` is pushed; the implementation commits after it are local only. Schema version 7. 0000–0006 are byte-identical to `main` (`a9195ef`). No Unity path changed, so the Unity suites were not run.
+
+**Measured:**
+- **Final suite at `7e95c47`:** **2031/0** (Domain 629, Integration 1402; 52 m 29 s); exit 0. The later commits are docs only.
+- **At `15ead9b`:** 2026/0.
+- **VM at `7e95c47`:**
+  - smoke 59/0 (13 Stage 7 checks), exit 0, no key, token, seed or salt in the transcript;
+  - off-host probe: 5080, 5432 and 55432 closed, 22 answers;
+  - restore drill 16 ok, `DRILL PASS`, 5 invariant files held at schema 7;
+  - VM state identical before and after.
+
+**Reviews:**
+- **Checkpoint 1** (Tasks 1–4): 0 Critical / 1 Important / 5 Minor, all fixed. I1 was a missing invariant for an ended attempt with an active participant.
+- **Checkpoint 2** (Tasks 5–7): 0 / 0 / 4. Two test gaps closed; M3 deferred to Stage 8.
+- **The test round:** it found an **Important deadlock**, a release against a same-account grant: the second wallet write's foreign-key re-check took the account lock late. Fixed in `3a6d45b` by taking `accounts` `FOR KEY SHARE` first; the race test failed with 40P01 before the fix.
+- **Checkpoint 3** (whole branch): **Ready to merge**, 0 / 0 / 5. The doc fixes are in `706acfe`; M5 is a Stage 8 obligation.
+
+**Mutation checks** (each made its protecting test fail):
+- removing admission's `accounts` key share (40P01);
+- removing the release's `inventories` lock;
+- removing the release's `accounts` key share (40P01);
+- removing the after-lock idempotency re-read.
+
+**Departures and rulings:**
+- **Codes:** `RetiredOperative` (422), `AttemptNotFound` (404).
+- **Zero cost:** `balanceAfter` is null for zero-cost and zero-amount operations.
+- **Bodies:** responses are stored `jsonb` text, so replays are byte-identical, and a replay after release returns the admission record.
+- **The activation's `startsAt`** is the start of the period that activation bought.
+- **Heartbeats** are audited as `host_heartbeat_dev`.
+- **Lock order:** the release takes `accounts` `FOR KEY SHARE` first. This supersedes the Checkpoint 1 note "never `accounts`".
+- **Tests:** a frozen database clock is used in the exact-boundary tests only.
+- **Evidence caveat:** the Checkpoint 1 suite run overlapped a fixer's build, so it counted as indicative only.
+
+**Deferred:**
+- Checkpoint 2 M3 (worker batch hardening).
+- Checkpoint 3 M5 (move the seed and salt out of a CHECK-bearing table before Stage 8 adds CHECKs).
+
+**Obligations:**
+- Stage 8 and Stage 17 obligations are in spec §0.7 "As built" and the stage plan.
+- Stage 8 must also verify that an assigned build can run the requested template and settings version.
+
+**Owner feedback:** the stage took about 8 hours and too many tokens. The next stage defaults to lean execution: native work, one final review, a local test database, one full suite, and no polling.
