@@ -8,7 +8,7 @@ public sealed class AttemptSettingsException(string message) : Exception(message
 /// Mission-attempt settings from the environment (Stage 7; every value provisional, spec §19). serve validates them at
 /// startup, before the database, and the admin CLI's host verbs read them. Unset or empty means the default; anything else
 /// outside its bounds refuses to run. A refusal names the setting and never echoes its value. The admission settings
-/// (Task 6) are read by serve only; compose passes them to the api service alone.
+/// (Task 6) and the deadline sweep interval (Task 7) are read by serve only; compose passes them to the api service alone.
 /// </summary>
 public sealed class AttemptSettings
 {
@@ -21,6 +21,8 @@ public sealed class AttemptSettings
     public const int DefaultDeployMaxBodyBytes = 4096;
     public const string DeployRateVar = "BLACKGLASS_RATE_DEPLOY_PER_MINUTE";
     public const int DefaultDeployPerMinute = 6;
+    public const string AttemptSweepSecondsVar = "BLACKGLASS_ATTEMPT_SWEEP_SECONDS";
+    public const int DefaultAttemptSweepSeconds = 15;
 
     /// <summary>The log category of serve's attempt messages, such as the development host warning.</summary>
     public const string LogCategory = "Blackglass.Attempts";
@@ -43,6 +45,10 @@ public sealed class AttemptSettings
     /// <summary>Deploy requests per account per minute (the route's own fixed window): 1 to 1000, default 6.</summary>
     public int DeployPerMinute { get; private init; }
 
+    /// <summary>How often the assignment deadline worker sweeps (S7-D6): 1 to 3600 seconds, default 15. There is no "off": the
+    /// worker is what releases an expired attempt's energy and inventory lock exactly once.</summary>
+    public int AttemptSweepSeconds { get; private init; }
+
     public static AttemptSettings FromEnvironment(IReadOnlyDictionary<string, string?> env)
     {
         var devHosts = !env.TryGetValue(DevHostsVar, out var d) || string.IsNullOrEmpty(d) ? false
@@ -62,6 +68,7 @@ public sealed class AttemptSettings
             AssignDeadlineSeconds = Number(env, AssignDeadlineSecondsVar, DefaultAssignDeadlineSeconds, 10, 3600),
             DeployMaxBodyBytes = Number(env, DeployMaxBodyBytesVar, DefaultDeployMaxBodyBytes, 1024, 65536),
             DeployPerMinute = Number(env, DeployRateVar, DefaultDeployPerMinute, 1, 1000),
+            AttemptSweepSeconds = Number(env, AttemptSweepSecondsVar, DefaultAttemptSweepSeconds, 1, 3600),
         };
     }
 

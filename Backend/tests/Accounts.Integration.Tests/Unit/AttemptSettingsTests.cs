@@ -75,4 +75,22 @@ public class AttemptSettingsTests
             if (value.Contains("-value-", StringComparison.Ordinal)) Assert.DoesNotContain(value, e.Message);
         }
     }
+
+    [Fact]
+    public void The_deadline_sweep_interval_defaults_bounds_and_refusals()
+    {
+        // Provisional (spec §19): the assignment deadline worker sweeps every 15 s. 1..3600 inclusive; 0 is refused, because the
+        // worker is required for the exactly-once release of expired attempts (S7-D6): it cannot be switched off.
+        Assert.Equal("BLACKGLASS_ATTEMPT_SWEEP_SECONDS", AttemptSettings.AttemptSweepSecondsVar);
+        foreach (var env in new[] { Env(), Env((AttemptSettings.AttemptSweepSecondsVar, "")), Env((AttemptSettings.AttemptSweepSecondsVar, null)) })
+            Assert.Equal(15, AttemptSettings.FromEnvironment(env).AttemptSweepSeconds);
+        foreach (var (text, seconds) in new[] { ("1", 1), ("3600", 3600), ("30", 30) })
+            Assert.Equal(seconds, AttemptSettings.FromEnvironment(Env((AttemptSettings.AttemptSweepSecondsVar, text))).AttemptSweepSeconds);
+        foreach (var value in new[] { "0", "3601", "-15", "+15", "15 ", "1.5", "often-value-xyz", "99999999999" })
+        {
+            var e = Assert.Throws<AttemptSettingsException>(() => AttemptSettings.FromEnvironment(Env((AttemptSettings.AttemptSweepSecondsVar, value))));
+            Assert.Contains(AttemptSettings.AttemptSweepSecondsVar, e.Message);
+            if (value.Contains("-value-", StringComparison.Ordinal)) Assert.DoesNotContain(value, e.Message);
+        }
+    }
 }

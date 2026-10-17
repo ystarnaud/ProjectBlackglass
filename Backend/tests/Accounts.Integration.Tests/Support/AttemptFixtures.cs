@@ -56,42 +56,36 @@ public static class AttemptFixtures
     }
 
     /// <summary>
-    /// A zero-amount release of an admitted attempt, held open: in the release lock order (spec §15.3 as extended: attempts,
-    /// participants, holds, then inventories) the attempt moves <c>admitted → cancelled</c> with <paramref name="reason"/>
-    /// (<c>player_cancel</c> for a player cancel, <c>no_capacity</c> for assignment expiry), its participant
-    /// <c>admitted → released</c> and its hold <c>reserved → released</c>, all uncommitted. The caller then takes the
-    /// account's inventories lock (<see cref="HeldRelease.LockInventoryAsync"/>) and commits or rolls back, so a race with
-    /// admission is deterministic. Direct SQL as the superuser until Task 7's real cancel and deadline worker replace it.
+    /// Sets an attempt's <c>assign_deadline</c> to exactly <paramref name="deadline"/>, as the superuser under
+    /// <c>session_replication_role = replica</c>: the column is immutable through the transition trigger, so a test backdates
+    /// the row instead of mocking time (spec §18.1). Nothing else about the attempt changes.
     /// </summary>
-    public static async Task<HeldRelease> BeginReleaseAsync(TestDatabase db, Guid attempt, string reason)
+    public static async Task SetDeadlineAsync(TestDatabase db, Guid attempt, DateTime deadline)
     {
-        var conn = await db.AsSuperuser().OpenConnectionAsync();
-        var tx = await conn.BeginTransactionAsync();
-        Assert.Equal(1, await conn.ExecuteAsync(
-            "update mission_attempts set state = 'cancelled', cancel_reason = @reason, ended_at = clock_timestamp() where attempt_id = @attempt and state = 'admitted'",
-            new { attempt, reason }, tx));
-        Assert.Equal(1, await conn.ExecuteAsync(
-            "update attempt_participants set state = 'released' where attempt_id = @attempt and state = 'admitted'", new { attempt }, tx));
-        Assert.Equal(1, await conn.ExecuteAsync(
-            "update energy_holds set state = 'released' where attempt_id = @attempt and state = 'reserved' and amount = 0", new { attempt }, tx));
-        return new HeldRelease(conn, tx, attempt);
+        await using var conn = await db.AsSuperuser().OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+        await conn.ExecuteAsync("set local session_replication_role = replica", transaction: tx);
+        Assert.Equal(1, await conn.ExecuteAsync("update mission_attempts set assign_deadline = @deadline where attempt_id = @attempt", new { attempt, deadline }, tx));
+        await tx.CommitAsync();
     }
 
-    /// <summary>An open release transaction (see <see cref="BeginReleaseAsync"/>); disposing it without a commit rolls it back.</summary>
-    public sealed class HeldRelease(Npgsql.NpgsqlConnection conn, Npgsql.NpgsqlTransaction tx, Guid attempt) : IAsyncDisposable
+    /// <summary>Backdates an attempt's assignment deadline to <paramref name="ago"/> before the database clock, so it is due.</summary>
+    public static async Task ExpireDeadlineAsync(TestDatabase db, Guid attempt, TimeSpan? ago = null)
     {
-        /// <summary>The release's inventories row lock, taken after the attempt, participant and hold rows.</summary>
-        public async Task LockInventoryAsync() =>
-            Assert.Single(await conn.QueryAsync<long>(
-                "select v.account_id from inventories v join attempt_participants p on p.account_id = v.account_id where p.attempt_id = @attempt for update of v",
-                new { attempt }, tx));
+        var now = await AccountTestKit.ScalarAsSuperuserAsync<DateTime>(db, "select clock_timestamp()");
+        await SetDeadlineAsync(db, attempt, now - (ago ?? TimeSpan.FromSeconds(1)));
+    }
 
-        public Task CommitAsync() => tx.CommitAsync();
-
-        public async ValueTask DisposeAsync()
+    /// <summary>Returns once at least <paramref name="count"/> backends of this database wait on a lock (row or advisory; polls
+    /// every 20 ms, for at most 30 s).</summary>
+    public static async Task WaitForLockWaitersAsync(TestDatabase db, int count)
+    {
+        await using var su = await db.AsSuperuser().OpenConnectionAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (await su.ExecuteScalarAsync<long>("select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'") < count)
         {
-            await tx.DisposeAsync();
-            await conn.DisposeAsync();
+            if (DateTime.UtcNow > deadline) throw new TimeoutException($"Fewer than {count} backends waited on a lock.");
+            await Task.Delay(20);
         }
     }
 }

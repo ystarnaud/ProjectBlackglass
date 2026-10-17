@@ -127,6 +127,17 @@ public class ComposeExposureTests
     }
 
     [Fact]
+    public void The_api_passes_the_deadline_sweep_interval_through_with_its_built_in_default()
+    {
+        // Task 7 (provisional, spec §19): empty means the built-in 15 s. Only the API runs the deadline worker.
+        var lines = ComposeText.Lines("compose.yaml");
+        const string Name = "BLACKGLASS_ATTEMPT_SWEEP_SECONDS";
+        Assert.Contains($"{Name}: ${{{Name}:-}}", ComposeText.Block(lines, "services", "api", "environment").Select(l => l.Trim()));
+        Assert.DoesNotContain(ComposeText.Block(lines, "services", "admin", "environment"), l => l.Contains(Name, StringComparison.Ordinal));
+        Assert.DoesNotContain(ComposeText.Block(lines, "services", "migrate", "environment"), l => l.Contains(Name, StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Test_cluster_publishes_only_55432()
     {
         Assert.Equal(["- \"127.0.0.1:55432:5432\""], Ports(ComposeText.Lines("compose.test.yaml"), "postgres"));

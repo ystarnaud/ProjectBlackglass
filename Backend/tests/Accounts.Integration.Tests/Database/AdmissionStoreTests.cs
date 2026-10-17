@@ -508,41 +508,64 @@ public class AdmissionStoreTests : IAsyncLifetime
     }
 
     [Fact]
-    public Task Admission_racing_a_player_cancel_of_the_previous_attempt() => RaceTheReleaseOfThePreviousAttemptAsync("player_cancel");
+    public Task Admission_racing_a_player_cancel_of_the_previous_attempt() => RaceTheReleaseOfThePreviousAttemptAsync(CancelReasons.PlayerCancel);
 
     [Fact]
-    public Task Admission_racing_assignment_expiry_of_the_previous_attempt() => RaceTheReleaseOfThePreviousAttemptAsync("no_capacity");
+    public Task Admission_racing_assignment_expiry_of_the_previous_attempt() => RaceTheReleaseOfThePreviousAttemptAsync(CancelReasons.NoCapacity);
 
     /// <summary>
-    /// The previous attempt is released (a pre-start player cancel or the assignment deadline; Task 7 replaces the direct SQL
-    /// of <see cref="AttemptFixtures.BeginReleaseAsync"/> with the real paths) while a new admission arrives:
+    /// The previous attempt (a real admission: a reserve of 10) is released by the real paths, a pre-start player cancel
+    /// (<see cref="AttemptStore.CancelAsync"/>) or the assignment deadline sweep (<see cref="AttemptStore.SweepAsync"/>, after
+    /// its deadline is backdated), while a new admission arrives. The release takes the attempt, participant, hold and then
+    /// the inventories row, and writes only after that last lock:
     /// <list type="number">
-    /// <item>while the release has changed its rows but not committed or taken the inventories lock, the admission sees the
-    /// committed active participation and answers AttemptActive at once, writing nothing;</item>
-    /// <item>once the release holds the inventories lock, the admission queues on it and admits after the release commits.</item>
+    /// <item>while the release is stopped on the hold row (held elsewhere), it holds the attempt and participant rows but not
+    /// the inventories row: the admission sees the committed active participation and answers AttemptActive at once, writing
+    /// nothing;</item>
+    /// <item>once the release holds the inventories lock (stopped at its attempt UPDATE by a test gate), the admission queues on
+    /// that lock and admits after the release commits, with the balance the release restored.</item>
     /// </list>
     /// </summary>
     async Task RaceTheReleaseOfThePreviousAttemptAsync(string reason)
     {
+        var attempts = new AttemptStore(db.AsApp());
         var (account, operatives) = await PlayerAsync();
-        var previous = await AttemptFixtures.AdmitAsync(db, account);
+        var previous = AttemptOf(await store.AdmitAsync(account, Guid.CreateVersion7(), Deploy(operatives[0])));
+        if (reason == CancelReasons.NoCapacity) await AttemptFixtures.ExpireDeadlineAsync(db, previous);
         var key = Guid.CreateVersion7();
 
+        await ExecuteAsSuperuserAsync(db,
+            "create function bg_test_gate() returns trigger language plpgsql as $$ begin perform pg_advisory_xact_lock(7007); return new; end $$; " +
+            "create trigger bg_test_gate before update on mission_attempts for each row execute function bg_test_gate();");
+        Task release;
         Admission admitted;
-        await using (var release = await AttemptFixtures.BeginReleaseAsync(db, previous, reason))
+        await using (var gate = await db.AsSuperuser().OpenConnectionAsync())
         {
-            var before = await StateAsync();
-            var early = await RefusedAsync(store.AdmitAsync(account, Guid.CreateVersion7(), Deploy(operatives[0])).WaitAsync(TimeSpan.FromSeconds(10)));
-            Assert.Equal(AdmissionError.AttemptActive, early.Error);
-            Assert.Equal(before, await StateAsync());
-
-            await release.LockInventoryAsync();
+            await using var gateTx = await gate.BeginTransactionAsync();
+            await gate.ExecuteAsync("select pg_advisory_xact_lock(@key)", new { key = GateKey }, gateTx);
+            await using (var holder = await db.AsSuperuser().OpenConnectionAsync())
+            {
+                await using var held = await holder.BeginTransactionAsync();
+                await holder.ExecuteAsync("select 1 from energy_holds where attempt_id = @previous for update", new { previous }, held);
+                release = reason == CancelReasons.PlayerCancel
+                    ? Task.Run(() => attempts.CancelAsync(account, previous))
+                    : Task.Run(() => attempts.SweepAsync(10));
+                await WaitForLockWaitersAsync(1); // the release, stopped on the hold row
+                var before = await StateAsync();
+                var early = await RefusedAsync(store.AdmitAsync(account, Guid.CreateVersion7(), Deploy(operatives[0])).WaitAsync(TimeSpan.FromSeconds(10)));
+                Assert.Equal(AdmissionError.AttemptActive, early.Error);
+                Assert.Equal(before, await StateAsync());
+                await held.CommitAsync();
+            }
+            await WaitUntilAdvisoryWaitersAsync(1); // the release, past the inventories lock, at its first attempt write
             var admitting = Task.Run(() => store.AdmitAsync(account, key, Deploy(operatives[0])));
-            await WaitForLockWaitersAsync(1);
-            Assert.False(admitting.IsCompleted);
-            await release.CommitAsync();
+            await WaitForLockWaitersAsync(2); // and the admission, queued on the inventories row
+            Assert.False(admitting.IsCompleted || release.IsCompleted);
+            await gateTx.CommitAsync();
+            await release.WaitAsync(TimeSpan.FromSeconds(30));
             admitted = await admitting.WaitAsync(TimeSpan.FromSeconds(30));
         }
+        await ExecuteAsSuperuserAsync(db, "drop trigger bg_test_gate on mission_attempts; drop function bg_test_gate();");
 
         Assert.False(admitted.Replayed);
         Assert.Equal(("cancelled", reason), await RowAsync<(string, string)>(
@@ -550,6 +573,18 @@ public class AdmissionStoreTests : IAsyncLifetime
         Assert.Equal("released", await ScalarAsync<string>("select state from attempt_participants where attempt_id = @previous", new { previous }));
         Assert.Equal("admitted", await ScalarAsync<string>("select state from attempt_participants where attempt_id = @attempt", new { attempt = AttemptOf(admitted) }));
         Assert.Equal(1L, await ActiveParticipationsAsync(account));
+        // Reserved, released, reserved again: the new admission saw the restored balance.
+        Assert.Equal([new Entry("open", 50, 50), new Entry("reserve", -10, 40), new Entry("release", 10, 50), new Entry("reserve", -10, 40)], await EntriesAsync(account));
+    }
+
+    async Task WaitUntilAdvisoryWaitersAsync(int count)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (await ScalarAsync<long>("select count(*) from pg_stat_activity where datname = current_database() and wait_event = 'advisory'") < count)
+        {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException($"Fewer than {count} backends waited on an advisory lock.");
+            await Task.Delay(20);
+        }
     }
 
     // ---- refusals and atomicity ----------------------------------------------------------------------------------------------

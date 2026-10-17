@@ -86,6 +86,14 @@ public static class ServeCommand
         builder.Services.AddSingleton<IAttemptSecrets, CryptoAttemptSecrets>();
         builder.Services.AddSingleton(sp => new AdmissionStore(dataSource, sp.GetRequiredService<ServiceHealth>(), sp.GetRequiredService<IAttemptSecrets>(),
             catalogue, attempts.AssignDeadlineSeconds));
+        // The attempt read, the player cancel and the assignment deadline release (Task 7). The deadline worker is always on
+        // (S7-D6: it is what releases an expired attempt exactly once); its first sweep waits one interval. Resolved through its
+        // own registration, so a test's configure can replace the worker (and its sweep) as a whole.
+        builder.Services.AddSingleton(new AttemptStore(dataSource));
+        var sweepInterval = TimeSpan.FromSeconds(attempts.AttemptSweepSeconds);
+        builder.Services.AddSingleton(sp => new AssignDeadlineWorker(ct => sp.GetRequiredService<AttemptStore>().SweepAsync(AssignDeadlineWorker.BatchSize, ct),
+            sweepInterval, sp.GetRequiredService<ILoggerFactory>()));
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<AssignDeadlineWorker>());
         if (energy.ReconcileSeconds != 0)
         {
             // The periodic reconciliation (E4): its first sweep waits one interval, so startup never waits for one. Resolved
