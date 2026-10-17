@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Date: 2026-10-17. **Revision 1, proposed. Status: plan only; not authorized, nothing implemented.** It needs the owner's rulings on §A (S7-D1–S7-D9) and the go-ahead before Task 0. Base: `main` @ `a9195ef` (Stage 6 merged and pushed; schema version 6; backend ALL 1561/0). Branch: `phase13-stage7`. Execution (proposed): subagent-driven, integrated by the primary session, with three independent review checkpoints (after Task 2, after Task 7, and over the whole branch).
+Date: 2026-10-17. **Revision 2, 2026-10-17: authorized by the owner with rulings S7-D1–S7-D9 (§A), which supersede revision 1's proposals.** Base: `main` @ `a9195ef` (Stage 6 merged and pushed; schema version 6; backend ALL 1561/0). Branch: `phase13-stage7`. Execution (proposed): subagent-driven, integrated by the primary session, with three independent review checkpoints: after Task 4 (schema, templates, insurance policies and the pure admission rules), after Task 7 (persistence, locking, endpoints and the deadline worker) and over the whole branch.
 
 **Goal:** a player can deploy: `POST /v1/attempts` with an `Idempotency-Key`. In one transaction, admission:
 - checks service health, failing closed;
@@ -46,34 +46,56 @@ Insurance gets immutable versioned policies and UTC-timed activations, where the
 
 ---
 
-## A. Decisions for the owner (proposed; each has a recommendation)
+## A. Owner rulings (2026-10-17)
 
-| # | Question | Recommendation | Alternative | Cost if the recommendation is wrong |
-|---|---|---|---|---|
-| S7-D1 | Where mission templates (id, energy cost, operative count) live | **A versioned, immutable `mission_templates` table**, seeded by `0007` with `procedural-standard` v1: energy cost 10, 1..3 operatives (provisional, §19). Later versions come from the audited `mission template publish`. An attempt records the template id and version it was admitted under | Export templates from Unity in the catalogue (a Unity editor change and a catalogue format 3) | A later catalogue field and a migration to drop the table |
-| S7-D2 | Service-health admission check, fail-closed (§6.3 layer 3) | **Database-backed.** It needs at least one `mission_hosts` row that is enabled, not drained, with a heartbeat within the provisional 30 s lease and free capacity (capacity minus live attempts on it) > 0; any query failure refuses. With no registered host, every deploy is `503 ServiceUnavailable` with `Retry-After`, before anything is written. Stage 8 adds the agent heartbeat and registration routes. Tests and the smoke use an audited operator verb `host register-dev` plus a direct heartbeat-touch helper on the throwaway stack (see Task 5) | An `IServiceHealth` seam with an always-unhealthy production default | A seam later; no schema change |
-| S7-D3 | Insurance policies and development activations | **Seed `standard` v1** (the §6.2 terms) in `0007`. `insurance policy publish` and `insurance activate` are audited, confirmed operator CLI verbs, as for energy (E5). `/dev/v1/insurance/activations` is deferred | The admin HTTP routes as well | One admin route later |
-| S7-D4 | Inventory **reads** during an active participation | **Readable**: `GET /v1/inventory` and `GET /v1/roster` answer 200 with `locked: true`. Edits and picks are `409 InventoryLocked`. All three use the same mandatory database query, under the row lock or in the read snapshot | Reads also refused with 409 | One branch in the read store |
-| S7-D5 | Automatic retry of admission on deadlock or serialization | **None.** Admission reserves energy, so the Stage 5 and 6 rule applies. A client retries with the same `Idempotency-Key`, which replays or creates exactly once. Spec §15.3's 3× retry is not applied to admission, release or activation | §15.3's retry for admission only | A retry wrapper later |
-| S7-D6 | The `assign_deadline` worker | **In Stage 7.** It is a hosted service in the API process. It cancels `admitted` attempts past `assign_deadline` (provisional 60 s; `BLACKGLASS_ASSIGN_DEADLINE_SECONDS`, sweep `BLACKGLASS_ATTEMPT_SWEEP_SECONDS`), with `FOR UPDATE SKIP LOCKED` and guarded transitions, and releases their holds once. Until Stage 8 claims attempts, every admitted attempt is released after the deadline | Defer the worker to Stage 8 | Reservations would stay held until Stage 8 |
-| S7-D7 | Player cancel before start | **`POST /v1/attempts/{id}/cancel`**: `admitted` → `cancelled`, the participant `released`, the hold released (+cost, may exceed the cap) | Defer to Stage 8 | One route later |
-| S7-D8 | What the loadout snapshot holds | **Only the chosen operatives** (id, definition, XP, rank, picks), each operative's bag (instances with item ids and definitions, stacks with quantities) and equipment, plus the account's `inventory_version` and the catalogue version. The stash is not snapshotted, since it doesn't deploy | The whole inventory | A larger snapshot later |
-| S7-D9 | Deploy request canonical form | **`{"missionTemplate":<id>,"operativeIds":[Base58…]}`** with members in that order and the ids in the order sent. Duplicates or unknown members are refused (400). `request_hash` = SHA-256 of that UTF-8 JSON. A different order is a different body (409 on reuse) | Sort the operative ids | Which retries count as identical |
+| Ruling | Decision |
+|---|---|
+| **S7-D1 mission templates** | Immutable, versioned templates in PostgreSQL (`mission_templates`). `procedural-standard` v1 is seeded with provisional configuration: energy cost 10, 1..3 operatives. **Zero-cost templates are supported.** The backend owns admission rules and energy costs; Unity stays authoritative for procedural generation and gameplay configuration. A published version is immutable; rebalancing publishes a new version through an audited operator command. There is no Unity template exporter in Stage 7. **Stage 8 must verify that an assigned server build can execute the requested template and settings version** |
+| **S7-D2 service health** | A database-backed host-health check that fails closed. Until Stage 8's real registration, heartbeat and capacity, an ordinary deployment is 503 when no verified capacity exists. A development host fixture is allowed only in isolated tests, and it must be: disabled by default; created only with explicit development configuration and administrator authorization; never treated as verified real mission capacity; never enabled in the eventual production configuration. A health failure reserves no energy, regenerates nothing, leaves the wallet untouched, creates no attempt and locks no inventory |
+| **S7-D3 insurance** | Immutable policy versions and timed account-level activations; `standard` v1 is seeded with the spec's provisional terms. The same policy extends: `newExpiresAt = max(existingExpiresAt, databaseNow) + duration`. Benefits never stack or multiply. Switching tiers while active is refused. Publication and activation are audited, confirmed, transactional and idempotent. At admission the participant's active policy, version and **complete terms** are snapshotted. Coverage stays locked to the attempt even if the account-level coverage expires before start or settlement. Cancelled attempts get no payout. **No payout calculation or settlement in Stage 7** |
+| **S7-D4 reads and locking** | Authenticated inventory reads are allowed during missions; `GET /v1/inventory` shows `locked: true`. Inventory mutations and advancement picks are `409 InventoryLocked`. Every always-unlocked fallback is replaced by a mandatory database-backed participation check, which fails closed when the lock state cannot be determined. It covers every active participant state as it is introduced (Stage 7: `admitted`; later `joined`, `left` (disconnected), `result_pending`, `unresponsive`, `quarantined`). The lock is released only by an authoritative terminal transition (`released`, later `settled`). **A stale `expectedVersion` never conceals an active `InventoryLocked`** |
+| **S7-D5 deployment idempotency** | An explicit retry with the same key returns the recorded attempt, with no second reservation. A conflicting request with the same key is 409. Admission is never retried automatically with a new key. The hash is over the normalized, validated request, not the raw JSON, and keeps the operative order |
+| **S7-D6 assignment timeout** | A configurable, provisional 60 s deadline. A database-backed worker cancels unassigned attempts after it. The cancellation atomically moves the attempt to `cancelled` and the participation to `released`, releases the reserved energy exactly once with its ledger entry, releases the inventory lock, and preserves the historical admission and insurance records. A retry or a competing cancellation never releases twice. An attempt already in a valid later state is not cancelled |
+| **S7-D7 player cancel** | Allowed before mission start. After start, abandonment follows the separately approved failure and insurance rules and is not an energy-refunding cancellation. Stage 7 implements only the pre-start case; cancellation and the worker are concurrency-safe |
+| **S7-D8 deployment snapshot** | Only the selected operatives, their advancement state, bags and equipment, plus account identity, inventory version and catalogue version. The stash is not copied. The persistent inventory is locked while the attempt is active, so omitted stash items can't move into or out of the deployed loadout. Admission validates operative ownership, duplicate selections, team size and equipment references. An owned operative's `bigint`/Base58 identity stays distinct from its authored catalogue definition id. The snapshot is immutable after admission |
+| **S7-D9 squad ordering** | Operative order is meaningful. The same ids in a different order are a different request for idempotency. The requested order is kept in the snapshot, for later squad-slot and spawn assignment. Duplicate ids are refused. Two equivalent JSON requests that differ only in property order or whitespace give the same hash |
 
-**Rulings that follow from earlier stages** (not new decisions):
-- **Seed and salt.** The seed is 31-bit non-negative and the salt 32 bytes, both from `RandomNumberGenerator`. Neither appears in any client DTO, log, audit row or error; a reflection test and log tests pin this.
-- **Mission attempt ids are UUIDv7.**
-- **The energy hold lifecycle** follows §6.1, with a ledger entry for each step:
-  - `reserve:<attempt>` (−cost) at admission;
-  - `release:<attempt>` (+cost) when a participant never starts;
-  - `charge:<attempt>` (0) at the start commit, in Stage 8.
-- **One participant per attempt in Phase 13.** Admission refuses a body naming other accounts, and has no field for them. The schema is per participant (holds, snapshots and insurance keyed `(attempt, account)`), proven with co-op-shaped data inserted by direct SQL.
-- **`InventoryLocked`** follows the standing obligation:
-  - it is a mandatory, fail-closed, database-backed check against active participations;
-  - it covers edits, picks and the reads' `locked`;
-  - `NoParticipationsYet` and every optional or defaulted `IInventoryLock` parameter are deleted.
+**The owner's technical requirements** (verbatim intent, mapped):
 
----
+| # | Requirement | Where it is met |
+|---|---|---|
+| 1 | `0007_attempts_and_insurance`; 0000–0006 byte-identical | Task 2; the path audit |
+| 2 | One active participation per account: a partial unique index plus transaction locking | Task 2 index; Task 6 locks |
+| 3 | A globally consistent lock order with account creation, inventory edits, grants and publication, addressing the account foreign-key interaction | Global Constraints, Locking (`accounts` `FOR KEY SHARE` first) |
+| 4 | Deterministic tests of admission racing an edit, a pick, a grant, a publication, a player cancel and assignment expiry | Task 6, Task 7 |
+| 5 | Reserve at deployment; no start charge | Task 6; scope |
+| 6 | No second charge on reconnect or retry of one attempt | Task 6 idempotency; there is no reconnect path in Stage 7 |
+| 7 | A zero-cost template is admitted with no invalid wallet or ledger entry | Controller rulings below; Task 6 |
+| 8 | Secure seed and salt, never in client DTOs, errors, player logs or other unauthorized output | Task 1, Task 6, Task 7 |
+| 9 | A co-op-compatible model; multiple participants not enabled | Task 2, Task 6 |
+| 10 | PostgreSQL time; timestamp boundaries and transaction waits tested | Global Constraints, Clock; Tasks 3, 6, 7 |
+| 11 | Complete rollback; no orphaned locks, attempts, deductions or partial snapshots | Failure-injection tests, Tasks 6 and 7 |
+| 12 | Strict authentication, Base58 ownership, information-safe errors | Tasks 6 and 7 |
+| 13 | Energy and insurance behaviour preserved; no payments or monetization | Scope |
+
+**Controller rulings needed to implement the owner's rulings** (each with what it costs if wrong):
+- **Zero-cost admission (D1, requirement 7).**
+  - A template with energy cost 0 takes no energy path: no wallet lock, no materialization, no policy lock and no ledger entry. 0006 forbids a `reserve` entry with delta 0, and none is needed.
+  - The participant gets an `energy_holds` row with amount 0 in state `reserved` (uniform model), released the same way.
+  - The 0007 invariants accept a 0-amount hold without a ledger entry and require exactly one entry for a positive hold.
+  - An account without a wallet may deploy a zero-cost template; a positive cost with no wallet is `409 InsufficientEnergy`.
+  - Cost if wrong: zero-cost admissions would also have to lock the wallet.
+- **The development host fixture (D2).**
+  - `mission_hosts.kind` is `'dev_fixture'` or `'agent'`; `'agent'` rows are created by Stage 8's registration.
+  - The health check counts `dev_fixture` hosts only when the API process runs with `BLACKGLASS_DEV_HOSTS=enabled`. It defaults to disabled, the compose default is disabled, and `serve` logs a warning at startup when it is enabled.
+  - `admin host register-dev` (confirmed, audited) refuses unless the same setting is enabled in the admin process.
+  - Production configuration never sets it; the Stage 17 deployment checklist must assert it is unset.
+  - `agent` hosts always count when healthy. With none, every deploy is 503.
+  - Cost if wrong: one column and one setting.
+- **Equipment references (D8).** Admission refuses (`422 UnknownItem`, with the operative's index) a selected operative whose bag or equipment holds an item whose definition the catalogue no longer knows. A retired item can still be moved to the stash (Stage 5), and the mission server can't use an unknown definition. Cost if wrong: retired items would deploy as inert entries.
+- **Release takes the `inventories` row lock** after the participant (spec §15.3 order: attempts → participants → inventories → wallets). The lock state therefore changes while that lock is held, and an edit waiting on it sees the terminal state. Cost if wrong: an extra lock on the release path.
+- **The insurance snapshot uses the coverage active at admission's `now`.** It is read without a lock (spec §15.3; activations lock only `insurance_coverages`). An activation committing after admission's snapshot statement does not apply to that attempt. Cost if wrong: nothing; the boundary is the admission `now`.
+- **No automatic retry of admission, release or activation** (S7-D5, and the Stage 5 and 6 rule).
 
 ## Global Constraints
 
@@ -91,7 +113,7 @@ Insurance gets immutable versioned policies and UTC-timed activations, where the
     3. `energy_wallets` `FOR UPDATE`, ascending.
     4. The energy policy lock (shared), then the clock.
     5. Inserts of new rows only. Coverage and policy rows are read without locking.
-  - **Release (cancel or deadline):** `mission_attempts` `FOR UPDATE` → `attempt_participants` → `energy_holds` → `energy_wallets` `FOR UPDATE` → the policy lock → clock → writes.
+  - **Release (cancel or deadline):** `mission_attempts` `FOR UPDATE` → `attempt_participants` → `energy_holds` → `inventories` `FOR UPDATE` → (positive amount only) `energy_wallets` `FOR UPDATE` → the policy lock → clock → writes.
   - **Activation:** `accounts` `FOR UPDATE` → `insurance_coverages` `FOR UPDATE` (or the insert) → clock. It takes no energy lock.
   - **Inventory edits and picks:** unchanged, plus the participation query under the `inventories` lock.
   - **The leaf rule** (Stage 6) holds after the energy policy lock: only own or new rows, policy rows, and at most one global unique key per transaction.
@@ -134,7 +156,7 @@ Insurance gets immutable versioned policies and UTC-timed activations, where the
    - Tests: Task 7 `A_cancel_and_the_deadline_worker_release_once` and `Two_concurrent_cancels_release_once`.
 5. **An edit, a pick or a read during an active participation, or when the participation query fails.**
    - Expected: the edit and the pick are 409 `InventoryLocked` with nothing written; the read is 200 `locked: true`. A failing query is a 500 or 503, never "unlocked".
-   - Tests: Task 3 `An_edit_and_a_pick_during_a_participation_are_InventoryLocked`, `A_failing_participation_query_refuses_the_mutation`, and `Serve_wires_the_database_backed_lock_only`.
+   - Tests: Task 5 `An_edit_and_a_pick_during_a_participation_are_InventoryLocked`, `A_failing_participation_query_refuses_the_mutation`, and `Serve_wires_the_database_backed_lock_only`.
 
 ---
 
@@ -154,6 +176,19 @@ Insurance gets immutable versioned policies and UTC-timed activations, where the
 - **Commit:** `Phase 13 Stage 7: owner rulings S7-D1..S7-D9 recorded (spec revision 2.7, plan revision 2, CLAUDE.md)`.
 
 ## Task 1: Pure rules (domain)
+
+**Additions from the owner's rulings (revision 2):**
+- `MissionTemplate` allows `EnergyCost = 0`.
+- `DeployRequest`:
+  - normalizes (property order and whitespace are insignificant: the parsed, validated request is serialized canonically);
+  - keeps the operative order;
+  - refuses duplicate ids.
+- Tests: `Equivalent_JSON_with_reordered_properties_or_whitespace_hashes_the_same` and `Order_matters_for_the_hash`.
+- `LoadoutSnapshot`:
+  - keeps the requested operative order (slot index 0..n−1);
+  - carries the account id (Base58 in JSON), the inventory version, the catalogue version and per operative both the owned id (Base58) and the definition id;
+  - `Build` reports any item whose definition the catalogue doesn't know.
+- Tests: `LoadoutSnapshot_keeps_the_requested_order_and_both_identities` and `LoadoutSnapshot_reports_unknown_item_definitions`.
 
 **Files:** `src/Accounts.Domain/Insurance/{InsuranceTerms,CoverageMath}.cs`, `src/Accounts.Domain/Attempts/{MissionTemplate,DeployRequest,LoadoutSnapshot,AttemptSecrets}.cs`; tests under `tests/Accounts.Domain.Tests/{Insurance,Attempts}/`.
 
@@ -208,6 +243,14 @@ public interface IAttemptSecrets { int NextSeed(); byte[] NextRetentionSalt(); }
 
 ## Task 2: Migration `0007_attempts_and_insurance`, invariants and privileges
 
+**Additions from the owner's rulings (revision 2):**
+- `mission_templates.energy_cost >= 0`.
+- `mission_hosts.kind text not null check (kind in ('dev_fixture','agent'))`.
+- `energy_holds.amount >= 0`.
+- The 0007 invariants: a positive hold has exactly one `reserve` entry (and one `release` entry when released); a 0-amount hold has none.
+- `attempt_participants.loadout_snapshot` and `attempt_insurance` are immutable (triggers); only `state` (and the timestamps later stages add) may change on a participant.
+- Test: `A_zero_amount_hold_needs_no_ledger_entry_and_a_positive_one_needs_exactly_one`.
+
 **Files:** `db/migrations/0007_attempts_and_insurance.sql`, `db/invariants/0007_attempts.sql`; tests `AttemptSchemaTests.cs`, `AttemptPrivilegeTests.cs`, `InsuranceSchemaTests.cs`. Update every test that pins the latest schema, triggers or privileges (the Stage 6 lesson: `RevocationPermanenceTests`, `AccountsSchemaTests`, `PlayerSchemaTests`, `EnergyPrivilegeTests`, `UpgradeTests`).
 
 **Schema (narrowed from the §15.1 sketch to what Stage 7 uses):**
@@ -258,32 +301,12 @@ public interface IAttemptSecrets { int NextSeed(); byte[] NextRetentionSalt(); }
 - [ ] **Step 2:** run (FAIL), implement, run the classes plus every pinning class (PASS).
 - [ ] **Step 3: Commit.** `Phase 13 Stage 7: migration 0007 (insurance, templates, hosts, attempts, participants, holds, snapshots, deploy requests) and invariants`.
 
-**Checkpoint 1 (independent, most capable model):** Tasks 1–2.
+## Task 3: Insurance policies and activations (operator verbs)
 
-## Task 3: Mandatory, fail-closed `InventoryLocked`
-
-**Files:**
-- Replace `src/Accounts.Persistence/Player/InventoryLock.cs` with `ParticipationLock` (a sealed class).
-- Make the lock a required constructor parameter of `PickStore`, `InventoryEditStore` and `PlayerReadStore`, with no default and no optional parameter.
-- Delete `NoParticipationsYet`.
-- Update `ServeCommand`.
-- Move the test doubles (`AlwaysLocked`, `RowProbe`, `Gate`) to wrap or replace the interface in the test project only.
-
-**Behaviour:**
-- `IsLockedAsync(conn, tx, accountId)` runs `select exists (select 1 from attempt_participants where account_id = @a and state in (<active states>))` in the caller's transaction (under the `inventories` row lock for mutations, or in the read snapshot for reads).
-- An exception propagates; nothing ever defaults to unlocked.
-
-- [ ] **Tests:**
-  - `An_edit_and_a_pick_during_a_participation_are_InventoryLocked`: nothing is written and the version is unchanged.
-  - `Reads_during_a_participation_report_locked_true` (S7-D4).
-  - `After_release_the_account_can_edit_and_pick_again`.
-  - `A_failing_participation_query_refuses_the_mutation`: revoke `SELECT` on `attempt_participants` in a test database, giving 500 with nothing written; the lock and statement timeouts give 503.
-  - `Serve_wires_the_database_backed_lock_only`: resolve the stores from `serve`'s container and assert the implementation type.
-  - `No_production_type_implements_an_unlocked_fallback`: a reflection source audit over the production assemblies.
-  - Every existing `InventoryLockTests` and Stage 5 lock-order test, carried over.
-- [ ] **Commit:** `Phase 13 Stage 7: InventoryLocked is a mandatory, fail-closed participation query; the always-unlocked fallback is deleted`.
-
-## Task 4: Insurance policies and activations (operator verbs)
+**Additions from the owner's rulings (revision 2):**
+- The extension rule is exactly `max(existingExpiresAt, databaseNow) + duration`, with `databaseNow` = `clock_timestamp()` after the coverage lock.
+- Tests (boundaries): `Activation_exactly_at_expiry_restarts_from_now` and `Activation_one_microsecond_before_expiry_extends_from_the_old_expiry`.
+- No payout or settlement code.
 
 **Files:**
 - `src/Accounts.Persistence/Insurance/{InsuranceAdminStore,InsuranceReader}.cs`;
@@ -316,7 +339,17 @@ public interface IAttemptSecrets { int NextSeed(); byte[] NextRetentionSalt(); }
   - `Insurance_verbs_never_load_the_catalogue`
 - [ ] **Commit:** `Phase 13 Stage 7: insurance policy versions and activations as audited operator verbs`.
 
-## Task 5: Service health and mission templates
+## Task 4: Service health and mission templates
+
+**Additions from the owner's rulings (revision 2):**
+- The health check counts `kind = 'agent'` hosts always, and `kind = 'dev_fixture'` hosts only when `BLACKGLASS_DEV_HOSTS=enabled` in the API process (default disabled; a warning is logged at startup when enabled).
+- `host register-dev` is confirmed and audited, and refuses unless the admin process has `BLACKGLASS_DEV_HOSTS=enabled`.
+- Tests:
+  - `A_dev_fixture_host_is_not_capacity_unless_dev_hosts_are_enabled`;
+  - `Register_dev_is_refused_without_the_development_setting`;
+  - `The_compose_default_leaves_dev_hosts_disabled` (ComposeText);
+  - `A_health_failure_touches_no_wallet_attempt_or_inventory_lock`: no `pg_locks` row on `inventories` or `energy_wallets` from the refused call, the wallet xmin unchanged, no attempt row.
+- `mission template publish` allows cost 0. Tests: `A_zero_cost_template_can_be_published` and `Templates_are_immutable_and_publish_audited`.
 
 **Files:**
 - `src/Accounts.Persistence/Attempts/{ServiceHealth,MissionTemplates}.cs`;
@@ -336,7 +369,58 @@ public interface IAttemptSecrets { int NextSeed(); byte[] NextRetentionSalt(); }
   - `Host_register_dev_is_refused_unless_enabled_and_prints_no_secret`
 - [ ] **Commit:** `Phase 13 Stage 7: fail-closed service health and versioned mission templates`.
 
+**Checkpoint 1 (independent, most capable model):** Tasks 1–4: schema, templates, insurance policies and the pure admission rules.
+
+## Task 5: Mandatory, fail-closed `InventoryLocked`
+
+**Additions from the owner's rulings (revision 2):**
+- The active-state list is one constant shared with `one_active_participation` (a test pins that the index predicate and the C# list agree).
+- The order under the row lock stays `NotProvisioned` → `InventoryLocked` → `VersionMismatch`.
+- Test: `A_stale_expected_version_never_hides_InventoryLocked` (an edit and a pick with a stale version during a participation are `InventoryLocked`, not `VersionMismatch`).
+- Tests: `Reads_during_a_participation_report_locked_true`; `The_lock_releases_only_on_a_terminal_transition`.
+
+**Files:**
+- Replace `src/Accounts.Persistence/Player/InventoryLock.cs` with `ParticipationLock` (a sealed class).
+- Make the lock a required constructor parameter of `PickStore`, `InventoryEditStore` and `PlayerReadStore`, with no default and no optional parameter.
+- Delete `NoParticipationsYet`.
+- Update `ServeCommand`.
+- Move the test doubles (`AlwaysLocked`, `RowProbe`, `Gate`) to wrap or replace the interface in the test project only.
+
+**Behaviour:**
+- `IsLockedAsync(conn, tx, accountId)` runs `select exists (select 1 from attempt_participants where account_id = @a and state in (<active states>))` in the caller's transaction (under the `inventories` row lock for mutations, or in the read snapshot for reads).
+- An exception propagates; nothing ever defaults to unlocked.
+
+- [ ] **Tests:**
+  - `An_edit_and_a_pick_during_a_participation_are_InventoryLocked`: nothing is written and the version is unchanged.
+  - `Reads_during_a_participation_report_locked_true` (S7-D4).
+  - `After_release_the_account_can_edit_and_pick_again`.
+  - `A_failing_participation_query_refuses_the_mutation`: revoke `SELECT` on `attempt_participants` in a test database, giving 500 with nothing written; the lock and statement timeouts give 503.
+  - `Serve_wires_the_database_backed_lock_only`: resolve the stores from `serve`'s container and assert the implementation type.
+  - `No_production_type_implements_an_unlocked_fallback`: a reflection source audit over the production assemblies.
+  - Every existing `InventoryLockTests` and Stage 5 lock-order test, carried over.
+- [ ] **Commit:** `Phase 13 Stage 7: InventoryLocked is a mandatory, fail-closed participation query; the always-unlocked fallback is deleted`.
+
 ## Task 6: Admission (`POST /v1/attempts`)
+
+**Additions from the owner's rulings (revision 2):**
+- **The lock order.** `accounts` `FOR KEY SHARE` comes first (before `inventories`).
+- **Zero-cost path.** A template with cost 0 takes no wallet lock, no materialization, no policy lock and no ledger entry, and writes a 0-amount `reserved` hold. A wallet is not required.
+- **Equipment references.** An operative carrying an unknown definition is refused with `422 UnknownItem`, with its index.
+- **Snapshot.** It keeps the requested order and carries the account id.
+- **The service-health refusal** comes before any lock or energy step.
+- **Deterministic race tests** (held-lock pattern, waiters seen in `pg_stat_activity`):
+  - `Admission_racing_an_inventory_edit_serializes_and_the_loser_is_refused_cleanly`;
+  - `Admission_racing_a_pick_serializes`;
+  - `Admission_racing_a_grant_serializes_without_deadlock`;
+  - `Admission_drains_with_a_grant_and_a_queued_publication_without_deadlock` (a mutation that drops the `accounts` `FOR KEY SHARE` step must fail it);
+  - `Admission_racing_a_player_cancel_of_the_previous_attempt`;
+  - `Admission_racing_assignment_expiry_of_the_previous_attempt`.
+- **Zero-cost tests:** `A_zero_cost_template_admits_with_no_wallet_change_or_ledger_entry` and `A_zero_cost_template_admits_an_account_without_a_wallet`.
+- **Boundary tests:**
+  - `Coverage_expiring_exactly_at_admission_now_is_not_covered`;
+  - `Coverage_active_at_admission_now_is_snapshotted_with_complete_terms`;
+  - `The_snapshot_survives_coverage_expiry_extension_and_new_policy_versions`.
+- **Identity test:** `A_retry_of_the_same_attempt_never_reserves_again`.
 
 **Files:** `src/Accounts.Persistence/Attempts/AdmissionStore.cs`; `src/Accounts.Api/Attempts/AttemptEndpoints.cs` (route, `Idempotency-Key` header parsing, ProblemDetails, the per-account deploy rate limit `BLACKGLASS_RATE_DEPLOY_PER_MINUTE`, provisional 6); DTOs; tests `AdmissionStoreTests.cs`, `AttemptApiTests.cs`.
 
@@ -385,6 +469,17 @@ The response is `201 {attemptId, state, energy:{cost, balanceAfter}, insurance:{
 
 ## Task 7: Attempt read, cancel, release and the assignment deadline
 
+**Additions from the owner's rulings (revision 2):**
+- **The release lock order:** `mission_attempts` → `attempt_participants` → `energy_holds` → `inventories` (`FOR UPDATE`) → (positive amount only) `energy_wallets` → the policy lock → clock.
+- **Zero-amount release:** a 0-amount hold is released with no energy step.
+- **Guards.** An attempt in any state other than `admitted` is never cancelled by the worker or a player (`409 InvalidState` for the player; the worker skips it).
+- **What survives a release:** the admission records (attempt, participant, snapshot, insurance snapshot, deploy request) remain.
+- **Tests:**
+  - `The_worker_never_cancels_an_attempt_in_a_later_state` (a fixture moves an attempt to `assigned` by direct SQL);
+  - `The_deadline_boundary_is_database_time` (`assign_deadline` exactly at `now` is due; 1 µs later is not);
+  - `A_release_keeps_the_admission_and_insurance_records`;
+  - `A_zero_amount_release_writes_no_ledger_entry`.
+
 **Files:**
 - `src/Accounts.Persistence/Attempts/AttemptStore.cs` (read, cancel, `ReleaseLockedAsync`) and `src/Accounts.Api/Attempts/AssignDeadlineWorker.cs`;
 - the routes `GET /v1/attempts/{id}` → `{state, participantState, deadlines:{assign}, energy:{held, state}, insurance:{covered}}` (404 for a foreign or unknown id; no `join` until Stage 8) and `POST /v1/attempts/{id}/cancel`;
@@ -413,7 +508,7 @@ The response is `201 {attemptId, state, energy:{cost, balanceAfter}, insurance:{
   - `The_worker_starts_without_sweeping_and_survives_failures`
 - [ ] **Commit:** `Phase 13 Stage 7: attempt read, player cancel and the assignment deadline release holds exactly once`.
 
-**Checkpoint 2 (independent, most capable model):** Tasks 3–7.
+**Checkpoint 2 (independent, most capable model):** Tasks 5–7: persistence, locking, endpoints and the deadline worker.
 
 ## Task 8: Smoke and VM
 

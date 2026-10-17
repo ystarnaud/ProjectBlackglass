@@ -1,6 +1,6 @@
 # Phase 13A: backend architecture and persistent mission settlement (design)
 
-Date: 2026-10-14. **Revision 2.6** (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
+Date: 2026-10-14. **Revision 2.7** (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
 
 "Project Blackglass" is an internal codename. No identifier, table, route, credential or claim introduced here carries the product name, apart from the C# namespace and repository paths that already exist. Player-facing names live in data (`display_name`), never in keys.
 
@@ -166,6 +166,26 @@ The detailed plan is `Docs/superpowers/plans/2026-10-16-phase-13-stage6-energy.m
 - **Stage 7 obligations:**
   - keep "one global unique key per transaction" for any keyed write taken after the policy lock (§15.3);
   - never wrap an energy transaction in the planned deadlock retry.
+
+### 0.7 Revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9, 2026-10-17)
+
+The detailed plan is `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admission.md` (revision 2, §A, with the controller rulings it lists). These rulings amend §6.2, §6.3, §7.1–§7.3, §7.6, §15.1, §15.3, §16.1, §16.4 and §19 wherever they differ.
+
+| Ruling | Decision |
+|---|---|
+| S7-D1 mission templates | Immutable, versioned `mission_templates` in PostgreSQL. `procedural-standard` v1 is seeded: cost 10, 1–3 operatives (provisional). Zero-cost templates are supported. The backend owns admission rules and costs; Unity owns generation and gameplay. Rebalancing publishes a new version (audited). No Unity exporter now. **Stage 8 must verify that an assigned build can run the requested template and settings version** |
+| S7-D2 service health | Database-backed and fail-closed. Without verified capacity, a deploy is 503 before any lock or energy step. A `dev_fixture` host counts only with explicit development configuration (`BLACKGLASS_DEV_HOSTS=enabled`, default off, never in production) and an administrator's audited registration |
+| S7-D3 insurance | Immutable versions; the same policy extends `max(expires, now) + duration`; no stacking; cross-tier refused while active. Publication and activation are audited, confirmed, transactional and idempotent. The admission snapshot copies the policy, version and complete terms, and holds for the attempt whatever the account coverage does later. Cancelled attempts get no payout; no payout code in Stage 7 |
+| S7-D4 reads and locking | Reads are allowed with `locked: true`; edits and picks are `409 InventoryLocked`. The check is a mandatory, fail-closed database query covering every active participant state. Only a terminal transition releases the lock, and a stale `expectedVersion` never hides it |
+| S7-D5 idempotency | A retry with the same key returns the recorded attempt with no new reservation; a conflict is 409. There is no automatic retry. The hash covers the normalized, validated request and keeps the order |
+| S7-D6 assignment timeout | A configurable 60 s deadline. A worker cancels and releases exactly once, releases the lock, and keeps the admission and insurance records. Later states are never cancelled |
+| S7-D7 player cancel | Pre-start only; after start, abandonment follows the failure rules and refunds nothing |
+| S7-D8 snapshot | The selected operatives in their requested order (owned id and definition id), their advancement state, bags and equipment, plus account identity, inventory version and catalogue version. There is no stash, and the snapshot is immutable. Admission validates ownership, duplicates, team size and equipment references |
+| S7-D9 ordering | Order is meaningful for idempotency and later slot and spawn assignment. Duplicates are refused. Insignificant JSON formatting does not change the hash |
+
+**Lock order for admission** (spec §15.3, extended): `accounts` `FOR KEY SHARE` → `inventories` `FOR UPDATE` → (positive cost only) `energy_wallets` `FOR UPDATE` → the energy policy lock → clock → inserts of new rows. The first step exists because the attempt, participant and deploy-request inserts check account foreign keys. Taken after the policy lock, that check could wait on an operator's `FOR UPDATE` while a publication is queued.
+
+**Release order:** `mission_attempts` → `attempt_participants` → `energy_holds` → `inventories` → (positive amount) `energy_wallets` → the policy lock → clock.
 
 ---
 

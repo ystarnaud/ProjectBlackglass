@@ -233,7 +233,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 7: insurance, participants and admission
 
-**Status: detailed plan proposed, awaiting the owner's rulings S7-D1–S7-D9 and go-ahead; nothing implemented.** Detailed plan: `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admission.md`. It supersedes the work list below where they differ (the migration is narrowed to what Stage 7 uses; the `accounts` key-share step in admission's lock order).
+**Status: authorized by the owner on 2026-10-17 with rulings S7-D1–S7-D9 (spec revision 2.7, §0.7); in progress on branch `phase13-stage7`.** Detailed plan: `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admission.md`. It supersedes the work list below where they differ (the migration is narrowed to what Stage 7 uses; the `accounts` key-share step in admission's lock order).
 
 **Touches:** `Backend/` only.
 

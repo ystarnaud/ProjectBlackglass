@@ -239,7 +239,7 @@ Phase 13, stage by stage (plan revision 2.1).
 - Stage 4 is done, merged and pushed (`f3cada4`; live stack not deployed).
 - Stage 5 is done, merged and pushed (`62cbfcf`; live stack not deployed).
 - Stage 6 is done, merged and pushed (live stack not deployed).
-- Stage 7 and every later stage start only when the owner says so.
+- Stage 7 (insurance, mission participants and admission; migration `0007_attempts_and_insurance`) is authorized (2026-10-17, owner rulings S7-D1–S7-D9, spec revision 2.7) and in progress on branch `phase13-stage7`, per `Docs/superpowers/plans/2026-10-17-phase-13-stage7-admission.md` (revision 2). Backend only: energy is reserved at deployment, the start charge is Stage 8's, and there is no gameplay, settlement or payout. Only its documentation baseline may be pushed; implementation commits are not pushed or merged without the owner's approval. Stage 8 and every later stage start only when the owner says so.
 - No merge, push or live accounts-stack deployment happens without the owner's approval.
 
 - Each stage records concrete evidence (test counts, transcripts, diff stat) and changes only the paths it lists.
