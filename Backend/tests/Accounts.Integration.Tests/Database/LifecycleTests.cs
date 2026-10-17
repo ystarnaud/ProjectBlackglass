@@ -170,11 +170,12 @@ public class LifecycleTests : IAsyncLifetime
             """, new { a = m.Attempt });
         await using (var api = await ApiServer.StartAsync(db))
         {
+            var h1Secret = await AttemptFixtures.HostSecretHashAsync(db, "h1"); // read before the outage
             await ApiServer.SetDatabaseReachableAsync(db, false);
             try
             {
                 await Assert.ThrowsAnyAsync<NpgsqlException>(() => attempts.SweepAsync(10));
-                await Assert.ThrowsAnyAsync<NpgsqlException>(() => kit.Hosts.ExitedAsync("h1", m.Attempt, new ExitedRequest(null, "SIGKILL", []), default));
+                await Assert.ThrowsAnyAsync<NpgsqlException>(() => kit.Hosts.ExitedAsync("h1", h1Secret, m.Attempt, new ExitedRequest(null, "SIGKILL", []), default));
                 var during = await SendAsync(api, HttpMethod.Post, $"/server/v1/attempts/{m.Attempt}/heartbeat", m.Credential.Text,
                     $$"""{"processSessionId":"{{m.Session}}","phase":"running","participants":[]}""");
                 Assert.Equal(HttpStatusCode.ServiceUnavailable, during.Status); // unavailable, never a 401 that would stop the process

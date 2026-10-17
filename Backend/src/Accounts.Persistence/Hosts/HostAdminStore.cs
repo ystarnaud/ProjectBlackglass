@@ -227,7 +227,7 @@ public sealed class HostAdminStore(NpgsqlDataSource db)
                 "select 1 from mission_hosts where host_id = @hostId for update", new { hostId }, tx, cancellationToken: ct)) is null)
             throw new MissionAdminException(MissionAdminError.UnknownHost, $"No host has id {hostId}: nothing was changed.");
         await conn.ExecuteAsync(new CommandDefinition(
-            "update mission_hosts set enabled = false, secret_hash = @hash, secret_revoked = true where host_id = @hostId",
+            "update mission_hosts set enabled = false, secret_hash = @hash, secret_revoked = (kind = 'agent') where host_id = @hostId", // a dev fixture has no agent secret to rotate
             new { hostId, hash = unknown.Hash() }, tx, cancellationToken: ct));
         var revoked = await conn.ExecuteAsync(new CommandDefinition(
             """

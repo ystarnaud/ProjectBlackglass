@@ -34,6 +34,8 @@ public abstract record LaunchingResult
     public sealed record NotFound : LaunchingResult;
     public sealed record InvalidState : LaunchingResult;
     public sealed record CredentialSuperseded : LaunchingResult;
+    /// <summary>The presented host secret is no longer current (rotated, or the host disabled): the uniform 401, nothing written.</summary>
+    public sealed record Unauthenticated : LaunchingResult;
 }
 
 /// <summary>
@@ -71,7 +73,9 @@ public sealed class HostStore
     /// one guarded update to assigned with the host, port, build, credential hash, generation 1, key and launch deadline
     /// (database clock). The plaintext credential is returned after commit, once.
     /// </summary>
-    public async Task<ClaimResult> ClaimAsync(string hostId, Guid claimKey, int launchDeadlineSeconds, CancellationToken ct)
+    /// <param name="secretHash">The SHA-256 of the secret the request presented: it must still be the host's current, unrevoked
+    /// secret under the host lock (a long poll that outlives a rotation or a disable claims nothing more).</param>
+    public async Task<ClaimResult> ClaimAsync(string hostId, byte[] secretHash, Guid claimKey, int launchDeadlineSeconds, CancellationToken ct)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(launchDeadlineSeconds, 1);
         await using var conn = await DbFailure.OpenAsync(db, ct);
@@ -82,9 +86,9 @@ public sealed class HostStore
                    coalesce(h.last_heartbeat_at > clock_timestamp() - make_interval(secs => @lease), false) as Live,
                    h.capacity as Capacity, h.port_base as PortBase, h.build_revision as BuildRevision, h.catalogue_version as CatalogueVersion,
                    exists (select 1 from allowed_builds b where b.enabled and b.build_revision = h.build_revision and b.catalogue_version = h.catalogue_version) as BuildAllowed
-            from mission_hosts h where h.host_id = @hostId and h.kind = 'agent'
+            from mission_hosts h where h.host_id = @hostId and h.kind = 'agent' and h.secret_hash = @secretHash and not h.secret_revoked
             for update of h
-            """, new { hostId, lease = (double)leaseSeconds }, tx, cancellationToken: ct));
+            """, new { hostId, secretHash, lease = (double)leaseSeconds }, tx, cancellationToken: ct));
         if (host is not { Enabled: true }) return new ClaimResult.Unauthenticated();
 
         var retry = await conn.QuerySingleOrDefaultAsync<(Guid AttemptId, string State, int Port, int Generation, DateTime LaunchDeadline, bool Revoked)?>(new CommandDefinition(
@@ -142,12 +146,12 @@ public sealed class HostStore
     /// <paramref name="poll"/> between tries. Each try is its own short transaction on its own connection: nothing is held while
     /// waiting. Cancelling the request ends the wait (OperationCanceledException).
     /// </summary>
-    public async Task<ClaimResult> ClaimWaitingAsync(string hostId, Guid claimKey, int launchDeadlineSeconds, TimeSpan wait, TimeSpan poll, CancellationToken ct)
+    public async Task<ClaimResult> ClaimWaitingAsync(string hostId, byte[] secretHash, Guid claimKey, int launchDeadlineSeconds, TimeSpan wait, TimeSpan poll, CancellationToken ct)
     {
         var until = DateTime.UtcNow + wait;
         while (true)
         {
-            var result = await ClaimAsync(hostId, claimKey, launchDeadlineSeconds, ct);
+            var result = await ClaimAsync(hostId, secretHash, claimKey, launchDeadlineSeconds, ct);
             if (result is not ClaimResult.NoCandidate || DateTime.UtcNow + poll > until) return result;
             await Task.Delay(poll, ct);
         }
@@ -159,7 +163,7 @@ public sealed class HostStore
     /// the agent launches only with a credential the backend has not replaced. Assigned moves to launching; launching or later
     /// answers its state (a lost acknowledgement); cancelled or settled is InvalidState.
     /// </summary>
-    public async Task<LaunchingResult> LaunchingAsync(string hostId, Guid attemptId, int credentialGeneration, CancellationToken ct)
+    public async Task<LaunchingResult> LaunchingAsync(string hostId, byte[] secretHash, Guid attemptId, int credentialGeneration, CancellationToken ct)
     {
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
@@ -167,6 +171,7 @@ public sealed class HostStore
             "select state, credential_generation, credential_revoked_at is not null from mission_attempts where attempt_id = @attemptId and host_id = @hostId for update",
             new { attemptId, hostId }, tx, cancellationToken: ct));
         if (row is not { } attempt) return new LaunchingResult.NotFound();
+        if (!await SecretCurrentAsync(conn, tx, hostId, secretHash, ct)) return new LaunchingResult.Unauthenticated();
         if (Ended.Contains(attempt.State) || attempt.Revoked) return new LaunchingResult.InvalidState(); // R8: never launch a revoked credential
         if (attempt.Generation != credentialGeneration) return new LaunchingResult.CredentialSuperseded();
         if (attempt.State != "assigned") return new LaunchingResult.Accepted(attempt.State);
@@ -185,7 +190,7 @@ public sealed class HostStore
     /// released (the unit is gone, B6). An identical repeat answers the stored outcome and writes nothing; a different report
     /// is Conflicting and writes nothing. A result naming an account that is not a participant is UnknownParticipant.
     /// </summary>
-    public async Task<ExitReportResult> ExitedAsync(string hostId, Guid attemptId, ExitedRequest report, CancellationToken ct)
+    public async Task<ExitReportResult> ExitedAsync(string hostId, byte[] secretHash, Guid attemptId, ExitedRequest report, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(report);
         await using var conn = await DbFailure.OpenAsync(db, ct);
@@ -202,6 +207,10 @@ public sealed class HostStore
 
         var batch = await AttemptStore.ReleaseParticipantsLockedAsync(conn, tx, attemptId, null, CancelReasons.ProcessExited,
             AttemptStore.PreStartStates, ct) ?? throw new InvalidOperationException("An attempt has no participants.");
+        // The presented secret must still be current, read while this transaction holds the attempt row: a disable (which locks
+        // the host's attempts after the host) either committed first and is seen here, or waits for this report (R8). Nothing
+        // the release wrote survives a stale secret: the transaction rolls back.
+        if (!await SecretCurrentAsync(conn, tx, hostId, secretHash, ct)) return new ExitReportResult.Ended();
         // A concurrent first report committed while this one waited on the attempt: answer from it.
         stored = await ExitReports.StoredAgentAsync(conn, tx, attemptId, ct);
         if (stored is not null) return ExitReports.Same(stored, report) ? new ExitReportResult.Applied(stored.Outcome) : new ExitReportResult.Conflicting();
@@ -223,6 +232,12 @@ public sealed class HostStore
         return new ExitReportResult.Applied(outcome);
     }
 
+    /// <summary>Whether <paramref name="secretHash"/> is still the enabled, unrevoked host's secret (a plain read: no host lock).</summary>
+    static Task<bool> SecretCurrentAsync(NpgsqlConnection conn, NpgsqlTransaction tx, string hostId, byte[] secretHash, CancellationToken ct) =>
+        conn.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "select exists (select 1 from mission_hosts where host_id = @hostId and secret_hash = @secretHash and enabled and not secret_revoked)",
+            new { hostId, secretHash }, tx, cancellationToken: ct));
+
     static DateTime Utc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : throw new InvalidOperationException($"A timestamptz was read as {value.Kind}, not UTC.");
 
@@ -243,14 +258,15 @@ public sealed class HostStore
     /// left for the next heartbeat). The answer lists this host's ended attempts that the report still names, for the agent
     /// to stop (R4). Units of other hosts and unknown attempts are ignored. A host disabled since authentication gets null.
     /// </summary>
-    public async Task<HeartbeatResult?> HeartbeatAsync(string hostId, HeartbeatRequest report, CancellationToken ct)
+    public async Task<HeartbeatResult?> HeartbeatAsync(string hostId, byte[] secretHash, HeartbeatRequest report, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(report);
         var listed = report.Units.Select(u => u.AttemptId).ToArray();
         await using var conn = await DbFailure.OpenAsync(db, ct);
         await using var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct);
         var drained = await conn.QuerySingleOrDefaultAsync<bool?>(new CommandDefinition(
-            "select drained from mission_hosts where host_id = @hostId and kind = 'agent' and enabled for update", new { hostId }, tx, cancellationToken: ct));
+            "select drained from mission_hosts where host_id = @hostId and kind = 'agent' and enabled and secret_hash = @secretHash and not secret_revoked for update",
+            new { hostId, secretHash }, tx, cancellationToken: ct));
         if (drained is null) return null;
         await conn.ExecuteAsync(new CommandDefinition(
             "update mission_hosts set last_heartbeat_at = clock_timestamp(), build_revision = @Revision, catalogue_version = @CatalogueVersion where host_id = @hostId",

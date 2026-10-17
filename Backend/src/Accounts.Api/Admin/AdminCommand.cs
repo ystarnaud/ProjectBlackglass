@@ -585,6 +585,7 @@ public static class AdminCommand
         output.WriteLine($"target.liveSlots={host.LiveSlots}");
         output.WriteLine($"target.lastHeartbeatAt={(host.LastHeartbeatAt is { } beat ? Timestamp(beat) : "(never)")}");
         output.WriteLine($"target.build={(host.BuildRevision is null ? "(none reported)" : $"{host.BuildRevision} {host.CatalogueVersion}")}");
+        output.WriteLine($"target.secretRevoked={(host.SecretRevoked ? "true" : "false")}");
         return await ConfirmWordAsync(a, host.HostId, $"{a.Verb.Replace('-', ' ')} for host {host.HostId}", error, input, ct);
     }
 

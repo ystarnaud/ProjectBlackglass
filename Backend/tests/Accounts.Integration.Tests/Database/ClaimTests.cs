@@ -56,8 +56,8 @@ public class ClaimTests : IAsyncLifetime
         }
     }
 
-    Task BeatAsync(string host, BuildIdentity? build = null) =>
-        hosts.HeartbeatAsync(host, new HeartbeatRequest(build ?? Build, true, [], 0), default);
+    async Task BeatAsync(string host, BuildIdentity? build = null) =>
+        await hosts.HeartbeatAsync(host, await AttemptFixtures.HostSecretHashAsync(db, host), new HeartbeatRequest(build ?? Build, true, [], 0), default);
 
     async Task<long> NewAccountAsync()
     {
@@ -67,7 +67,7 @@ public class ClaimTests : IAsyncLifetime
 
     async Task<Guid> AdmitAsync() => await AttemptFixtures.AdmitAsync(db, await NewAccountAsync());
 
-    Task<ClaimResult> ClaimAsync(string host, Guid? key = null) => hosts.ClaimAsync(host, key ?? Guid.NewGuid(), launchDeadlineSeconds: 120, default);
+    async Task<ClaimResult> ClaimAsync(string host, Guid? key = null) => await hosts.ClaimAsync(host, await AttemptFixtures.HostSecretHashAsync(db, host), key ?? Guid.NewGuid(), launchDeadlineSeconds: 120, default);
 
     async Task<(string State, string? Host, int? Port, int? Generation)> RowAsync(Guid attempt)
     {
@@ -127,7 +127,7 @@ public class ClaimTests : IAsyncLifetime
         // Cancelled is not free (B6): the slot stays until the agent confirms the unit gone.
         await AttemptFixtures.MoveAsync(db, claimed[1], "cancelled", "h1");
         Assert.IsType<ClaimResult.NoCandidate>(await ClaimAsync("h1"));
-        await hosts.HeartbeatAsync("h1", new HeartbeatRequest(Build, true, [new UnitReport(claimed[0], "active"), new UnitReport(claimed[2], "active")], 0), default);
+        await hosts.HeartbeatAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), new HeartbeatRequest(Build, true, [new UnitReport(claimed[0], "active"), new UnitReport(claimed[2], "active")], 0), default);
         var reused = Assert.IsType<ClaimResult.Claimed>(await ClaimAsync("h1"));
         Assert.Equal(7001, reused.MissionPort); // the freed port, the lowest free one
     }
@@ -208,15 +208,16 @@ public class ClaimTests : IAsyncLifetime
     public async Task A_claim_waits_and_returns_an_attempt_admitted_during_the_wait_and_otherwise_nothing()
     {
         var clock = Stopwatch.StartNew();
-        Assert.IsType<ClaimResult.NoCandidate>(await hosts.ClaimWaitingAsync("h1", Guid.NewGuid(), 120, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(100), default));
+        Assert.IsType<ClaimResult.NoCandidate>(await hosts.ClaimWaitingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(100), default));
         Assert.InRange(clock.Elapsed, TimeSpan.FromSeconds(0.9), TimeSpan.FromSeconds(4));
-        var waiting = hosts.ClaimWaitingAsync("h1", Guid.NewGuid(), 120, TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(100), default);
+        var waiting = hosts.ClaimWaitingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, TimeSpan.FromSeconds(10), TimeSpan.FromMilliseconds(100), default);
         await Task.Delay(300);
         var attempt = await AdmitAsync();
         Assert.Equal(attempt, Assert.IsType<ClaimResult.Claimed>(await waiting).AttemptId);
         // A cancelled request ends the wait.
         using var cancel = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => hosts.ClaimWaitingAsync("h2", Guid.NewGuid(), 120, TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(100), cancel.Token));
+        var h2Secret = await AttemptFixtures.HostSecretHashAsync(db, "h2");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => hosts.ClaimWaitingAsync("h2", h2Secret, Guid.NewGuid(), 120, TimeSpan.FromSeconds(30), TimeSpan.FromMilliseconds(100), cancel.Token));
     }
 
     [Fact]
@@ -225,9 +226,10 @@ public class ClaimTests : IAsyncLifetime
         var port = int.Parse(db.EnvFor("app")[DbSettings.PortVar]!, System.Globalization.CultureInfo.InvariantCulture);
         await using var narrow = new DbSettings(db.Host, port, db.Name, "accounts_app", db.Password("app")).CreateDataSource("blackglass-tests", maxPoolSize: 3);
         var store = new HostStore(narrow, leaseSeconds: 30);
+        var (h1, h2) = (await AttemptFixtures.HostSecretHashAsync(db, "h1"), await AttemptFixtures.HostSecretHashAsync(db, "h2"));
         var clock = Stopwatch.StartNew();
         var results = await Task.WhenAll(Enumerable.Range(0, 10).Select(i =>
-            store.ClaimWaitingAsync(i % 2 == 0 ? "h1" : "h2", Guid.NewGuid(), 120, TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(200), default)));
+            store.ClaimWaitingAsync(i % 2 == 0 ? "h1" : "h2", i % 2 == 0 ? h1 : h2, Guid.NewGuid(), 120, TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(200), default)));
         Assert.All(results, r => Assert.IsType<ClaimResult.NoCandidate>(r));
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(5), $"waiting claims took {clock.Elapsed}: each must hold a connection only per try");
     }
@@ -293,7 +295,7 @@ public class ClaimTests : IAsyncLifetime
         var attempt = await AdmitAsync();
         var key = Guid.NewGuid();
         var claimed = Assert.IsType<ClaimResult.Claimed>(await ClaimAsync("h1", key));
-        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", attempt, 1, default));
+        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), attempt, 1, default));
         Assert.IsType<ClaimResult.InvalidState>(await ClaimAsync("h1", key));
         Assert.Equal(attempt, (await new ProcessStore(db.AsApp()).AuthenticateAsync(claimed.Credential.Hash(), default))?.AttemptId);
         Assert.Equal(("launching", "h1", 7000, 1), await RowAsync(attempt));
@@ -306,11 +308,11 @@ public class ClaimTests : IAsyncLifetime
         var key = Guid.NewGuid();
         await ClaimAsync("h1", key);
         await ClaimAsync("h1", key); // recovery: generation 2
-        Assert.Equal(new LaunchingResult.CredentialSuperseded(), await hosts.LaunchingAsync("h1", attempt, 1, default));
+        Assert.Equal(new LaunchingResult.CredentialSuperseded(), await hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), attempt, 1, default));
         Assert.Equal(("assigned", "h1", 7000, 2), await RowAsync(attempt));
-        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", attempt, 2, default));
-        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", attempt, 2, default)); // a lost acknowledgement
-        Assert.Equal(new LaunchingResult.CredentialSuperseded(), await hosts.LaunchingAsync("h1", attempt, 1, default));
+        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), attempt, 2, default));
+        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), attempt, 2, default)); // a lost acknowledgement
+        Assert.Equal(new LaunchingResult.CredentialSuperseded(), await hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), attempt, 1, default));
     }
 
     [Fact]
@@ -318,10 +320,10 @@ public class ClaimTests : IAsyncLifetime
     {
         var attempt = await AdmitAsync();
         await ClaimAsync("h1");
-        Assert.Equal(new LaunchingResult.NotFound(), await hosts.LaunchingAsync("h2", attempt, 1, default));
-        Assert.Equal(new LaunchingResult.NotFound(), await hosts.LaunchingAsync("h1", Guid.CreateVersion7(), 1, default));
+        Assert.Equal(new LaunchingResult.NotFound(), await hosts.LaunchingAsync("h2", await AttemptFixtures.HostSecretHashAsync(db, "h2"), attempt, 1, default));
+        Assert.Equal(new LaunchingResult.NotFound(), await hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.CreateVersion7(), 1, default));
         await AttemptFixtures.MoveAsync(db, attempt, "cancelled", "h1");
-        Assert.Equal(new LaunchingResult.InvalidState(), await hosts.LaunchingAsync("h1", attempt, 1, default));
+        Assert.Equal(new LaunchingResult.InvalidState(), await hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), attempt, 1, default));
     }
 
     [Fact]
@@ -335,7 +337,7 @@ public class ClaimTests : IAsyncLifetime
             Assert.IsType<ClaimResult.Claimed>(await ClaimAsync(host, key));
             var start = new TaskCompletionSource();
             var recovery = Task.Run(async () => { await start.Task; return await ClaimAsync(host, key); });
-            var launching = Task.Run(async () => { await start.Task; return await hosts.LaunchingAsync(host, attempt, 1, default); });
+            var launching = Task.Run(async () => { await start.Task; return await hosts.LaunchingAsync(host, await AttemptFixtures.HostSecretHashAsync(db, host), attempt, 1, default); });
             start.SetResult();
             var (r, l) = (await recovery, await launching);
             var row = await RowAsync(attempt);

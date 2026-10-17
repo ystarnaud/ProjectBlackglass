@@ -48,7 +48,7 @@ public sealed class MissionKit
         return kit;
     }
 
-    public Task BeatAsync() => Hosts.HeartbeatAsync("h1", new HeartbeatRequest(Build, true, [], 0), default);
+    public async Task BeatAsync() => await Hosts.HeartbeatAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), new HeartbeatRequest(Build, true, [], 0), default);
 
     public sealed record Mission(long Account, Guid Attempt, Guid Session, OpaqueSecret Credential);
 
@@ -66,7 +66,7 @@ public sealed class MissionKit
     {
         var (account, attempt) = await AdmitAsync();
         await BeatAsync();
-        var claim = (ClaimResult.Claimed)await Hosts.ClaimAsync("h1", Guid.NewGuid(), 120, default);
+        var claim = (ClaimResult.Claimed)await Hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, default);
         if (claim.AttemptId != attempt) throw new InvalidOperationException("The claim took another attempt.");
         var session = ((RegisterResult.Registered)await Processes.RegisterAsync(attempt, claim.Credential.Hash(), new RegisterRequest(Build), default)).ProcessSessionId;
         PoolLine[] pool = [new(0, 0, "item.medkit", 1)];

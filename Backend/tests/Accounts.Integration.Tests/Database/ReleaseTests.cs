@@ -287,7 +287,7 @@ public class ReleaseTests : IAsyncLifetime
     {
         var (account, attempt) = await AdmittedAsync();
         await MoveAsync(attempt, "assigned", "launching");
-        Assert.Equal(new ExitReportResult.Applied("cancelled"), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, attempt, Exit(1, null, (account, false)), default));
+        Assert.Equal(new ExitReportResult.Applied("cancelled"), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, await AttemptFixtures.HostSecretHashAsync(db, AttemptFixtures.FixtureHost), attempt, Exit(1, null, (account, false)), default));
         Assert.Equal(("cancelled:process_exited", "released:process_exited:released"), (await AttemptStateAsync(attempt), await ParticipantAsync(attempt, account)));
         Assert.NotNull(await ScalarAsSuperuserAsync<DateTime?>(db, "select slot_released_at from mission_attempts where attempt_id = @attempt", new { attempt }));
         Assert.Equal("agent:fixture-host:launching:False:1::cancelled|" + account + ":False", await EvidenceAsync(attempt));
@@ -300,7 +300,7 @@ public class ReleaseTests : IAsyncLifetime
         var (account, attempt) = await AdmittedAsync();
         await MoveAsync(attempt, "assigned", "launching", "ready");
         await StartAsync(attempt, account);
-        Assert.Equal(new ExitReportResult.Applied("none"), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, attempt, Exit(null, "SIGKILL", (account, true)), default));
+        Assert.Equal(new ExitReportResult.Applied("none"), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, await AttemptFixtures.HostSecretHashAsync(db, AttemptFixtures.FixtureHost), attempt, Exit(null, "SIGKILL", (account, true)), default));
         Assert.Equal(("running:-", "joined:-:charged"), (await AttemptStateAsync(attempt), await ParticipantAsync(attempt, account)));
         Assert.Equal(0L, await EntriesAsync(attempt, account, "release"));
         Assert.NotNull(await ScalarAsSuperuserAsync<DateTime?>(db, "select slot_released_at from mission_attempts where attempt_id = @attempt", new { attempt })); // the unit is gone
@@ -322,11 +322,11 @@ public class ReleaseTests : IAsyncLifetime
         await MoveAsync(attempt, "assigned", "launching", "ready");
         await StartAsync(attempt, account);
         var report = Exit(137, null, (account, false));
-        Assert.Equal(new ExitReportResult.Applied("none"), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, attempt, report, default));
+        Assert.Equal(new ExitReportResult.Applied("none"), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, await AttemptFixtures.HostSecretHashAsync(db, AttemptFixtures.FixtureHost), attempt, report, default));
         var evidence = await EvidenceAsync(attempt);
-        Assert.Equal(new ExitReportResult.Applied("none"), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, attempt, report, default));
+        Assert.Equal(new ExitReportResult.Applied("none"), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, await AttemptFixtures.HostSecretHashAsync(db, AttemptFixtures.FixtureHost), attempt, report, default));
         foreach (var conflicting in new[] { Exit(0, null, (account, false)), Exit(137, "SIGKILL", (account, false)), Exit(137, null, (account, true)), Exit(137, null) })
-            Assert.Equal(new ExitReportResult.Conflicting(), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, attempt, conflicting, default));
+            Assert.Equal(new ExitReportResult.Conflicting(), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, await AttemptFixtures.HostSecretHashAsync(db, AttemptFixtures.FixtureHost), attempt, conflicting, default));
         Assert.Equal(evidence, await EvidenceAsync(attempt));
         // The process's failure report is evidence too, under its own source; identical repeats and conflicts likewise.
         var session = await ScalarAsSuperuserAsync<Guid>(db, "select process_session_id from mission_attempts where attempt_id = @attempt", new { attempt });
@@ -344,9 +344,9 @@ public class ReleaseTests : IAsyncLifetime
         var (account, attempt) = await AdmittedAsync();
         var (stranger, _) = await AdmittedAsync();
         await MoveAsync(attempt, "assigned", "launching");
-        Assert.Equal(new ExitReportResult.UnknownParticipant(), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, attempt, Exit(1, null, (account, false), (stranger, true)), default));
-        Assert.Equal(new ExitReportResult.NotFound(), await hosts.ExitedAsync("other-host", attempt, Exit(1, null), default));
-        Assert.Equal(new ExitReportResult.NotFound(), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, Guid.CreateVersion7(), Exit(1, null), default));
+        Assert.Equal(new ExitReportResult.UnknownParticipant(), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, await AttemptFixtures.HostSecretHashAsync(db, AttemptFixtures.FixtureHost), attempt, Exit(1, null, (account, false), (stranger, true)), default));
+        Assert.Equal(new ExitReportResult.NotFound(), await hosts.ExitedAsync("other-host", await AttemptFixtures.HostSecretHashAsync(db, "other-host"), attempt, Exit(1, null), default));
+        Assert.Equal(new ExitReportResult.NotFound(), await hosts.ExitedAsync(AttemptFixtures.FixtureHost, await AttemptFixtures.HostSecretHashAsync(db, AttemptFixtures.FixtureHost), Guid.CreateVersion7(), Exit(1, null), default));
         Assert.Equal("launching:-", await AttemptStateAsync(attempt));
         Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(db, "select count(*) from attempt_exit_reports"));
     }
@@ -372,7 +372,7 @@ public class ReleaseTests : IAsyncLifetime
             await MoveAsync(attempt, "assigned", "launching");
             await ExpireAsync(attempt, "launch_deadline");
             var start = new TaskCompletionSource();
-            var exit = Task.Run(async () => { await start.Task; return await hosts.ExitedAsync(AttemptFixtures.FixtureHost, attempt, Exit(0, null), default); });
+            var exit = Task.Run(async () => { await start.Task; return await hosts.ExitedAsync(AttemptFixtures.FixtureHost, await AttemptFixtures.HostSecretHashAsync(db, AttemptFixtures.FixtureHost), attempt, Exit(0, null), default); });
             var cancel = Task.Run(async () => { await start.Task; return await attempts.CancelAsync(account, attempt); });
             var sweep = Task.Run(async () => { await start.Task; return await attempts.SweepAsync(10); });
             start.SetResult();

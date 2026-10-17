@@ -42,7 +42,7 @@ public class ProcessSessionTests : IAsyncLifetime
         var admin = new HostAdminStore(db.AsApp());
         await admin.AllowBuildAsync(Build, [new TemplateRef("procedural-standard", 1)], Op);
         await admin.RegisterAsync("h1", 4, 7000, Op);
-        await hosts.HeartbeatAsync("h1", new HeartbeatRequest(Build, true, [], 0), default);
+        await hosts.HeartbeatAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), new HeartbeatRequest(Build, true, [], 0), default);
     }
 
     public async Task DisposeAsync()
@@ -64,7 +64,7 @@ public class ProcessSessionTests : IAsyncLifetime
         var account = await NewAccountAsync();
         var attempt = await AttemptFixtures.AdmitAsync(db, account);
         var key = Guid.NewGuid();
-        var c = Assert.IsType<ClaimResult.Claimed>(await hosts.ClaimAsync("h1", key, 120, default));
+        var c = Assert.IsType<ClaimResult.Claimed>(await hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), key, 120, default));
         Assert.Equal(attempt, c.AttemptId);
         return new Claimed(attempt, account, c.Credential, key);
     }
@@ -100,7 +100,7 @@ public class ProcessSessionTests : IAsyncLifetime
     public async Task Register_returns_the_session_seed_and_snapshots_never_the_salt()
     {
         var claim = await ClaimedAsync();
-        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", claim.Attempt, 1, default));
+        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), claim.Attempt, 1, default));
         var r = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(Build), default));
         await using var su = await db.AsSuperuser().OpenConnectionAsync();
         var (seed, salt) = await su.QuerySingleAsync<(int, byte[])>("select seed, retention_salt from attempt_secrets where attempt_id = @a", new { a = claim.Attempt });
@@ -123,7 +123,7 @@ public class ProcessSessionTests : IAsyncLifetime
         Assert.Equal(first.ProcessSessionId, again.ProcessSessionId);
         Assert.Equal(JsonSerializer.Serialize(first), JsonSerializer.Serialize(again));
         // The agent's late launching report, with the current generation, is a lost acknowledgement.
-        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", claim.Attempt, 1, default));
+        Assert.Equal(new LaunchingResult.Accepted("launching"), await hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), claim.Attempt, 1, default));
     }
 
     [Theory]
@@ -152,7 +152,7 @@ public class ProcessSessionTests : IAsyncLifetime
         {
             var claim = await ClaimedAsync();
             var start = new TaskCompletionSource();
-            var recovery = Task.Run(async () => { await start.Task; return await hosts.ClaimAsync("h1", claim.Key, 120, default); });
+            var recovery = Task.Run(async () => { await start.Task; return await hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), claim.Key, 120, default); });
             var register = Task.Run(async () => { await start.Task; return await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(Build), default); });
             start.SetResult();
             var (r, g) = (await recovery, await register);
@@ -173,7 +173,7 @@ public class ProcessSessionTests : IAsyncLifetime
             }
             Assert.Equal("launching:-", await StateAsync(claim.Attempt));
             await AttemptFixtures.MoveAsync(db, claim.Attempt, "cancelled", "h1");
-            await hosts.HeartbeatAsync("h1", new HeartbeatRequest(Build, true, [], 0), default); // confirm the slot free
+            await hosts.HeartbeatAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), new HeartbeatRequest(Build, true, [], 0), default); // confirm the slot free
         }
     }
 
@@ -181,7 +181,7 @@ public class ProcessSessionTests : IAsyncLifetime
     public async Task A_superseded_credential_cannot_register_even_after_it_authenticated()
     {
         var claim = await ClaimedAsync();
-        var recovered = Assert.IsType<ClaimResult.Claimed>(await hosts.ClaimAsync("h1", claim.Key, 120, default));
+        var recovered = Assert.IsType<ClaimResult.Claimed>(await hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), claim.Key, 120, default));
         Assert.IsType<RegisterResult.Unauthenticated>(await processes.RegisterAsync(claim.Attempt, claim.Credential.Hash(), new RegisterRequest(Build), default));
         Assert.Equal("assigned:-", await StateAsync(claim.Attempt));
         Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(claim.Attempt, recovered.Credential.Hash(), new RegisterRequest(Build), default));

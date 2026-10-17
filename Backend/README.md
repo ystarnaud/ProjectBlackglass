@@ -445,6 +445,8 @@ The accounts PostgreSQL runs with `log_error_verbosity=terse` (B2). This takes e
   3. `host enable`, which is refused (exit 66) until step 1.
 
   Revoked process credentials never come back. Their running units must be stopped by the host's operator (Stage 10).
+- **On exit 75** (a lock timeout), the disable isolated nothing: re-run it.
+- **Stale secrets:** every agent route re-checks the presented secret inside its transaction. A request that authenticated just before a rotation or a disable writes nothing after it commits.
 
 **Slots (B6).** A slot and its port stay occupied until an exit report or a complete inventory confirms that the process is gone. A database trigger refuses any other release of a live slot. A host whose lease lapses gets no claims and keeps its occupied ports.
 

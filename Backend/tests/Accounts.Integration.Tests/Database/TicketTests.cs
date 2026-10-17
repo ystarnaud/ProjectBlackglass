@@ -45,7 +45,7 @@ public class TicketTests : IAsyncLifetime
         var admin = new HostAdminStore(db.AsApp());
         await admin.AllowBuildAsync(Build, [new TemplateRef("procedural-standard", 1)], Op);
         await admin.RegisterAsync("h1", 8, 7000, Op);
-        await hosts.HeartbeatAsync("h1", new HeartbeatRequest(Build, true, [], 0), default);
+        await hosts.HeartbeatAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), new HeartbeatRequest(Build, true, [], 0), default);
     }
 
     public async Task DisposeAsync()
@@ -64,8 +64,8 @@ public class TicketTests : IAsyncLifetime
             "select operative_id from operatives where account_id = @a order by operative_id desc limit 2", new { a = issued.AccountId })).ToArray();
         var admission = await admissions.AdmitAsync(issued.AccountId, Guid.CreateVersion7(), new DeployRequest("procedural-standard", operatives));
         var attempt = Guid.Parse(JsonDocument.Parse(admission.Body).RootElement.GetProperty("attemptId").GetString()!);
-        await hosts.HeartbeatAsync("h1", new HeartbeatRequest(Build, true, [], 0), default);
-        var claim = Assert.IsType<ClaimResult.Claimed>(await hosts.ClaimAsync("h1", Guid.NewGuid(), 120, default));
+        await hosts.HeartbeatAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), new HeartbeatRequest(Build, true, [], 0), default);
+        var claim = Assert.IsType<ClaimResult.Claimed>(await hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, default));
         Assert.Equal(attempt, claim.AttemptId);
         var session = Assert.IsType<RegisterResult.Registered>(await processes.RegisterAsync(attempt, claim.Credential.Hash(), new RegisterRequest(Build), default)).ProcessSessionId;
         PoolLine[] pool = [new(0, 0, "item.medkit", 1)];

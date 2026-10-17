@@ -262,7 +262,7 @@ public class HostAdminTests : IAsyncLifetime
         var preview = await CliAsync(null, drain);
         Assert.Equal(ExitCodes.Usage, preview.Code);
         Assert.Equal(["target.hostId", "target.kind", "target.enabled", "target.drained", "target.capacity", "target.portBase", "target.liveSlots",
-                      "target.lastHeartbeatAt", "target.build"], Names(preview.Out));
+                      "target.lastHeartbeatAt", "target.build", "target.secretRevoked"], Names(preview.Out));
         Assert.Equal(ExitCodes.NotConfirmed, (await CliAsync("register\n", drain)).Code);
         var (code, output, _) = await CliAsync("h1\n", drain);
         Assert.Equal(ExitCodes.Ok, code);

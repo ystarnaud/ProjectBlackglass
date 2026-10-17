@@ -24,8 +24,13 @@ public static class MissionClaims
     public const string HostId = "host";
     public const string AttemptId = "attempt";
     public const string CredentialHash = "credential";
+    public const string HostSecretHash = "host-secret";
 
     public static string HostOf(ClaimsPrincipal user) => user.FindFirstValue(HostId)!;
+
+    /// <summary>The SHA-256 of the host secret the request presented (a hash, never the secret): host stores re-check it inside
+    /// their own transaction, so a rotation or a disable that commits mid-request stops it (R8).</summary>
+    public static byte[] HostSecretHashOf(ClaimsPrincipal user) => Convert.FromHexString(user.FindFirstValue(HostSecretHash)!);
 
     public static Guid AttemptOf(ClaimsPrincipal user) => Guid.Parse(user.FindFirstValue(AttemptId)!);
 
@@ -91,7 +96,7 @@ public sealed class HostAuthenticationHandler(IOptionsMonitor<AuthenticationSche
 
     protected override async Task<(Claim[]? Claims, string? Failure)> LookupAsync(byte[] hash) =>
         await hosts.AuthenticateAsync(hash, Context.RequestAborted) is { } host
-            ? ([new Claim(MissionClaims.HostId, host.HostId)], null)
+            ? ([new Claim(MissionClaims.HostId, host.HostId), new Claim(MissionClaims.HostSecretHash, Convert.ToHexStringLower(hash))], null)
             : (null, "unknown, rotated or disabled host secret");
 }
 

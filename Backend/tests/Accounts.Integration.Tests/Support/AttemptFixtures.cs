@@ -56,6 +56,11 @@ public static class AttemptFixtures
         await tx.CommitAsync();
     }
 
+    /// <summary>The host's current secret hash, as a test standing in for an agent that holds its current secret presents it
+    /// (empty for an unknown host).</summary>
+    public static async Task<byte[]> HostSecretHashAsync(TestDatabase db, string hostId) =>
+        await AccountTestKit.ScalarAsSuperuserAsync<byte[]?>(db, "select secret_hash from mission_hosts where host_id = @hostId", new { hostId }) ?? [];
+
     public const string FixtureHost = "fixture-host";
     public const string FixtureBuild = "fixture-build";
 

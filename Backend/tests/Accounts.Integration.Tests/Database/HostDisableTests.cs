@@ -80,13 +80,13 @@ public class HostDisableTests : IAsyncLifetime
         var ready = await kit.ReadyAsync();
         await kit.AdmitAsync(); // a waiting attempt the drained host must not take
         await admin.SwitchAsync("h1", HostSwitch.Drain, Op);
-        Assert.IsType<ClaimResult.HostUnavailable>(await kit.Hosts.ClaimAsync("h1", Guid.NewGuid(), 120, default));
+        Assert.IsType<ClaimResult.HostUnavailable>(await kit.Hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, default));
         await using var api = await ApiServer.StartAsync(db);
         Assert.Equal(HttpStatusCode.OK, (await PostAsync(api, "/agent/v1/heartbeat", secret, Beat)).Status);
         Assert.Equal(HttpStatusCode.OK, (await PostAsync(api, $"/server/v1/attempts/{ready.Attempt}/heartbeat", ready.Credential.Text, ProcessBeat(ready.Session))).Status);
         await kit.RedeemAsync(ready);
         Assert.IsType<StartResult.Started>(await starts.StartAsync(ready.Attempt, ready.Account, ready.Session, default));
-        Assert.Equal(new ExitReportResult.Applied("none"), await kit.Hosts.ExitedAsync("h1", ready.Attempt, new ExitedRequest(0, null, []), default));
+        Assert.Equal(new ExitReportResult.Applied("none"), await kit.Hosts.ExitedAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), ready.Attempt, new ExitedRequest(0, null, []), default));
     }
 
     // ---- disable ----
@@ -151,7 +151,7 @@ public class HostDisableTests : IAsyncLifetime
     {
         await kit.AdmitAsync();
         await kit.BeatAsync();
-        return await kit.Hosts.ClaimAsync("h1", Guid.NewGuid(), 120, default);
+        return await kit.Hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, default);
     }
 
     [Fact]
@@ -162,7 +162,7 @@ public class HostDisableTests : IAsyncLifetime
         var assignedKey = Guid.NewGuid();
         await kit.AdmitAsync();
         await kit.BeatAsync();
-        var assigned = Assert.IsType<ClaimResult.Claimed>(await kit.Hosts.ClaimAsync("h1", assignedKey, 120, default));
+        var assigned = Assert.IsType<ClaimResult.Claimed>(await kit.Hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), assignedKey, 120, default));
         await admin.DisableAsync("h1", Op);
         Assert.Equal(MissionAdminError.SecretRevoked, (await Assert.ThrowsAsync<MissionAdminException>(() => admin.SwitchAsync("h1", HostSwitch.Enable, Op))).Error);
         var fresh = (await admin.RotateSecretAsync("h1", Op)).Secret.Text;
@@ -174,8 +174,8 @@ public class HostDisableTests : IAsyncLifetime
         Assert.Null(await kit.Processes.AuthenticateAsync(running.Credential.Hash(), default)); // never restored
         Assert.Null(await kit.Processes.AuthenticateAsync(assigned.Credential.Hash(), default));
         // A recovery of the revoked, still-assigned attempt issues nothing; launching it is refused.
-        Assert.IsType<ClaimResult.InvalidState>(await kit.Hosts.ClaimAsync("h1", assignedKey, 120, default));
-        Assert.IsType<LaunchingResult.InvalidState>(await kit.Hosts.LaunchingAsync("h1", assigned.AttemptId, 1, default));
+        Assert.IsType<ClaimResult.InvalidState>(await kit.Hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), assignedKey, 120, default));
+        Assert.IsType<LaunchingResult.InvalidState>(await kit.Hosts.LaunchingAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), assigned.AttemptId, 1, default));
         // The reauthorized host returns to service: a new attempt, a new credential that works.
         await kit.BeatAsync();
         var next = await kit.ReadyAsync();
@@ -196,6 +196,82 @@ public class HostDisableTests : IAsyncLifetime
         foreach (var token in new[] { old, OpaqueSecret.New(OpaqueSecret.HostSecretPrefix).Text, OpaqueSecret.New(OpaqueSecret.ProcessCredentialPrefix).Text })
             answers.Add(await PostAsync(api, "/agent/v1/heartbeat", token, Beat));
         Assert.All(answers, a => Assert.Equal((HttpStatusCode.Unauthorized, "", "Bearer"), a));
+    }
+
+    [Fact]
+    public async Task A_stale_host_secret_writes_nothing_after_the_disable_commits()
+    {
+        // Security review R8-M1/M2: a request that authenticated with the old secret is re-checked inside its own transaction.
+        var old = (await admin.RotateSecretAsync("h1", Op)).Secret.Hash();
+        var (account, attempt) = await kit.AdmitAsync();
+        await kit.Hosts.HeartbeatAsync("h1", old, new HeartbeatRequest(MissionKit.Build, true, [], 0), default);
+        var claim = Assert.IsType<ClaimResult.Claimed>(await kit.Hosts.ClaimAsync("h1", old, Guid.NewGuid(), 120, default));
+        await kit.AdmitAsync();
+        await admin.DisableAsync("h1", Op);
+        Assert.Equal(new ExitReportResult.Ended(), await kit.Hosts.ExitedAsync("h1", old, claim.AttemptId, new ExitedRequest(1, null, []), default));
+        Assert.Equal("assigned:admitted:reserved:0:0:live", await StateAsync(attempt)); // nothing released, no evidence, slot kept
+        Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(db, "select count(*) from attempt_exit_reports"));
+        Assert.IsType<LaunchingResult.Unauthenticated>(await kit.Hosts.LaunchingAsync("h1", old, claim.AttemptId, 1, default));
+        Assert.Null(await kit.Hosts.HeartbeatAsync("h1", old, new HeartbeatRequest(MissionKit.Build, true, [], 0), default));
+        // Even after a rotation and a re-enable, the old secret claims nothing (a long poll that outlived the recovery).
+        await admin.RotateSecretAsync("h1", Op);
+        await admin.SwitchAsync("h1", HostSwitch.Enable, Op);
+        await kit.BeatAsync();
+        Assert.IsType<ClaimResult.Unauthenticated>(await kit.Hosts.ClaimAsync("h1", old, Guid.NewGuid(), 120, default));
+        _ = account;
+    }
+
+    [Fact]
+    public async Task A_reenabled_host_may_report_exits_for_its_revoked_attempts_as_evidence()
+    {
+        var running = await RunningAsync();
+        await admin.DisableAsync("h1", Op);
+        var fresh = (await admin.RotateSecretAsync("h1", Op)).Secret.Hash();
+        await admin.SwitchAsync("h1", HostSwitch.Enable, Op);
+        Assert.Equal(new ExitReportResult.Applied("none"), await kit.Hosts.ExitedAsync("h1", fresh, running.Attempt, new ExitedRequest(null, "SIGKILL", [new(running.Account, true)]), default));
+        Assert.StartsWith("running:joined:charged:1:0:", await StateAsync(running.Attempt)); // still running, charged once, nothing released
+        Assert.NotNull(await ScalarAsSuperuserAsync<DateTime?>(db, "select slot_released_at from mission_attempts where attempt_id = @a", new { a = running.Attempt }));
+        Assert.Null(await kit.Processes.AuthenticateAsync(running.Credential.Hash(), default)); // still revoked
+    }
+
+    [Fact]
+    public async Task Ready_is_refused_once_the_credential_is_revoked()
+    {
+        var claim = (ClaimResult.Claimed)await AdmitAndClaimAsync();
+        var session = Assert.IsType<RegisterResult.Registered>(await kit.Processes.RegisterAsync(claim.AttemptId, claim.Credential.Hash(), new RegisterRequest(MissionKit.Build), default)).ProcessSessionId;
+        await admin.DisableAsync("h1", Op);
+        PoolLine[] pool = [new(0, 0, "item.medkit", 1)];
+        var report = new ReadyReport(session, "cf2e14dece9cc2a6", MissionKit.Table.Version, LootHash.Compute(MissionKit.Table.Version, pool), [new Objective("extract", true)], pool);
+        Assert.IsType<ReadyResult.Revoked>(await kit.Processes.ReadyAsync(claim.AttemptId, report, MissionKit.Table, MissionKit.Catalogue.Version, 120, default));
+        var invalid = report with { LootHash = "sha256:" + new string('0', 64) }; // the invalid-pool cancel is refused too
+        Assert.IsType<ReadyResult.Revoked>(await kit.Processes.ReadyAsync(claim.AttemptId, invalid, MissionKit.Table, MissionKit.Catalogue.Version, 120, default));
+        Assert.Equal("launching", await ScalarAsSuperuserAsync<string>(db, "select state from mission_attempts where attempt_id = @a", new { a = claim.AttemptId }));
+    }
+
+    [Fact]
+    public async Task Revocation_is_permanent_in_the_database()
+    {
+        var claim = (ClaimResult.Claimed)await AdmitAndClaimAsync();
+        await admin.DisableAsync("h1", Op);
+        await using var conn = await db.AsApp().OpenConnectionAsync();
+        foreach (var sql in new[]
+                 {
+                     "update mission_attempts set credential_revoked_at = null where attempt_id = @a",
+                     "update mission_attempts set process_credential_hash = decode(repeat('ee', 32), 'hex'), credential_generation = credential_generation + 1 where attempt_id = @a",
+                 })
+        {
+            var e = await Assert.ThrowsAsync<PostgresException>(() => conn.ExecuteAsync(sql, new { a = claim.AttemptId }));
+            Assert.Equal(("23514", "mission_attempt_transition"), (e.SqlState, e.ConstraintName));
+        }
+    }
+
+    [Fact]
+    public async Task A_dev_fixture_can_be_disabled_and_enabled_again()
+    {
+        await ExecuteAsSuperuserAsync(db, "insert into mission_hosts (host_id, kind, secret_hash, capacity, enabled) values ('dev-1', 'dev_fixture', decode(repeat('01', 32), 'hex'), 1, true)");
+        await admin.DisableAsync("dev-1", Op);
+        await admin.SwitchAsync("dev-1", HostSwitch.Enable, Op); // no agent secret to rotate (security review R8-M3)
+        Assert.True(await ScalarAsSuperuserAsync<bool>(db, "select enabled from mission_hosts where host_id = 'dev-1'"));
     }
 
     [Fact]
@@ -231,14 +307,14 @@ public class HostDisableTests : IAsyncLifetime
             await kit.RedeemAsync(toStart);
             await kit.AdmitAsync();
             await kit.BeatAsync();
-            var toRegister = Assert.IsType<ClaimResult.Claimed>(await kit.Hosts.ClaimAsync("h1", Guid.NewGuid(), 120, default));
+            var toRegister = Assert.IsType<ClaimResult.Claimed>(await kit.Hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, default));
             await kit.AdmitAsync(); // for the racing claim
 
             var gate = new TaskCompletionSource();
             var disable = Task.Run(async () => { await gate.Task; return await admin.DisableAsync("h1", Op); });
             var start = Task.Run(async () => { await gate.Task; return await starts.StartAsync(toStart.Attempt, toStart.Account, toStart.Session, default); });
             var register = Task.Run(async () => { await gate.Task; return await kit.Processes.RegisterAsync(toRegister.AttemptId, toRegister.Credential.Hash(), new RegisterRequest(MissionKit.Build), default); });
-            var claim = Task.Run(async () => { await gate.Task; return await kit.Hosts.ClaimAsync("h1", Guid.NewGuid(), 120, default); });
+            var claim = Task.Run(async () => { await gate.Task; return await kit.Hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, default); });
             gate.SetResult();
             await Task.WhenAll(disable, start, register, claim);
             var (s, r, c) = (await start, await register, await claim);

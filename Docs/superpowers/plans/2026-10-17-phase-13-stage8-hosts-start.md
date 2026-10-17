@@ -976,3 +976,15 @@ There are three distinct host administration operations:
 - a failed disable leaves no partial state;
 - disable races claims, registration and the start commit with serializable outcomes and no duplicate charge;
 - the CLI is confirmed and audited, with no secret printed.
+
+**R8 independent security review:** no Critical or Important findings. Fixed:
+- **Stale host secrets (M1, M2):** every host store operation now re-checks the presented secret's hash inside its own transaction. Claim and heartbeat check it under the host lock; launching and exit reports check it with a plain read while they hold the attempt row, which the disable must lock after the host. So a request that authenticated with the old secret writes nothing once a disable (or a rotation) commits, even across a later re-enable.
+- **Dev fixtures (M3):** a disabled dev fixture can be enabled again, since it has no agent secret to rotate.
+- **Tests (M4):**
+  - `ready`, including the invalid-pool path, is refused once the credential is revoked;
+  - revocation is permanent in the trigger;
+  - a re-enabled host's exit report for a revoked attempt is accepted as evidence;
+  - stale-secret writes are refused.
+- **Operator view (M5):** the confirmation preview shows `target.secretRevoked`.
+
+A disable that times out on a lock (exit 75) isolates nothing and must be re-run.

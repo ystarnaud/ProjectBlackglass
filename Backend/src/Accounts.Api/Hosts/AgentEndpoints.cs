@@ -29,7 +29,7 @@ public static class AgentEndpoints
             http.Response.Headers.CacheControl = "no-store";
             var (report, refusal) = await MissionBodies.ReadAsync(http, HeartbeatRequest.Parse);
             if (refusal is not null) return refusal;
-            var result = await hosts.HeartbeatAsync(MissionClaims.HostOf(http.User), report!, http.RequestAborted);
+            var result = await hosts.HeartbeatAsync(MissionClaims.HostOf(http.User), MissionClaims.HostSecretHashOf(http.User), report!, http.RequestAborted);
             if (result is null) return UniformUnauthorized.Result; // disabled since authentication
             return Results.Json(new HeartbeatResponse(result.Drained, result.Stop.Select(a => a.ToString("D")).ToArray()), Web);
         });
@@ -45,7 +45,7 @@ public static class AgentEndpoints
             if (refusal is not null) return refusal;
             var header = http.Request.Headers[IdempotencyKeyHeader];
             if (header.Count != 1 || !CanonicalUuid.TryParse(header[0], out var key)) return MissionBodies.Problem(StatusCodes.Status400BadRequest, "InvalidIdempotencyKey");
-            var result = await hosts.ClaimWaitingAsync(MissionClaims.HostOf(http.User), key, settings.LaunchDeadlineSeconds,
+            var result = await hosts.ClaimWaitingAsync(MissionClaims.HostOf(http.User), MissionClaims.HostSecretHashOf(http.User), key, settings.LaunchDeadlineSeconds,
                 TimeSpan.FromSeconds(settings.ClaimWaitSeconds), TimeSpan.FromMilliseconds(settings.ClaimPollMs), http.RequestAborted);
             return result switch
             {
@@ -65,11 +65,12 @@ public static class AgentEndpoints
             var (body, refusal) = await MissionBodies.ReadAsync(http, LaunchingRequest.Parse);
             if (refusal is not null) return refusal;
             if (!CanonicalUuid.TryParse(attemptId, out var id)) return MissionBodies.Problem(StatusCodes.Status404NotFound, "AttemptNotFound");
-            return await hosts.LaunchingAsync(MissionClaims.HostOf(http.User), id, body!.CredentialGeneration, http.RequestAborted) switch
+            return await hosts.LaunchingAsync(MissionClaims.HostOf(http.User), MissionClaims.HostSecretHashOf(http.User), id, body!.CredentialGeneration, http.RequestAborted) switch
             {
                 LaunchingResult.Accepted a => Results.Json(new StateResponse(a.State), Web),
                 LaunchingResult.NotFound => MissionBodies.Problem(StatusCodes.Status404NotFound, "AttemptNotFound"),
                 LaunchingResult.CredentialSuperseded => MissionBodies.Problem(StatusCodes.Status409Conflict, "CredentialSuperseded"),
+                LaunchingResult.Unauthenticated => UniformUnauthorized.Result,
                 _ => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
             };
         });
@@ -81,7 +82,7 @@ public static class AgentEndpoints
             var (body, refusal) = await MissionBodies.ReadAsync(http, ExitedRequest.Parse);
             if (refusal is not null) return refusal;
             if (!CanonicalUuid.TryParse(attemptId, out var id)) return MissionBodies.Problem(StatusCodes.Status404NotFound, "AttemptNotFound");
-            return ReportResult(await hosts.ExitedAsync(MissionClaims.HostOf(http.User), id, body!, http.RequestAborted));
+            return ReportResult(await hosts.ExitedAsync(MissionClaims.HostOf(http.User), MissionClaims.HostSecretHashOf(http.User), id, body!, http.RequestAborted));
         });
     }
 
