@@ -4,7 +4,8 @@ using System.Security.Cryptography;
 namespace Blackglass.Accounts.Domain.Auth;
 
 /// <summary>
-/// A 256-bit random secret shown once: a development account key ("dk1") or an access token ("at1"). Its text form is
+/// A 256-bit random secret shown once: a development account key ("dk1"), an access token ("at1"), a mission host secret
+/// ("hs1"), an attempt-scoped process credential ("pc1") or a join ticket ("jt1"). Its text form is
 /// "&lt;prefix&gt;_&lt;43 base64url characters&gt;". Only SHA-256 of the 32 raw bytes is ever stored or compared (spec §4.2:
 /// high-entropy random secrets need no slow hash). TryParse is strict: the exact prefix and exactly 32 canonically
 /// encoded bytes. ToString never reveals the secret.
@@ -14,6 +15,9 @@ public sealed class OpaqueSecret
     public const int Bytes = 32;
     public const string AccountKeyPrefix = "dk1";
     public const string AccessTokenPrefix = "at1";
+    public const string HostSecretPrefix = "hs1";
+    public const string ProcessCredentialPrefix = "pc1";
+    public const string JoinTicketPrefix = "jt1";
     const int EncodedLength = 43;
 
     readonly byte[] raw;
