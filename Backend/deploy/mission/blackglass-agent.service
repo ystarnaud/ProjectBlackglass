@@ -28,6 +28,8 @@ NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# The agent only connects; it never binds a port (security review I1).
+SocketBindDeny=any
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

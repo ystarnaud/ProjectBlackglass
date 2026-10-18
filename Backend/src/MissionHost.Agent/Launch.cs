@@ -106,6 +106,7 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
     {
         while (true)
         {
+            if (store.Get(record.Key) is { } stored) record = stored; // always the stored state, never a stale copy (M13)
             var next = record.Phase switch
             {
                 ClaimPhase.Keyed => await ClaimAsync(record, ct),
@@ -228,12 +229,16 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
         var attempt = Guid.Parse(record.Attempt!);
         using (await gate.EnterAsync(ct))
         {
+            // Under the gate, the record as it stands now: a stop directive may have abandoned it (security review M13).
+            if (store.ForAttempt(record.Attempt!) is { } current && current.Phase != ClaimPhase.CredentialReady) return current;
             if (await EverStartedAsync(attempt, ct))
             {
                 log.Info("unit_already_started", ("attempt", record.Attempt));
                 return Started(record, attempt, ClaimPhase.Started);
             }
             if (clock.GetUtcNow().UtcDateTime > record.LaunchDeadline) return Abandon(record, "launch_deadline_passed");
+            // /run is tmpfs: after a reboot the file is gone while the record still holds the credential (security review M1).
+            if (!handoff.Exists(attempt) && record.ProcessCredential is { } credential) handoff.Write(attempt, credential);
             var ok = await systemd.StartAsync(attempt, ct);
             var state = await systemd.ShowAsync(attempt, ct);
             var started = ok || state is { Running: true } || state is { InvocationId.Length: > 0 };

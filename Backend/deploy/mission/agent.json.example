@@ -8,5 +8,6 @@
   "exitDir": "/var/lib/blackglass/exits",
   "launchDir": "/run/blackglass/launch",
   "serverBuildInfo": "/opt/blackglass/server/current/build-info.txt",
+  "tunnelUser": "blackglass-tunnel",
   "catalogueVersion": "sha256:REPLACE_WITH_THE_INSTALLED_BUILDS_CATALOGUE_VERSION"
 }

@@ -31,6 +31,8 @@ public sealed partial class OutboxScanner(string outboxDir, long maxBytes, Func<
 {
     readonly Func<string, long, Unix.ReadResult> read = reader ?? Unix.ReadUntrusted;
 
+    public const int MaxEntries = 256;
+
     [GeneratedRegex(@"^([1-9A-HJ-NP-Za-km-z]{1,11})\.manifest\.(tmp|written|ready)\z", RegexOptions.CultureInvariant)]
     private static partial Regex FileName();
 
@@ -46,7 +48,9 @@ public sealed partial class OutboxScanner(string outboxDir, long maxBytes, Func<
         {
             // A missing directory is never "no results": the unit's root ExecStartPre creates it, so its absence is unexplained.
             if (!Directory.Exists(directory)) return new OutboxScan(false, [], ["outbox_missing"]);
-            names = Directory.EnumerateFileSystemEntries(directory).Select(p => Path.GetFileName(p)!).ToList();
+            // Bounded (security review M12): a flooded directory is listed only so far, and the scan is then incomplete.
+            names = Directory.EnumerateFileSystemEntries(directory).Select(p => Path.GetFileName(p)!).Take(MaxEntries + 1).ToList();
+            if (names.Count > MaxEntries) return new OutboxScan(false, [], ["outbox_too_many_entries"]);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
@@ -59,6 +63,9 @@ public sealed partial class OutboxScanner(string outboxDir, long maxBytes, Func<
             if (!match.Success || !AccountIds.TryParse(match.Groups[1].Value, out _))
             {
                 anomalies.Add("unexpected_entry");
+                // An entry that names a participant but breaks the naming contract may be a result under a wrong name: the
+                // scan can't vouch for that participant's absence (security review M2).
+                if (roster.Any(a => name.StartsWith(a + ".", StringComparison.Ordinal))) complete = false;
                 continue;
             }
             var account = match.Groups[1].Value;

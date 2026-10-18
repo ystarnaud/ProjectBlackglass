@@ -34,7 +34,8 @@ public sealed class AgentHost : IDisposable
             this.clock, log);
         Claims = new ClaimFlow(backend, systemd, Store, new CredentialHandoff(config.LaunchDir), Auth, gate, this.clock, config.OutboxDir, config.ExitDir, log);
         Supervisor = new Supervisor(backend, systemd, Store, Scanner, Relayer, Auth, this.clock, config.ExitDir, log);
-        Heartbeat = new Heartbeat(backend, systemd, Store, Auth, gate, new BuildInfo(config.ServerBuildInfo, config.CatalogueVersion), OutboxPending, this.clock, log);
+        Heartbeat = new Heartbeat(backend, systemd, Store, Auth, gate, new BuildInfo(config.ServerBuildInfo, config.CatalogueVersion), OutboxPending, this.clock, log,
+            new CredentialHandoff(config.LaunchDir));
     }
 
     int OutboxPending() => Relayer.CountPending(Store.All().Where(Supervisor.Supervised)

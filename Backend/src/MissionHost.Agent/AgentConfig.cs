@@ -44,6 +44,9 @@ public sealed partial record AgentConfig
     public int OutboxAlertPercent { get; init; } = 80;
     /// <summary>The most attempts the agent supervises at once (the host's capacity is the backend's; this is a local cap).</summary>
     public int LocalCapacity { get; init; } = 64;
+    /// <summary>The user whose socket must hold the API's loopback port before anything is sent to it (security review I1);
+    /// null only in tests against an in-process API.</summary>
+    public string? TunnelUser { get; init; }
 
     [GeneratedRegex(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z", RegexOptions.CultureInvariant)]
     private static partial Regex HostIdPattern();
@@ -52,7 +55,7 @@ public sealed partial record AgentConfig
     [
         "hostId", "apiBaseUrl", "hostSecretFile", "stateDir", "relayDir", "outboxDir", "exitDir", "launchDir", "serverBuildInfo", "catalogueVersion",
         "systemctl", "heartbeatSeconds", "scanIntervalMs", "relayBackoffMinMs", "relayBackoffMaxMs", "authRetrySeconds", "requestTimeoutSeconds",
-        "maxResultBytes", "outboxAlertPercent", "localCapacity",
+        "maxResultBytes", "outboxAlertPercent", "localCapacity", "tunnelUser",
     ];
 
     public static AgentConfig Load(string path)
@@ -129,6 +132,8 @@ public sealed partial record AgentConfig
                 MaxResultBytes = Number("maxResultBytes", 4 * 1024 * 1024, 1024, 16 * 1024 * 1024),
                 OutboxAlertPercent = Number("outboxAlertPercent", 80, 1, 100),
                 LocalCapacity = Number("localCapacity", 64, 1, 64),
+                TunnelUser = Text("tunnelUser", required: false) is { Length: > 0 } tunnel
+                    ? (HostIdPattern().IsMatch(tunnel) ? tunnel : throw new AgentConfigException("Setting 'tunnelUser' is not a user name.")) : null,
             };
             if (config.RelayBackoffMaxMs < config.RelayBackoffMinMs) throw new AgentConfigException("Setting 'relayBackoffMaxMs' is below 'relayBackoffMinMs'.");
             var dirs = new[] { config.StateDir, config.RelayDir, config.OutboxDir, config.ExitDir, config.LaunchDir };

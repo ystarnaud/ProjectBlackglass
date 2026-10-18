@@ -32,13 +32,17 @@ revision 2, "Infrastructure checkpoint").
   2. `systemctl restart blackglass-agent`.
 
   The agent resumes from its state directory; running units are untouched.
-- **Full rollback:** `uninstall.sh --yes` removes the units, the polkit rule and the stub link. It never deletes the outbox, exit records, delivery records, agent state or logs.
+- **Full rollback:** `uninstall.sh --yes` removes the units, the polkit rule and the stub link. It never deletes the outbox, exit records, delivery records, agent state or logs. To retire the tunnel completely:
+  - on the services VM, remove `/etc/ssh/authorized_keys.d/bg-api-tunnel` and `/etc/ssh/sshd_config.d/60-bg-api-tunnel.conf`, run `systemctl reload ssh`, and lock or remove the `bg-api-tunnel` account;
+  - on the mission VM, remove `/etc/blackglass/tunnel/id_ed25519*`.
 
 ## Host secret rotation (A10-D8)
 
 1. On the services VM: `admin host rotate-secret --host-id <id>` (and `host enable` after a disable). This prints the secret once.
-2. On the mission VM, as root, replace the file atomically:
-   - `install -o blackglass-agent -g blackglass-agent -m 0600 /dev/stdin /etc/blackglass/agent/host-secret.new < <secret>`;
+2. On the mission VM, as root, replace the file atomically, never putting the secret on a command line or in shell history:
+   - `install -o blackglass-agent -g blackglass-agent -m 0600 /dev/null /etc/blackglass/agent/host-secret.new`;
+   - `read -rs secret && printf '%s
+' "$secret" > /etc/blackglass/agent/host-secret.new && unset secret` (paste at the prompt);
    - `mv -f /etc/blackglass/agent/host-secret.new /etc/blackglass/agent/host-secret`.
 3. Run `systemctl reload blackglass-agent` (SIGHUP).
 
@@ -57,6 +61,8 @@ A disabled host's old secret never works again; reloading it restores nothing.
 - It is audited in `/var/log/blackglass/emergency-stop.log` and the journal.
 - It is idempotent.
 - It touches only `blackglass-mission@` units: never the outbox, relay or claim state, inventory, settlement, energy or insurance.
+- It needs no configuration file.
+- **Caveat:** if the agent is running and authenticated, it reports each stopped unit's exit with its outbox scan, and Stage 9's exit-evidence rules apply. A complete scan with a participant absent can then void that participant. To freeze the state for an investigation, stop the agent first: `systemctl stop blackglass-agent`.
 
 ## Exit records
 

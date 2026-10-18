@@ -15,6 +15,7 @@ public sealed class Supervisor(IBackend backend, ISystemd systemd, StateStore st
     TimeProvider clock, string exitDir, AgentLog log)
 {
     readonly Dictionary<Guid, DateTimeOffset> nextRescan = new();
+    readonly HashSet<Guid> stopIssued = new();
     static readonly TimeSpan RescanInterval = TimeSpan.FromSeconds(30);
 
     public static bool Supervised(ClaimRecord r) =>
@@ -51,7 +52,22 @@ public sealed class Supervisor(IBackend backend, ISystemd systemd, StateStore st
         }
         else if (record.Phase == ClaimPhase.StartFailed && exit is null)
         {
-            exit = ExitRecords.Read(exitDir, attempt) ?? ExitStatus.Unknown;
+            // A failed or timed-out start is an unknown outcome (PID1 may still run the job): stop the unit (cancelling a queued
+            // start), and conclude nothing until systemd shows it terminal after that stop (security review I2).
+            if (stopIssued.Add(attempt))
+            {
+                await systemd.StopAsync(attempt, ct);
+                log.Info("unit_stop_after_failed_start", ("attempt", record.Attempt));
+                return record;
+            }
+            var state = await systemd.ShowAsync(attempt, ct);
+            if (state is null) return record;
+            if (!state.Terminal)
+            {
+                await systemd.StopAsync(attempt, ct);
+                return record;
+            }
+            exit = ExitRecords.Read(exitDir, attempt) ?? (state.Exit.Known ? state.Exit : ExitStatus.Unknown);
             record = store.Save(record with { Exit = exit });
         }
 
@@ -125,7 +141,7 @@ public sealed class Supervisor(IBackend backend, ISystemd systemd, StateStore st
 /// backend has ended (an authenticated directive, validated, and only for units that exist).
 /// </summary>
 public sealed class Heartbeat(IBackend backend, ISystemd systemd, StateStore store, AuthGate auth, LaunchGate gate, BuildInfo build,
-    Func<int> outboxPending, TimeProvider clock, AgentLog log)
+    Func<int> outboxPending, TimeProvider clock, AgentLog log, CredentialHandoff? handoff = null)
 {
     bool buildAlerted;
 
@@ -163,6 +179,17 @@ public sealed class Heartbeat(IBackend backend, ISystemd systemd, StateStore sto
                 foreach (var stop in ok.Stop)
                 {
                     if (!AttemptIds.TryParse(stop, out var attempt) || units.All(u => u.AttemptId != stop)) continue;
+                    using (await gate.EnterAsync(ct))
+                    {
+                        if (store.ForAttempt(stop) is { Phase: ClaimPhase.Claimed or ClaimPhase.Acknowledged or ClaimPhase.CredentialReady } pending)
+                        {
+                            // Ended by the backend before it started (security review M13): never started afterwards.
+                            store.Save(pending with { Phase = ClaimPhase.Abandoned, ProcessCredential = null, Note = "stop_directive_before_start" });
+                            handoff?.Delete(attempt);
+                            log.Info("claim_abandoned", ("attempt", stop), ("note", "stop_directive_before_start"));
+                            continue;
+                        }
+                    }
                     var stopped = await systemd.StopAsync(attempt, ct);
                     log.Info("unit_stop_directive", ("attempt", stop), ("stopped", stopped));
                 }

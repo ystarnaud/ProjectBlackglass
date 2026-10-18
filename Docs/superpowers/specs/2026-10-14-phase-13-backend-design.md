@@ -1061,7 +1061,7 @@ The manifest holds **facts only**: no XP, no reward totals, no energy, no insura
 
 ### 9.2 Outbox and relay (corrections 2 and 3)
 
-1. **Freeze:** at the participant's outcome freeze, the process builds the manifest and writes `/var/lib/blackglass/outbox/<attemptId>/<accountId>.json` (`<accountId>` is the canonical Base58 form) (temp file, `fsync`, rename, `fsync` of the directory). Only then does it tell that participant's client `NetResultRecordedMessage` ("result saved on the mission server; confirming with the account service").
+1. **Freeze** (as built: the file names are `<accountBase58>.manifest.tmp|written|ready`, Stage 9 §H; the `<accountId>.json` below is superseded): at the participant's outcome freeze, the process builds the manifest and writes `/var/lib/blackglass/outbox/<attemptId>/<accountId>.json` (`<accountId>` is the canonical Base58 form) (temp file, `fsync`, rename, `fsync` of the directory). Only then does it tell that participant's client `NetResultRecordedMessage` ("result saved on the mission server; confirming with the account service").
 2. **Per-attempt isolation (correction 5).** This is the simplest mechanism the kernel enforces, with no new component:
    - **Directory:** before the process starts, the template's `ExecStartPre=+/usr/bin/install -d -o blackglass-mission -g blackglass-agent -m 2750 /var/lib/blackglass/outbox/%i` creates the attempt's directory.
      - `%i` is a validated UUID (§7.4).

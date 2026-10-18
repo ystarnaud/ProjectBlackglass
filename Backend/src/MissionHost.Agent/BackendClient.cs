@@ -82,7 +82,7 @@ public sealed record ExitedBody(int? ExitCode, string? Signal, IReadOnlyList<(st
 /// send time) and nothing else secret; no request or response body is logged. A 401 is <see cref="Transport.Unauthorized"/>;
 /// a timeout, a connection failure, 408, 429 and 5xx are <see cref="Transport.Unavailable"/> (spec §9.2: never definitive).
 /// </summary>
-public sealed class BackendClient(HttpClient http, HostSecret secret) : IBackend
+public sealed class BackendClient(HttpClient http, HostSecret secret, Func<bool>? listenerTrusted = null) : IBackend
 {
     static readonly MediaTypeHeaderValue JsonType = new("application/json");
 
@@ -90,6 +90,7 @@ public sealed class BackendClient(HttpClient http, HostSecret secret) : IBackend
 
     async Task<(Response? Response, Transport? Failure)> SendAsync(string path, byte[] body, Guid? idempotencyKey, CancellationToken ct)
     {
+        if (listenerTrusted is not null && !listenerTrusted()) return (null, Transport.Unavailable); // I1: never to a squatter
         using var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = new ByteArrayContent(body) };
         request.Content.Headers.ContentType = JsonType;
         request.Headers.TryAddWithoutValidation("Authorization", secret.AuthorizationValue);

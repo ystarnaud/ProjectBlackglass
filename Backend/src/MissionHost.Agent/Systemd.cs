@@ -32,9 +32,10 @@ public sealed class ProcessRunner : IProcessRunner
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(timeout);
         try { await process.WaitForExitAsync(deadline.Token); }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
-            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+            try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { } // security review M14: never left behind
+            if (ct.IsCancellationRequested) throw;
             return new CommandResult(-1, "", TimedOut: true);
         }
         await stderr;

@@ -1,12 +1,10 @@
 // /etc/polkit-1/rules.d/60-blackglass-mission.rules (root:root 0644). Spec §7.4 (Q-5), A10-D4.
-// The agent's user may start and stop exactly blackglass-mission@<canonical lowercase uuid>.service, and nothing else through
-// systemd: every other systemd action it asks for is refused outright (enable, mask, restart, reload, other units, malformed names).
-// Every other subject falls through to the system's defaults, unchanged.
+// The agent's user may start and stop exactly blackglass-mission@<canonical lowercase uuid>.service, and nothing else: every other
+// action it asks polkit for (systemd or not: enable, mask, restart, reload, kill, set-property, transient units, other units,
+// malformed names, any other service) is refused outright, whatever other packages' defaults say. Every other subject falls through
+// to the system's defaults, unchanged.
 polkit.addRule(function(action, subject) {
     if (subject.user !== "blackglass-agent") {
-        return polkit.Result.NOT_HANDLED;
-    }
-    if (action.id.indexOf("org.freedesktop.systemd1.") !== 0) {
         return polkit.Result.NOT_HANDLED;
     }
     var unit = action.lookup("unit");

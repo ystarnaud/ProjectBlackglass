@@ -76,7 +76,8 @@ public static class Unix
     /// </summary>
     public static ReadResult ReadUntrusted(string path, long maxBytes)
     {
-        if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("The agent reads outbox files on Linux only.");
+        if (!OperatingSystem.IsLinux() || RuntimeInformation.ProcessArchitecture != Architecture.X64)
+            throw new PlatformNotSupportedException("The agent reads outbox files on linux-x64 only (the stat layout is x86_64's)."); // security review M11
         var fd = Open(path, ORdOnly | ONoFollow | ONonBlock | OCloExec);
         if (fd < 0)
         {

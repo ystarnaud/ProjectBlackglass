@@ -92,6 +92,8 @@ public sealed class StateStore
 
     public ClaimRecord? ForAttempt(string attempt) { lock (gate) return records.Values.FirstOrDefault(r => r.Attempt == attempt); }
 
+    public ClaimRecord? Get(Guid key) { lock (gate) return records.TryGetValue(key, out var r) ? r : null; }
+
     /// <summary>Writes the record durably, then makes it current. A failed write leaves the previous record (and throws).</summary>
     public ClaimRecord Save(ClaimRecord record)
     {

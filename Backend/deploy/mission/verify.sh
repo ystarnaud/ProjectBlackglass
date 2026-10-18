@@ -14,9 +14,9 @@ exec > >(tee "$report") 2>&1
 fails=0
 check() { if eval "$2"; then echo "ok   - $1"; else echo "FAIL - $1"; fails=$((fails + 1)); fi; }
 as_agent() { runuser -u blackglass-agent -- "$@"; }
-A="$(cat /proc/sys/kernel/random/uuid)" B="$(cat /proc/sys/kernel/random/uuid)"
+A="$(cat /proc/sys/kernel/random/uuid)" B="$(cat /proc/sys/kernel/random/uuid)" C="$(cat /proc/sys/kernel/random/uuid)"
 cleanup() {
-  for id in "$A" "$B"; do systemctl stop "blackglass-mission@$id.service" 2>/dev/null; rm -rf "/run/blackglass/launch/$id" "/etc/blackglass-stub/plans/$id"; done
+  for id in "$A" "$B" "$C"; do systemctl stop "blackglass-mission@$id.service" 2>/dev/null; rm -rf "/run/blackglass/launch/$id" "/etc/blackglass-stub/plans/$id"; done
 }
 trap cleanup EXIT
 
@@ -40,6 +40,10 @@ check "polkit refuses restart" "! as_agent systemctl --no-ask-password restart b
 check "polkit refuses another unit" "! as_agent systemctl --no-ask-password stop ssh.service 2>/dev/null"
 check "polkit refuses a malformed mission name" "! as_agent systemctl --no-ask-password start 'blackglass-mission@NOT-A-UUID.service' 2>/dev/null"
 check "polkit refuses the agent's own unit" "! as_agent systemctl --no-ask-password restart blackglass-agent.service 2>/dev/null"
+check "polkit refuses kill" "! as_agent systemctl --no-ask-password kill blackglass-mission@$A.service 2>/dev/null"
+check "polkit refuses reset-failed" "! as_agent systemctl --no-ask-password reset-failed blackglass-mission@$A.service 2>/dev/null"
+check "polkit refuses set-property" "! as_agent systemctl --no-ask-password set-property blackglass-mission@$A.service MemoryMax=8G 2>/dev/null"
+check "polkit refuses a transient unit" "! as_agent systemd-run --no-ask-password --unit=blackglass-mission@$C.service /bin/true 2>/dev/null"
 sleep 6
 
 # Isolation (spec §9.2): what A saw from inside its sandbox.
@@ -50,6 +54,15 @@ check "A cannot see the host secret" "grep -qx 'host_secret=invisible' $probe"
 check "A sees only its own outbox directory" "grep -qx 'outbox_entries=$A,' $probe"
 for op in read write rename delete; do check "A cannot $op in B's outbox" "grep -qx 'other_$op=denied' $probe"; done
 check "A can write its own outbox" "grep -qx 'own_write=allowed' $probe"
+# Through B's process (security review C1). These FAIL with one shared mission uid: they pass only once each attempt runs as its
+# own uid (the owner's checkpoint decision).
+check "A cannot read through B's /proc root" "grep -qx 'other_proc_root_read=denied' $probe || grep -qx 'other_process=invisible' $probe"
+check "A cannot write through B's /proc root" "grep -qx 'other_proc_root_write=denied' $probe || grep -qx 'other_process=invisible' $probe"
+check "A cannot signal B" "grep -qx 'other_signal=denied' $probe || grep -qx 'other_process=invisible' $probe"
+check "A cannot read B's credential" "grep -qx 'other_credential=denied' $probe"
+check "A cannot read B's logs" "grep -qx 'other_logs=denied' $probe"
+check "A cannot bind the tunnel's port 127.0.0.1:5081" "grep -qx 'tcp_bind_5081=denied' $probe"
+check "A's credential is the pc1 secret the agent handed over" "grep -qx 'credential_shape=pc1' $probe"
 check "A cannot write /etc" "grep -qx 'etc_write=denied' $probe"
 # The agent reads both outboxes and writes neither.
 check "the agent reads A's result" "as_agent cat /var/lib/blackglass/outbox/$A/probe.ready >/dev/null"
@@ -65,10 +78,21 @@ check "A's exit record says exited 3" "grep -qx 'code=exited' /var/lib/blackglas
 check "B's exit record says killed" "grep -qx 'code=killed' /var/lib/blackglass/exits/$B.exit"
 check "exit records are root:blackglass-agent 0640" "[ \"\$(stat -c '%U:%G %a' /var/lib/blackglass/exits/$A.exit)\" = 'root:blackglass-agent 640' ]"
 
+# A symlinked credential source (security review I3): systemd must never deliver another file. FAILS while LoadCredential reads an
+# agent-writable path as root (the owner's checkpoint decision).
+as_agent install -d -m 0700 "/run/blackglass/launch/$C"
+as_agent ln -s /etc/shadow "/run/blackglass/launch/$C/process"
+install -d -m 0755 "/etc/blackglass-stub/plans/$C"
+printf 'probe=yes\nsleep=1\nexit=0\n' > "/etc/blackglass-stub/plans/$C/plan"
+as_agent systemctl --no-ask-password start "blackglass-mission@$C.service" 2>/dev/null
+sleep 3
+check "a symlinked credential source never reaches the unit" "! grep -qx 'credential_shape=other' /var/log/blackglass/$C/probe.txt 2>/dev/null || [ ! -e /var/log/blackglass/$C/probe.txt ]"
+check "and the unit got no copy of the link's target" "! grep -qx 'credential=readable' /var/log/blackglass/$C/probe.txt 2>/dev/null"
+
 # systemd's own assessment, recorded.
 systemd-analyze security --no-pager "blackglass-mission@$A.service" | tail -n 3
 systemd-analyze security --no-pager blackglass-agent.service | tail -n 3
 check "/opt/blackglass/server was not touched" "! find /opt/blackglass/server -newer $probe -print -quit 2>/dev/null | grep -q ."
-echo "evidence kept: /var/lib/blackglass/outbox/{$A,$B} /var/lib/blackglass/exits/{$A,$B}.exit /var/log/blackglass/{$A,$B}"
+echo "evidence kept: /var/lib/blackglass/outbox/{$A,$B,$C} /var/lib/blackglass/exits/{$A,$B,$C}.exit /var/log/blackglass/{$A,$B,$C}"
 echo "verify: $fails failure(s); report $report"
 exit $(( fails > 0 ))

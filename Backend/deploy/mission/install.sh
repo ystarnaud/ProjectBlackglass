@@ -28,6 +28,7 @@ done
 [[ "$yes" == 1 ]] || { echo "refusing without --yes (the infrastructure checkpoint must be authorized)" >&2; exit 64; }
 [[ -d "$release" && -f "$release/RELEASE" ]] || { echo "--release <dir with RELEASE> is required" >&2; exit 64; }
 [[ -n "$services_host" && -s "$known_hosts" ]] || { echo "--services-host and a pinned --known-hosts file are required" >&2; exit 64; }
+[[ "$services_host" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] || { echo "--services-host must be a host name or IPv4 address" >&2; exit 64; }
 here="$(cd "$(dirname "$0")" && pwd)"
 [[ -e /etc/systemd/system/blackglass-mission@.service.d ]] && { echo "refusing: a drop-in directory for the mission template exists" >&2; exit 78; }
 
@@ -39,9 +40,15 @@ systemd-tmpfiles --create /etc/tmpfiles.d/blackglass.conf
 
 # 2. the agent release, verified, root-owned
 (cd "$release" && sed -n '/^[0-9a-f]\{64\} /p' RELEASE | sha256sum --check --strict --quiet) || { echo "release hashes do not match" >&2; exit 78; }
+# Every file is listed and every listed file exists: nothing unhashed is installed.
+listed="$(sed -n 's/^[0-9a-f]\{64\}  //p' "$release/RELEASE" | sort)"
+present="$(cd "$release" && find . -type f ! -name RELEASE -printf '%P\n' | sort)"
+[[ "$listed" == "$present" ]] || { echo "the release holds files RELEASE does not list (or the reverse)" >&2; exit 78; }
+grep -qx 'blackglass-agent' <<<"$listed" && grep -qx 'record-exit' <<<"$listed" || { echo "the release lacks blackglass-agent or record-exit" >&2; exit 78; }
 revision="$(sed -n 's/^revision=//p' "$release/RELEASE")"
 [[ "$revision" =~ ^[0-9a-f]{7,40}$ ]] || { echo "bad release revision" >&2; exit 78; }
 target="/opt/blackglass/agent/releases/$revision"
+[[ ! -e "$target" ]] || { echo "release $revision is already installed; switch to it with ln -sfn instead" >&2; exit 78; }
 install -d -m 0755 -o root -g root /opt/blackglass/agent/releases "$target"
 cp -a "$release/." "$target/"
 chown -R root:root "$target"

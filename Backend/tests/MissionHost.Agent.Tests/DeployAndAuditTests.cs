@@ -44,6 +44,7 @@ public partial class DeployAndAuditTests
         Assert.Contains("-/etc/blackglass", One("InaccessiblePaths"), StringComparison.Ordinal);
         Assert.Contains("-/run/blackglass", One("InaccessiblePaths"), StringComparison.Ordinal);
         Assert.Equal(("2G", "200%", "256"), (One("MemoryMax"), One("CPUQuota"), One("TasksMax")));
+        Assert.Equal(("udp", "any"), (One("SocketBindAllow"), One("SocketBindDeny"))); // no TCP listener: the tunnel port can't be taken (I1)
         // Root runs only the fixed ExecStartPre=+ and ExecStopPost=+ commands.
         Assert.All(unit.Where(kv => kv.Key.StartsWith("Exec", StringComparison.Ordinal)).SelectMany(kv => kv.Value.Select(v => (kv.Key, v))),
             e => Assert.True(!e.v.StartsWith('+') || e.Key is "ExecStartPre" or "ExecStopPost"));
@@ -59,6 +60,7 @@ public partial class DeployAndAuditTests
         Assert.Equal("/var/lib/blackglass/outbox /var/lib/blackglass/exits", One("ReadOnlyPaths"));
         Assert.Equal("/opt/blackglass/agent/current/blackglass-agent run --config /etc/blackglass/agent/agent.json", One("ExecStart"));
         Assert.Equal(("256M", "64"), (One("MemoryMax"), One("TasksMax")));
+        Assert.Equal("any", One("SocketBindDeny"));
     }
 
     [GeneratedRegex(@"/\^(?<pattern>[^/]+)\$/\.test\(unit\)", RegexOptions.CultureInvariant)]
@@ -117,6 +119,7 @@ public partial class DeployAndAuditTests
         Assert.Contains("restrict,port-forwarding,permitopen=\"127.0.0.1:5080\",command=\"/bin/false\"", Deploy(Path.Combine("tunnel", "services-vm-authorized_keys")), StringComparison.Ordinal);
         var unit = UnitFile(Deploy(Path.Combine("tunnel", "blackglass-tunnel.service")));
         Assert.Equal(("blackglass-tunnel", "always", "120"), (Assert.Single(unit["User"]), Assert.Single(unit["Restart"]), Assert.Single(unit["RestartMaxDelaySec"])));
+        Assert.Equal(("tcp:5081", "any"), (Assert.Single(unit["SocketBindAllow"]), Assert.Single(unit["SocketBindDeny"])));
     }
 
     [Fact]

@@ -36,6 +36,10 @@ NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Only UDP binds (the game port; Stage 12's server uses UDP): no TCP listener, so a mission can never take the tunnel's loopback
+# port and collect the agent's secret or other missions' credentials (security review I1).
+SocketBindAllow=udp
+SocketBindDeny=any
 RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
