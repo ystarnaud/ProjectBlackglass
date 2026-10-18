@@ -1,6 +1,6 @@
 # Phase 13A: backend architecture and persistent mission settlement (design)
 
-Date: 2026-10-14. **Revision 2.9** (Stage 9 owner rulings of 2026-10-17 on the settlement plan, §0.9, with the final rulings that authorized implementation the same day); revision 2.8 (Stage 8 owner rulings B1–B13 and design corrections of 2026-10-17, §0.8); revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
+Date: 2026-10-14. **Revision 2.11** (Stage 10 security corrections C1 and I3 authorized by the owner on 2026-10-18, §0.11); revision 2.10 (Stage 10 owner rulings A10-D1 to A10-D8 of 2026-10-17, §0.10); revision 2.9 (Stage 9 owner rulings of 2026-10-17 on the settlement plan, §0.9, with the final rulings that authorized implementation the same day); revision 2.8 (Stage 8 owner rulings B1–B13 and design corrections of 2026-10-17, §0.8); revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
 
 "Project Blackglass" is an internal codename. No identifier, table, route, credential or claim introduced here carries the product name, apart from the C# namespace and repository paths that already exist. Player-facing names live in data (`display_name`), never in keys.
 
@@ -49,7 +49,7 @@ Companion documents:
 | Q-2 quarantine | Automatic void at 24 h | **24 h triggers operator escalation, not a void.** The operator first re-validates the stored original manifest and checks the host's outbox; a protective void needs an explicit operator authorization that records those checks. Alerts repeat until it is resolved (§10.4) |
 | Q-3 lost host | Operator only, proposed | **Approved:** an operator-authorized void only; never on heartbeat expiry (§11.1) |
 | Q-4 late result after void | Proposed | **Approved:** `409`, the existing receipt preserved, an anomaly recorded; reconciliation is Phase 14 |
-| Q-5 host agent | Proposed | **Approved with conditions:** polkit allows only `blackglass-mission@<canonical lowercase UUID>.service`, and only start and stop; the template and the binary it runs are root-owned and fixed (§7.4) |
+| Q-5 host agent | Proposed | **Approved with conditions:** polkit allows only `blackglass-mission@<canonical lowercase UUID>.service`, and only start and stop; the template and the binary it runs are root-owned and fixed (§7.4). As corrected (§0.11): `blackglass-mission-NN@<uuid>.service`, NN 00..63, one root-owned template per slot |
 | A-19 insurance stacking | Newest grant wins | **Replaced:** activating the same benefit again **extends** the remaining coverage; benefits never multiply; cross-tier activation is refused for now (§6.2) |
 | Docker default bind | `"ip": "127.0.0.1"` (default bridge only) | Adds `default-network-opts` for user-defined bridge networks (Compose); Docker Engine ≥ 28 verified; explicit loopback publish kept (§4.5) |
 | Exposure checks | TCP only | IPv4 and IPv6, TCP and UDP. The existing `systemd-resolved` listeners are accounted for, and LLMNR is disabled through a drop-in. SSH is preserved (§4.5) |
@@ -346,6 +346,22 @@ The owner's rulings A10-D1 to A10-D8 are recorded in `Docs/superpowers/plans/202
 
 No change to either VM's system configuration happens before the owner's infrastructure checkpoint.
 
+### 0.11 Revision 2.11 (Stage 10 security corrections, 2026-10-18; installation still pending the owner's checkpoint)
+
+The owner authorized corrections for the independent review's C1 (one shared mission uid) and I3 (`LoadCredential` reading an agent-writable path as root). Evidence, tests and the installation package are in the Stage 10 plan's "Security corrections" section. They supersede the statements of §4.3, §7.4 and §9.2 that name `User=blackglass-mission`, `/run/blackglass/launch` or the `blackglass-mission@` template:
+- **C1, one uid per live mission:** systemd can't give each full-UUID mission unit its own dynamic user. It derives an unnamed dynamic user from the template prefix (every instance shares it), and a dynamic user name is at most 31 characters (a UUID is 36). Both facts were checked in a disposable systemd 255 container, the mission VM's build. So each host slot `NN` (00 to 63, the attempt's mission port minus the host's port base) has its own root-owned template `blackglass-mission-NN@<full attempt id>.service` with `DynamicUser=yes`, `User=blackglass-mNN`.
+  - **One live unit per slot:** the agent starts a slot's unit only when a complete inventory shows no other live unit in that slot, and a root `slot-guard` refuses a second one. Two live missions never share a uid.
+  - **Outbox and logs:** they are systemd's private per-unit `StateDirectory=blackglass-outbox/%i` and `LogsDirectory=blackglass-mission/%i`, under `/var/lib/private` and `/var/log/private` (root 0700). A unit's namespace shows only its own directory, so a later attempt handed a recycled uid can't reach an earlier one's files.
+  - **The agent's access:** it reads the outboxes through its own unit's read-only bind of `/var/lib/private/blackglass-outbox`, and can never write them.
+  - **Single start:** an attempt's unit runs at most once (`AssertPathExists=!` on its outbox and exit record).
+- **I3, a root credential broker:** the agent hands the attempt id, the acknowledged generation and the pc1 credential to a socket-activated root broker (`/run/blackglass/credential.sock`, `root:blackglass-agent 0660`, the peer must be the agent's uid). The broker writes `/run/blackglass/credentials/<attempt>/process` (root 0400 in root 0700), which is the only source for `LoadCredential`.
+  - **Failure modes:** links, other file types, hard links, wrong owners or modes fail closed.
+  - **Generations:** they only move forward.
+  - **Paths:** no path ever crosses from the agent to root.
+  - **The agent:** it starts nothing without the broker's "ok".
+- **Listeners:** a mission can't listen at all (`SystemCallFilter=~listen`, enforced by seccomp everywhere), so it can never impersonate the tunnel's loopback port (I1). Binding only the slot's own UDP port (`SocketBindAllow=udp:<port>`) is enforced only where systemd has `BPF_FRAMEWORK`, and Ubuntu 24.04's doesn't. An enforced per-slot UDP port is a **blocking Stage 12 acceptance requirement** (the plan names the options).
+- **The agent's configuration:** `portBase` (Stage 8's `port_base`) and `localCapacity` (the number of slots, at most 64) must match the backend's registration; `launchDir` is gone. Spec rows in §4.3, §7.4 and §9.2 are corrected below.
+
 ## 1. Goal, scope and starting point
 
 ### 1.1 Goal
@@ -402,7 +418,7 @@ flowchart LR
   subgraph MIS["bg-dev-mission01"]
     direction TB
     AG["Mission host agent\n(.NET 10 worker, systemd,\nuser blackglass-agent)"]
-    MP["Mission process per attempt\nblackglass-mission@ATTEMPT.service\nuser blackglass-mission\nFishNet 127.0.0.1:7770+"]
+    MP["Mission process per attempt\nblackglass-mission-NN@ATTEMPT.service\ndynamic user blackglass-mNN (one per slot, §0.11)\nFishNet 127.0.0.1:7770+"]
     OB[["Outbox, one directory per attempt\n/var/lib/blackglass/outbox/ATTEMPT/\n(fsync, survives exit, isolated per unit)"]]
     AG -- "systemctl start (polkit-scoped)" --> MP
     MP -- "write result (fsync + rename)" --> OB
@@ -531,7 +547,7 @@ The agent is a .NET 10 worker published self-contained, so the mission VM needs 
 ### 4.3 Mission host and process credentials [P]
 
 - **Host credential:** `mission_hosts (host_id, secret_hash, enabled, drained)`. A 256-bit secret is installed for the agent at `/etc/blackglass/agent/host-secret` (mode 600, owner `blackglass-agent`). Only the agent uses it: to claim, report process exits, relay results and report health.
-- **Process credential:** minted per attempt when the agent claims it, stored hashed, and valid only for that attempt's lifecycle calls (register, ready, redeem, start, heartbeat, status) until the attempt ends. The agent hands it to the unit through systemd `LoadCredential=`, so it is readable only by the service user. A compromised process can therefore touch only its own attempt.
+- **Process credential:** minted per attempt when the agent claims it, stored hashed, and valid only for that attempt's lifecycle calls (register, ready, redeem, start, heartbeat, status) until the attempt ends. The agent hands it to the root credential broker, which stores it where the unit's systemd `LoadCredential=` reads it (§0.11), so it is readable only by that unit's own user. A compromised process can therefore touch only its own attempt.
 - **Process session:** when the process registers, it gets a `process_session_id` bound to the attempt. Every result must name the bound session (§10.2).
 - **Build allowlist:** `allowed_builds (build_revision, catalogue_version, enabled)`. A process from a build that isn't on the list can't register (§13.3).
 
@@ -541,7 +557,7 @@ The agent is a .NET 10 worker published self-contained, so the mission VM needs 
 |---|---|---|
 | Account keys, access tokens, join tickets, host and process credentials | SHA-256 only | PostgreSQL |
 | Host secret (plain) | File, mode 600, `blackglass-agent` | `bg-dev-mission01:/etc/blackglass/agent/` |
-| Process credential (plain, transient) | systemd credential | `/run/blackglass/launch/<attempt>/` (agent-owned, removed after start) |
+| Process credential (plain, transient) | systemd credential | `/run/blackglass/credentials/<attempt>/process` (root 0400 in root 0700, written only by the root credential broker, discarded after start; §0.11) |
 | PostgreSQL passwords (migrator, app) | Compose secret files, one per consumer, mode 0400 and owned by that container's user (`postgres/`, `migrate/`, `api/` in root-owned 0700 directories) | `bg-dev-services01:/opt/blackglass/accounts/secrets/` |
 | Admin key | File, mode 600 | same |
 | Tunnel keys | Dedicated keys, `restrict,permitopen="127.0.0.1:5080"` | `authorized_keys` on services01 |
@@ -907,6 +923,12 @@ Every transition is one transaction guarded by the expected state. A repeat retu
 ### 7.4 Assignment and on-demand launch [P] (D-15)
 
 - **Units (Q-5 conditions):**
+  - **As corrected (revision 2.11, §0.11):**
+    - the template is one root-owned file per slot, `blackglass-mission-NN@.service`, with `DynamicUser=yes`, `User=blackglass-mNN`, `UMask=0022` and `LoadCredential=process:/run/blackglass/credentials/%i/process`;
+    - polkit's unit pattern is `^blackglass-mission-(0[0-9]|[1-5][0-9]|6[0-3])@<uuid>\.service$`;
+    - the root steps are `ExecStartPre=+slot-guard NN %i` and `ExecStopPost=+record-exit %i`.
+
+    The original settings below stay as the history of the approval.
   - `blackglass-agent.service` runs as `blackglass-agent`, with `Restart=always`.
   - The template `/etc/systemd/system/blackglass-mission@.service` is **root-owned, mode 0644, and fixed**: neither service account can change it or add drop-ins (`/etc/systemd/system/blackglass-mission@*.service.d/` doesn't exist and is root-owned if created). Its `ExecStart` runs a root-owned binary under `/opt/blackglass/server/current/`, writable only by root (deployment is an admin action). It passes `-attempt %i`, and the server's option parser accepts only a canonical lowercase UUID there.
   - The template's settings:
@@ -1062,7 +1084,11 @@ The manifest holds **facts only**: no XP, no reward totals, no energy, no insura
 ### 9.2 Outbox and relay (corrections 2 and 3)
 
 1. **Freeze** (as built: the file names are `<accountBase58>.manifest.tmp|written|ready`, Stage 9 §H; the `<accountId>.json` below is superseded): at the participant's outcome freeze, the process builds the manifest and writes `/var/lib/blackglass/outbox/<attemptId>/<accountId>.json` (`<accountId>` is the canonical Base58 form) (temp file, `fsync`, rename, `fsync` of the directory). Only then does it tell that participant's client `NetResultRecordedMessage` ("result saved on the mission server; confirming with the account service").
-2. **Per-attempt isolation (correction 5).** This is the simplest mechanism the kernel enforces, with no new component:
+2. **Per-attempt isolation (correction 5).** **As corrected (revision 2.11, §0.11):**
+   - The outbox is now each unit's systemd `StateDirectory=blackglass-outbox/%i` under root-only `/var/lib/private`, owned by that slot's dynamic uid, and visible in that unit's namespace only.
+   - The agent reads it through a read-only bind in its own unit.
+   - No two live units share a uid.
+   - The original mechanism below (one shared user, setgid directories) is superseded:
    - **Directory:** before the process starts, the template's `ExecStartPre=+/usr/bin/install -d -o blackglass-mission -g blackglass-agent -m 2750 /var/lib/blackglass/outbox/%i` creates the attempt's directory.
      - `%i` is a validated UUID (§7.4).
      - The parent `/var/lib/blackglass/outbox` is `root:blackglass-agent 0750`.

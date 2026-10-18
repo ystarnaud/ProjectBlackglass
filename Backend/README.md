@@ -477,7 +477,9 @@ Plan: `Docs/superpowers/plans/2026-10-17-phase-13-stage9-settlement.md` (revisio
 - **Tests:**
   - `tests/MissionHost.Agent.Tests` (no database): `tools/vm-test.sh --agent [filter]`, also part of `--full`;
   - `tests/Accounts.Integration.Tests/Agent` drives the agent against the real API.
-- **Deployment** (`deploy/mission/`): units, the polkit rule, users, directories, the root exit recorder, the stub mission, the tunnel files, and the publish, install, verify and uninstall scripts. See `deploy/mission/README.md`. **Not installed** until the owner authorizes the Stage 10 infrastructure checkpoint.
+- `src/MissionHost.CredentialBroker` (`blackglass-credential-broker`, security correction I3) is the only agent-facing code that runs as root. It is socket-activated per connection, has no project reference, and writes `/run/blackglass/credentials/<attempt>/process` for the mission unit's `LoadCredential`. Its tests are in `tests/MissionHost.Agent.Tests` (`CredentialBrokerTests`, `CredentialClientTests`).
+- **Mission units (security correction C1):** one template per host slot, `blackglass-mission-NN@<attempt>.service` (`NN` = mission port minus `portBase`), each running as that slot's systemd dynamic user, with systemd's private per-unit outbox. The agent configuration's `portBase` and `localCapacity` must match the host's registration (`port_base`, `capacity` no larger).
+- **Deployment** (`deploy/mission/`): the slot template and its renderer, the broker's socket and service, the agent unit, the polkit rule, users, directories, the root exit recorder and slot guard, the stub mission, the tunnel files, and the publish, install, verify and uninstall scripts. See `deploy/mission/README.md`. **Not installed** until the owner authorizes the Stage 10 infrastructure checkpoint; validated in a disposable systemd container.
 
 ## Restore limits
 Database-level privileges (`CONNECT`, `TEMPORARY`) are not inside a `pg_dump`. A real restore into a new cluster re-runs `initdb/00-roles.sh` first. Stage 17 and Phase 14 write the full recovery runbook.
