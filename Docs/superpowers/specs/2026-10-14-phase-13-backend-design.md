@@ -332,6 +332,20 @@ Not definitive, so the agent retries with backoff: `401`, `500`, `503` and timeo
 
 ---
 
+### 0.10 Revision 2.10 (Stage 10 owner rulings, 2026-10-17; implementation authorized, infrastructure checkpoint pending)
+
+The owner's rulings A10-D1 to A10-D8 are recorded in `Docs/superpowers/plans/2026-10-17-phase-13-stage10-mission-agent.md` (revision 2). In summary:
+- **A10-D1:** the agent's outbox access stays read-only. After a verified unit exit it relays a complete `.manifest.written` in place (validating name, identity and structure), and never renames or modifies a result. §9.2's step 3 and Stage 9's §H are read accordingly.
+- **A10-D2:** the host claim response (§16.2) carries `participants: [accountIdBase58]`, the attempt's admitted participants, immutable for the attempt.
+- **A10-D3:** a dedicated, restricted SSH tunnel (mission VM `127.0.0.1:5081` to services VM `127.0.0.1:5080`), prepared but not installed.
+- **A10-D4:** `systemctl` with structured arguments.
+- **A10-D5:** a root-only emergency stop with a dry run. No automatic stop on 401.
+- **A10-D6:** a self-contained `linux-x64` agent.
+- **A10-D7:** a root-owned stub mission executable for the VM tests.
+- **A10-D8:** the secret is re-read on `SIGHUP` and 401, with safeguards. A disable is never undone by a reload.
+
+No change to either VM's system configuration happens before the owner's infrastructure checkpoint.
+
 ## 1. Goal, scope and starting point
 
 ### 1.1 Goal

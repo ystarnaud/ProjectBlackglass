@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-17, after Stage 9's merge at `d72a325`):** plan only. Implementation is **not** authorized. Nothing here changes `bg-dev-mission01`, `bg-dev-services01`, SSH, a firewall, Docker networking or the live accounts stack. The owner decides A10-D1 to A10-D8 below before any code is written. Task 12 (the VM step) also needs the owner present for its root installs.
+**Status (2026-10-17):** revision 2. Implementation is authorized under the owner's rulings below, with an infrastructure checkpoint: nothing changes `bg-dev-mission01`, `bg-dev-services01`, SSH, a firewall, Docker networking or the live accounts stack until the owner separately authorizes it. Revision 1 (the recommendations) follows the rulings unchanged.
 
 **Goal:** an unprivileged agent on `bg-dev-mission01` that:
 - claims attempts and launches each one as a hardened systemd unit only after the backend has acknowledged `launching`;
@@ -60,7 +60,53 @@ From Stage 9 (§C, §H and S9-B7):
 - Send `outbox.complete: true` only after a full, successful read of the attempt's directory. Otherwise send `false`, and report a later successful rescan as the supplementary observation.
 - Handle each answer exactly as §C says (table in Task 7), recording relay state in the agent's own directory. Never delete a relay file before Phase 14's cleanup. Keep `AttemptRevoked` files for the operator.
 
-## Owner decisions (A10-D1 to A10-D8)
+## Revision 2: the owner's rulings (2026-10-17; implementation authorized, infrastructure checkpoint pending)
+
+The owner authorized test-first implementation on `phase13-stage10` with these rulings. They override the recommendations in the table below wherever the two differ.
+
+| # | Ruling | What it changes in this plan |
+|---|---|---|
+| **A10-D1** | **Revised.** The agent's outbox access stays read-only. The mission process owns creation and publication: `.manifest.tmp` is incomplete and never relayed; `.manifest.written` is complete, `fsync`ed and durable but unpublished; `.manifest.ready` is published and may be relayed at once, even while the process runs. The agent never renames, replaces, truncates, removes or modifies a result. **Crash recovery:** once the agent has independently verified that the unit exited, it may relay a complete `.manifest.written` directly, without renaming it. Before treating any file as a participant's result, it validates the file name, the identity (attempt and account) and the manifest structure. Delivery state lives in the agent's own directory, never in the outbox. A failed or incomplete scan is never proof of absence, and a `.tmp` is never a result. | Task 7 relays a verified-exit `.written` in place and validates name, identity and structure first. Stage 9's §H gains the read-only recovery exception. Tests cover a crash at every publication boundary. |
+| **A10-D2** | **Approved.** The authenticated host claim response includes the admitted participants' account ids as canonical Base58 strings. The list is read from the authoritative attempt records, scoped to the attempt that authenticated host claimed, immutable for the attempt, persisted durably with the claim response and restored at restart. It carries no profile information, credentials or inventory. | Task 3 adds `participants` to the claim response (store, route, contract, tests). |
+| **A10-D3** | **The architecture is approved; installation is not yet.** A dedicated systemd-managed SSH tunnel: mission VM `127.0.0.1:5081` → SSH → services VM `127.0.0.1:5080`. Requirements: a dedicated SSH identity separate from administrator keys; a dedicated restricted remote account (or an equally isolated policy); only the required local TCP forward, its destination restricted to `127.0.0.1:5080`; the local listener bound only to `127.0.0.1`; strict host-key verification against a verified, pinned key, with no insecure fallback; no shell, no arbitrary commands, no agent or X11 forwarding; automatic restart with bounded backoff and visible failures. A tunnel failure never stops running missions or loses results. No public API port. | The agent's `apiBaseUrl` is `http://127.0.0.1:5081`. Task 10 writes the tunnel unit, its `ssh` options and the services-VM account policy as files only. |
+| **A10-D4** | **Approved.** `systemctl` at a fixed executable path with structured argument lists, never a shell. Every unit name is derived only from a validated canonical UUID. Only start, stop and status operations against the fixed `blackglass-mission@` template. Polkit stays narrow and verifiable. | Task 5 adds tests for malicious unit names, unexpected arguments, refused operations, duplicate launches and process failures. |
+| **A10-D5** | **Approved.** A root-only local emergency command stops only Blackglass mission units without the backend. It supports a dry run that lists what it would stop, is explicit, audited (a local log) and idempotent, preserves the outbox and relay evidence, and never modifies inventory, settlement, energy or insurance. The agent never stops every mission because the backend returns 401. A 401 stops new claims and launches, triggers a secure secret reload and raises an operational alert. Normal authenticated stop directives keep working. | Task 11. |
+| **A10-D6** | **Approved.** A self-contained `linux-x64` executable; no machine-wide .NET runtime. Document the runtime identifier, the release hash, file ownership, the service identity and rollback. Executables and service files are root-owned and not writable by the agent or the mission process. Not installed until the infrastructure checkpoint. | Task 10 (publish script, release manifest, documentation). |
+| **A10-D7** | **Approved.** A root-owned stub mission executable tests the real template, polkit, process credentials and filesystem isolation before Stage 12. The tests never overwrite or replace the Unity server installation, use isolated test instances, and on failure clean up their units and temporary files without deleting result evidence. Prepared only; no root installation without separate approval. | Task 10 writes the stub and `verify.sh`. |
+| **A10-D8** | **Approved with safeguards.** The agent re-reads its host secret on `SIGHUP` and after any 401, from its protected file, validating the expected format. Rotation replaces the file atomically (documented operator procedure). If the reloaded secret is unchanged and still rejected: stop new claims and launches, back off without a rapid retry loop, raise an operational alert, and continue local supervision and durable file preservation. A disable revokes the old credential for good, and reloading it never restores authorization; recovery needs an explicit rotation and re-enable. The plaintext secret is never logged or exposed. | Tasks 2, 6 and 11. |
+
+**Additional requirements (the owner's):**
+- **Claim durability:**
+  - generate and persist the idempotency key before transmitting it;
+  - persist the complete accepted response (credential, generation, port, participants) before launching;
+  - get `launching` acknowledged before `systemctl start`;
+  - survive lost responses, superseded generations, crashes and restarts;
+  - never start a process with a superseded credential;
+  - protect stored process credentials and remove them only when recovery no longer needs them.
+- **Exit evidence:**
+  - report only after verifying the unit's terminal state and examining the durable outbox;
+  - list every required participant;
+  - set `outbox.complete` only after a successful authoritative enumeration;
+  - relay available complete results before positive evidence of absence;
+  - support Stage 9's supplementary observation.
+- **Backend failures:**
+  - distinguish a revoked credential from transport or database unavailability;
+  - a 503, a timeout, a lost tunnel or a failed scan is never evidence of mission failure;
+  - an agent restart, a process exit and a backend outage stay independently recoverable;
+  - the outbox stays intact until a separately authorized cleanup.
+- **Infrastructure checkpoint (replaces Task 12's execution).** Stage 10 produces the configuration files, installation scripts, unit templates, polkit rules and validation commands. Before any change to `bg-dev-mission01` or the services VM's SSH configuration it **stops** and presents:
+  1. every file to install or modify;
+  2. every user, group and directory to create;
+  3. the tunnel and credential setup;
+  4. the exact systemd and polkit permissions;
+  5. the stub-test procedure;
+  6. the expected verification results;
+  7. rollback.
+
+  Without that authorization, Stage 10 is reported **code-complete, infrastructure validation pending**.
+- An independent security review covers credential handling, process execution, file permissions and result preservation.
+
+## Owner decisions (A10-D1 to A10-D8), revision 1 recommendations
 
 | # | Decision | Recommendation | Alternatives and costs |
 |---|---|---|---|

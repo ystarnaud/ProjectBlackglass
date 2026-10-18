@@ -812,7 +812,9 @@ The domain tests read every vector. A vector change is a format change and needs
 4. Rename `.written` to `.ready`, then `fsync` the directory. Published.
 5. Tell the participant's client that the result is saved and pending (S9-B6).
 
-**Agent (Stage 10):**
+**Agent (Stage 10), as amended by the owner's Stage 10 ruling A10-D1 (2026-10-17):** the agent's outbox access is read-only. It never renames, replaces, truncates, removes or modifies a result. **Read-only recovery exception:** after independently verifying that the unit exited, the agent relays a complete `.manifest.written` directly, without renaming it to `.ready`, once it has validated the file name, the identity (attempt and account) and the manifest structure. Delivery state lives only in the agent's own relay directory. The process's durability steps (1–2) and the immediate relay of `.ready` files (including while the process runs) are unchanged. A failed or incomplete scan is never proof of absence, and a `.tmp` is never a result. Where the list below says the agent "renames each remaining `.written` file to `.ready`", read "relays each remaining `.written` file as it stands".
+
+**Agent (Stage 10), revision 3 text:**
 - Relays every `.ready` file as soon as it appears, whether or not the process is alive, and handles each answer as §C says.
 - Never touches a `.written` file while the process is alive (the process will publish it).
 - After the unit exits with a positive exit status (`exitCode` or `signal`), renames each remaining `.written` file to `.ready` (then `fsync`s the directory) and relays it. Such a participant is reported `present: true`.
