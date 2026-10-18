@@ -7,6 +7,8 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\..\src\Accounts.Api\Accounts.Api.csproj" />
     <ProjectReference Include="..\..\src\Accounts.Persistence\Accounts.Persistence.csproj" />
+    <!-- The mission host agent, driven against the real API (Agent/AgentBackendTests). -->
+    <ProjectReference Include="..\..\src\MissionHost.Agent\MissionHost.Agent.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

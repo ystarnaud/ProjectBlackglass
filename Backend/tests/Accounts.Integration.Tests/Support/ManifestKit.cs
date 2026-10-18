@@ -1,4 +1,6 @@
 using Dapper;
+using Blackglass.Accounts.Persistence.Accounts;
+using Blackglass.Accounts.Domain.Auth;
 using Blackglass.Accounts.Domain.Attempts;
 using Blackglass.Accounts.Domain.Catalogue;
 using Blackglass.Accounts.Domain.Settlement;
@@ -28,23 +30,36 @@ public static class ManifestKit
     /// <summary>A started participant. <paramref name="insured"/> activates the standard policy before admission.</summary>
     public static async Task<Running> StartAsync(MissionKit kit, TestDatabase db, PoolLine[]? pool = null, bool insured = false)
     {
-        pool ??= DefaultPool;
+        var (issued, attempt) = await AdmitAsync(kit, db, insured);
+        await kit.BeatAsync();
+        var claim = (ClaimResult.Claimed)await kit.Hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, default);
+        if (claim.AttemptId != attempt) throw new InvalidOperationException("The claim took another attempt.");
+        return await ProcessStartAsync(kit, db, issued, attempt, claim.Credential, pool);
+    }
+
+    /// <summary>A new account (with its starter), admitted to a new attempt, not yet claimed.</summary>
+    public static async Task<(IssuedCredential Issued, Guid Attempt)> AdmitAsync(MissionKit kit, TestDatabase db, bool insured = false)
+    {
         var issued = await kit.Accounts.CreateAccountAsync(null, null, AccountTestKit.Op);
         if (insured)
             await new InsuranceAdminStore(db.AsApp()).ActivateAsync(issued.AccountId, "standard", 86_400, Guid.NewGuid(), AccountTestKit.Op);
         var operative = await AccountTestKit.ScalarAsSuperuserAsync<long>(db, "select min(operative_id) from operatives where account_id = @a", new { a = issued.AccountId });
         var admission = await kit.Admissions.AdmitAsync(issued.AccountId, Guid.CreateVersion7(), new DeployRequest("procedural-standard", [operative]));
-        var attempt = Guid.Parse(System.Text.Json.JsonDocument.Parse(admission.Body).RootElement.GetProperty("attemptId").GetString()!);
-        await kit.BeatAsync();
-        var claim = (ClaimResult.Claimed)await kit.Hosts.ClaimAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), Guid.NewGuid(), 120, default);
-        if (claim.AttemptId != attempt) throw new InvalidOperationException("The claim took another attempt.");
-        var session = ((RegisterResult.Registered)await kit.Processes.RegisterAsync(attempt, claim.Credential.Hash(), new RegisterRequest(MissionKit.Build), default)).ProcessSessionId;
+        return (issued, Guid.Parse(System.Text.Json.JsonDocument.Parse(admission.Body).RootElement.GetProperty("attemptId").GetString()!));
+    }
+
+    /// <summary>What the mission process does with its credential after a claim: register, ready, redeem the participant's
+    /// ticket and commit the start.</summary>
+    public static async Task<Running> ProcessStartAsync(MissionKit kit, TestDatabase db, IssuedCredential issued, Guid attempt, OpaqueSecret credential, PoolLine[]? pool = null)
+    {
+        pool ??= DefaultPool;
+        var session = ((RegisterResult.Registered)await kit.Processes.RegisterAsync(attempt, credential.Hash(), new RegisterRequest(MissionKit.Build), default)).ProcessSessionId;
         const string layout = "cf2e14dece9cc2a6";
         var table = MissionKit.Table;
         var ready = await kit.Processes.ReadyAsync(attempt, new ReadyReport(session, layout, table.Version, LootHash.Compute(table.Version, pool),
             [new Objective("extract", true)], pool), kit.Catalogues, 120, default);
         if (ready is not ReadyResult.Ready) throw new InvalidOperationException($"Ready failed: {ready}");
-        var mission = new MissionKit.Mission(issued.AccountId, attempt, session, claim.Credential);
+        var mission = new MissionKit.Mission(issued.AccountId, attempt, session, credential);
         await kit.RedeemAsync(mission);
         if (await new StartStore(db.AsApp()).StartAsync(attempt, issued.AccountId, session, default) is not StartResult.Started)
             throw new InvalidOperationException("The start failed.");
