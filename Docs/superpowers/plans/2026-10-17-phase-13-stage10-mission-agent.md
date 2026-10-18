@@ -677,7 +677,7 @@ Once the owner chooses, the chosen options are implemented test-first (agent, un
 - **The checkpoint (owner):** decide C1 and I3; then implement them test-first, review, publish a release (its `RELEASE` hashes), install, verify and run the end-to-end checks.
 - **Stage 11:** manifests in format v1, written as `<accountBase58>.manifest.tmp|written|ready`.
 - **Stage 12:**
-  - the server binds UDP only (the template refuses TCP listeners);
+  - the server binds only its slot's UDP port and never listens (superseded by "Security corrections" below: the earlier template's TCP refusal was never enforced on Ubuntu 24.04; an enforced bind restriction is the blocking acceptance requirement B24 there);
   - it follows §H's five publication steps and the exit rules;
   - it reads its credential from `$CREDENTIALS_DIRECTORY/process`;
   - a real launcher replaces the stub behind `/opt/blackglass/mission/current`;

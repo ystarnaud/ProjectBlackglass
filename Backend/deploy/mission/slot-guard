@@ -1,18 +1,42 @@
 #!/bin/sh
 # /opt/blackglass/agent/current/slot-guard (root:root 0755). Run only by the slot templates' ExecStartPre=+ line, as root:
 #   slot-guard <slot 00..63> <attempt>
-# Refuses (exit 1) to let a mission unit start while another unit of the same slot is live: two would share the slot's dynamic uid
-# (security correction C1). The agent checks the same before every start; this is systemd's own last word. It only lists units.
+# Refuses (exit 1) to let a mission unit start while two units could share a uid (security correction C1):
+#   - another unit of the same slot is live (any state but inactive or failed), or the same attempt is live in another slot;
+#   - a process still runs as the slot's dynamic uid (one that outlived its unit's final SIGKILL; security review 2, M-4).
+# The agent checks the slot before every start; this is systemd's own last word. Note it runs after systemd has set up this unit
+# (its dynamic user, credentials and state directory): a refused attempt is burned, never started. It only lists units and
+# processes, and runs only the absolute paths below.
 set -eu
 slot="${1:-}"
 attempt="${2:-}"
-printf '%s' "$slot" | grep -Eqx '[0-5][0-9]|6[0-3]' || exit 1
+# case, not grep: a value must match whole, newlines included (security review 2, M-3).
+case "$slot" in
+  [0-5][0-9]|6[0-3]) ;;
+  *) exit 1 ;;
+esac
+case "$attempt" in
+  ""|*[!0-9a-f-]*) exit 1 ;;
+esac
 printf '%s' "$attempt" | grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' || exit 1
-systemctl="${BLACKGLASS_SYSTEMCTL:-/usr/bin/systemctl}" # the tests' fake; never set in a unit
 self="blackglass-mission-$slot@$attempt.service"
-listing="$("$systemctl" --no-ask-password --no-pager --no-legend --plain --full list-units --state=active,activating,deactivating,reloading -- "blackglass-mission-$slot@*.service")" || exit 1
-others="$(printf '%s\n' "$listing" | awk 'NF { print $1 }' | grep -vx -- "$self" || true)"
+
+listing="$(/usr/bin/systemctl --no-ask-password --no-pager --no-legend --plain --full --all list-units -- \
+  "blackglass-mission-$slot@*.service" "blackglass-mission-*@$attempt.service")" || exit 1
+others="$(printf '%s\n' "$listing" | awk '
+  NF == 0 { next }
+  { if ($1 == "●" || $1 == "*" || $1 == "x") { unit = $2; active = $4 } else { unit = $1; active = $3 } }
+  active != "inactive" && active != "failed" { print unit }' | grep -vx -- "$self" || true)"
 if [ -n "$others" ]; then
-  echo "slot $slot is busy: $(printf '%s' "$others" | tr '\n' ' ')" >&2
+  echo "slot $slot or attempt $attempt is busy: $(printf '%s' "$others" | tr '\n' ' ')" >&2
+  exit 1
+fi
+
+uid="$(/usr/bin/id -u "blackglass-m$slot" 2>/dev/null || true)"
+case "$uid" in
+  ""|*[!0-9]*) echo "the dynamic user blackglass-m$slot is unknown" >&2; exit 1 ;;
+esac
+if /usr/bin/ps -e -o uid= | awk -v uid="$uid" '$1 == uid { found = 1 } END { exit !found }'; then
+  echo "a process still runs as blackglass-m$slot ($uid)" >&2
   exit 1
 fi

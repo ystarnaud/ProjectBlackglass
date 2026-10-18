@@ -119,6 +119,9 @@ cat /etc/blackglass/tunnel/id_ed25519.pub
 
 # 5. systemd
 systemctl daemon-reload
+# systemd's own view: no drop-in of any kind (prefix, top-level, runtime, control) may change a slot unit (review 2, M-8).
+probe_unit="blackglass-mission-00@00000000-0000-4000-8000-000000000000.service"
+[[ -z "$(systemctl show -p DropInPaths --value "$probe_unit")" ]] || { echo "refusing: a drop-in changes the slot units: $(systemctl show -p DropInPaths --value "$probe_unit")" >&2; exit 78; }
 systemctl enable --now blackglass-credential.socket
 if [[ "$start" == 1 ]]; then
   [[ -s /etc/blackglass/agent/host-secret ]] || { echo "install the host secret first (blackglass-agent 0600)" >&2; exit 78; }

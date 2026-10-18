@@ -40,6 +40,9 @@ public sealed record ClaimRecord
     public required ClaimPhase Phase { get; init; }
     public string? Attempt { get; init; }
     public int MissionPort { get; init; }
+    /// <summary>The slot the attempt was claimed into (its port minus the port base then), persisted with the claim: the unit is
+    /// always derived from it, never again from the configuration, which an operator may change (security review 2, I-2).</summary>
+    public int? Slot { get; init; }
     public int Generation { get; init; }
     public DateTime? LaunchDeadline { get; init; }
     public string[] Participants { get; init; } = [];

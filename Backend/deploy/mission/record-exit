@@ -5,6 +5,7 @@
 # when it collects the unit, and the agent's exit report needs it (Stage 9 S9-B7). It reads nothing the mission process controls.
 set -eu
 attempt="${1:-}"
+case "$attempt" in ""|*[!0-9a-f-]*) exit 0 ;; esac # whole-value check first: grep alone passes any multi-line value with one good line
 printf '%s' "$attempt" | grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' || exit 0
 code="${EXIT_CODE:-}"
 status="${EXIT_STATUS:-}"

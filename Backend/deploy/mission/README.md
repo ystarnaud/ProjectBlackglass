@@ -11,14 +11,15 @@ It was validated end to end in a disposable Ubuntu 24.04 systemd container (syst
 |---|---|---|---|
 | `blackglass-agent` (static, no shell) | `blackglass-agent.service`: the agent | `/var/lib/blackglass/agent` (claims, 0700), `/var/lib/blackglass/relay` (delivery records, 0700) | the outboxes through its unit's read-only bind of `/var/lib/private/blackglass-outbox` at `/var/lib/blackglass/outbox`; the exit records (group read); the broker's socket (group) |
 | `blackglass-mNN` (systemd dynamic user, one per slot 00..63) | `blackglass-mission-NN@<attempt>.service`: one mission process per attempt; one live unit per slot | its own `$STATE_DIRECTORY` (`/var/lib/private/blackglass-outbox/<attempt>`) and `$LOGS_DIRECTORY` only | its credential (`$CREDENTIALS_DIRECTORY/process`); nothing of another attempt (namespace, uid, `ProtectProc=invisible`) |
-| root, no capabilities | `blackglass-credential@.service`, one per connection to `/run/blackglass/credential.sock` | `/run/blackglass/credentials` only | `/etc/passwd`; the request on its socket |
+| root, no capabilities | `blackglass-credential@.service`, one per connection to `/run/blackglass/credential.sock` | `/run/blackglass/credentials` only | what root owns (it passes owner checks), except what its unit makes inaccessible (`/etc/shadow`, `/etc/gshadow`, `/etc/ssh`, `/etc/sudoers*`, the Blackglass state); it reads only `/etc/passwd` and the request on its socket |
 | `blackglass-tunnel` (static, no shell) | `blackglass-tunnel.service`: `ssh -N` to the services VM | nothing persistent | `/etc/blackglass/tunnel` (its key, 0600) |
 | root | the slot templates' fixed `ExecStartPre=+slot-guard NN %i` and `ExecStopPost=+record-exit %i`, and the operator's `emergency-stop` | `/var/lib/blackglass/exits` | |
 
 - **Slots (C1):** a mission's slot is its port minus the host's port base. Each slot's template binds only that port (where systemd can enforce it, see Listeners).
   - `render-slot-units.sh <portBase> <slots>` writes the templates from `blackglass-mission-slot.service.in`. `install.sh` installs them; there must be no drop-ins.
   - `portBase` and `localCapacity` in `agent.json` must equal the backend's registration (`port_base`; a `capacity` no larger than the slots).
-  - The agent starts a slot's unit only when that slot has no live unit; `slot-guard` refuses a second one.
+  - The agent starts a slot's unit only when that slot has no live unit. `slot-guard` refuses a second live unit in the slot, the same attempt live in another slot, and a start while any process still runs as the slot's uid (one that survived a final SIGKILL). It runs after systemd has set the unit up (dynamic user, credential, state directory), so a refused attempt is burned, never started.
+  - The agent persists each claim's slot and derives its unit from that, never again from `agent.json`. Changing `portBase` or `localCapacity` never redirects a live mission.
   - An attempt's unit runs at most once (`AssertPathExists=!` on its outbox and exit record).
 - **Credentials (I3):** the agent hands `prepare <attempt> <generation>\n<pc1 credential>\n` to the root broker's socket (`root:blackglass-agent 0660`; the broker also checks the peer's uid). The broker writes `/run/blackglass/credentials/<attempt>/process` (root 0400 in root 0700), the units' only `LoadCredential` source.
   - The broker never takes a path, never reads a file for the agent, refuses links, other file types, hard links, wrong owners and modes, and lets generations only move forward.
@@ -36,7 +37,8 @@ It was validated end to end in a disposable Ubuntu 24.04 systemd container (syst
 - **Missions:**
   - `SystemCallFilter=~listen` (seccomp, enforced on every build): no stream listener, so a mission can never impersonate the tunnel's loopback port.
   - `SocketBindAllow=udp:<the slot's port>` and `SocketBindDeny=any`: the slot's own UDP port only, **enforced only where systemd has `BPF_FRAMEWORK`**. Ubuntu 24.04's doesn't, and `verify.sh` says which.
-  - An enforced per-slot port is a blocking Stage 12 acceptance requirement (the plan lists the options).
+  - **An enforced restriction is a blocking Stage 12 acceptance requirement** (spec §18.2 B24; the plan lists the options). The rule: a mission binds no address or port except its slot's UDP game port.
+  - **Known gap until then:** a compromised mission could bind TCP 127.0.0.1:5081 during a tunnel restart (a host-wide outage of heartbeats, claims, relays and stop directives until `emergency-stop`; no secret leaks), or take another slot's idle game port.
 - **The agent:** it sends nothing unless the tunnel port's listener belongs to `tunnelUser`.
 - **Agent and broker:** they never listen; `DOTNET_EnableDiagnostics=0` keeps the .NET diagnostic socket closed.
 

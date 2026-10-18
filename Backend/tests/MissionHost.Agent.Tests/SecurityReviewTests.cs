@@ -2,7 +2,7 @@ using Blackglass.MissionHost.Agent.Tests.Support;
 
 namespace Blackglass.MissionHost.Agent.Tests;
 
-/// <summary>The security review's code findings (I1, I2, M1, M2, M12, M13), each reproduced first.</summary>
+/// <summary>The security reviews' code findings (I1, I2, M1, M2, M12, M13; review 2: R2-I2), each reproduced first.</summary>
 public class SecurityReviewTests : IDisposable
 {
     readonly AgentDirs dirs = new();
@@ -74,6 +74,31 @@ public class SecurityReviewTests : IDisposable
         Assert.Null(broker.Credential(Guid.Parse(b.Id)));
         systemd.OnStart = attempt => Assert.NotNull(broker.Credential(attempt)); // LoadCredential finds it
         Assert.Equal(ClaimPhase.Started, (await agent.Claims.AdvanceAsync(acknowledged, default)).Phase);
+    }
+
+    [Theory]
+    [InlineData(7001, 64)] // portBase changed under a live mission
+    [InlineData(7000, 2)] // localCapacity lowered below its slot
+    public async Task R2_I2_a_configuration_change_never_turns_a_live_mission_into_exit_evidence(int portBase, int slots)
+    {
+        var a = backend.Admit(participants: ["JG"]);
+        a.Port = 7005; // slot 05
+        using (var first = NewAgent()) Assert.Equal(ClaimPhase.Started, (await first.Claims.ClaimNewAsync(default)).Phase);
+        dirs.WriteResult(a.Id, "JG", "written", Manifests.For(a.Id, "JG")); // a live process's file, not yet published
+        // The operator edits agent.json and restarts the agent while the mission runs.
+        var changed = dirs.Config with { PortBase = portBase, LocalCapacity = slots, RelayBackoffMinMs = 10, RelayBackoffMaxMs = 20 };
+        var secret = new HostSecret(changed.HostSecretFile);
+        secret.Reload();
+        using var agent = new AgentHost(changed, backend, systemd, new StoreBroker(dirs.Root), secret, log.Log);
+        await agent.RecoverAsync(default);
+        await agent.SuperviseOnceAsync(default);
+        Assert.Empty(backend.Exits); // the unit it started is still running: no exit, no absence
+        Assert.Empty(backend.Relayed); // and its .written file is never read
+        Assert.Equal(ClaimPhase.Started, agent.Store.All().Single().Phase);
+        Assert.DoesNotContain("loop_error", log.Text, StringComparison.Ordinal);
+        systemd.Exit(Guid.Parse(a.Id), code: 0); // when it does end, it is reported as usual
+        await agent.SuperviseOnceAsync(default);
+        Assert.Single(backend.Exits);
     }
 
     [Fact]

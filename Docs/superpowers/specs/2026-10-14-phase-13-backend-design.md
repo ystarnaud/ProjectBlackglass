@@ -55,7 +55,7 @@ Companion documents:
 | Exposure checks | TCP only | IPv4 and IPv6, TCP and UDP. The existing `systemd-resolved` listeners are accounted for, and LLMNR is disabled through a drop-in. SSH is preserved (§4.5) |
 | Stack consumption | `UPDATE … quantity - q`, then delete the zero rows (would violate `quantity > 0`) | `DELETE` when fully consumed, `UPDATE` when partially consumed; the constraint is untouched (§10.3) |
 | Regeneration | Materialized, not in the ledger | Every materialization writes a `regen` ledger entry keyed by the anchor it consumed; a reconciliation check compares wallet and ledger (§6.1) |
-| Outbox tampering | One shared directory | **One directory per attempt.** A unit can write only its own directory and can't see the others (systemd mount namespace, kernel-enforced); the agent reads through its group and never writes (§9.2) |
+| Outbox tampering | One shared directory | **One directory per attempt.** A unit can write only its own directory and can't see the others (systemd mount namespace, kernel-enforced); the agent reads through its group and never writes (§9.2; as corrected in §0.11: each unit's private systemd state directory, read by the agent through a read-only bind) |
 | Reconnect during a backend outage | Not handled | Process-issued **resume tokens** re-admit without the backend; the reconnect window and hard cap count only time when the backend was reachable (§11.2) |
 | Deploy idempotency | Same key → stored response | Same key **and** body → stored response; same key, different body → `409 IdempotencyKeyReused`, nothing created or charged (§7.3) |
 | Minted item ids | `uuidv5(attempt:account:line)` | `origin_ref` = kind, attempt, account, container, line and **unit index**; one id per unit of a non-stackable line (§4.7) |
@@ -359,7 +359,7 @@ The owner authorized corrections for the independent review's C1 (one shared mis
   - **Generations:** they only move forward.
   - **Paths:** no path ever crosses from the agent to root.
   - **The agent:** it starts nothing without the broker's "ok".
-- **Listeners:** a mission can't listen at all (`SystemCallFilter=~listen`, enforced by seccomp everywhere), so it can never impersonate the tunnel's loopback port (I1). Binding only the slot's own UDP port (`SocketBindAllow=udp:<port>`) is enforced only where systemd has `BPF_FRAMEWORK`, and Ubuntu 24.04's doesn't. An enforced per-slot UDP port is a **blocking Stage 12 acceptance requirement** (the plan names the options).
+- **Listeners:** a mission can't listen at all (`SystemCallFilter=~listen`, enforced by seccomp everywhere), so it can never impersonate the tunnel's loopback port (I1). Binding only the slot's own UDP port (`SocketBindAllow=udp:<port>`) is enforced only where systemd has `BPF_FRAMEWORK`, and Ubuntu 24.04's doesn't. An enforced restriction to the slot's own UDP port, on every interface and the tunnel's port included, is a **blocking Stage 12 acceptance requirement** (§18.2 B24; the Stage 10 plan's "Security corrections" names the options). Until then a compromised mission could deny the tunnel's port during a tunnel restart, or take another slot's idle game port; it can never impersonate the tunnel.
 - **The agent's configuration:** `portBase` (Stage 8's `port_base`) and `localCapacity` (the number of slots, at most 64) must match the backend's registration; `launchDir` is gone. Spec rows in §4.3, §7.4 and §9.2 are corrected below.
 
 ## 1. Goal, scope and starting point
@@ -1979,6 +1979,7 @@ Every operator call writes `operator_actions` in the same transaction as its eff
 | B21 | Outbox isolation and polkit scope hold on the VM (§18.1 layer 4) | Test transcript, `systemd-analyze security` |
 | B22 | Quarantine: escalation at the (shortened, test-configured) deadline without a state change; operator re-validation; an operator void only with its recorded checks; a host-loss declaration voids that host's unsettled participants; a late result after a void → 409 with the receipt preserved | Harness and API transcripts, `operator_actions` rows |
 | B23 | Insurance extension, regeneration ledger reconciliation, idempotency-key reuse and multi-unit minting behave as §18.1 states, against the VM database | Integration test output |
+| B24 | **Blocking for Stage 12** (Stage 10 security corrections, §0.11): a mission process can bind no address or port except its own slot's UDP game port, on every interface (tunnel port 127.0.0.1:5081 included), and can't listen at all. Enforced by one of the options the Stage 10 plan's "Security corrections" names (a `BPF_FRAMEWORK` systemd, per-slot passed sockets with `bind` denied, or per-slot nftables cgroup rules) | From a mission unit on the mission VM: TCP and UDP 5081, another slot's UDP port and port 0 refused; `verify.sh` transcript |
 
 ### 18.3 Invariant queries (run after every fault test and restore drill)
 

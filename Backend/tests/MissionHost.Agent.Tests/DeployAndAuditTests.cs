@@ -62,8 +62,11 @@ public partial class DeployAndAuditTests
         Assert.Equal("+/opt/blackglass/agent/current/slot-guard 07 %i", One("ExecStartPre"));
         Assert.Equal("/opt/blackglass/mission/current/run-mission %i", One("ExecStart"));
         Assert.Equal("+/opt/blackglass/agent/current/record-exit %i", One("ExecStopPost"));
-        foreach (var hidden in new[] { "-/etc/blackglass", "-/var/lib/blackglass", "-/run/blackglass", "-/var/log/blackglass" })
+        foreach (var hidden in new[] { "-/etc/blackglass", "-/var/lib/blackglass", "-/run/blackglass", "-/var/log/blackglass", "-/var/crash", "-/var/lib/apport" })
             Assert.Contains(hidden, One("InaccessiblePaths").Split(' '));
+        // Review 2: no core image a later attempt in the slot could read (M-5); no shared IPC namespace (M-6); failed units collected,
+        // so the inventory stays complete (M-7; the exit status lives in record-exit's record, single start in the asserts).
+        Assert.Equal(("0", "yes", "inactive-or-failed"), (One("LimitCORE"), One("PrivateIPC"), One("CollectMode")));
         // Listeners: no stream listener at all (seccomp; enforced on Ubuntu 24.04), and only this slot's UDP port (BPF; where built).
         Assert.Equal(("~listen", "EPERM"), (One("SystemCallFilter"), One("SystemCallErrorNumber")));
         Assert.Equal(("udp:7007", "any"), (One("SocketBindAllow"), One("SocketBindDeny")));
@@ -190,8 +193,8 @@ public partial class DeployAndAuditTests
         Assert.Equal(("/opt/blackglass/agent/current/blackglass-credential-broker", "socket", "socket"), (One("ExecStart"), One("StandardInput"), One("StandardOutput")));
         Assert.Equal(("strict", "/run/blackglass/credentials", "yes", "AF_UNIX", "", "yes"),
             (One("ProtectSystem"), One("ReadWritePaths"), One("PrivateNetwork"), One("RestrictAddressFamilies"), One("CapabilityBoundingSet"), One("NoNewPrivileges")));
-        Assert.Contains("-/var/lib/private", One("InaccessiblePaths").Split(' '));
-        Assert.Contains("-/etc/blackglass", One("InaccessiblePaths").Split(' '));
+        foreach (var hidden in new[] { "-/var/lib/private", "-/etc/blackglass", "-/etc/shadow", "-/etc/gshadow", "-/etc/ssh", "-/etc/sudoers", "-/etc/sudoers.d" })
+            Assert.Contains(hidden, One("InaccessiblePaths").Split(' ')); // root without capabilities still owns these (review 2, M-1)
         Assert.Equal("15s", One("RuntimeMaxSec"));
     }
 
@@ -216,8 +219,38 @@ public partial class DeployAndAuditTests
         Assert.DoesNotMatch(@"rm\s[^\n]*/opt/blackglass/server", Deploy("install.sh") + uninstall + Deploy("verify.sh"));
         Assert.Contains("grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'", Deploy("record-exit"), StringComparison.Ordinal);
         Assert.Contains("grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'", Deploy("slot-guard"), StringComparison.Ordinal);
-        Assert.Contains("grep -Eqx '[0-5][0-9]|6[0-3]'", Deploy("slot-guard"), StringComparison.Ordinal);
+        Assert.Contains("[0-5][0-9]|6[0-3]) ;;", Deploy("slot-guard"), StringComparison.Ordinal);
+        Assert.DoesNotContain("BLACKGLASS_", Deploy("slot-guard"), StringComparison.Ordinal); // no executable from the environment (review 2, M-3)
+        Assert.DoesNotContain("BLACKGLASS_", Deploy("record-exit"), StringComparison.Ordinal);
     }
+
+    /// <summary>Runs a copy of slot-guard whose /usr/bin/systemctl, /usr/bin/id and /usr/bin/ps are fakes printing the given text.</summary>
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    static (int Exit, bool SystemctlCalled) Guard(string slot, string attempt, string listing = "", string slotUid = "61001", string processUids = "0\n996\n")
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "bg-guard-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            void Fake(string name, string body)
+            {
+                File.WriteAllText(Path.Combine(dir, name), "#!/bin/sh\n" + body + "\n");
+                File.SetUnixFileMode(Path.Combine(dir, name), (UnixFileMode)0b111_101_101);
+            }
+            Fake("systemctl", $"echo called >> {dir}/calls; printf '{listing}'");
+            Fake("id", $"printf '{slotUid}\\n'");
+            Fake("ps", $"printf '{processUids}'");
+            var script = Deploy("slot-guard").Replace("/usr/bin/systemctl", Path.Combine(dir, "systemctl"), StringComparison.Ordinal)
+                .Replace("/usr/bin/id", Path.Combine(dir, "id"), StringComparison.Ordinal).Replace("/usr/bin/ps", Path.Combine(dir, "ps"), StringComparison.Ordinal);
+            File.WriteAllText(Path.Combine(dir, "slot-guard"), script);
+            using var run = Process.Start(new ProcessStartInfo("/bin/sh", [Path.Combine(dir, "slot-guard"), slot, attempt]) { RedirectStandardError = true })!;
+            run.WaitForExit();
+            return (run.ExitCode, File.Exists(Path.Combine(dir, "calls")));
+        }
+        finally { Directory.Delete(dir, recursive: true); }
+    }
+
+    const string GuardSelf = "blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded activating start-pre x\\n";
 
     [Theory]
     [InlineData("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", true)]
@@ -225,43 +258,37 @@ public partial class DeployAndAuditTests
     [InlineData("7", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", false)]
     [InlineData("07", "../../etc", false)]
     [InlineData("07;id", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", false)]
+    [InlineData("07", "x/../../etc/foo\n0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", false)] // a valid second line never saves the first (review 2, M-3)
+    [InlineData("07\n12", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", false)]
     public void The_slot_guard_refuses_malformed_arguments_before_asking_systemd(string slot, string attempt, bool valid)
     {
         if (!OperatingSystem.IsLinux()) return;
-        // A fake systemctl that lists nothing: a valid call passes; a malformed one never reaches it.
-        var dir = Path.Combine(Path.GetTempPath(), "bg-guard-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        var fake = Path.Combine(dir, "systemctl");
-        File.WriteAllText(fake, "#!/bin/sh\necho called >> " + Path.Combine(dir, "calls") + "\n");
-        File.SetUnixFileMode(fake, (UnixFileMode)0b111_101_101);
-        using var run = Process.Start(new ProcessStartInfo("/bin/sh", [Path.Combine(AppContext.BaseDirectory, "deploy", "slot-guard"), slot, attempt])
-            { Environment = { ["BLACKGLASS_SYSTEMCTL"] = fake }, RedirectStandardError = true })!;
-        run.WaitForExit();
-        Assert.Equal(valid, run.ExitCode == 0);
-        Assert.Equal(valid, File.Exists(Path.Combine(dir, "calls")));
-        Directory.Delete(dir, recursive: true);
+        var (exit, called) = Guard(slot, attempt, GuardSelf);
+        Assert.Equal(valid, exit == 0);
+        Assert.Equal(valid, called);
+    }
+
+    [Theory]
+    [InlineData("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e42.service loaded active running x\\n")] // another attempt in the slot
+    [InlineData("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e42.service loaded refreshing x x\\n")] // any state but inactive or failed is live
+    [InlineData("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e42.service loaded maintenance x x\\n")]
+    [InlineData("blackglass-mission-12@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded active running x\\n")] // the same attempt live in another slot
+    public void The_slot_guard_refuses_a_second_live_unit(string other)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        Assert.Equal(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf).Exit); // itself only
+        Assert.Equal(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf + "blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e42.service loaded failed failed x\\n").Exit);
+        Assert.NotEqual(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf + other).Exit);
     }
 
     [Fact]
-    public void The_slot_guard_refuses_a_second_live_unit_in_the_slot()
+    public void The_slot_guard_refuses_while_a_process_still_runs_as_the_slots_uid()
     {
         if (!OperatingSystem.IsLinux()) return;
-        var dir = Path.Combine(Path.GetTempPath(), "bg-guard-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(dir);
-        var fake = Path.Combine(dir, "systemctl");
-        int Guard(string listing)
-        {
-            File.WriteAllText(fake, "#!/bin/sh\nprintf '" + listing + "'\n");
-            File.SetUnixFileMode(fake, (UnixFileMode)0b111_101_101);
-            using var run = Process.Start(new ProcessStartInfo("/bin/sh", [Path.Combine(AppContext.BaseDirectory, "deploy", "slot-guard"), "07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41"])
-                { Environment = { ["BLACKGLASS_SYSTEMCTL"] = fake }, RedirectStandardError = true })!;
-            run.WaitForExit();
-            return run.ExitCode;
-        }
-        Assert.Equal(0, Guard("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded activating start-pre x\\n")); // itself only
-        Assert.NotEqual(0, Guard("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded activating start-pre x\\n"
-            + "blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e42.service loaded active running x\\n"));
-        Directory.Delete(dir, recursive: true);
+        // A process that outlived its unit's final SIGKILL would share a uid with the next attempt in the slot (review 2, M-4).
+        Assert.NotEqual(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf, slotUid: "61001", processUids: "0\\n61001\\n").Exit);
+        Assert.Equal(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf, slotUid: "61001", processUids: "0\\n610010\\n").Exit);
+        Assert.NotEqual(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf, slotUid: "").Exit); // the slot's user unknown: refused
     }
 
     // ---- the agent's sources ----

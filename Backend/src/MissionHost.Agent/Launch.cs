@@ -102,7 +102,7 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
                     log.Alert("claim_attempt_already_tracked", ("attempt", g.Attempt));
                     return store.Save(record with { Phase = ClaimPhase.Abandoned, Note = "attempt_already_tracked" });
                 }
-                if (slots.SlotOf(g.MissionPort) is null)
+                if (slots.SlotOf(g.MissionPort) is not { } slot)
                 {
                     // No template exists for that port's slot: never launched (the backend's launch deadline cancels the attempt).
                     log.Alert("claim_port_outside_slots", ("attempt", g.Attempt), ("port", g.MissionPort), ("port_base", slots.PortBase), ("slots", slots.Count));
@@ -112,7 +112,7 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
                     ("recovered", g.Recovered));
                 return store.Save(record with
                 {
-                    Phase = ClaimPhase.Claimed, Attempt = g.Attempt, MissionPort = g.MissionPort, Generation = g.Generation, LaunchDeadline = g.LaunchDeadline,
+                    Phase = ClaimPhase.Claimed, Attempt = g.Attempt, MissionPort = g.MissionPort, Slot = slot, Generation = g.Generation, LaunchDeadline = g.LaunchDeadline,
                     Participants = g.Participants, ProcessCredential = g.ProcessCredential,
                 });
             case ClaimAnswer.NoWork or ClaimAnswer.HostUnavailable:

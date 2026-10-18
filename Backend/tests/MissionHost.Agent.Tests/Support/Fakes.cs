@@ -171,10 +171,14 @@ public sealed class FakeSystemd(string outboxDir) : ISystemd
         return Task.FromResult(true);
     }
 
+    /// <summary>A unit name with another slot than the attempt's own is another unit, as in systemd: unknown, inactive.</summary>
+    bool OtherUnit(MissionUnit unit) => UnitSlots.TryGetValue(unit.Attempt, out var slot) && slot != unit.Slot;
+
     public Task<bool> StopAsync(MissionUnit unit, CancellationToken ct)
     {
         var attempt = unit.Attempt;
         Calls.Add($"stop:{attempt:D}");
+        if (OtherUnit(unit)) return Task.FromResult(true);
         if (Units.TryGetValue(attempt, out var u) && u.ActiveState != "inactive") Units[attempt] = u with { ActiveState = "inactive", ExecMainCode = 2, ExecMainStatus = 15 };
         return Task.FromResult(true);
     }
@@ -200,7 +204,7 @@ public sealed class FakeSystemd(string outboxDir) : ISystemd
     {
         var attempt = unit.Attempt;
         Calls.Add($"show:{attempt:D}");
-        var u = Units.TryGetValue(attempt, out var x) ? x : new Unit("inactive", "success", 0, 0, "");
+        var u = !OtherUnit(unit) && Units.TryGetValue(attempt, out var x) ? x : new Unit("inactive", "success", 0, 0, "");
         return Task.FromResult<UnitState?>(new UnitState("loaded", u.ActiveState, u.ActiveState == "active" ? "running" : "dead", u.Result, u.ExecMainCode, u.ExecMainStatus, u.InvocationId));
     }
 }

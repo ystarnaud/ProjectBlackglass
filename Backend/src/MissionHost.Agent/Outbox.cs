@@ -18,7 +18,8 @@ public sealed record OutboxScan(bool Complete, IReadOnlyList<OutboxFile> Files, 
 }
 
 /// <summary>
-/// Reads an attempt's outbox (OutboxDir/&lt;attempt&gt;, written only by its mission unit; the agent has group read access only)
+/// Reads an attempt's outbox (OutboxDir/&lt;attempt&gt;, written only by its mission unit: its systemd state directory, which the
+/// agent sees through its unit's read-only bind; security correction C1)
 /// under the publish contract (Stage 9 §H as amended by A10-D1):
 /// - "&lt;account&gt;.manifest.tmp": incomplete, never read, never a result;
 /// - "&lt;account&gt;.manifest.ready": published, read and relayed at once, even while the process runs;
@@ -46,7 +47,7 @@ public sealed partial class OutboxScanner(string outboxDir, long maxBytes, Func<
         List<string> names;
         try
         {
-            // A missing directory is never "no results": the unit's root ExecStartPre creates it, so its absence is unexplained.
+            // A missing directory is never "no results": systemd creates it (StateDirectory) before the unit runs, so its absence is unexplained.
             if (!Directory.Exists(directory)) return new OutboxScan(false, [], ["outbox_missing"]);
             // Bounded (security review M12): a flooded directory is listed only so far, and the scan is then incomplete.
             names = Directory.EnumerateFileSystemEntries(directory).Select(p => Path.GetFileName(p)!).Take(MaxEntries + 1).ToList();

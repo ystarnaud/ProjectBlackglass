@@ -73,9 +73,14 @@ public sealed record MissionSlots(int PortBase, int Count)
 {
     public int? SlotOf(int port) => port >= PortBase && port < PortBase + Count && port - PortBase < MissionUnit.MaxSlots ? port - PortBase : null;
 
-    /// <summary>The unit of a claimed attempt, or null when its port is outside the slots or it has no attempt.</summary>
-    public MissionUnit? UnitOf(ClaimRecord record) =>
-        record.Attempt is { } a && AttemptIds.TryParse(a, out var attempt) && SlotOf(record.MissionPort) is { } slot ? new MissionUnit(slot, attempt) : null;
+    /// <summary>The unit of a claimed attempt: from the slot persisted with its claim (whatever the configuration says now), or,
+    /// for a record without one, from its port; null when it has no attempt or no valid slot.</summary>
+    public MissionUnit? UnitOf(ClaimRecord record)
+    {
+        if (record.Attempt is not { } a || !AttemptIds.TryParse(a, out var attempt)) return null;
+        var slot = record.Slot ?? SlotOf(record.MissionPort);
+        return slot is >= 0 and < MissionUnit.MaxSlots ? new MissionUnit(slot.Value, attempt) : null;
+    }
 }
 
 /// <summary>Account ids as the backend shows them: canonical Base58 (decision 048 amendment).</summary>
