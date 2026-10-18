@@ -389,7 +389,7 @@ This section covers schema version 8 (`0008_hosts_sessions_tickets`), under owne
 | Route | Answer |
 |---|---|
 | `POST /agent/v1/heartbeat`, body `{buildRevision, catalogueVersion, inventory:{complete, units:[{attemptId, activeState}]}, outboxPending}` | `{drained, stop:[attemptId]}`. Only a `complete` inventory frees the slots of ended attempts that it no longer lists (R2). `stop` lists ended attempts whose units remain |
-| `POST /agent/v1/claim` with `Idempotency-Key`, body `{}` | `200 {attemptId, missionPort, processCredential, credentialGeneration, launchDeadline, recovered}`, or `204` after the long poll. Errors: `409 HostUnavailable`, `InvalidState`. Retrying the key while the attempt is still `assigned` is a **recovery**: the same attempt with a new credential and the next generation (R1) |
+| `POST /agent/v1/claim` with `Idempotency-Key`, body `{}` | `200 {attemptId, missionPort, processCredential, credentialGeneration, launchDeadline, recovered, participants}` (Stage 10, A10-D2: `participants` lists the attempt's participant accounts as canonical Base58, immutable for the attempt, the agent's roster for complete exit reports), or `204` after the long poll. Errors: `409 HostUnavailable`, `InvalidState`. Retrying the key while the attempt is still `assigned` is a **recovery**: the same attempt with a new credential and the next generation (R1) |
 | `POST /agent/v1/attempts/{id}/launching`, body `{credentialGeneration}` | `{state}`. Errors: `409 CredentialSuperseded`, `InvalidState`; `404` |
 | `POST /agent/v1/attempts/{id}/exited`, body `{exitCode, signal, results:[{accountId, present}]}` | `{applied: "cancelled" \| "none"}`. Stores the report as evidence and frees the slot. Before any start it also cancels and releases. An identical repeat gets the same answer; a different report is `409 ConflictingReport` |
 
@@ -471,6 +471,13 @@ Plan: `Docs/superpowers/plans/2026-10-17-phase-13-stage9-settlement.md` (revisio
 - Exit codes: 64 a missing attestation or confirmation, 65 not found, 66 not allowed, 75 busy.
 - **Replays:** a byte-identical or re-encoded retry gets its stored answer (past the submission cap too, without storing another copy), and `duplicate` once its manifest is the settled one (also after an operator revalidation). A result for a revoked attempt is refused (`409 AttemptRevoked`) before any replay answer; an attempt that settled before a disable was never revoked, so its settlement's answer stands.
 - **Crash drill** (`tools/vm-crash-drill.sh`, on bg-dev-services01): passes only when the throwaway database container was verifiably killed (its id, exit 137) and restarted (a new start time) and the driver saw PostgreSQL restart; `--negative-skip-kill` must fail with 80. Cleanup also runs after a failed command, SIGINT, SIGTERM or SIGHUP on the VM, and within seconds of the ssh session ending (a local Ctrl-C or a dropped connection: a watchdog on the VM notices the session is gone).
+
+## The mission host agent (Stage 10)
+- `src/MissionHost.Agent` is the agent (`blackglass-agent run|status|emergency-stop`): .NET 10, self-contained `linux-x64`. It talks to the API over HTTP only (the loopback tunnel, `http://127.0.0.1:5081/`) and references only `Accounts.Domain`.
+- **Tests:**
+  - `tests/MissionHost.Agent.Tests` (no database): `tools/vm-test.sh --agent [filter]`, also part of `--full`;
+  - `tests/Accounts.Integration.Tests/Agent` drives the agent against the real API.
+- **Deployment** (`deploy/mission/`): units, the polkit rule, users, directories, the root exit recorder, the stub mission, the tunnel files, and the publish, install, verify and uninstall scripts. See `deploy/mission/README.md`. **Not installed** until the owner authorizes the Stage 10 infrastructure checkpoint.
 
 ## Restore limits
 Database-level privileges (`CONNECT`, `TEMPORARY`) are not inside a `pg_dump`. A real restore into a new cluster re-runs `initdb/00-roles.sh` first. Stage 17 and Phase 14 write the full recovery runbook.

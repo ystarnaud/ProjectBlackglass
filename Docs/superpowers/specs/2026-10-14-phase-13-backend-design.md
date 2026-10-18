@@ -1810,7 +1810,7 @@ Idempotency-Key: 6f7c0a52-2d4e-4b3a-9a77-1b1f9d0c2e10
 | Route | Body → response |
 |---|---|
 | `POST /agent/v1/heartbeat` | `{hostId, freeSlots, units:[{attemptId, activeState}], outboxPending}` → `{drained}` |
-| `POST /agent/v1/claim` (long poll ≤ 25 s) | `{hostId, freeSlots}` → 200 `{attemptId, missionPort, processCredential, launchDeadline}` or 204 |
+| `POST /agent/v1/claim` (long poll ≤ 25 s) | `{hostId, freeSlots}` → 200 `{attemptId, missionPort, processCredential, launchDeadline}` or 204. **As built (Stage 8, Stage 10 A10-D2):** body `{}` with `Idempotency-Key`; 200 `{attemptId, missionPort, processCredential, credentialGeneration, launchDeadline, recovered, participants:[accountIdBase58]}` |
 | `POST /agent/v1/attempts/{aid}/launching` | → 200 |
 | `POST /agent/v1/attempts/{aid}/exited` | `{exitCode, signal, results:[{accountId, present}]}` → `{applied:"none"|"cancelled"|"void"}` |
 | `POST /agent/v1/results` | a participant manifest → 200 `{duplicate, receipt}`; 409 `Conflict`, `WrongAttempt`, `InvalidState`; 422 `{errors:[{check, detail}]}` |
