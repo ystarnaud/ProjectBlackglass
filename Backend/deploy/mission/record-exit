@@ -1,0 +1,22 @@
+#!/bin/sh
+# /opt/blackglass/agent/current/record-exit (root:root 0755). Run only by the mission template's ExecStopPost=+ line, as root, with
+# systemd's $EXIT_CODE (exited, killed or dumped) and $EXIT_STATUS (a number or a signal name). Writes the attempt's exit record
+# /var/lib/blackglass/exits/<attempt>.exit (root:blackglass-agent 0640) atomically: systemd forgets a cleanly exited unit's status
+# when it collects the unit, and the agent's exit report needs it (Stage 9 S9-B7). It reads nothing the mission process controls.
+set -eu
+attempt="${1:-}"
+printf '%s' "$attempt" | grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' || exit 0
+code="${EXIT_CODE:-}"
+status="${EXIT_STATUS:-}"
+result="${SERVICE_RESULT:-unknown}"
+case "$code" in exited|killed|dumped) ;; *) exit 0 ;; esac
+printf '%s' "$status" | grep -Eqx '[A-Z0-9]{1,16}' || exit 0
+printf '%s' "$result" | grep -Eqx '[a-z-]{1,32}' || result=unknown
+dir=/var/lib/blackglass/exits
+tmp="$(mktemp "$dir/.record.XXXXXX")"
+printf 'code=%s\nstatus=%s\nresult=%s\n' "$code" "$status" "$result" > "$tmp"
+chown root:blackglass-agent "$tmp"
+chmod 0640 "$tmp"
+sync "$tmp"
+mv -f "$tmp" "$dir/$attempt.exit"
+sync "$dir"

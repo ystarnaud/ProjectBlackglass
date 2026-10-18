@@ -1,0 +1,47 @@
+# /etc/systemd/system/blackglass-agent.service (root:root 0644). The mission host agent (spec §7.4; A10-D5, A10-D6, A10-D8).
+# Never root. It may start and stop blackglass-mission@<uuid> units only, through the polkit rule 60-blackglass-mission.rules.
+[Unit]
+Description=Blackglass mission host agent
+Wants=network-online.target blackglass-tunnel.service
+After=network-online.target blackglass-tunnel.service
+
+[Service]
+Type=simple
+User=blackglass-agent
+Group=blackglass-agent
+ExecStart=/opt/blackglass/agent/current/blackglass-agent run --config /etc/blackglass/agent/agent.json
+# Re-read the host secret after an atomic rotation (A10-D8).
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+UMask=0077
+
+# Writable: its own state, delivery records and the credential handoff only. The outbox and exit records are read-only to it.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/blackglass/agent /var/lib/blackglass/relay /run/blackglass/launch
+ReadOnlyPaths=/var/lib/blackglass/outbox /var/lib/blackglass/exits
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+SystemCallArchitectures=native
+
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

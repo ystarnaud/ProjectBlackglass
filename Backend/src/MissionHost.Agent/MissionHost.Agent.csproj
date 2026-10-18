@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Linux mission host agent (Phase 13 Stage 10). Published self-contained for linux-x64 (A10-D6): see
+       deploy/mission/publish-agent.sh. It references only Accounts.Domain (pure: identifiers, secrets' formats, the format-v1
+       manifest parser), never the persistence or API assemblies: it talks to the backend over HTTP. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Blackglass.MissionHost.Agent</RootNamespace>
+    <AssemblyName>blackglass-agent</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Accounts.Domain\Accounts.Domain.csproj" />
+    <InternalsVisibleTo Include="MissionHost.Agent.Tests" />
+  </ItemGroup>
+</Project>

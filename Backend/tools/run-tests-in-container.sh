@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs inside the disposable test container started by vm-test.sh (never by hand on a workstation).
-#   run-tests-in-container.sh full|filter [<xunit filter>]
+#   run-tests-in-container.sh full|filter|agent [<xunit filter>]
 #   run-tests-in-container.sh build          sync and build only (the crash drill builds here, with the package feed reachable)
 #   run-tests-in-container.sh drill          the crash drill's driver only, from the cached build (no restore, no build: it runs on
 #                                            the drill's internal network, which has no route out)
@@ -38,7 +38,10 @@ t1=$(date +%s); echo "build $((t1 - t0)) s"
 code=0
 if [[ "$mode" == full ]]; then
   dotnet test tests/Accounts.Domain.Tests --no-build -nologo --logger "trx;LogFileName=domain.trx" --results-directory "$out" || code=$?
+  dotnet test tests/MissionHost.Agent.Tests --no-build -nologo --logger "trx;LogFileName=agent.trx" --results-directory "$out" || code=$?
   dotnet test tests/Accounts.Integration.Tests --no-build -nologo --logger "trx;LogFileName=integration.trx" --results-directory "$out" || code=$?
+elif [[ "$mode" == agent ]]; then
+  dotnet test tests/MissionHost.Agent.Tests --no-build -nologo ${filter:+--filter "$filter"} --logger "trx;LogFileName=agent.trx" --results-directory "$out" || code=$?
 else
   dotnet test tests/Accounts.Integration.Tests --no-build -nologo --filter "$filter" --logger "trx;LogFileName=integration.trx" --results-directory "$out" || code=$?
 fi

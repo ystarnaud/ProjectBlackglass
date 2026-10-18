@@ -17,7 +17,10 @@ public abstract record ClaimResult
 {
     /// <param name="Recovered">True for a retry of the claim's key while the attempt was still assigned (R1): the same attempt
     /// with a newly issued credential and the next generation, not a replay of the first response.</param>
-    public sealed record Claimed(Guid AttemptId, string HostId, int MissionPort, OpaqueSecret Credential, int CredentialGeneration, DateTime LaunchDeadline, bool Recovered) : ClaimResult;
+    /// <param name="Participants">Every participant of the attempt (its rows, inserted at admission and never added to), in
+    /// account order: the agent's roster for complete exit reports (Stage 10 A10-D2). Immutable for the attempt.</param>
+    public sealed record Claimed(Guid AttemptId, string HostId, int MissionPort, OpaqueSecret Credential, int CredentialGeneration, DateTime LaunchDeadline, bool Recovered,
+        IReadOnlyList<long> Participants) : ClaimResult;
     /// <summary>No compatible attempt, no free slot or no free port, now.</summary>
     public sealed record NoCandidate : ClaimResult;
     /// <summary>Drained, lease lapsed, or no enabled allowlisted build reported: the agent heartbeats first.</summary>
@@ -106,8 +109,9 @@ public sealed class HostStore
                 where attempt_id = @AttemptId and state = 'assigned' returning credential_generation
                 """, new { hash = rotated.Hash(), prior.AttemptId }, tx, cancellationToken: ct))
                 ?? throw new InvalidOperationException("A locked assigned attempt was not updated.");
+            var roster = await ParticipantsAsync(conn, tx, prior.AttemptId, ct);
             await tx.CommitAsync(ct);
-            return new ClaimResult.Claimed(prior.AttemptId, hostId, prior.Port, rotated, generation, Utc(prior.LaunchDeadline), Recovered: true);
+            return new ClaimResult.Claimed(prior.AttemptId, hostId, prior.Port, rotated, generation, Utc(prior.LaunchDeadline), Recovered: true, roster);
         }
 
         if (host.Drained || !host.Live || !host.BuildAllowed || host.PortBase is not { } portBase) return new ClaimResult.HostUnavailable();
@@ -137,9 +141,15 @@ public sealed class HostStore
             """, new { attemptId, hostId, port, host.BuildRevision, hash = credential.Hash(), claimKey, launchDeadlineSeconds = (double)launchDeadlineSeconds },
             tx, cancellationToken: ct))
             ?? throw new InvalidOperationException("A locked admitted attempt was not assigned.");
+        var participants = await ParticipantsAsync(conn, tx, attemptId, ct);
         await tx.CommitAsync(ct);
-        return new ClaimResult.Claimed(attemptId, hostId, port, credential, 1, Utc(deadline), Recovered: false);
+        return new ClaimResult.Claimed(attemptId, hostId, port, credential, 1, Utc(deadline), Recovered: false, participants);
     }
+
+    /// <summary>The claimed attempt's participant accounts, read under its row lock from the attempt's own records.</summary>
+    static async Task<IReadOnlyList<long>> ParticipantsAsync(NpgsqlConnection conn, NpgsqlTransaction tx, Guid attemptId, CancellationToken ct) =>
+        (await conn.QueryAsync<long>(new CommandDefinition(
+            "select account_id from attempt_participants where attempt_id = @attemptId order by account_id", new { attemptId }, tx, cancellationToken: ct))).ToList();
 
     /// <summary>
     /// The long poll: <see cref="ClaimAsync"/> until it claims, refuses, or <paramref name="wait"/> has passed, sleeping

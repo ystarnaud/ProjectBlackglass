@@ -1,0 +1,61 @@
+#!/bin/bash
+# The Stage 10 stub mission (A10-D7): /opt/blackglass/mission/releases/stub/run-mission (root:root 0755), selected only for the VM
+# tests by linking /opt/blackglass/mission/current to that release. It never touches /opt/blackglass/server.
+# It runs under the real template (blackglass-mission user, the template's sandbox) and follows a root-owned plan,
+# /etc/blackglass-stub/plans/<attempt>/plan (key=value lines), with the result bytes beside it (<account>.json):
+#   publish=<account>:<ready|written|tmp|none> ...   how far each participant's result goes in the publish contract (Stage 9 §H)
+#   sleep=<seconds>                                   how long to keep running first (default 1)
+#   exit=<code>                                       the exit status (default 0); "kill" ends with SIGKILL
+#   probe=yes                                         also probe the sandbox and write the findings to the log directory
+set -u
+attempt="$1"
+printf '%s' "$attempt" | grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' || exit 64
+plan_dir="/etc/blackglass-stub/plans/$attempt"
+outbox="/var/lib/blackglass/outbox/$attempt"
+logdir="/var/log/blackglass/$attempt"
+value() { sed -n "s/^$1=//p" "$plan_dir/plan" 2>/dev/null | head -n1; }
+
+if [[ "$(value probe)" == yes ]]; then
+  report="$logdir/probe.txt"
+  {
+    # The process credential arrives through LoadCredential only.
+    [[ -r "${CREDENTIALS_DIRECTORY:-/nonexistent}/process" ]] && echo "credential=readable" || echo "credential=missing"
+    [[ -e /run/blackglass/launch ]] && echo "launch_dir=visible" || echo "launch_dir=invisible"
+    [[ -e /etc/blackglass/agent/host-secret ]] && echo "host_secret=visible" || echo "host_secret=invisible"
+    echo "outbox_entries=$(ls -1 /var/lib/blackglass/outbox | tr '\n' ',')"
+    other="$(value other)"
+    if [[ -n "$other" ]]; then
+      for op in read write rename delete; do
+        case "$op" in
+          read) cat "/var/lib/blackglass/outbox/$other/probe.ready" >/dev/null 2>&1 ;;
+          write) echo x > "/var/lib/blackglass/outbox/$other/intrusion" 2>/dev/null ;;
+          rename) mv "/var/lib/blackglass/outbox/$other/probe.ready" "/var/lib/blackglass/outbox/$other/moved" 2>/dev/null ;;
+          delete) rm -f "/var/lib/blackglass/outbox/$other/probe.ready" 2>/dev/null ;;
+        esac
+        rc=$?
+        [[ $rc -eq 0 && "$op" != delete ]] && echo "other_$op=allowed" || { [[ -e "/var/lib/blackglass/outbox/$other" ]] && echo "other_$op=visible" || echo "other_$op=denied"; }
+      done
+    fi
+    echo own > "$outbox/probe.ready" && echo "own_write=allowed" || echo "own_write=denied"
+    touch /etc/blackglass-intrusion 2>/dev/null && echo "etc_write=allowed" || echo "etc_write=denied"
+  } > "$report" 2>&1
+fi
+
+for entry in $(value publish); do
+  account="${entry%%:*}" stage="${entry##*:}"
+  src="$plan_dir/$account.json"
+  [[ -f "$src" ]] || continue
+  case "$stage" in
+    none) ;;
+    tmp) head -c 40 "$src" > "$outbox/$account.manifest.tmp"; sync "$outbox/$account.manifest.tmp" ;;
+    written|ready)
+      cp "$src" "$outbox/$account.manifest.tmp" && sync "$outbox/$account.manifest.tmp"
+      mv "$outbox/$account.manifest.tmp" "$outbox/$account.manifest.written" && sync "$outbox"
+      if [[ "$stage" == ready ]]; then mv "$outbox/$account.manifest.written" "$outbox/$account.manifest.ready" && sync "$outbox"; fi ;;
+  esac
+done
+
+sleep "$(value sleep || true)" 2>/dev/null || sleep 1
+code="$(value exit)"
+if [[ "$code" == kill ]]; then kill -KILL $$; fi
+exit "${code:-0}"

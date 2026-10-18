@@ -3,7 +3,8 @@
 # (owner ruling B13). The container shares only the test cluster container's network namespace: no published port, no
 # host network, no Docker socket, no daemon or firewall change.
 #   vm-test.sh --filter <xunit filter>   Integration tests matching the filter (e.g. "FullyQualifiedName~ClaimTests")
-#   vm-test.sh --full                    Domain, then every integration test
+#   vm-test.sh --full                    Domain, the mission host agent's tests, then every integration test
+#   vm-test.sh --agent [<xunit filter>]  The mission host agent's own tests (no database), optionally filtered
 #   --evidence <dir>                     where the trx files and summary land (default .claude/scratchpad/vm-test/<tree>)
 # The working tree's Backend/ (tracked plus untracked, .gitignore respected) is snapshotted into a git tree id, so
 # uncommitted test-first work runs too and every summary names exactly the tree it tested.
@@ -17,6 +18,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --filter) mode=filter; filter="${2:?--filter needs an expression}"; shift 2 ;;
     --full) mode=full; shift ;;
+    --agent) mode=agent; if [[ $# -gt 1 && "$2" != --* ]]; then filter="$2"; shift; fi; shift ;;
     --evidence) evidence="${2:?--evidence needs a directory}"; shift 2 ;;
     *) echo "usage: vm-test.sh --filter <expr> | --full [--evidence <dir>]" >&2; exit 64 ;;
   esac

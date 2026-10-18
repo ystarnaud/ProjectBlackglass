@@ -1,0 +1,40 @@
+# /etc/systemd/system/blackglass-tunnel.service (root:root 0644). A10-D3: the mission VM reaches the services VM's loopback-only
+# API through one restricted SSH forward, mission VM 127.0.0.1:5081 -> services VM 127.0.0.1:5080. A failure stops nothing else:
+# the agent keeps supervising units and preserving results, and relays when the tunnel is back.
+[Unit]
+Description=Blackglass API tunnel (127.0.0.1:5081 to the services VM's 127.0.0.1:5080)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=blackglass-tunnel
+Group=blackglass-tunnel
+ExecStart=/usr/bin/ssh -N -F /etc/blackglass/tunnel/ssh_config bg-api-tunnel
+# Bounded backoff: 5 s, growing to at most 2 min between attempts; every failure is in the journal.
+Restart=always
+RestartSec=5
+RestartSteps=6
+RestartMaxDelaySec=120
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadOnlyPaths=/etc/blackglass/tunnel
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+SystemCallArchitectures=native
+MemoryMax=64M
+TasksMax=16
+
+[Install]
+WantedBy=multi-user.target

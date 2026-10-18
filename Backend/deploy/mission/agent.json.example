@@ -1,0 +1,12 @@
+{
+  "hostId": "mission01",
+  "apiBaseUrl": "http://127.0.0.1:5081/",
+  "hostSecretFile": "/etc/blackglass/agent/host-secret",
+  "stateDir": "/var/lib/blackglass/agent",
+  "relayDir": "/var/lib/blackglass/relay",
+  "outboxDir": "/var/lib/blackglass/outbox",
+  "exitDir": "/var/lib/blackglass/exits",
+  "launchDir": "/run/blackglass/launch",
+  "serverBuildInfo": "/opt/blackglass/server/current/build-info.txt",
+  "catalogueVersion": "sha256:REPLACE_WITH_THE_INSTALLED_BUILDS_CATALOGUE_VERSION"
+}

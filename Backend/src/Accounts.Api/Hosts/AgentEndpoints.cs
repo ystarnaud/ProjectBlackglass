@@ -35,7 +35,8 @@ public static class AgentEndpoints
         });
 
         // POST /agent/v1/claim + Idempotency-Key, body {} → 200 {attemptId, missionPort, processCredential, credentialGeneration,
-        // launchDeadline, recovered}, or 204 after the long poll. A retry of the key while the attempt is still assigned is a
+        // launchDeadline, recovered, participants}, or 204 after the long poll. participants (A10-D2) are the attempt's participant
+        // accounts as canonical Base58, its roster for complete exit reports. A retry of the key while the attempt is still assigned is a
         // recovery (R1): the same attempt with a new credential and the next generation (recovered: true). The plaintext
         // credential appears in this response only (never stored, logged or cached: no-store).
         agent.MapPost("/claim", async (HttpContext http, HostStore hosts) =>
@@ -50,7 +51,7 @@ public static class AgentEndpoints
             return result switch
             {
                 ClaimResult.Claimed c => Results.Json(new ClaimResponse(c.AttemptId.ToString("D"), c.MissionPort, c.Credential.Text, c.CredentialGeneration,
-                    c.LaunchDeadline, c.Recovered), Web),
+                    c.LaunchDeadline, c.Recovered, c.Participants.Select(Blackglass.Accounts.Domain.Ids.Base58Id.Format).ToArray()), Web),
                 ClaimResult.NoCandidate => Results.NoContent(),
                 ClaimResult.HostUnavailable => MissionBodies.Problem(StatusCodes.Status409Conflict, "HostUnavailable"),
                 ClaimResult.InvalidState => MissionBodies.Problem(StatusCodes.Status409Conflict, "InvalidState"),
@@ -102,7 +103,8 @@ public static class AgentEndpoints
 
     public sealed record HeartbeatResponse(bool Drained, string[] Stop);
 
-    public sealed record ClaimResponse(string AttemptId, int MissionPort, string ProcessCredential, int CredentialGeneration, DateTime LaunchDeadline, bool Recovered);
+    public sealed record ClaimResponse(string AttemptId, int MissionPort, string ProcessCredential, int CredentialGeneration, DateTime LaunchDeadline, bool Recovered,
+        string[] Participants);
 
     public sealed record StateResponse(string State);
 }

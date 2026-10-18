@@ -252,17 +252,21 @@ public class ClaimTests : IAsyncLifetime
             Assert.Equal(HttpStatusCode.BadRequest, (await PostAsync("/agent/v1/claim", "{}", badKey)).Status);
         Assert.Equal(HttpStatusCode.BadRequest, (await PostAsync("/agent/v1/claim", """{"hostId":"h2"}""", Guid.NewGuid().ToString())).Status);
 
-        var attempt = await AdmitAsync();
+        var account = await NewAccountAsync();
+        var attempt = await AttemptFixtures.AdmitAsync(db, account);
         var key = Guid.NewGuid().ToString();
         var (status, body, cache) = await PostAsync("/agent/v1/claim", "{}", key);
         Assert.Equal((HttpStatusCode.OK, "no-store"), (status, cache));
         var claim = JsonDocument.Parse(body).RootElement;
-        Assert.Equal(["attemptId", "missionPort", "processCredential", "credentialGeneration", "launchDeadline", "recovered"], claim.EnumerateObject().Select(p => p.Name));
+        Assert.Equal(["attemptId", "missionPort", "processCredential", "credentialGeneration", "launchDeadline", "recovered", "participants"], claim.EnumerateObject().Select(p => p.Name));
+        // A10-D2: the attempt's participants as canonical Base58 account ids, and nothing else about them.
+        Assert.Equal([Blackglass.Accounts.Domain.Ids.Base58Id.Format(account)], claim.GetProperty("participants").EnumerateArray().Select(e => e.GetString()));
         Assert.Equal((attempt.ToString(), 7000, 1, false), (claim.GetProperty("attemptId").GetString(), claim.GetProperty("missionPort").GetInt32(),
             claim.GetProperty("credentialGeneration").GetInt32(), claim.GetProperty("recovered").GetBoolean()));
         Assert.True(OpaqueSecret.TryParse(claim.GetProperty("processCredential").GetString(), OpaqueSecret.ProcessCredentialPrefix, out _));
         var recovered = JsonDocument.Parse((await PostAsync("/agent/v1/claim", "{}", key)).Body).RootElement;
         Assert.Equal((2, true), (recovered.GetProperty("credentialGeneration").GetInt32(), recovered.GetProperty("recovered").GetBoolean()));
+        Assert.Equal(claim.GetProperty("participants").GetRawText(), recovered.GetProperty("participants").GetRawText()); // immutable for the attempt
 
         Assert.Equal(HttpStatusCode.Conflict, (await PostAsync($"/agent/v1/attempts/{attempt}/launching", """{"credentialGeneration":1}""", null)).Status);
         var launching = await PostAsync($"/agent/v1/attempts/{attempt}/launching", """{"credentialGeneration":2}""", null);
@@ -276,10 +280,13 @@ public class ClaimTests : IAsyncLifetime
     [Fact]
     public async Task A_claim_retry_while_assigned_recovers_with_a_new_credential_and_generation()
     {
-        var attempt = await AdmitAsync();
+        var account = await NewAccountAsync();
+        var attempt = await AttemptFixtures.AdmitAsync(db, account);
         var key = Guid.NewGuid();
         var first = Assert.IsType<ClaimResult.Claimed>(await ClaimAsync("h1", key));
         var recovered = Assert.IsType<ClaimResult.Claimed>(await ClaimAsync("h1", key));
+        Assert.Equal([account], first.Participants); // A10-D2: from the attempt's own participant rows
+        Assert.Equal(first.Participants, recovered.Participants);
         Assert.Equal((attempt, first.MissionPort, first.LaunchDeadline, 2, true), (recovered.AttemptId, recovered.MissionPort, recovered.LaunchDeadline, recovered.CredentialGeneration, recovered.Recovered));
         Assert.NotEqual(first.Credential.Text, recovered.Credential.Text);
         var processes = new ProcessStore(db.AsApp());
