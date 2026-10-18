@@ -36,8 +36,11 @@ It was validated end to end in a disposable Ubuntu 24.04 systemd container (syst
 
 - **Missions:**
   - `SystemCallFilter=~listen` (seccomp, enforced on every build): no stream listener, so a mission can never impersonate the tunnel's loopback port.
-  - `SocketBindAllow=udp:<the slot's port>` and `SocketBindDeny=any`: the slot's own UDP port only, **enforced only where systemd has `BPF_FRAMEWORK`**. Ubuntu 24.04's doesn't, and `verify.sh` says which.
-  - **An enforced restriction is a blocking Stage 12 acceptance requirement** (spec §18.2 B24; the plan lists the options). The rule: a mission binds no address or port except its slot's UDP game port.
+  - `SocketBindAllow=udp:<the slot's port>` and `SocketBindDeny=any`: stub-era settings, **enforced only where systemd has `BPF_FRAMEWORK`**. Ubuntu 24.04's doesn't, and `verify.sh` says which. The real server is TCP (FishNet WebSockets), so Stage 12 replaces both lines and `~listen` with the chosen mechanism.
+  - **An enforced restriction is a blocking Stage 12 acceptance requirement** (spec §18.2 B24, corrected 2026-10-18).
+    - **The rule:** a mission binds and listens only on its slot's TCP port, and on no other port on any address.
+    - **Mechanisms, evaluated in order:** systemd's BPF socket-bind on the mission VM, then Landlock ABI ≥ 4, then socket activation. nftables alone is not proof.
+    - **Until it's demonstrated on the mission VM:** only the trusted stub runs there.
   - **Known gap until then:** a compromised mission could bind TCP 127.0.0.1:5081 during a tunnel restart (a host-wide outage of heartbeats, claims, relays and stop directives until `emergency-stop`; no secret leaks), or take another slot's idle game port.
 - **The agent:** it sends nothing unless the tunnel port's listener belongs to `tunnelUser`.
 - **Agent and broker:** they never listen; `DOTNET_EnableDiagnostics=0` keeps the .NET diagnostic socket closed.

@@ -1,6 +1,6 @@
 # Phase 13A: backend architecture and persistent mission settlement (design)
 
-Date: 2026-10-14. **Revision 2.11** (Stage 10 security corrections C1 and I3 authorized by the owner on 2026-10-18, §0.11); revision 2.10 (Stage 10 owner rulings A10-D1 to A10-D8 of 2026-10-17, §0.10); revision 2.9 (Stage 9 owner rulings of 2026-10-17 on the settlement plan, §0.9, with the final rulings that authorized implementation the same day); revision 2.8 (Stage 8 owner rulings B1–B13 and design corrections of 2026-10-17, §0.8); revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
+Date: 2026-10-14. **Revision 2.12** (Stage 10 final owner rulings of 2026-10-18, §0.12); revision 2.11 (Stage 10 security corrections C1 and I3 authorized by the owner on 2026-10-18, §0.11); revision 2.10 (Stage 10 owner rulings A10-D1 to A10-D8 of 2026-10-17, §0.10); revision 2.9 (Stage 9 owner rulings of 2026-10-17 on the settlement plan, §0.9, with the final rulings that authorized implementation the same day); revision 2.8 (Stage 8 owner rulings B1–B13 and design corrections of 2026-10-17, §0.8); revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
 
 "Project Blackglass" is an internal codename. No identifier, table, route, credential or claim introduced here carries the product name, apart from the C# namespace and repository paths that already exist. Player-facing names live in data (`display_name`), never in keys.
 
@@ -359,8 +359,27 @@ The owner authorized corrections for the independent review's C1 (one shared mis
   - **Generations:** they only move forward.
   - **Paths:** no path ever crosses from the agent to root.
   - **The agent:** it starts nothing without the broker's "ok".
-- **Listeners:** a mission can't listen at all (`SystemCallFilter=~listen`, enforced by seccomp everywhere), so it can never impersonate the tunnel's loopback port (I1). Binding only the slot's own UDP port (`SocketBindAllow=udp:<port>`) is enforced only where systemd has `BPF_FRAMEWORK`, and Ubuntu 24.04's doesn't. An enforced restriction to the slot's own UDP port, on every interface and the tunnel's port included, is a **blocking Stage 12 acceptance requirement** (§18.2 B24; the Stage 10 plan's "Security corrections" names the options). Until then a compromised mission could deny the tunnel's port during a tunnel restart, or take another slot's idle game port; it can never impersonate the tunnel.
+- **Listeners:** a mission can't listen at all (`SystemCallFilter=~listen`, enforced by seccomp everywhere), so it can never impersonate the tunnel's loopback port (I1). Binding only the slot's own UDP port (`SocketBindAllow=udp:<port>`) is enforced only where systemd has `BPF_FRAMEWORK`, and Ubuntu 24.04's doesn't. An enforced restriction to the slot's own UDP port, on every interface and the tunnel's port included, is a **blocking Stage 12 acceptance requirement** (§18.2 B24; the Stage 10 plan's "Security corrections" names the options). Until then a compromised mission could deny the tunnel's port during a tunnel restart, or take another slot's idle game port; it can never impersonate the tunnel. **Corrected by §0.12:** the server is FishNet WebSockets over TCP, so B24 concerns the slot's TCP port.
 - **The agent's configuration:** `portBase` (Stage 8's `port_base`) and `localCapacity` (the number of slots, at most 64) must match the backend's registration; `launchDir` is gone. Spec rows in §4.3, §7.4 and §9.2 are corrected below.
+
+### 0.12 Revision 2.12 (Stage 10 final owner rulings, 2026-10-18; mission-VM installation still pending the owner's checkpoint)
+
+- **C1 approved:** one systemd-managed dynamic Unix identity per mission slot (`blackglass-mNN`), one active mission per slot, and protected per-unit persistent results (§0.11).
+- **I3 approved:** the small root-owned credential broker stays. A separate non-root broker isn't required for Stage 10.
+- **Capacity:** eight slots, 00–07, are installed and registered at first. The design keeps 64.
+- **Port base:** the registered `port_base` equals the agent's `portBase`.
+  - **The value:** **7770**, so slots 00–07 are on TCP 7770–7777 (§4.5's `127.0.0.1:<7770 + n>`).
+  - **How it was chosen:** after reading `bg-dev-mission01`'s listeners and port settings on 2026-10-18.
+  - The evidence, and the one conflict (the hand-run networking experiment script's default port), are in the Stage 10 plan's "Final owner rulings".
+- **Listeners corrected (this supersedes §0.11's "UDP"):** the Unity server uses FishNet over WebSockets on Unity Transport, which is TCP (decision 046), not UDP.
+  - **B24 (§18.2) now requires:** a mission can bind and listen only on its slot's TCP port.
+  - **Mechanisms, evaluated in the owner's order:**
+    1. systemd's cgroup-BPF `SocketBindAllow`/`SocketBindDeny`, on the mission VM itself;
+    2. Landlock ABI 4 or later, restricting TCP bind to the slot port;
+    3. socket activation, if Unity Transport can take an inherited listener.
+  - **nftables alone:** it never proves that a process can't bind a port.
+  - **Until B24's mechanism is demonstrated on `bg-dev-mission01`:** only the trusted stub may run there, never a real Unity mission workload, and Stage 12 can't be accepted.
+- **Stage 10's status:** code-complete and lab-validated, and merged into `main`. The mission-VM infrastructure validation is outstanding, and Stage 10 is not operational on the mission VM.
 
 ## 1. Goal, scope and starting point
 
@@ -1979,7 +1998,7 @@ Every operator call writes `operator_actions` in the same transaction as its eff
 | B21 | Outbox isolation and polkit scope hold on the VM (§18.1 layer 4) | Test transcript, `systemd-analyze security` |
 | B22 | Quarantine: escalation at the (shortened, test-configured) deadline without a state change; operator re-validation; an operator void only with its recorded checks; a host-loss declaration voids that host's unsettled participants; a late result after a void → 409 with the receipt preserved | Harness and API transcripts, `operator_actions` rows |
 | B23 | Insurance extension, regeneration ledger reconciliation, idempotency-key reuse and multi-unit minting behave as §18.1 states, against the VM database | Integration test output |
-| B24 | **Blocking for Stage 12** (Stage 10 security corrections, §0.11): a mission process can bind no address or port except its own slot's UDP game port, on every interface (tunnel port 127.0.0.1:5081 included), and can't listen at all. Enforced by one of the options the Stage 10 plan's "Security corrections" names (a `BPF_FRAMEWORK` systemd, per-slot passed sockets with `bind` denied, or per-slot nftables cgroup rules) | From a mission unit on the mission VM: TCP and UDP 5081, another slot's UDP port and port 0 refused; `verify.sh` transcript |
+| B24 | **Blocking for Stage 12** (§0.11, corrected by §0.12):<br>• **Allowed:** a mission process can bind and listen only on its own slot's TCP port `portBase + NN` (the server is FishNet WebSockets over TCP).<br>• **Refused:** no other TCP port on any address: not the tunnel's 127.0.0.1:5081, not another slot's port, not port 0.<br>• **Reachability:** its port can't be reached from off the host.<br>• **UDP:** explicit UDP binds are denied too, or the owner accepts a recorded residual.<br>• **Mechanism, chosen in this order:** systemd cgroup-BPF `SocketBindAllow=tcp:<port>` on the mission VM; Landlock ABI ≥ 4 TCP bind; socket activation if Unity Transport can take an inherited listener.<br>• **Not proof:** nftables alone.<br>• **Until it's demonstrated on the target VM:** only the trusted stub runs there, never a real Unity mission workload | From a mission unit on `bg-dev-mission01`: TCP 5081, another slot's port and port 0 are refused, and its own port is allowed; the off-host probe can't reach the slot port; the `verify.sh` transcript |
 
 ### 18.3 Invariant queries (run after every fault test and restore drill)
 
