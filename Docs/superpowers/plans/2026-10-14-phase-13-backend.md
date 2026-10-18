@@ -297,7 +297,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 9: settlement, quarantine, void and monitoring (backend side)
 
-**Status (2026-10-17):** implemented on `phase13-stage9` (schema version 9; commits local, not pushed, merged or deployed), awaiting the owner's review; the detailed plan is `2026-10-17-phase-13-stage9-settlement.md` (revision 3, the owner's final rulings, "As built"). Where it differs from this outline, it wins.
+**Status (2026-10-17):** done, merged into `main` and pushed (`d72a325`; schema version 9; not deployed), after the owner's merge corrections; the detailed plan is `2026-10-17-phase-13-stage9-settlement.md` (revision 3, the owner's final rulings, "As built"). Where it differs from this outline, it wins.
 
 **Touches:** `Backend/` only.
 
@@ -333,6 +333,8 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Evidence:** test counts; fault-injection transcripts. Covers spec B10, B11, B14 and B16 at the HTTP level (manifests written by hand), and the settlement half of B5.
 
 ## Stage 10: mission host agent
+
+**Status (2026-10-17):** planned only; the detailed plan is `2026-10-17-phase-13-stage10-mission-agent.md` (revision 1), awaiting the owner's decisions A10-D1 to A10-D8. Where it differs from this outline, it wins.
 
 **Touches:**
 - `Backend/src/MissionHost.Agent/` and its tests;
