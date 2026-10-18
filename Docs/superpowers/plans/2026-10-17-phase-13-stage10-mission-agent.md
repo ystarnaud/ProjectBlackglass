@@ -683,3 +683,247 @@ Once the owner chooses, the chosen options are implemented test-first (agent, un
   - a real launcher replaces the stub behind `/opt/blackglass/mission/current`;
   - under C1-C, the server would also make itself non-dumpable.
 - **Phase 14:** outbox and relay cleanup, and an outbox quota or separate filesystem (M12's disk-exhaustion part).
+
+## Security corrections (2026-10-18; the owner's authorization of C1, I3 and the listener review; branch `phase13-stage10`, local; nothing installed)
+
+**Status:** code-complete and lab-validated. Installation on `bg-dev-mission01` still waits for the owner's infrastructure checkpoint. Sections 0 to 7 of the checkpoint package above are superseded where they name `blackglass-mission@`, `User=blackglass-mission`, `/run/blackglass/launch` or the C1/I3 options. This section is the corrected package.
+
+### C1: was `DynamicUser=yes` viable per mission unit? No, and why
+
+Checked in a disposable, privileged, network-less Ubuntu 24.04 container on `bg-dev-services01` (`bg-sdlab`). It runs systemd `255.4-1ubuntu8.18`, the exact build of `bg-dev-mission01` (whose `systemctl --version` was read, nothing else). Two facts rule it out:
+1. **No `User=`:** systemd derives an unnamed dynamic user from the **template prefix**, not the instance. `lab-mission@A` and `lab-mission@B` both ran as dynamic user `lab-mission`, uid 64823. A hash is used only when the prefix isn't a valid user name, and it is still the prefix's hash, so every instance would share it.
+2. **`User=` built from `%i`:** a dynamic user name is capped at 31 characters, and a full UUID is 36. `User=%i`, `m%i` and `bgm-%i` all fail with "Failed to spawn 'start' task: Invalid argument"; 31 characters work and 32 fail.
+
+The owner requires full UUID unit identities, so one dynamic identity per unit is impossible on this systemd. A shortened instance name (Base32) would drop the full-UUID identity.
+
+### C1 as built: a dynamic user per slot
+
+This is the approved per-slot fallback's structure, with systemd-allocated uids rather than static accounts:
+- **Units:** the template `blackglass-mission-slot.service.in` is rendered by `render-slot-units.sh <portBase> <slots>` into one root-owned unit per slot, `blackglass-mission-NN@.service`, NN 00..63.
+  - The slot is the attempt's port minus the host's port base (Stage 8 allocates the lowest free port of `[port_base, port_base + capacity)` and releases it only after a confirmed stop). The mapping is deterministic.
+  - Each unit runs `DynamicUser=yes`, `User=blackglass-mNN`, so no two live missions share a uid: systemd gives two live dynamic users two uids, and the lab showed 61484 and 64194, 62833 and 62728.
+  - No static `blackglass-mNN` may exist (systemd would use it); `install.sh` and `verify.sh` refuse one.
+- **One live unit per slot:**
+  - The agent starts a slot's unit only when a complete inventory shows no other live unit in that slot. Otherwise it waits, and the launch deadline abandons the claim.
+  - The root `ExecStartPre=+slot-guard NN %i` refuses a second live unit.
+  - A port outside the host's slots is abandoned before `launching` is reported, and never launched.
+- **Outbox and logs:** these are systemd's `StateDirectory=blackglass-outbox/%i` (mode 0755, files 0644 under `UMask=0022`) and `LogsDirectory=blackglass-mission/%i`. They live under `/var/lib/private` and `/var/log/private` (root 0700), and each unit's namespace shows only its own.
+  - **uid reuse:** the lab handed a later unit an ended attempt's recycled uid on purpose (systemd first tries the uid that owns one of a unit's directories). It could not read, write, rename or delete the old files.
+  - **The agent:** it reads every outbox through its unit's `BindReadOnlyPaths=/var/lib/private/blackglass-outbox:/var/lib/blackglass/outbox`; write, rename and delete fail with EROFS. Outside its unit, `/var/lib/private` is closed to it.
+  - **Persistence:** the results survive the unit's exit and a restart of the lab container, read back unchanged.
+- **Single start:** an attempt's unit runs at most once, through `AssertPathExists=!` on its outbox and on its exit record. The agent already never restarts one; this also holds against a compromised agent.
+
+### I3 as built: the root credential broker
+
+- **The socket:** `blackglass-credential.socket` listens on `/run/blackglass/credential.sock`, `root:blackglass-agent 0660`, with `Accept=yes` and at most 8 connections. Each connection starts `blackglass-credential@.service`, which runs `blackglass-credential-broker`, a separate small executable in the agent release with no project references.
+  - It runs as root **with no capabilities** (`CapabilityBoundingSet=`).
+  - Its only writable path is `/run/blackglass/credentials`; it has no network, and `/var/lib/private`, `/etc/blackglass` and `/var/lib/blackglass` are inaccessible to it.
+- **The interface:** one request per connection, at most 512 bytes of printable ASCII.
+  - The two verbs are `prepare <attempt> <generation>\n<pc1 credential>\n` and `discard <attempt>\n`.
+  - The attempt must be canonical lowercase and not nil, the generation 1..2147483647 without leading zeros, and the credential exactly a pc1 secret.
+  - The peer must be the agent's uid, read from `/etc/passwd` and never root (`SO_PEERCRED`). No path, no other verb.
+- **The store:** `/run/blackglass/credentials/<attempt>/{process,generation}`, files root 0400 in a root 0700 directory.
+  - Every request holds an exclusive `flock` on the store.
+  - The store, the attempt directory and both files must be the owner's, non-links, of the right type, singly linked and private; otherwise the answer is `unsafe_store` and nothing is read or written through them.
+  - Writes are new files (`O_CREAT|O_EXCL|O_NOFOLLOW`, exact mode), fsynced, renamed into place, and the directory is fsynced.
+  - **Generation rules:**
+    - a higher generation replaces;
+    - the same generation is idempotent with the same bytes, and a conflict with other bytes;
+    - a lower generation is stale;
+    - the credential is written before its generation.
+  - Any failure answers `write_failed`. The log names the attempt, the generation and the result, never the credential.
+- **The units:** `LoadCredential=process:/run/blackglass/credentials/%i/process` is the only source. A missing file fails the unit's start; the lab showed it fails closed.
+- **The agent (`SocketCredentialBroker`):**
+  - It prepares at the `Acknowledged` step and again right before the start (idempotent; this covers a reboot that emptied `/run`).
+  - It starts nothing without an exact `ok`: a refusal, a garbled answer, no broker or no answer in 10 s each keeps the claim where it is.
+  - It discards the credential after the start and on abandonment.
+  - It sends nothing but a pc1 credential for a real attempt.
+- **Lab:** the agent user cannot write, link into or read the store. A traversal id, a path or host secret in place of the credential, an oversized request and an unknown verb are refused. Another user can't connect, and root is refused by the peer check. Generations move forward, and 8 concurrent preparations end at the highest. The unit received exactly the prepared bytes (compared by SHA-256; the credential is never printed).
+
+### Network listeners
+
+- **Mission units:**
+  - `SystemCallFilter=~listen` (EPERM): no stream listener at all, so a mission can never impersonate the tunnel's loopback port, even while the tunnel restarts. This holds on every systemd build (seccomp), and the lab confirmed it.
+  - `SocketBindAllow=udp:<the slot's port>` with `SocketBindDeny=any`: the right restriction (own UDP port only), **but systemd enforces it only when built with `BPF_FRAMEWORK`**. Ubuntu 24.04's isn't (lab and `bg-dev-mission01`: `-BPF_FRAMEWORK`). There the lab showed a mission can still bind another slot's UDP port and bind (not listen on) TCP 5081.
+  - The second case is a tunnel denial of service only: no secret can leak, because the agent sends nothing unless the port's listener belongs to `tunnelUser`, and a squatter has no listener.
+- **Stage 10's I1 statement corrected:** the earlier template's `SocketBindAllow=udp`/`SocketBindDeny=any` never had effect on the mission VM. The agent's listener-uid check was, and stays, the effective I1 control. `verify.sh` now records which enforcement the host has.
+- **Agent and broker:** they get `SystemCallFilter=~listen` and `DOTNET_EnableDiagnostics=0`, so the .NET diagnostic IPC listener is never opened.
+- **Blocking Stage 12 acceptance requirement (spec §18.2 B24):**
+  - **The rule:** a mission process can bind no address or port except its own slot's UDP game port, on every interface.
+  - **Verified** on the mission VM's own systemd build by binding, from a mission unit, TCP and UDP 127.0.0.1:5081, another slot's UDP port, and port 0. Each must be refused.
+  - **Today, on Ubuntu 24.04:**
+    - `listen()` is refused (seccomp), so the tunnel can never be impersonated;
+    - but `bind()` is not restricted (`SocketBindAllow` is ignored without `BPF_FRAMEWORK`).
+  - **Known gap until then** (security review 2, I-1):
+    - **The tunnel's port:** a compromised mission could bind TCP 127.0.0.1:5081 (without listening) during a tunnel restart. The tunnel then can't re-establish the forward: heartbeats, claims, relays and stop directives stop for the whole host until the operator runs `emergency-stop`. No secret leaks, because the agent sends nothing unless the port's listener belongs to `tunnelUser`.
+    - **Another slot's idle game port:** a compromised mission could take it first. That attempt then fails, and its players' packets, join tickets included, reach the squatter.
+    - Both need a compromised mission process; the stub and Phase 13's server are root-owned code.
+  - **The owner chooses one of:**
+    1. a systemd built with `BPF_FRAMEWORK` on the mission host (the templates' `SocketBindAllow`/`SocketBindDeny` then apply as written, and `verify.sh` requires them);
+    2. a per-slot root `.socket` unit (`ListenDatagram=<portBase+NN>`) passed to the slot's units with `Sockets=`, with `SystemCallFilter=~bind` in the template and `net.ipv4.ip_local_reserved_ports` covering 5081 and the slot range (so an implicit autobind never lands on them). The Unity server must then use the passed descriptor (`sd_listen_fds`), not bind its own socket. This needs neither BPF nor nftables;
+    3. nftables input rules per slot that match the receiving socket's cgroup (`socket cgroupv2`, the slot's `system-blackglass\x2dmission\x2dNN.slice`) for port `portBase + NN`, plus a rule for 5081. This is a firewall change for the owner's review.
+  - **Also for Stage 12:**
+    - the server binds its port once at start, fails if it can't, and never sets `SO_REUSEADDR` or `SO_REUSEPORT` (on UDP, `SO_REUSEADDR` lets another uid share the port);
+    - it runs with `listen` denied, which also means no development player-connection listener;
+    - game ports stay outside `net.ipv4.ip_local_port_range`;
+    - whether the server needs D-Bus decides `InaccessiblePaths=-/run/dbus` (review 2, M-6).
+
+### Tests and evidence
+
+- **Test-first:**
+  - each new behavior's tests were written and run red before the code: the broker tests (44 after strengthening), the client tests (4), the claim-flow slot and broker tests, the slot-unit naming and parsing tests, the deployment-file and `slot-guard` tests, and review 2's I-2;
+  - the one slip: `Identifiers.cs` was written early, then reverted until its tests had failed.
+- **Mutation checks:** 14 defects were injected into the new safety code, and 13 turned a test red:
+  - a busy slot started;
+  - the broker's "ok" skipped;
+  - a port outside the slots launched;
+  - a wider mode, a lower generation, no flock or any peer accepted;
+  - any answer taken as "ok";
+  - a link followed;
+  - the read's hard-link check removed.
+
+  The entry-level hard-link check alone is masked by the read's own check (defense in depth; both are pinned). Two weak tests were strengthened after the first batch: a private same-owner link target, and a request held inside the lock making another wait.
+- **The 143 original agent tests are all kept.** They were adapted to slot unit names and the broker; the credential-file test keeps its name and now asserts the broker store's modes.
+- **The real-API agent tests:** two were added, bringing them to 5.
+  - Each attempt runs in its port's slot unit with exactly the backend's credential, through the real broker protocol and store over a real Unix socket. Its process session registered with that credential.
+  - Without the broker's confirmation no unit starts, the claim waits acknowledged, and it starts once when the broker is back.
+- **Lab:** the final run from `eba31d1` used a fresh container, the real `publish-agent.sh`, `install.sh --stub` and `verify.sh`. It passed 85/85 checks, 0 failures, with one expected "note" (no BPF socket-bind on this build); the after-restart part passed 9/9. Evidence is in `.claude/scratchpad/phase13/stage-10/lab/final-run.txt`; the earlier runs and mutation logs are beside it.
+  - The lab container is started with shared mount propagation (`mount --make-rshared /`). Docker leaves `/` private, which breaks every unit's `LoadCredential` ("Failed to set up credentials: Protocol error"). The mission VM's `/` and `/run` are already shared (read-only check), and `verify.sh` refuses a host whose `/` isn't.
+- **Lab-found defects fixed:**
+  - `install.sh` now creates `/etc/sysusers.d` and `/etc/tmpfiles.d` (absent on a minimal Ubuntu).
+  - `install.sh` detected a missing stub link wrongly (`readlink -f` prints the path even when it's absent; it now uses `-e`).
+  - `install.sh` and `publish-agent.sh` refuse CRLF scripts.
+  - Four `verify.sh` and stub probe defects.
+
+### Corrected installation manifest (bg-dev-mission01; nothing installed)
+
+**Installed by `install.sh`, all root-owned unless noted:**
+- **Configuration:** `/etc/sysusers.d/blackglass.conf` and `/etc/tmpfiles.d/blackglass.conf` (0644).
+- **Static users:** only `blackglass-agent` and `blackglass-tunnel`. The previous package's `blackglass-mission` user and group are gone.
+- **Releases:**
+  - `/opt/blackglass/agent/releases/<rev>/`: `blackglass-agent`, `blackglass-credential-broker`, their native libraries, `record-exit`, `slot-guard`, `RELEASE`; directories 0755, executables 0755; `/opt/blackglass/agent/current` links to it;
+  - with `--stub` only: `/opt/blackglass/mission/releases/stub/run-mission` (0755), `/opt/blackglass/mission/current`, `/etc/blackglass-stub/plans` (0755). `/opt/blackglass/server` is never touched.
+- **`/etc/systemd/system/` (0644):**
+  - `blackglass-mission-00@.service` to `blackglass-mission-<N-1>@.service`, rendered for `--port-base P --slots N`;
+  - `blackglass-credential.socket`, `blackglass-credential@.service`, `blackglass-agent.service`, `blackglass-tunnel.service`.
+
+  No drop-ins; the retired `blackglass-mission@.service` is refused.
+- **Polkit:** `/etc/polkit-1/rules.d/60-blackglass-mission.rules` (0644).
+- **`/etc/blackglass/agent/` (`root:blackglass-agent 0750`):**
+  - `agent.json` (0640, with `portBase` P and `localCapacity` N);
+  - `host-secret` (`blackglass-agent 0600`, installed by the owner with the documented atomic procedure).
+- **`/etc/blackglass/tunnel/`:** `ssh_config` and the pinned `known_hosts` (0644); `id_ed25519` (`blackglass-tunnel 0600`) and its `.pub`.
+
+**Directories (tmpfiles):**
+
+| Path | Owner and mode | Purpose |
+|---|---|---|
+| `/var/lib/blackglass` | root 0755 | |
+| `/var/lib/blackglass/outbox` | root 0755 | empty mount point for the agent's bind |
+| `/var/lib/blackglass/exits` | `root:blackglass-agent 0750` | |
+| `/var/lib/blackglass/agent`, `/var/lib/blackglass/relay` | `blackglass-agent 0700` | |
+| `/var/lib/blackglass/tunnel` | `blackglass-tunnel 0700` | |
+| `/var/lib/private` | root 0700 | |
+| `/var/lib/private/blackglass-outbox` | root 0755 | |
+| `/var/log/blackglass` | root 0755 | |
+| `/run/blackglass` | root 0755 | |
+| `/run/blackglass/credentials` | root 0700 | |
+
+**Created by systemd at run time:**
+- each attempt's `/var/lib/private/blackglass-outbox/<attempt>` (its dynamic uid, 0755) and `/var/log/private/blackglass-mission/<attempt>` (0750);
+- `/run/blackglass/credential.sock` (`root:blackglass-agent 0660`);
+- `/run/blackglass/credentials/<attempt>/` (root 0700, files 0400; discarded after the start);
+- `/var/lib/blackglass/exits/<attempt>.exit` (`root:blackglass-agent 0640`).
+
+**Enabled:**
+- `blackglass-credential.socket` by `install.sh`;
+- `blackglass-tunnel.service` and `blackglass-agent.service` only with `--start`, after the host secret is installed.
+
+**Services VM side:** unchanged from section 3 above: the `bg-api-tunnel` account, the `sshd` drop-in and the restricted `authorized_keys` line.
+
+**Backend side (an owner admin action):** the host's registration must use `port_base` = P and `capacity` ≤ N.
+
+### Root-level verification procedure (for the owner's review; NOT executed on either VM)
+
+Run on `bg-dev-mission01` as root, only after the owner authorizes the checkpoint.
+
+**Read-only prechecks.** Expected:
+- `systemctl --version | head -2`: 255.4, `-BPF_FRAMEWORK`.
+- `findmnt -n -o PROPAGATION / /run`: shared.
+- `grep -E '^blackglass-' /etc/passwd`: nothing.
+- `ls /etc/systemd/system | grep blackglass`: nothing.
+- `ls -la /opt/blackglass`.
+
+**Steps:**
+1. **Build the release:** on `bg-dev-services01`'s SDK container, from the approved commit checked out with LF, run `deploy/mission/publish-agent.sh <out>`. Record `RELEASE` (revision and the SHA-256 lines). Copy the release and `deploy/mission/` to `/root/bg-stage10/` on the mission VM.
+2. **Install:** `install.sh --yes --release /root/bg-stage10/agent-<rev> --services-host <address> --known-hosts <pinned file> --port-base P --slots N --stub`. N = 8 is recommended for Phase 13 (one participant per attempt).
+   - Expected: "installed agent release <rev>; slots 00..07 on ports P..P+7";
+   - `systemctl is-active blackglass-credential.socket` is active.
+3. **Verify:** `verify.sh --yes`.
+   - Expected: every check "ok" (85 in the lab), 0 FAIL, and one "note" stating that this systemd doesn't enforce `SocketBindAllow`.
+   - The report is `/var/log/blackglass/verify-<time>.txt`; it prints the state file for the next step.
+4. **Reboot:** `reboot`, then `verify.sh --yes --after-restart <state file>`. Expected: all "ok".
+5. **Tunnel and end to end:** only then, the tunnel (section 3) and the agent (`install.sh … --start`, or `systemctl enable --now blackglass-tunnel blackglass-agent`) for the stub end-to-end claim of section 5, with the new unit names.
+
+**Expected security facts:**
+- distinct dynamic uids `blackglass-mNN`;
+- no cross-attempt access in either direction;
+- no access after uid reuse;
+- the agent reads every result and can change none;
+- the broker refuses every malformed or hostile request, and the unit gets exactly the prepared bytes;
+- no TCP listener possible;
+- results survive the reboot.
+
+**Rollback:**
+- `uninstall.sh --yes`, with `--stop-missions` to stop live missions. It removes units, the polkit rule and the stub link, and keeps all evidence.
+- Users are removed only by hand (`userdel blackglass-agent blackglass-tunnel`, after the evidence is archived).
+- The services VM's tunnel retirement is as in section 7.
+
+### Independent security review 2 (opus): 0 Critical, 2 Important, 9 Minor (`.superpowers/sdd/…/security-review-2.md`)
+
+**Important, both resolved:**
+- **I-1:** the Stage 12 listener requirement had no durable record, and it was too narrow. It is now B24 in spec §18.2 and in the Stage 12 obligations above, worded for every address and port (the tunnel's included). It names three options, including passed sockets with `bind` denied, which needs neither BPF nor nftables. The known gap is recorded: a compromised mission could deny the tunnel's port during a tunnel restart, or take another slot's idle game port; it can never impersonate the tunnel.
+- **I-2:** the unit was derived from mutable configuration. A changed `portBase` or `localCapacity` made a live mission look ended: `.written` files read, false exit evidence. Fixed test-first: each claim persists its slot, and starts and supervision use only that (`R2_I2_…`, both cases red, then green).
+
+**Minor:**
+- **Fixed:**
+  - M-1: the broker can't see `/etc/shadow`, `/etc/gshadow`, `/etc/ssh` or the sudoers files, and the docs now state its real confinement.
+  - M-3: `slot-guard` has no environment hook. It validates whole values (newline-proof; `record-exit` too), treats every non-terminal state as live, and refuses the same attempt in another slot.
+  - M-4: `slot-guard` refuses while any process still runs as the slot's uid. It reads that uid from systemd, not NSS (the lab caught the NSS dependency).
+  - M-5: `LimitCORE=0`, and `/var/crash` and apport are inaccessible.
+  - M-6: `PrivateIPC=yes`.
+  - M-7: `CollectMode=inactive-or-failed`, in `[Unit]` (the lab caught it misplaced in `[Service]`, where systemd ignores it).
+  - M-8: `install.sh` and `verify.sh` check systemd's own `DropInPaths` and `FragmentPath`.
+  - M-9: stale statements.
+- **Deferred (owner decisions, not defects):**
+  - M-1's stronger option: run the broker as a dedicated static non-root user owning the store. `LoadCredential` would still work, since PID 1 reads as root. This changes the approved "root-owned broker" shape.
+  - M-2: the broker's 5 s read deadline likely doesn't interrupt a blocking read. `RuntimeMaxSec=15s` bounds it, and it fails closed: no answer, nothing written.
+  - M-6's `InaccessiblePaths=-/run/dbus` waits for Stage 12 to confirm the server needs no D-Bus.
+  - M-3's note: `slot-guard` runs after systemd has set up the refused unit, so that attempt is burned (only a compromised agent reaches it). This is documented.
+
+### Final state (2026-10-18)
+
+- **Full suite** (VM runner, tree `f109cf9` = `eba31d1:Backend`): domain 759/759, agent 250/250, integration 1,770/1,770 (9 m), cleanup verified. The pre-review run at `0b70a76` was 759 / 242 / 1,770.
+- **Compared with the tested Stage 10 tree** (`a9fd31c` at `dfee555`): 51 files under `Backend/` changed (+2,462/−468).
+  - Changed: the agent (unit naming, slots, the broker client, configuration), the new broker project, the deployment files and the tests.
+  - Unchanged: migrations, the API, persistence and the domain. Schema version 9.
+  - The old stub held a stray NUL byte; the new one is plain text.
+- **Commits** (local `phase13-stage10`, not pushed or merged):
+  - `9ecb8ca`: the C1, I3 and listener corrections;
+  - `ff7c218`, `8351638`, `eba31d1`: lab-found fixes;
+  - `7e0841a`: strengthened tests;
+  - `0b70a76`: READMEs and spec 2.11;
+  - `afbf174`: review 2 fixes;
+  - then these docs.
+- **Preserved:** the two Unity settings files and `.claude/` are untouched. Nothing was installed on either VM. The mission VM was only read (`systemctl --version`, `findmnt`, `nsswitch.conf`, the `service.d` listings).
+- **Lab environment, disposable:**
+  - a privileged, network-less container `bg-sdlab` (image `bg-sdlab:24.04`) on `bg-dev-services01`, stopped;
+  - its build directory `/var/tmp/bg-sdlab`.
+
+  Both can be removed with `docker rm bg-sdlab; docker rmi bg-sdlab:24.04; rm -rf /var/tmp/bg-sdlab`. No firewall, SSH, Docker or systemd configuration was changed.
+
+**Remaining blockers and owner decisions:**
+1. **The infrastructure checkpoint (both VMs):** the corrected manifest and procedure above.
+2. **The backend registration** of `bg-dev-mission01`: `port_base` = the agent's `portBase`, and `capacity` ≤ the installed slots (8 recommended).
+3. **Stage 12 B24:** choose how per-slot binds are enforced (BPF-framework systemd, passed sockets with `bind` denied, or nftables cgroup rules).
+4. **Optional:** run the broker as a dedicated non-root user (review 2, M-1).
