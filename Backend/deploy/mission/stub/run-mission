@@ -51,7 +51,7 @@ if [[ "$(value probe)" == yes ]]; then
     else
       echo "credential=missing"
     fi
-    [[ -e /run/blackglass ]] && echo "run_blackglass=visible" || echo "run_blackglass=invisible"
+    ls /run/blackglass >/dev/null 2>&1 && echo "run_blackglass=visible" || echo "run_blackglass=invisible" # an inaccessible path still exists
     [[ -e /etc/blackglass/agent/host-secret ]] && echo "host_secret=visible" || echo "host_secret=invisible"
     [[ -e /var/lib/blackglass/agent ]] && echo "agent_state=visible" || echo "agent_state=invisible"
     echo "private_outboxes=$(ls -1 /var/lib/private/blackglass-outbox 2>/dev/null | tr '\n' ',')"
@@ -67,7 +67,7 @@ if [[ "$(value probe)" == yes ]]; then
       cat "/proc/$pid/root/var/lib/blackglass-outbox/$other/probe.ready" >/dev/null 2>&1 && echo "other_proc_root=allowed" || echo "other_proc_root=denied"
       kill -0 "$pid" 2>/dev/null && echo "other_signal=allowed" || echo "other_signal=denied"
       cat "/run/credentials/blackglass-mission-$(value otherslot)@$other.service/process" >/dev/null 2>&1 && echo "other_credential=readable" || echo "other_credential=denied"
-      { ls "/var/log/blackglass-mission/$other" || ls "/var/log/private/blackglass-mission/$other"; } >/dev/null 2>&1 && echo "other_logs=readable" || echo "other_logs=denied"
+      { ls "/var/log/blackglass-mission/$other/" || ls "/var/log/private/blackglass-mission/$other/"; } >/dev/null 2>&1 && echo "other_logs=readable" || echo "other_logs=denied" # "/": through the link
     fi
     historic="$(value historic)"
     [[ -n "$historic" ]] && attack_outbox historic "$historic"

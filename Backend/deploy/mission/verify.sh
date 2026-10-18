@@ -18,6 +18,9 @@ done
 [[ "$(id -u)" == 0 ]] || { echo "run as root" >&2; exit 77; }
 [[ "$yes" == 1 ]] || { echo "refusing without --yes" >&2; exit 64; }
 [[ "$(readlink -f /opt/blackglass/mission/current)" == /opt/blackglass/mission/releases/stub ]] || { echo "the stub release is not selected" >&2; exit 78; }
+# systemd delivers LoadCredential through mount propagation: a host whose / is not shared (a container left private) can't run units
+# with credentials at all, and its results would say nothing about this design.
+[[ "$(findmnt -n -o PROPAGATION /)" == shared* ]] || { echo "/ is not a shared mount (findmnt -o PROPAGATION /): not a host these checks describe" >&2; exit 78; }
 exec > >(tee "$report") 2>&1
 fails=0
 check() { if eval "$2"; then echo "ok   - $1"; else echo "FAIL - $1"; fails=$((fails + 1)); fi; }
@@ -194,7 +197,8 @@ prepare "$A" 1 >/dev/null
 check "an ended attempt's unit never starts again" "! as_agent systemctl --no-ask-password start $(unit 00 "$A") 2>/dev/null"
 
 # ---- C1: a later attempt handed A's recycled uid cannot reach A's files ----
-install -d -m 0755 -o "$uidA" -g "$uidA" "/var/lib/private/blackglass-outbox/$R" # systemd reuses the uid owning a unit's state directory
+# systemd first tries the uid that owns one of a new unit's directories: a logs directory owned by A's old uid hands R that uid.
+install -d -m 0750 -o "$uidA" -g "$uidA" "/var/log/private/blackglass-mission/$R"
 printf 'probe=yes\nhistoric=%s\nsleep=1\n' "$A" > "/etc/blackglass-stub/plans/$R/plan"
 prepare "$R" 1 >/dev/null
 systemctl start "$(unit 03 "$R")" # as root: the slot-03 unit, started like any other
