@@ -355,4 +355,86 @@ public class SettlementTests : IAsyncLifetime
         Assert.IsType<ResultOutcome.Quarantined>(await ManifestKit.SubmitAsync(capped, db, ManifestKit.Body(first)));
         Assert.Equal(16, SettlementOptions.Default.SubmissionsPerParticipant);
     }
+
+    Task<long> SubmissionCountAsync(ManifestKit.Running r) =>
+        Scalar<long>("select count(*) from result_submissions where attempt_id = @Attempt", new { r.Attempt });
+
+    [Fact]
+    public async Task A_canonical_replay_past_the_cap_answers_its_stored_outcome_before_a_settlement()
+    {
+        var r = await ManifestKit.StartAsync(kit, db);
+        var capped = ManifestKit.Store(db, SettlementOptions.Default with { SubmissionsPerParticipant = 3 });
+        var first = ManifestKit.Manifest(r) with { OutcomeSequence = 1, Integrity = "ledgerMismatch" };
+        var answer = Assert.IsType<ResultOutcome.Quarantined>(await ManifestKit.SubmitAsync(capped, db, ManifestKit.Body(first)));
+        for (var i = 2; i <= 3; i++)
+            Assert.IsType<ResultOutcome.Quarantined>(await ManifestKit.SubmitAsync(capped, db, ManifestKit.Body(first with { OutcomeSequence = i })));
+        // The same manifest in another raw encoding: its stored answer, and no new raw representation is kept.
+        var replay = Assert.IsType<ResultOutcome.Quarantined>(await ManifestKit.SubmitAsync(capped, db, ManifestKit.Reencoded(first)));
+        Assert.Equal(answer.Codes, replay.Codes);
+        Assert.Equal(3L, await SubmissionCountAsync(r));
+        // A genuinely different manifest is still capped.
+        Assert.Equal(new ResultOutcome.Refused("SubmissionLimit"), await ManifestKit.SubmitAsync(capped, db, ManifestKit.Body(first with { OutcomeSequence = 4 })));
+        Assert.Equal(3L, await SubmissionCountAsync(r));
+    }
+
+    [Fact]
+    public async Task A_canonical_replay_past_the_cap_answers_duplicate_after_a_settlement()
+    {
+        var r = await ManifestKit.StartAsync(kit, db);
+        var capped = ManifestKit.Store(db, SettlementOptions.Default with { SubmissionsPerParticipant = 3 });
+        var valid = ManifestKit.Manifest(r);
+        Assert.IsType<ResultOutcome.Settled>(await ManifestKit.SubmitAsync(capped, db, ManifestKit.Body(valid)));
+        for (var i = 2; i <= 3; i++)
+            Assert.Equal(new ResultOutcome.Refused("Conflict"), await ManifestKit.SubmitAsync(capped, db, ManifestKit.Body(valid with { OutcomeSequence = i })));
+        var receipt = await Scalar<string>("select receipt from participant_settlements where attempt_id = @Attempt", new { r.Attempt });
+        Assert.Equal(new ResultOutcome.Duplicate("success"), await ManifestKit.SubmitAsync(capped, db, ManifestKit.Reencoded(valid)));
+        Assert.Equal(3L, await SubmissionCountAsync(r));
+        Assert.Equal(new ResultOutcome.Refused("SubmissionLimit"), await ManifestKit.SubmitAsync(capped, db, ManifestKit.Body(valid with { OutcomeSequence = 9 })));
+        Assert.Equal(3L, await SubmissionCountAsync(r));
+        Assert.Equal(receipt, await Scalar<string>("select receipt from participant_settlements where attempt_id = @Attempt", new { r.Attempt }));
+    }
+
+    /// <summary>Everything a refused replay must leave as it was: each stored submission (disposition, repeat count), each
+    /// settlement's receipt and each participant's state.</summary>
+    Task<string> EvidenceAsync() => Scalar<string>("""
+        select md5(coalesce((select string_agg(submission_id || ':' || disposition || ':' || receive_count, ',' order by submission_id) from result_submissions), '')
+                || coalesce((select string_agg(attempt_id::text || receipt, ',' order by attempt_id) from participant_settlements), '')
+                || coalesce((select string_agg(attempt_id::text || account_id || state, ',' order by attempt_id) from attempt_participants), ''))
+        """);
+
+    [Fact]
+    public async Task A_replay_of_a_submission_stored_before_the_revocation_is_refused_and_changes_nothing()
+    {
+        // Stored before the disable: a quarantined participant's body (202 then) and a pending one's canonical retry. Both
+        // attempts are live, so the disable revokes them.
+        var quarantined = await ManifestKit.StartAsync(kit, db);
+        var quarantinedBody = ManifestKit.Body(ManifestKit.Manifest(quarantined) with { Integrity = "ledgerMismatch" });
+        Assert.IsType<ResultOutcome.Quarantined>(await Submit(quarantinedBody));
+        var admin = new HostAdminStore(db.AsApp());
+        await admin.DisableAsync("h1", Op);
+        await admin.RotateSecretAsync("h1", Op);
+        await admin.SwitchAsync("h1", HostSwitch.Enable, Op);
+        var evidence = await EvidenceAsync();
+        Assert.Equal(new ResultOutcome.Refused("AttemptRevoked"), await Submit(quarantinedBody)); // the byte-identical replay
+        Assert.Equal(new ResultOutcome.Refused("AttemptRevoked"), await Submit(ManifestKit.Reencoded(ManifestKit.Manifest(quarantined) with { Integrity = "ledgerMismatch" })));
+        Assert.Equal(evidence, await EvidenceAsync()); // not even the repeat is counted
+    }
+
+    [Fact]
+    public async Task An_attempt_settled_before_a_disable_is_not_revoked_and_its_replay_keeps_the_settlements_answer()
+    {
+        // Disable revokes live attempts only (Stage 8 R8): an attempt that ended before it keeps its credential state, and its
+        // settlement and receipt are never touched.
+        var settled = await ManifestKit.StartAsync(kit, db);
+        var body = ManifestKit.Body(ManifestKit.Manifest(settled));
+        Assert.IsType<ResultOutcome.Settled>(await Submit(body));
+        var receipt = await Scalar<string>("select receipt from participant_settlements where attempt_id = @Attempt", new { settled.Attempt });
+        var admin = new HostAdminStore(db.AsApp());
+        await admin.DisableAsync("h1", Op);
+        await admin.RotateSecretAsync("h1", Op);
+        await admin.SwitchAsync("h1", HostSwitch.Enable, Op);
+        Assert.Null(await Scalar<DateTime?>("select credential_revoked_at from mission_attempts where attempt_id = @Attempt", new { settled.Attempt }));
+        Assert.Equal(new ResultOutcome.Duplicate("success"), await Submit(body));
+        Assert.Equal(receipt, await Scalar<string>("select receipt from participant_settlements where attempt_id = @Attempt", new { settled.Attempt }));
+    }
 }

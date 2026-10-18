@@ -40,6 +40,41 @@ public class EvidenceVoidTests : IAsyncLifetime
     async Task<string> ParticipantState(ManifestKit.Running r, long? account = null) =>
         await Scalar<string>("select state from attempt_participants where attempt_id = @Attempt and account_id = @a", new { r.Attempt, a = account ?? r.Account });
 
+    /// <summary>Makes <paramref name="r"/> look like an attempt admitted before schema 9 under a catalogue the history never
+    /// received (its build allowed under that catalogue, as Stage 8 required).</summary>
+    async Task AdmittedBeforeTheHistoryAsync(ManifestKit.Running r, string missing) => await ExecuteAsSuperuserAsync(db, """
+        begin; set local session_replication_role = replica;
+        insert into allowed_builds (build_revision, catalogue_version) select build_revision, @missing from mission_attempts where attempt_id = @Attempt
+          on conflict do nothing;
+        insert into allowed_build_templates (build_revision, catalogue_version, template_id, template_version)
+          select build_revision, @missing, template_id, template_version from mission_attempts where attempt_id = @Attempt on conflict do nothing;
+        update mission_attempts set catalogue_version = @missing where attempt_id = @Attempt;
+        commit
+        """, new { missing, r.Attempt });
+
+    [Fact]
+    public async Task An_attempt_admitted_before_the_catalogue_history_is_voided_without_a_catalogue_import()
+    {
+        var missing = "sha256:" + new string('c', 64);
+        var evidence = await ManifestKit.StartAsync(kit, db);
+        var revoked = await ManifestKit.StartAsync(kit, db);
+        await AdmittedBeforeTheHistoryAsync(evidence, missing);
+        await AdmittedBeforeTheHistoryAsync(revoked, missing);
+        // Exit evidence (exit status, complete scan, participant absent): voided, refunded, slot released; no game definition needed.
+        Assert.Equal(new ExitReportResult.Applied("voided"), await Exited(evidence, 1, null, true, (evidence.Account, false)));
+        Assert.Equal(("settled", "infra_void", "refunded"), await RowAsSuperuserAsync<(string, string, string)>(db, """
+            select a.state, s.outcome, h.state from mission_attempts a join participant_settlements s using (attempt_id) join energy_holds h using (attempt_id)
+            where a.attempt_id = @Attempt
+            """, new { evidence.Attempt }));
+        // The operator's revoked-mode protective void (R8), no submission stored.
+        await new HostAdminStore(db.AsApp()).DisableAsync("h1", Op);
+        var recovery = new RecoveryStore(db.AsApp(), new Blackglass.Accounts.Persistence.Catalogue.CatalogueHistoryStore(db.AsApp()), SettlementOptions.Default);
+        Assert.Equal("operator_revoked_unrecoverable", (await recovery.VoidParticipantAsync(revoked.Attempt, revoked.Account, new VoidChecks(true, false, true, true),
+            "host image lost", Op, default)).Basis);
+        Assert.Equal("settled", await ParticipantState(revoked));
+        Assert.False(await Scalar<bool>("select exists (select 1 from catalogue_versions where version = @missing)", new { missing }));
+    }
+
     async Task<bool> AnomalyAsync(string kind, Guid attempt) =>
         await Scalar<bool>("select exists (select 1 from anomaly_events where kind = @kind and attempt_id = @attempt)", new { kind, attempt });
 

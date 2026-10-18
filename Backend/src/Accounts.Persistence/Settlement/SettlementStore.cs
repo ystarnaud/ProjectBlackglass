@@ -116,6 +116,7 @@ public sealed class SettlementStore
         public string Disposition { get; init; } = "";
         public string[] Codes { get; init; } = [];
         public long? SameAs { get; init; }
+        public string? ManifestHash { get; init; }
     }
 
     async Task<ResultOutcome> DecideAsync(string hostId, byte[] secretHash, ResultBody body, bool forceQuarantine, CancellationToken ct)
@@ -148,19 +149,32 @@ public sealed class SettlementStore
         }
         if (!await SecretCurrentAsync(conn, tx, hostId, secretHash, ct)) return new ResultOutcome.Unauthenticated();
 
+        var detail = new { hostId, rawHash = rawHash is null ? null : Convert.ToHexStringLower(rawHash), length = body.Length };
+        if (linked && attempt!.Revoked)
+        {
+            // S9-B1: no payload is stored for a revoked attempt; only the refusal, for the operator. Checked before any replay
+            // answer (the owner's Stage 9 merge correction): a body stored before the revocation gets no ordinary acknowledgment
+            // after it, and its stored rows, settlement and receipt stay exactly as they are (not even the repeat is counted).
+            await Anomalies.RaiseAsync(conn, tx, Anomalies.ResultRefusedRevoked, $"{hostId}:{detail.rawHash ?? "oversized:" + body.Length}",
+                new { detail.hostId, detail.rawHash, detail.length, attemptId = claimedAttempt, accountId = Base58Id.Format(claimedAccount!.Value) }, ct,
+                accountId: claimedAccount, hostId: hostId, attemptId: claimedAttempt);
+            await tx.CommitAsync(ct);
+            return new ResultOutcome.Refused("AttemptRevoked");
+        }
+
         // A byte-identical repeat returns its stored answer (and only counts the repeat), whatever happened since.
         if (rawHash is not null)
         {
             var existing = linked
                 ? await conn.QuerySingleOrDefaultAsync<StoredSubmission>(new CommandDefinition(
                     """
-                    select submission_id as SubmissionId, disposition as Disposition, codes as Codes, same_as_submission_id as SameAs from result_submissions
-                    where attempt_id = @a and account_id = @c and raw_hash = @rawHash
+                    select submission_id as SubmissionId, disposition as Disposition, codes as Codes, same_as_submission_id as SameAs, manifest_hash as ManifestHash
+                    from result_submissions where attempt_id = @a and account_id = @c and raw_hash = @rawHash
                     """, new { a = claimedAttempt, c = claimedAccount, rawHash }, tx, cancellationToken: ct))
                 : await conn.QuerySingleOrDefaultAsync<StoredSubmission>(new CommandDefinition(
                     """
-                    select submission_id as SubmissionId, disposition as Disposition, codes as Codes, same_as_submission_id as SameAs from result_submissions
-                    where host_id = @hostId and raw_hash = @rawHash and attempt_id is null
+                    select submission_id as SubmissionId, disposition as Disposition, codes as Codes, same_as_submission_id as SameAs, manifest_hash as ManifestHash
+                    from result_submissions where host_id = @hostId and raw_hash = @rawHash and attempt_id is null
                     """, new { hostId, rawHash }, tx, cancellationToken: ct));
             if (existing is not null)
             {
@@ -172,17 +186,6 @@ public sealed class SettlementStore
             }
         }
 
-        var detail = new { hostId, rawHash = rawHash is null ? null : Convert.ToHexStringLower(rawHash), length = body.Length };
-        if (linked && attempt!.Revoked)
-        {
-            // S9-B1: no payload is stored for a revoked attempt; only the refusal, for the operator.
-            await Anomalies.RaiseAsync(conn, tx, Anomalies.ResultRefusedRevoked, $"{hostId}:{detail.rawHash ?? "oversized:" + body.Length}",
-                new { detail.hostId, detail.rawHash, detail.length, attemptId = claimedAttempt, accountId = Base58Id.Format(claimedAccount!.Value) }, ct,
-                accountId: claimedAccount, hostId: hostId, attemptId: claimedAttempt);
-            await tx.CommitAsync(ct);
-            return new ResultOutcome.Refused("AttemptRevoked");
-        }
-
         ParticipantRow? participant = linked ? await LockParticipantAsync(conn, tx, claimedAttempt!.Value, claimedAccount!.Value, ct) : null;
 
         // S9-B22: the caps, after the identical-retry check.
@@ -191,6 +194,24 @@ public sealed class SettlementStore
             var count = await conn.ExecuteScalarAsync<int>(new CommandDefinition(
                 "select count(*)::int from result_submissions where attempt_id = @a and account_id = @c and source = 'agent'",
                 new { a = claimedAttempt, c = claimedAccount }, tx, cancellationToken: ct));
+            if (count >= options.SubmissionsPerParticipant && parsed is not null)
+            {
+                // The owner's Stage 9 merge correction: the same canonical manifest in another raw encoding gets the stored outcome
+                // (the settlement's, or its first stored row's), and no further raw representation is kept. Only a genuinely
+                // different manifest meets the cap.
+                var known = await conn.QuerySingleOrDefaultAsync<StoredSubmission>(new CommandDefinition(
+                    """
+                    select submission_id as SubmissionId, disposition as Disposition, codes as Codes, same_as_submission_id as SameAs, manifest_hash as ManifestHash
+                    from result_submissions where attempt_id = @a and account_id = @c and manifest_hash = @hash and disposition <> 'same_as'
+                    order by submission_id limit 1
+                    """, new { a = claimedAttempt, c = claimedAccount, hash = parsed.ManifestHash }, tx, cancellationToken: ct));
+                if (known is not null)
+                {
+                    var answer = await AnswerOfAsync(conn, tx, known, ct);
+                    await tx.CommitAsync(ct);
+                    return answer;
+                }
+            }
             if (count >= options.SubmissionsPerParticipant)
             {
                 await Anomalies.RaiseAsync(conn, tx, Anomalies.SubmissionLimit, $"{claimedAttempt}:{claimedAccount}", new { detail.hostId, attemptId = claimedAttempt, count }, ct,
@@ -283,8 +304,8 @@ public sealed class SettlementStore
         // A different raw encoding of a manifest already stored for this participant gets that row's answer (S9-B3).
         var root = await conn.QuerySingleOrDefaultAsync<StoredSubmission>(new CommandDefinition(
             """
-            select submission_id as SubmissionId, disposition as Disposition, codes as Codes, same_as_submission_id as SameAs from result_submissions
-            where attempt_id = @Attempt and account_id = @Account and manifest_hash = @hash and disposition <> 'same_as'
+            select submission_id as SubmissionId, disposition as Disposition, codes as Codes, same_as_submission_id as SameAs, manifest_hash as ManifestHash
+            from result_submissions where attempt_id = @Attempt and account_id = @Account and manifest_hash = @hash and disposition <> 'same_as'
             order by submission_id limit 1
             """, new { link.Attempt, link.Account, hash = parsed.ManifestHash }, tx, cancellationToken: ct));
         if (root is not null && source == "agent")
@@ -573,15 +594,25 @@ public sealed class SettlementStore
     }
 
     /// <summary>The answer a stored submission received (a repeat of it, or a same_as row of it, gets the same).</summary>
+    /// A row whose manifest is the one its participant settled with answers duplicate, whatever disposition it was stored with
+    /// (an operator revalidation settles a row stored as quarantined or held).
     static async Task<ResultOutcome> AnswerOfAsync(NpgsqlConnection conn, NpgsqlTransaction tx, StoredSubmission row, CancellationToken ct)
     {
         if (row.Disposition == "same_as")
         {
             var root = await conn.QuerySingleAsync<StoredSubmission>(new CommandDefinition(
-                "select submission_id as SubmissionId, disposition as Disposition, codes as Codes, same_as_submission_id as SameAs from result_submissions where submission_id = @SameAs",
-                row, tx, cancellationToken: ct));
+                """
+                select submission_id as SubmissionId, disposition as Disposition, codes as Codes, same_as_submission_id as SameAs, manifest_hash as ManifestHash
+                from result_submissions where submission_id = @SameAs
+                """, row, tx, cancellationToken: ct));
             return await AnswerOfAsync(conn, tx, root, ct);
         }
+        if (row.ManifestHash is not null && await conn.ExecuteScalarAsync<string?>(new CommandDefinition(
+                """
+                select s.outcome from participant_settlements s join result_submissions r on r.attempt_id = s.attempt_id and r.account_id = s.account_id
+                where r.submission_id = @SubmissionId and s.manifest_hash = r.manifest_hash
+                """, row, tx, cancellationToken: ct)) is { } settled)
+            return new ResultOutcome.Duplicate(settled);
         return row.Disposition switch
         {
             "settled" => new ResultOutcome.Duplicate(await conn.ExecuteScalarAsync<string>(new CommandDefinition(

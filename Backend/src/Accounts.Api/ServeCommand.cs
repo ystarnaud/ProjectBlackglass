@@ -112,7 +112,8 @@ public static class ServeCommand
         var cooldown = new SweepCooldown(); // the worker's memory of releases that keep failing (sweeps never overlap)
         // Stage 9 (S9-B18): the repeating alerts and the auto-drain run after each deadline sweep; none of them ever voids.
         var monitoring = new Persistence.Settlement.MonitoringStore(dataSource, new Persistence.Settlement.MonitoringOptions(attempts.QuarantineEscalationHours,
-            attempts.UnresponsiveAlertSeconds, attempts.RevokedAlertHours, attempts.AutoDrainAttempts, attempts.AutoDrainWindowMinutes));
+            attempts.UnresponsiveAlertSeconds, attempts.RevokedAlertHours, attempts.AutoDrainAttempts, attempts.AutoDrainWindowMinutes,
+            attempts.EndingAlertSeconds, attempts.EndingAlertRepeatSeconds));
         builder.Services.AddSingleton(monitoring);
         builder.Services.AddSingleton(sp => new AttemptDeadlineWorker(async ct =>
             {

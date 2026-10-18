@@ -40,6 +40,8 @@ public sealed class AttemptSettings
     public const string RevokedAlertHoursVar = "BLACKGLASS_REVOKED_ALERT_HOURS";
     public const string AutoDrainAttemptsVar = "BLACKGLASS_AUTO_DRAIN_ATTEMPTS";
     public const string AutoDrainWindowVar = "BLACKGLASS_AUTO_DRAIN_WINDOW";
+    public const string EndingAlertSecondsVar = "BLACKGLASS_ENDING_ALERT_SECONDS";
+    public const string EndingAlertRepeatSecondsVar = "BLACKGLASS_ENDING_ALERT_REPEAT_SECONDS";
 
     /// <summary>The log category of serve's attempt messages, such as the development host warning.</summary>
     public const string LogCategory = "Blackglass.Attempts";
@@ -111,6 +113,12 @@ public sealed class AttemptSettings
     /// <summary>The auto-drain window in minutes: 1 to 10080, default 60.</summary>
     public int AutoDrainWindowMinutes { get; private init; }
 
+    /// <summary>How long an attempt stays in ending before its first ending_attempt_stalled alert (never a void): 60 to 86400 s, default 600.</summary>
+    public int EndingAlertSeconds { get; private init; }
+
+    /// <summary>Seconds between repeated ending_attempt_stalled alerts: 60 to 604800, default 3600.</summary>
+    public int EndingAlertRepeatSeconds { get; private init; }
+
     public static AttemptSettings FromEnvironment(IReadOnlyDictionary<string, string?> env)
     {
         var devHosts = !env.TryGetValue(DevHostsVar, out var d) || string.IsNullOrEmpty(d) ? false
@@ -146,6 +154,8 @@ public sealed class AttemptSettings
             RevokedAlertHours = Number(env, RevokedAlertHoursVar, 24, 1, 720),
             AutoDrainAttempts = Number(env, AutoDrainAttemptsVar, 3, 0, 1000),
             AutoDrainWindowMinutes = Number(env, AutoDrainWindowVar, 60, 1, 10_080),
+            EndingAlertSeconds = Number(env, EndingAlertSecondsVar, 600, 60, 86_400),
+            EndingAlertRepeatSeconds = Number(env, EndingAlertRepeatSecondsVar, 3600, 60, 604_800),
         };
     }
 

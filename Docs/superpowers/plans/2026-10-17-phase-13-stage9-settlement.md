@@ -1491,3 +1491,46 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
 **Obligations handed on:** as listed in "Obligations this stage hands on" above, plus:
 - Stage 10 sends `exited` only after relaying every published file. The operator imports the old catalogue before voiding or exit-reporting a pre-schema-9 attempt whose catalogue is missing from the history.
 - Phase 14 picks up the deferred minors above.
+
+## Merge corrections (2026-10-17, the owner's "Stage 9 Final Correction and Merge Authorization")
+
+1. **Revoked-attempt replay precedence.** The results route checks the attempt's permanent revocation right after it authenticates the host and takes the account, host and attempt locks, before any replay answer. A body stored before the revocation now gets `409 AttemptRevoked`, like any other. Nothing stored changes: not the rows, not their repeat counts, not a settlement or a receipt.
+   - Boundary: host disable revokes live attempts only (Stage 8 R8). An attempt that settled before the disable was never revoked, so its replay still answers `duplicate` with its unchanged receipt.
+   - Tests: `A_replay_of_a_submission_stored_before_the_revocation_is_refused_and_changes_nothing` and `An_attempt_settled_before_a_disable_is_not_revoked_and_its_replay_keeps_the_settlements_answer`. The Task 3 ruling ("a byte-identical repeat answers before the revocation check") is withdrawn.
+2. **Canonical replay past the cap.** Once the participant's cap is reached, a parsed body whose canonical manifest hash matches a stored row gets that row's answer, and no new raw representation is stored. A genuinely different manifest still gets `409 SubmissionLimit`.
+   - Tests: `A_canonical_replay_past_the_cap_answers_its_stored_outcome_before_a_settlement` and `…_answers_duplicate_after_a_settlement`.
+   - Found by item 5's deterministic test: once an operator revalidation had settled a row stored as `quarantined`, a byte-identical replay of it answered `202 quarantined`. Any stored row whose manifest is the participant's settled one now answers `duplicate`.
+3. **Stalled `ending` attempts.** A new `mission_attempts.ending_at` column is stamped by a database trigger when the attempt enters `ending` and is never changed after that; attempts already in `ending` at the upgrade get the upgrade time.
+   - The monitoring sweep raises `ending_attempt_stalled` once an attempt has been in `ending` for `BLACKGLASS_ENDING_ALERT_SECONDS` (600), then every `BLACKGLASS_ENDING_ALERT_REPEAT_SECONDS` (3600). It deduplicates per attempt and interval (`<attempt>:<interval>`).
+   - The anomaly carries `host_id`, the attempt and a detail of `{hostId, elapsedSeconds, unsettled}`. It changes no state.
+   - Tests: `Ending_at_is_stamped_when_the_attempt_enters_ending_and_the_app_cannot_change_it`, `A_stalled_ending_attempt_alerts_after_ten_minutes_then_hourly_and_never_changes_anything` (generation, deduplication, repetition, no change, recovery), `Concurrent_sweeps_raise_one_stalled_ending_alert_per_interval` and `Stage9_monitoring_settings_defaults_bounds_and_refusals`.
+4. **Crash-drill reliability.** The script fails (exit 80) unless:
+   - it verified that exactly the drill's container (by id, never the shared cluster's) stopped with exit 137;
+   - the container runs again with a new start time;
+   - the driver saw PostgreSQL's `pg_postmaster_start_time()` change before its invariant and resubmission checks, and wrote `restarted=true`.
+
+   Cleanup runs on EXIT, SIGINT, SIGTERM and SIGHUP, and covers the build runner. Long commands run in the background and are waited on, so a signal is handled at once. `--negative-skip-kill` is the negative test.
+5. **Concurrent settlement and recovery.**
+   - `Two_relays_and_a_revalidation_in_a_forced_order_commit_exactly_one_settlement` (two orders, forced by an advisory-lock pause at the first writer's settlement insert, with the other two queued on its locks): exactly one settlement, one unchanged receipt, and the same XP, items, stacks and settle entries as a control participant settled alone.
+   - `A_path_holding_its_locks_and_a_conflicting_path_both_finish`: 14 ordered pairs of result relay, exit-evidence void, operator void, host disable and account suspension. Each holder is paused at its last write while holding all its locks; both paths always finish. No deadlock was reproduced, and no lock order changed.
+   - **Lock modes as built** (A = the account row, H = the host row, T = the attempt row):
+     - result relay, `recorded`, revalidate, import and operator void: A `FOR KEY SHARE`, then H `FOR KEY SHARE`, then T `FOR UPDATE`, then the participant, hold, inventory, wallet and policy lock;
+     - exit report: H `FOR KEY SHARE`, then A `FOR KEY SHARE` (in the participant release), then T `FOR UPDATE`;
+     - host disable: H `FOR UPDATE`, then T `FOR UPDATE` (each attempt row updated once, so no foreign-key re-check reaches A);
+     - claim and heartbeat: H `FOR UPDATE`, then attempts `SKIP LOCKED` (never waits);
+     - auto-drain: H `FOR UPDATE` only;
+     - account suspension, credential rotation and revocation: A `FOR UPDATE`, then that account's sessions and credentials only (never H or T);
+     - quarantine escalation: A `FOR KEY SHARE`, then T `SKIP LOCKED`.
+   - **Why no cycle can form:**
+     - `KEY SHARE` conflicts only with `FOR UPDATE`.
+     - The only holders of A `FOR UPDATE` take no H, T or later lock, so they never wait on a lock the settlement paths hold.
+     - Every path that waits on T already holds H in `KEY SHARE`, or `FOR UPDATE` in disable's case. So disable, which needs H `FOR UPDATE`, and a T holder can never each hold what the other needs.
+     - The exit report and settlement take A and H in opposite orders, but both in `KEY SHARE`, which never conflicts with itself, and neither acquires a conflicting mode on the other row later.
+     - After T, every path takes the participant, hold, inventory, wallet and policy lock in the same order.
+6. **Historical catalogue and protective voids.** Verified: the NOT VALID foreign key from `mission_attempts.catalogue_version` was re-checked whenever a transaction updated an attempt row twice. As a result:
+   - an exit-evidence void of a schema-8 attempt whose catalogue was never registered failed with 23503 (`running → ending → settled`, then the slot release);
+   - so did an operator void.
+
+   It is replaced in 0009, which is not yet applied anywhere (0000–0008 are unchanged), by an insert-time trigger raising the same 23503 under the same constraint name. A new attempt still needs a registered catalogue. The reference can't dangle: `catalogue_version` never changes, and history rows are immutable and never removed. Result settlement still waits for the admission catalogue (`202 held`, then `catalogue import`).
+   - Test: `An_attempt_admitted_before_the_catalogue_history_is_voided_without_a_catalogue_import` (an exit-evidence void and a revoked-mode operator void).
+   - The final review's M3 and the corrected Task 5 ruling are resolved.

@@ -29,6 +29,7 @@ public class CrashDrillTests
         var running = new List<ManifestKit.Running>();
         for (var i = 0; i < Participants; i++) running.Add(await ManifestKit.StartAsync(kit, db));
         var secret = await AttemptFixtures.HostSecretHashAsync(db, "h1");
+        var startedBefore = await ScalarAsSuperuserAsync<DateTime>(db, "select pg_postmaster_start_time()");
         await File.WriteAllTextAsync("/out/drill-loaded", "loaded\n");
 
         // Load: two of three participants relay a result, the third gets exit evidence of absence; failures (the kill) are counted.
@@ -55,6 +56,8 @@ public class CrashDrillTests
             catch (Exception) when (DateTime.UtcNow < deadline) { await Task.Delay(500); }
         }
         Npgsql.NpgsqlConnection.ClearAllPools(); // connections opened before the kill are dead
+        // The drill proves nothing unless PostgreSQL really restarted during the load (the negative test skips the kill).
+        Assert.NotEqual(startedBefore, await ScalarAsSuperuserAsync<DateTime>(db, "select pg_postmaster_start_time()"));
         Assert.Empty(await InvariantFailuresAsync(db));
 
         // Resubmission pass: every result and report again; each participant ends with exactly one settlement.
@@ -75,6 +78,6 @@ public class CrashDrillTests
         Assert.Equal((long)(Participants / 3), await ScalarAsSuperuserAsync<long>(db, "select count(*) from participant_settlements where outcome = 'infra_void'"));
         Assert.Empty(await InvariantFailuresAsync(db));
         await File.WriteAllTextAsync("/out/drill-result.txt",
-            $"participants={Participants} loadFailures={failures} settlements={Participants} voids={Participants / 3} resubmission={string.Join(',', answers.GroupBy(a => a).Select(g => $"{g.Key}x{g.Count()}"))}\n");
+            $"restarted=true participants={Participants} loadFailures={failures} settlements={Participants} voids={Participants / 3} resubmission={string.Join(',', answers.GroupBy(a => a).Select(g => $"{g.Key}x{g.Count()}"))}\n");
     }
 }

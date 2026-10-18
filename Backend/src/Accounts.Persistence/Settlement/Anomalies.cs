@@ -27,6 +27,7 @@ public static class Anomalies
     public const string QuarantineEscalation = "quarantine_escalation";
     public const string UnresponsiveAttempt = "unresponsive_attempt";
     public const string RevokedAttemptUnsettled = "revoked_attempt_unsettled";
+    public const string EndingAttemptStalled = "ending_attempt_stalled";
     public const string CatalogueUnavailable = "catalogue_unavailable";
     public const string SubmissionLimit = "submission_limit";
     public const string HostAutoDrained = "host_auto_drained";

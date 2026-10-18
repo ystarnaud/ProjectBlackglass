@@ -182,6 +182,8 @@ public class RevocationPermanenceTests : IAsyncLifetime
             "join_tickets:join_ticket_change:O",
             "join_tickets:join_ticket_is_permanent:O",
             "join_tickets:join_tickets_no_truncate:O",
+            "mission_attempts:mission_attempt_catalogue_registered:O",
+            "mission_attempts:mission_attempt_ending_stamp:O",
             "mission_attempts:mission_attempt_is_permanent:O",
             "mission_attempts:mission_attempt_transition:O",
             "mission_attempts:mission_attempts_no_truncate:O",

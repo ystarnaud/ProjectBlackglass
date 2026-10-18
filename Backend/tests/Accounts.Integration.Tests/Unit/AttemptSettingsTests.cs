@@ -41,6 +41,30 @@ public class AttemptSettingsTests
     }
 
     [Fact]
+    public void Stage9_monitoring_settings_defaults_bounds_and_refusals()
+    {
+        var defaults = AttemptSettings.FromEnvironment(Env());
+        Assert.Equal((600, 24, 3, 60, 600, 3600), (defaults.UnresponsiveAlertSeconds, defaults.RevokedAlertHours, defaults.AutoDrainAttempts,
+            defaults.AutoDrainWindowMinutes, defaults.EndingAlertSeconds, defaults.EndingAlertRepeatSeconds));
+        foreach (var (name, low, high, read) in new (string, int, int, Func<AttemptSettings, int>)[]
+                 {
+                     (AttemptSettings.UnresponsiveAlertSecondsVar, 60, 86_400, s => s.UnresponsiveAlertSeconds), (AttemptSettings.RevokedAlertHoursVar, 1, 720, s => s.RevokedAlertHours),
+                     (AttemptSettings.AutoDrainAttemptsVar, 0, 1000, s => s.AutoDrainAttempts), (AttemptSettings.AutoDrainWindowVar, 1, 10_080, s => s.AutoDrainWindowMinutes),
+                     (AttemptSettings.EndingAlertSecondsVar, 60, 86_400, s => s.EndingAlertSeconds), (AttemptSettings.EndingAlertRepeatSecondsVar, 60, 604_800, s => s.EndingAlertRepeatSeconds),
+                 })
+        {
+            Assert.Equal(low, read(AttemptSettings.FromEnvironment(Env((name, low.ToString(System.Globalization.CultureInfo.InvariantCulture))))));
+            Assert.Equal(high, read(AttemptSettings.FromEnvironment(Env((name, high.ToString(System.Globalization.CultureInfo.InvariantCulture))))));
+            foreach (var bad in new[] { (low - 1).ToString(System.Globalization.CultureInfo.InvariantCulture), (high + 1).ToString(System.Globalization.CultureInfo.InvariantCulture), "soon-value-xyz" })
+            {
+                var e = Assert.Throws<AttemptSettingsException>(() => AttemptSettings.FromEnvironment(Env((name, bad))));
+                Assert.Contains(name, e.Message);
+                Assert.DoesNotContain("soon-value-xyz", e.Message);
+            }
+        }
+    }
+
+    [Fact]
     public void Stage8_settings_defaults_bounds_and_refusals()
     {
         var defaults = AttemptSettings.FromEnvironment(Env());

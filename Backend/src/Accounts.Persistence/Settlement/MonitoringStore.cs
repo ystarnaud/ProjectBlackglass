@@ -5,14 +5,17 @@ using Npgsql;
 namespace Blackglass.Accounts.Persistence.Settlement;
 
 /// <summary>Stage 9's provisional monitoring values (S9-B18, spec §19).</summary>
+/// <param name="EndingAlertSeconds">Time in ending (from the database's ending_at) before the first ending_attempt_stalled alert.</param>
+/// <param name="EndingRepeatSeconds">Time between repeated ending_attempt_stalled alerts while the attempt stays in ending.</param>
 /// <param name="AutoDrainAttempts">Distinct attempts with an exit-evidence void within the window (and since the host's last operator enable, so a re-enable sticks) that drain a host; 0 turns it off.</param>
-public sealed record MonitoringOptions(int EscalationHours, int UnresponsiveAlertSeconds, int RevokedAlertHours, int AutoDrainAttempts, int AutoDrainWindowMinutes)
+public sealed record MonitoringOptions(int EscalationHours, int UnresponsiveAlertSeconds, int RevokedAlertHours, int AutoDrainAttempts, int AutoDrainWindowMinutes,
+    int EndingAlertSeconds = 600, int EndingRepeatSeconds = 3600)
 {
     public static readonly MonitoringOptions Default = new(24, 600, 24, 3, 60);
 }
 
 /// <summary>What one monitoring sweep raised.</summary>
-public sealed record MonitoringReport(int Escalations, int Unresponsive, int Revoked, IReadOnlyList<string> Drained);
+public sealed record MonitoringReport(int Escalations, int Unresponsive, int Revoked, IReadOnlyList<string> Drained, int Stalled = 0);
 
 /// <summary>
 /// The repeating alerts and the auto-drain (S9-B18). Alerts repeat and time never voids: no sweep changes a participant's
@@ -59,7 +62,7 @@ public sealed class MonitoringStore(NpgsqlDataSource db, MonitoringOptions optio
             escalations++;
         }
 
-        int unresponsive, revoked;
+        int unresponsive, revoked, stalled;
         await using (var conn = await DbFailure.OpenAsync(db, ct))
         await using (var tx = await conn.BeginTransactionAsync(IsolationLevel.ReadCommitted, ct))
         {
@@ -85,6 +88,20 @@ public sealed class MonitoringStore(NpgsqlDataSource db, MonitoringOptions optio
                   and exists (select 1 from attempt_participants p where p.attempt_id = a.attempt_id and p.started_at is not null and p.state not in ('settled', 'released'))
                 on conflict (kind, dedupe_key) where reviewed_at is null do nothing
                 """, new { hours = (double)options.RevokedAlertHours }, tx, cancellationToken: ct));
+            // An attempt still in ending (its relay or exit evidence awaited): first after EndingAlertSeconds, then every
+            // EndingRepeatSeconds, one per attempt and interval. Elapsed time alone proves nothing: no state changes.
+            stalled = await conn.ExecuteAsync(new CommandDefinition(
+                """
+                insert into anomaly_events (kind, host_id, build_revision, attempt_id, dedupe_key, detail)
+                select 'ending_attempt_stalled', a.host_id, a.build_revision, a.attempt_id,
+                       a.attempt_id::text || ':' || floor((extract(epoch from clock_timestamp() - a.ending_at) - @initial) / @repeat)::bigint,
+                       jsonb_build_object('hostId', a.host_id, 'elapsedSeconds', floor(extract(epoch from clock_timestamp() - a.ending_at))::bigint,
+                                          'unsettled', (select count(*) from attempt_participants p where p.attempt_id = a.attempt_id
+                                                        and p.started_at is not null and p.state not in ('settled', 'released')))
+                from mission_attempts a
+                where a.state = 'ending' and a.ending_at <= clock_timestamp() - make_interval(secs => @initial)
+                on conflict (kind, dedupe_key) where reviewed_at is null do nothing
+                """, new { initial = (double)options.EndingAlertSeconds, repeat = (double)options.EndingRepeatSeconds }, tx, cancellationToken: ct));
             await tx.CommitAsync(ct);
         }
 
@@ -122,6 +139,6 @@ public sealed class MonitoringStore(NpgsqlDataSource db, MonitoringOptions optio
                 drained.Add(host);
             }
         }
-        return new MonitoringReport(escalations, unresponsive, revoked, drained);
+        return new MonitoringReport(escalations, unresponsive, revoked, drained, stalled);
     }
 }

@@ -80,6 +80,10 @@ public static class ManifestKit
 
     public static ResultBody Body(string raw) => ResultBody.Read(System.Text.Encoding.UTF8.GetBytes(raw));
 
+    /// <summary>The same manifest in a different, non-canonical raw encoding (a space after the opening brace): another raw hash,
+    /// the same canonical manifest hash.</summary>
+    public static ResultBody Reencoded(ResultManifest m) => ResultBody.Read([(byte)'{', (byte)' ', .. m.ToCanonicalBytes().AsSpan(1)]);
+
     public static SettlementStore Store(TestDatabase db, SettlementOptions? options = null) =>
         new(db.AsApp(), new CatalogueHistoryStore(db.AsApp()), options ?? SettlementOptions.Default);
 

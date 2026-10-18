@@ -86,6 +86,8 @@ public class SettlementConcurrencyTests : IAsyncLifetime
             await hosts.RotateSecretAsync("h1", Op);
             await hosts.SwitchAsync("h1", HostSwitch.Enable, Op);
             var again = await ManifestKit.SubmitAsync(store, db, body);
+            // A replay never crosses the revocation: an attempt revoked live refuses it; one that settled before the disable was never
+            // revoked (disable revokes live attempts only), so its settlement's answer stands.
             Assert.Equal(settled ? new ResultOutcome.Duplicate("success") : new ResultOutcome.Refused("AttemptRevoked"), again);
             await FreeSlotAsync(r);
         }
@@ -200,6 +202,144 @@ public class SettlementConcurrencyTests : IAsyncLifetime
         await Task.WhenAll(revalidate, relay);
         Assert.Equal("settled", (await revalidate).Result);
         Assert.Equal(1L, await Scalar<long>("select count(*) from participant_settlements where attempt_id = @Attempt", new { r.Attempt }));
+    }
+
+    // ---- deterministic orderings (the owner's Stage 9 merge corrections, item 5) ----
+
+    /// <summary>The persistent effects of one participant's settlement: operative XP, minted items, held stacks, settle entries
+    /// and settlements. Two participants settled with the same manifest shape from the same starter have equal effects.</summary>
+    Task<(long Xp, long Items, long Stacks, long SettleEntries, long Settlements)> EffectsAsync(ManifestKit.Running r) =>
+        RowAsSuperuserAsync<(long, long, long, long, long)>(db, """
+            select (select coalesce(sum(experience), 0) from operatives where account_id = @Account),
+                   (select count(*) from item_instances where account_id = @Account and origin <> 'starter'),
+                   (select coalesce(sum(quantity), 0) from item_stacks where account_id = @Account),
+                   (select count(*) from energy_ledger where account_id = @Account and kind = 'settle'),
+                   (select count(*) from participant_settlements where account_id = @Account)
+            """, new { r.Account });
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Two_relays_and_a_revalidation_in_a_forced_order_commit_exactly_one_settlement(bool revalidationFirst)
+    {
+        const long Key = 910_101;
+        var control = await ManifestKit.StartAsync(kit, db);
+        Assert.IsType<ResultOutcome.Settled>(await ManifestKit.SubmitAsync(ManifestKit.Store(db), db, ManifestKit.Body(ManifestKit.Manifest(control))));
+        var r = await ManifestKit.StartAsync(kit, db);
+        var store = ManifestKit.Store(db);
+        var recovery = new RecoveryStore(db.AsApp(), new CatalogueHistoryStore(db.AsApp()), SettlementOptions.Default);
+        var valid = ManifestKit.Manifest(r);
+        var submission = 0L;
+        if (revalidationFirst)
+        {
+            // Quarantined (sticky) with the valid manifest stored: the operator revalidates it.
+            Assert.IsType<ResultOutcome.Quarantined>(await ManifestKit.SubmitAsync(store, db, ManifestKit.Body(valid with { Integrity = "ledgerMismatch" })));
+            Assert.IsType<ResultOutcome.Quarantined>(await ManifestKit.SubmitAsync(store, db, ManifestKit.Body(valid)));
+            submission = await Scalar<long>("select max(submission_id) from result_submissions where attempt_id = @Attempt", new { r.Attempt });
+        }
+        await FaultTriggers.InstallPauseAsync(db, "participant_settlements", "insert", Key);
+        Task<RevalidateResult> revalidate;
+        Task<ResultOutcome> same, different;
+        await using (await FaultTriggers.HoldAsync(db, Key))
+        {
+            // The first writer holds the participant at its settlement insert; the other two queue behind its locks.
+            if (revalidationFirst)
+            {
+                revalidate = Task.Run(() => recovery.RevalidateAsync(r.Attempt, r.Account, submission, false, Op, default));
+                await FaultTriggers.WaitForPausedAsync(db, Key);
+                same = Task.Run(() => ManifestKit.SubmitAsync(store, db, ManifestKit.Reencoded(valid)));
+                different = Task.Run(() => ManifestKit.SubmitAsync(store, db, ManifestKit.Body(ManifestKit.Manifest(r, "defeat"))));
+            }
+            else
+            {
+                same = Task.Run(() => ManifestKit.SubmitAsync(store, db, ManifestKit.Body(valid)));
+                await FaultTriggers.WaitForPausedAsync(db, Key);
+                different = Task.Run(() => ManifestKit.SubmitAsync(store, db, ManifestKit.Body(ManifestKit.Manifest(r, "defeat"))));
+                revalidate = Task.Run(() => recovery.RevalidateAsync(r.Attempt, r.Account, 1, false, Op, default));
+            }
+            await AttemptFixtures.WaitForLockWaitersAsync(db, 3);
+        }
+        if (revalidationFirst)
+        {
+            Assert.Equal("settled", (await revalidate).Result);
+            Assert.Equal(new ResultOutcome.Duplicate("success"), await same);
+        }
+        else
+        {
+            Assert.IsType<ResultOutcome.Settled>(await same);
+            Assert.Equal(RecoveryError.NotAllowed, (await Assert.ThrowsAsync<RecoveryException>(() => revalidate)).Error); // settled: nothing to revalidate
+        }
+        Assert.Equal(new ResultOutcome.Refused("Conflict"), await different);
+        await FaultTriggers.RemoveAsync(db, "participant_settlements");
+        Assert.Equal(await EffectsAsync(control), await EffectsAsync(r)); // one settlement's items, XP and energy, applied once
+        var receipt = await Scalar<string>("select receipt from participant_settlements where attempt_id = @Attempt", new { r.Attempt });
+        Assert.Equal(new ResultOutcome.Duplicate("success"), await ManifestKit.SubmitAsync(store, db, ManifestKit.Body(valid)));
+        Assert.Equal(receipt, await Scalar<string>("select receipt from participant_settlements where attempt_id = @Attempt", new { r.Attempt }));
+    }
+
+    /// <summary>
+    /// Lock order (the owner's item 5): each path that writes for a participant is paused while it holds every lock it takes,
+    /// and a conflicting path then runs against the same account, host and attempt; both must finish (no deadlock, no lock
+    /// timeout). Paths: a result relay (settle), an exit-evidence void (exited), an operator protective void (void), host
+    /// disable and account suspension. The lock modes, and why no cycle can form, are in the stage plan's As built (§E).
+    /// </summary>
+    [Theory]
+    [InlineData("settle", "disable")]
+    [InlineData("disable", "settle")]
+    [InlineData("exited", "disable")]
+    [InlineData("disable", "exited")]
+    [InlineData("void", "disable")]
+    [InlineData("disable", "void")]
+    [InlineData("settle", "exited")]
+    [InlineData("exited", "settle")]
+    [InlineData("settle", "suspend")]
+    [InlineData("suspend", "settle")]
+    [InlineData("exited", "suspend")]
+    [InlineData("suspend", "exited")]
+    [InlineData("void", "suspend")]
+    [InlineData("suspend", "void")]
+    public async Task A_path_holding_its_locks_and_a_conflicting_path_both_finish(string holder, string contender)
+    {
+        const long Key = 910_201;
+        var r = await ManifestKit.StartAsync(kit, db);
+        var recovery = new RecoveryStore(db.AsApp(), new CatalogueHistoryStore(db.AsApp()), SettlementOptions.Default);
+        if (holder == "void" || contender == "void")
+        {
+            Assert.IsType<ResultOutcome.Quarantined>(await ManifestKit.SubmitAsync(ManifestKit.Store(db), db, ManifestKit.Body(ManifestKit.Manifest(r) with { BuildRevision = "r9" })));
+            var bad = await Scalar<long>("select max(submission_id) from result_submissions where attempt_id = @Attempt", new { r.Attempt });
+            Assert.Equal("failed", (await recovery.RevalidateAsync(r.Attempt, r.Account, bad, false, Op, default)).Result);
+        }
+        var accounts = new Blackglass.Accounts.Persistence.Accounts.AccountAdminStore(db.AsApp());
+        Task Run(string path) => path switch
+        {
+            "settle" => ManifestKit.SubmitAsync(ManifestKit.Store(db), db, ManifestKit.Body(ManifestKit.Manifest(r))),
+            "exited" => VoidReportAsync(r),
+            "void" => recovery.VoidParticipantAsync(r.Attempt, r.Account, new VoidChecks(true, true, false, false), "outbox empty", Op, default),
+            "disable" => hosts.DisableAsync("h1", Op),
+            "suspend" => accounts.SuspendAsync(r.Account, Op),
+            _ => throw new ArgumentOutOfRangeException(nameof(path)),
+        };
+        var table = holder is "disable" or "suspend" ? "operator_actions" : "participant_settlements"; // each path's last write
+        await FaultTriggers.InstallPauseAsync(db, table, "insert", Key);
+        Task held, other;
+        await using (await FaultTriggers.HoldAsync(db, Key))
+        {
+            held = Task.Run(() => Run(holder));
+            await FaultTriggers.WaitForPausedAsync(db, Key);
+            other = Task.Run(() => Run(contender));
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (!other.IsCompleted && await Scalar<long>("select count(*) from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'") < 2)
+            {
+                Assert.True(DateTime.UtcNow < deadline, "the contender neither finished nor waited");
+                await Task.Delay(20);
+            }
+        }
+        foreach (var t in new[] { held, other })
+        {
+            try { await t.WaitAsync(TimeSpan.FromSeconds(30)); }
+            catch (RecoveryException) { } // a refusal (settled, revoked) is an answer, not a lock failure; any database error fails the test
+        }
+        await FaultTriggers.RemoveAsync(db, table);
     }
 
     [Fact]

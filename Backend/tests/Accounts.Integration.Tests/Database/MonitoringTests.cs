@@ -116,6 +116,80 @@ public class MonitoringTests : IAsyncLifetime
         Assert.False(await Scalar<bool>("select drained from mission_hosts where host_id = 'h1'"));
     }
 
+    /// <summary>A started attempt whose agent reported the process gone with the participant's result present (complete scan):
+    /// the participant is result_pending and the attempt ending (S9-B5), waiting for the relay.</summary>
+    async Task<ManifestKit.Running> EndingAsync()
+    {
+        var r = await ManifestKit.StartAsync(kit, db);
+        Assert.IsType<ExitReportResult.Applied>(await kit.Hosts.ExitedAsync("h1", await AttemptFixtures.HostSecretHashAsync(db, "h1"), r.Attempt,
+            new ExitedRequest(0, null, [new ExitResult(r.Account, true)], true), default));
+        Assert.Equal("ending", await Scalar<string>("select state from mission_attempts where attempt_id = @Attempt", new { r.Attempt }));
+        return r;
+    }
+
+    Task BackdateEndingAsync(ManifestKit.Running r, int minutes) => ExecuteAsSuperuserAsync(db, $"""
+        begin; set local session_replication_role = replica;
+        update mission_attempts set ending_at = clock_timestamp() - interval '{minutes} minutes' where attempt_id = @Attempt;
+        commit
+        """, new { r.Attempt });
+
+    [Fact]
+    public async Task Ending_at_is_stamped_when_the_attempt_enters_ending_and_the_app_cannot_change_it()
+    {
+        var running = await ManifestKit.StartAsync(kit, db);
+        Assert.Null(await Scalar<DateTime?>("select ending_at from mission_attempts where attempt_id = @Attempt", new { running.Attempt }));
+        var r = await EndingAsync();
+        var stamped = await Scalar<DateTime?>("select ending_at from mission_attempts where attempt_id = @Attempt", new { r.Attempt });
+        Assert.NotNull(stamped);
+        await using (var app = await db.AsApp().OpenConnectionAsync())
+        {
+            try { await app.ExecuteAsync("update mission_attempts set ending_at = clock_timestamp() - interval '1 day' where attempt_id = @Attempt", new { r.Attempt }); }
+            catch (Npgsql.PostgresException e) when (e.SqlState == "42501") { } // either refused or kept: never rewritten
+        }
+        Assert.Equal(stamped, await Scalar<DateTime?>("select ending_at from mission_attempts where attempt_id = @Attempt", new { r.Attempt }));
+    }
+
+    [Fact]
+    public async Task A_stalled_ending_attempt_alerts_after_ten_minutes_then_hourly_and_never_changes_anything()
+    {
+        var r = await EndingAsync();
+        var digest = await DigestAsync();
+        await BackdateEndingAsync(r, 9);
+        Assert.Equal(0, (await Monitor().SweepAsync(default)).Stalled);
+        await BackdateEndingAsync(r, 11);
+        Assert.Equal(1, (await Monitor().SweepAsync(default)).Stalled);
+        Assert.Equal(0, (await Monitor().SweepAsync(default)).Stalled); // deduplicated within the interval
+        await BackdateEndingAsync(r, 69);
+        Assert.Equal(0, (await Monitor().SweepAsync(default)).Stalled);
+        await BackdateEndingAsync(r, 71);
+        Assert.Equal(1, (await Monitor().SweepAsync(default)).Stalled); // the hourly repeat
+        Assert.Equal(0, (await Monitor().SweepAsync(default)).Stalled);
+        var (host, elapsed, unsettled) = await RowAsSuperuserAsync<(string, long, int)>(db, """
+            select host_id, (detail ->> 'elapsedSeconds')::bigint, (detail ->> 'unsettled')::int from anomaly_events
+            where kind = 'ending_attempt_stalled' and attempt_id = @Attempt order by id desc limit 1
+            """, new { r.Attempt });
+        Assert.Equal(("h1", 1), (host, unsettled));
+        Assert.InRange(elapsed, 71 * 60, 72 * 60);
+        Assert.Equal(2L, await Scalar<long>("select count(*) from anomaly_events where kind = 'ending_attempt_stalled' and attempt_id = @Attempt", new { r.Attempt }));
+        Assert.Equal(digest, await DigestAsync()); // no state, hold, inventory, wallet or host changed
+        Assert.Equal(("ending", "result_pending"), await RowAsSuperuserAsync<(string, string)>(db,
+            "select a.state, p.state from mission_attempts a join attempt_participants p using (attempt_id) where a.attempt_id = @Attempt", new { r.Attempt }));
+        // Recovery: the relay arrives, the attempt leaves ending, and the alerts stop.
+        Assert.IsType<ResultOutcome.Settled>(await ManifestKit.SubmitAsync(ManifestKit.Store(db), db, ManifestKit.Body(ManifestKit.Manifest(r))));
+        Assert.Equal(0, (await Monitor().SweepAsync(default)).Stalled);
+        Assert.Equal(2L, await Scalar<long>("select count(*) from anomaly_events where kind = 'ending_attempt_stalled' and attempt_id = @Attempt", new { r.Attempt }));
+    }
+
+    [Fact]
+    public async Task Concurrent_sweeps_raise_one_stalled_ending_alert_per_interval()
+    {
+        var r = await EndingAsync();
+        await BackdateEndingAsync(r, 11);
+        var sweeps = await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => Task.Run(() => Monitor().SweepAsync(default))));
+        Assert.Equal(1, sweeps.Sum(s => s.Stalled));
+        Assert.Equal(1L, await Scalar<long>("select count(*) from anomaly_events where kind = 'ending_attempt_stalled' and attempt_id = @Attempt", new { r.Attempt }));
+    }
+
     [Fact]
     public async Task An_attempt_unresponsive_before_its_first_heartbeat_alerts_from_its_start()
     {

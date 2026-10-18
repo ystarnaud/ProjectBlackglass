@@ -20,10 +20,23 @@ create trigger catalogue_version_is_immutable before update or delete on catalog
 create trigger catalogue_versions_no_truncate before truncate on catalogue_versions
   for each statement execute function refuse_row_change('catalogue_version_is_immutable');
 
--- Every new attempt references a registered catalogue (the owner's B20 ruling). NOT VALID: schema-8 attempts admitted before
--- the history existed are not checked (their settlement waits for `catalogue import`, S9-B20.5); every later insert is.
-alter table mission_attempts add constraint mission_attempts_catalogue_version_fkey
-  foreign key (catalogue_version) references catalogue_versions not valid;
+-- Every new attempt references a registered catalogue (the owner's B20 ruling), checked when the attempt is inserted: its
+-- catalogue_version never changes afterwards (mission_attempt_transition) and a history row is never removed
+-- (catalogue_version_is_immutable, no truncate), so the reference can't dangle. Schema-8 attempts admitted before the history
+-- existed are not checked (their result settlement waits for `catalogue import`, S9-B20.5). Not a foreign key: PostgreSQL
+-- re-checks a foreign key whenever a transaction updates a row it already changed, so a void or an exit report of such an
+-- attempt (which updates the attempt row twice) would fail until an import, although neither needs a game definition.
+create function mission_attempt_catalogue_registered() returns trigger language plpgsql as $$
+begin
+  if not exists (select 1 from catalogue_versions where version = new.catalogue_version) then
+    raise exception 'a new mission attempt names a catalogue the history does not hold'
+      using errcode = 'foreign_key_violation', constraint = 'mission_attempts_catalogue_version_fkey';
+  end if;
+  return new;
+end $$;
+
+create trigger mission_attempt_catalogue_registered before insert on mission_attempts
+  for each row execute function mission_attempt_catalogue_registered();
 
 -- ---- result submissions (S9-B3, S9-B21, S9-B22) ----
 
@@ -307,6 +320,29 @@ end $$;
 
 create trigger mission_host_declared_lost before update on mission_hosts
   for each row execute function mission_host_declared_lost();
+
+-- ---- the time an attempt entered ending (the owner's Stage 9 merge correction) ----
+
+-- ending_at: when the attempt entered 'ending' (from running or unresponsive), stamped by the database and never changed
+-- afterwards (any other write keeps it), so the ending_attempt_stalled alert counts from a durable time. Attempts already
+-- ending at the upgrade get the upgrade time (their entry time was never recorded).
+alter table mission_attempts add column ending_at timestamptz;
+update mission_attempts set ending_at = clock_timestamp() where state = 'ending';
+
+create function mission_attempt_ending_stamp() returns trigger language plpgsql as $$
+begin
+  if tg_op = 'INSERT' then
+    new.ending_at := null;
+  elsif new.state = 'ending' and old.state <> 'ending' then
+    new.ending_at := clock_timestamp();
+  else
+    new.ending_at := old.ending_at;
+  end if;
+  return new;
+end $$;
+
+create trigger mission_attempt_ending_stamp before insert or update on mission_attempts
+  for each row execute function mission_attempt_ending_stamp();
 
 -- ---- exit evidence (S9-B1, S9-B7) ----
 
