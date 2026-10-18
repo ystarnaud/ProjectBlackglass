@@ -168,6 +168,27 @@ public sealed class CredentialBrokerTests : IDisposable
     }
 
     [Fact]
+    public void A_link_to_an_empty_private_directory_of_the_same_owner_is_never_written_through()
+    {
+        // The hardest case: the target would pass every owner, mode and content check if the link were followed.
+        var target = Path.Combine(Path.GetDirectoryName(root)!, "private-target");
+        Directory.CreateDirectory(target, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        File.CreateSymbolicLink(Path.Combine(root, Attempt), target);
+        Assert.Equal(BrokerCode.UnsafeStore, Store().Prepare(Attempt, 1, Credential()));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(target));
+    }
+
+    [Fact]
+    public void A_hard_link_is_refused_by_the_read_itself_too()
+    {
+        // Two independent checks refuse a second link (the entry's lstat and the read's fstat); this pins the read's.
+        Assert.Equal(BrokerCode.Ok, Store().Prepare(Attempt, 1, Credential()));
+        Assert.NotNull(Native.ReadPrivate(ProcessPath, owner, 512));
+        Native.Link(ProcessPath, Path.Combine(Path.GetDirectoryName(root)!, "another-name"));
+        Assert.Null(Native.ReadPrivate(ProcessPath, owner, 512));
+    }
+
+    [Fact]
     public void An_attempt_entry_that_is_a_file_is_refused()
     {
         File.WriteAllText(Path.Combine(root, Attempt), "x");
@@ -235,6 +256,21 @@ public sealed class CredentialBrokerTests : IDisposable
         Assert.True(generation == "1", "the generation never runs ahead of the credential it describes"); // process may already be new
         Assert.Equal(BrokerCode.Ok, Store().Prepare(Attempt, 2, next));
         Assert.Equal(next, File.ReadAllText(ProcessPath));
+    }
+
+    [Fact]
+    public async Task A_preparation_holds_the_store_so_another_waits_for_it()
+    {
+        using var inside = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var first = Task.Run(() => Store(new Faults("process:write", () => { inside.Set(); release.Wait(TimeSpan.FromSeconds(10)); })).Prepare(Attempt, 2, Credential()));
+        Assert.True(inside.Wait(TimeSpan.FromSeconds(10)));
+        var second = Task.Run(() => Store().Prepare(Attempt, 3, Credential()));
+        await Task.Delay(500);
+        Assert.False(second.IsCompleted); // it waits on the store's lock while the first is inside
+        release.Set();
+        Assert.Equal((BrokerCode.Ok, BrokerCode.Ok), (await first, await second));
+        Assert.Equal("3", File.ReadAllText(Path.Combine(root, Attempt, "generation")));
     }
 
     [Fact]

@@ -12,12 +12,15 @@ public sealed record BrokerOptions(string Root, uint Owner)
 
 public enum BrokerCode { Ok, Stale, Conflict, UnsafeStore, WriteFailed, BadAttempt }
 
-/// <summary>A fault injected at a named write step (tests only): "process:write", "process:rename", "generation:write", "generation:rename".</summary>
-public sealed class Faults(string point)
+/// <summary>A fault injected at a named write step (tests only): "process:write", "process:rename", "generation:write",
+/// "generation:rename". It throws there, or runs <paramref name="pause"/> instead (to hold a request inside the store's lock).</summary>
+public sealed class Faults(string point, Action? pause = null)
 {
     public void Hit(string name)
     {
-        if (name == point) throw new IOException($"injected failure at {name}");
+        if (name != point) return;
+        if (pause is not null) pause();
+        else throw new IOException($"injected failure at {name}");
     }
 }
 
