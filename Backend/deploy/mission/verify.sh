@@ -88,6 +88,7 @@ check "slot templates are installed for slots 00 and 01 at least" "[ -f /etc/sys
 check "the shared-uid template is gone" "[ ! -e /etc/systemd/system/blackglass-mission@.service ]"
 probe_unit="blackglass-mission-00@$(cat /proc/sys/kernel/random/uuid).service"
 check "no drop-in of any kind changes a slot unit (systemd's own view)" "[ -z \"\$(systemctl show -p DropInPaths --value $probe_unit)\" ]"
+check "systemd reports no unknown or invalid setting in the installed units" "! journalctl -b --no-pager -o cat | grep -E 'blackglass-(mission-[0-9]{2}@|credential|agent)[^:]*:[0-9]+: (Unknown|Invalid|Failed to parse)'"
 check "the slot unit comes from the installed template" "[ \"\$(systemctl show -p FragmentPath --value $probe_unit)\" = /etc/systemd/system/blackglass-mission-00@.service ]"
 check "no static blackglass-mNN user exists (each slot's user is dynamic)" "! grep -Eq '^blackglass-m[0-9]{2}:' /etc/passwd"
 check "/var/lib/private is root 0700" "[ \"\$(stat -c '%U %a' /var/lib/private)\" = 'root 700' ]"

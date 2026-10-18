@@ -67,6 +67,8 @@ public partial class DeployAndAuditTests
         // Review 2: no core image a later attempt in the slot could read (M-5); no shared IPC namespace (M-6); failed units collected,
         // so the inventory stays complete (M-7; the exit status lives in record-exit's record, single start in the asserts).
         Assert.Equal(("0", "yes", "inactive-or-failed"), (One("LimitCORE"), One("PrivateIPC"), One("CollectMode")));
+        // CollectMode is a [Unit] setting: systemd ignores it (with only a log line) anywhere else (found in the lab).
+        Assert.True(text.IndexOf("\nCollectMode=", StringComparison.Ordinal) < text.IndexOf("\n[Service]", StringComparison.Ordinal));
         // Listeners: no stream listener at all (seccomp; enforced on Ubuntu 24.04), and only this slot's UDP port (BPF; where built).
         Assert.Equal(("~listen", "EPERM"), (One("SystemCallFilter"), One("SystemCallErrorNumber")));
         Assert.Equal(("udp:7007", "any"), (One("SocketBindAllow"), One("SocketBindDeny")));
@@ -224,7 +226,8 @@ public partial class DeployAndAuditTests
         Assert.DoesNotContain("BLACKGLASS_", Deploy("record-exit"), StringComparison.Ordinal);
     }
 
-    /// <summary>Runs a copy of slot-guard whose /usr/bin/systemctl, /usr/bin/id and /usr/bin/ps are fakes printing the given text.</summary>
+    /// <summary>Runs a copy of slot-guard whose /usr/bin/systemctl (list-units: the listing; show: the unit's dynamic uid) and
+    /// /usr/bin/ps are fakes printing the given text.</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("linux")]
     static (int Exit, bool SystemctlCalled) Guard(string slot, string attempt, string listing = "", string slotUid = "61001", string processUids = "0\n996\n")
     {
@@ -237,11 +240,11 @@ public partial class DeployAndAuditTests
                 File.WriteAllText(Path.Combine(dir, name), "#!/bin/sh\n" + body + "\n");
                 File.SetUnixFileMode(Path.Combine(dir, name), (UnixFileMode)0b111_101_101);
             }
-            Fake("systemctl", $"echo called >> {dir}/calls; printf '{listing}'");
-            Fake("id", $"printf '{slotUid}\\n'");
+            Fake("systemctl", $"echo called >> {dir}/calls; case \" $* \" in *\" show \"*) printf '{slotUid}\\n' ;; *) printf '{listing}' ;; esac");
             Fake("ps", $"printf '{processUids}'");
             var script = Deploy("slot-guard").Replace("/usr/bin/systemctl", Path.Combine(dir, "systemctl"), StringComparison.Ordinal)
-                .Replace("/usr/bin/id", Path.Combine(dir, "id"), StringComparison.Ordinal).Replace("/usr/bin/ps", Path.Combine(dir, "ps"), StringComparison.Ordinal);
+                .Replace("/usr/bin/ps", Path.Combine(dir, "ps"), StringComparison.Ordinal);
+            Assert.DoesNotContain("/usr/bin/id", script, StringComparison.Ordinal); // no NSS lookup: systemd's own answer (found in the lab)
             File.WriteAllText(Path.Combine(dir, "slot-guard"), script);
             using var run = Process.Start(new ProcessStartInfo("/bin/sh", [Path.Combine(dir, "slot-guard"), slot, attempt]) { RedirectStandardError = true })!;
             run.WaitForExit();
@@ -289,6 +292,7 @@ public partial class DeployAndAuditTests
         Assert.NotEqual(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf, slotUid: "61001", processUids: "0\\n61001\\n").Exit);
         Assert.Equal(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf, slotUid: "61001", processUids: "0\\n610010\\n").Exit);
         Assert.NotEqual(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf, slotUid: "").Exit); // the slot's user unknown: refused
+        Assert.NotEqual(0, Guard("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", GuardSelf, slotUid: "[not set]").Exit);
     }
 
     // ---- the agent's sources ----

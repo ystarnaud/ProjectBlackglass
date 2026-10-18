@@ -32,9 +32,10 @@ if [ -n "$others" ]; then
   exit 1
 fi
 
-uid="$(/usr/bin/id -u "blackglass-m$slot" 2>/dev/null || true)"
+# systemd's own answer (the uid it allocated to this starting unit), never a name-service lookup.
+uid="$(/usr/bin/systemctl --no-ask-password show -p UID --value -- "$self" 2>/dev/null || true)"
 case "$uid" in
-  ""|*[!0-9]*) echo "the dynamic user blackglass-m$slot is unknown" >&2; exit 1 ;;
+  ""|*[!0-9]*) echo "the dynamic uid of $self is unknown" >&2; exit 1 ;;
 esac
 if /usr/bin/ps -e -o uid= | awk -v uid="$uid" '$1 == uid { found = 1 } END { exit !found }'; then
   echo "a process still runs as blackglass-m$slot ($uid)" >&2

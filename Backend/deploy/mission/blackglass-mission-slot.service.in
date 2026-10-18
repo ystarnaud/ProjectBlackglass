@@ -12,6 +12,9 @@ After=network-online.target
 # An attempt's unit runs at most once: never again once its outbox or exit record exists.
 AssertPathExists=!/var/lib/private/blackglass-outbox/%i
 AssertPathExists=!/var/lib/blackglass/exits/%i.exit
+# Failed units are collected like clean ones: the inventory never fills with them (security review 2, M-7). The exit status is
+# kept by record-exit, and single start by the asserts above.
+CollectMode=inactive-or-failed
 
 [Service]
 Type=simple
@@ -31,9 +34,6 @@ ExecStart=/opt/blackglass/mission/current/run-mission %i
 # The exit status systemd forgets once it collects the unit: written as root, read-only to the agent.
 ExecStopPost=+/opt/blackglass/agent/current/record-exit %i
 Restart=no
-# Failed units are collected like clean ones: the inventory never fills with them (security review 2, M-7). The exit status is
-# kept by record-exit, and single start by the asserts above.
-CollectMode=inactive-or-failed
 # I3: only the root credential broker's store, which the agent can't write; the unit fails to start if it is missing.
 LoadCredential=process:/run/blackglass/credentials/%i/process
 
