@@ -1352,7 +1352,7 @@ The renderer (`--port-base 7800 --slots 8`), `verify.sh` (which reads the port b
 
 **Release:** built from the pinned `main` commit through a git bundle in the disposable SDK container (A2): a fresh clone, never a dirty tree. `publish-agent.sh` also refuses uncommitted changes.
 
-### Phase A1–A6 results (2026-10-18; A7 and Phases B, C and D not executed)
+### Phase A1–A6 results (2026-10-18; Phases B, C and D not executed)
 
 - **Code and release:** `main` = `origin/main` = `d324ff5`. The release `agent-d324ff54dd5d` was built in the disposable SDK container from a fresh clone of a `main` bundle (0 uncommitted files). Its `RELEASE` SHA-256s:
   - `blackglass-agent` `579d03d5…`;
@@ -1398,4 +1398,39 @@ The renderer (`--port-base 7800 --slots 8`), `verify.sh` (which reads the port b
   2. **The tunnel's `ssh_config`:** `install.sh`'s address substitution also fills the template's comment line. It's cosmetic, since the `HostName` line holds the same address, and it's deferred.
   3. **Otherwise as in the lab:** credential delivery works through the host's native shared mounts, under the real kernel, AppArmor and `polkitd`.
 - **Left in place:** the evidence (outboxes, logs, exit records, `/var/log/blackglass/verify-state-20261018T213633Z`, `/root/bg-stage10`), and the services VM's `/var/tmp/bg-stage10` (bundle, clone and release; root 0700).
-- **Next:** A7 (the reboot and `verify.sh --after-restart`) awaits the owner's authorization. So do Phases B to D.
+- **Next:** A7 (below).
+
+### Phase A7 results (2026-10-18; Phases B, C and D not executed)
+
+The owner authorized A7 (the controlled reboot and post-reboot validation) and agreed to drop the open sessions before the reboot.
+
+- **Before the reboot:**
+  - the host is `bg-dev-mission01`, up 7 days;
+  - no mission unit is loaded, and the agent and the tunnel are disabled and inactive;
+  - only `blackglass-credential.socket` is enabled;
+  - the state file `/var/log/blackglass/verify-state-20261018T213633Z` is present (three attempts);
+  - nothing listens on 5081 or 7800–7807;
+  - the credential store held the five test attempts (10 files);
+  - snapshot: `evidence/a7-before-reboot.txt`.
+- **The reboot:** `systemctl reboot` at 23:19:52 UTC. A new boot (`5515951e…`) began at 23:20:07, and `systemctl is-system-running --wait` returned `running` with no failed units.
+- **After the reboot:**
+  - `/run/blackglass/credentials` is root 0700 and empty: `/run` cleared every test credential;
+  - `/run/blackglass/credential.sock` is root:`blackglass-agent` 0660, and the socket is enabled and listening;
+  - the agent and the tunnel are still disabled and inactive; no other Blackglass unit is loaded, and no dynamic user is live;
+  - nothing listens on 5081 or 7800–7807;
+  - `verify.sh --yes --after-restart … --report evidence/verify-after-reboot.txt`: 9/9 ok, 0 failures, exit 0 (each attempt's result unchanged, readable by the agent's unit, with its exit record);
+  - `/opt/blackglass/server` is unchanged: content hash `ce62433d…`, metadata hash `65f291a6…`, 190 entries;
+  - the firewall is unchanged (inactive, empty ruleset);
+  - the journal for this boot shows 0 AppArmor denials (11 `STATUS` profile loads) and no Blackglass, polkit or unknown-setting error. `polkitd` loaded its rules without error. The only error-level lines are the VM's `shpchp` hot-plug slot messages, which also appear on the previous boot.
+- **Listeners** (the original A4 `before.txt` against after the reboot): sshd on `0.0.0.0:22` and `[::]:22`, and `systemd-resolved` on 127.0.0.53/54:53 (TCP and UDP), are identical. The editor server's `127.0.0.1:45133` is gone, because the owner's session ended with the reboot. There is no new listener.
+- **Unexpected changes:**
+  1. **The running kernel is 6.8.0-147, not -146.** Unattended-upgrades installed it on 2026-10-14, before Phase A, and the reboot activated it. systemd (255.4-1ubuntu8.18, `-BPF_FRAMEWORK`), the LSMs (`lockdown,capability,landlock,yama,apparmor`) and AppArmor are the same. A6's 88 isolation checks ran on -146; on -147 only the 9 post-restart checks have run.
+  2. **A5's `install.sh` changed `/etc/polkit-1/rules.d`, which the A1–A6 results above missed.** The directory was the package's root:`polkitd` 0750. `install.sh` line 55 (`install -d -m 0755 -o root -g root … /etc/polkit-1/rules.d`) reset it to root:root 0755. At boot, `systemd-tmpfiles` (`/usr/lib/tmpfiles.d/polkitd.conf`) restored root:`polkitd` 0750. Effects:
+     - between A5 and the reboot, any local user could list the directory. It only held world-readable rules, and nothing became writable;
+     - the rule file is root 0644 and still loads;
+     - another run of the installer would reset the directory again until the next boot.
+
+     **Fixing it means changing `install.sh`** (create the directory only when absent, or leave it to the package), so it waits for the owner's decision.
+- **Evidence:** on the mission VM in `/root/bg-stage10/evidence/` (`a7-before-reboot.txt`, `a7-after-reboot.txt`, `verify-after-reboot.txt`, `verify-after-reboot-run.txt`). The outboxes, exit records and the state file stay in place. Address-redacted copies, with the boot's warning-level journal, are in the local evidence folder. A secret scan of them is clean.
+- **B24:** the per-slot TCP bind restriction is still unenforced (`-BPF_FRAMEWORK`). It remains Stage 12's blocking requirement before any real Unity mission workload. Until then only the trusted stub runs on the mission VM.
+- **Next:** Phases B, C and D await the owner's authorization.
