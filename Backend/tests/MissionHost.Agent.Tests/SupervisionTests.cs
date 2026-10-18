@@ -69,14 +69,16 @@ public class SupervisionTests : IDisposable
         using var _ = agent;
         dirs.WriteResult(attempt, "JG", "written", Manifests.For(attempt, "JG"));
         systemd.Exit(Guid.Parse(attempt), code: 0);
-        backend.FailAll = Transport.Unavailable; // 503, a timeout, the tunnel down
+        // The relay gets no definitive answer (503, a timeout, the tunnel down) while the exit route itself would answer.
+        backend.OnRelay = _ => new RelayAnswer.Failed(Transport.Unavailable);
         for (var i = 0; i < 5; i++)
         {
             await StepAllAsync(agent);
             clock.Advance(TimeSpan.FromMinutes(5));
         }
         Assert.Empty(backend.Exits);
-        backend.FailAll = null;
+        Assert.DoesNotContain(backend.Calls, c => c.StartsWith("exited:", StringComparison.Ordinal));
+        backend.OnRelay = _ => new RelayAnswer.Definitive(RelayOutcomes.Done, 200, null);
         await StepAllAsync(agent);
         Assert.Equal([("JG", true)], backend.Exits.Single().Body.Results);
     }
