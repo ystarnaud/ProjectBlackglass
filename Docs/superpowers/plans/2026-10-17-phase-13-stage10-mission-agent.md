@@ -789,7 +789,7 @@ This is the approved per-slot fallback's structure, with systemd-allocated uids 
   - **Also for Stage 12:**
     - the server binds its slot port once at start, on 127.0.0.1, and fails if it can't;
     - it never sets `SO_REUSEPORT`;
-    - game ports stay outside `net.ipv4.ip_local_port_range` (32768–60999 on the VM; 7770–7777 is outside it);
+    - game ports stay outside `net.ipv4.ip_local_port_range` (32768–60999 on the VM; 7800–7807, the managed range since the Phase A authorization, is outside it);
     - there is no development player-connection listener;
     - whether the server needs D-Bus decides `InaccessiblePaths=-/run/dbus` (review 2, M-6).
 
@@ -959,6 +959,8 @@ The owner accepted the security corrections at `23e06fc` (the per-slot dynamic-u
 5. **Listeners:** the server is FishNet over WebSockets (TCP), not UDP. B24 is corrected in "Network listeners" above: an evaluation order, nftables alone is never proof, and only the trusted stub runs until the mechanism is demonstrated on the target VM.
 6. **Lab cleanup:** the results are preserved, then only the lab's container, image and directory are removed (below).
 
+**Superseded by the owner's Phase A authorization (below): the port base is 7800, slots 00–07 on TCP 7800–7807, and 7770 stays the manual Unity experiment port.** The original choice and its evidence follow.
+
 **Port base: 7770, slots 00–07 on TCP 7770–7777.** Read-only evidence from `bg-dev-mission01`, 2026-10-18:
 - **Listeners** (`ss -tulnp`):
   - `sshd` on 22, all addresses;
@@ -1009,7 +1011,7 @@ The owner accepted the security corrections at `23e06fc` (the per-slot dynamic-u
 **Remaining blockers:**
 1. **The infrastructure checkpoint below:** it needs the owner's explicit authorization, phase by phase.
 2. **Stage 12 B24:** the bind mechanism must be demonstrated on `bg-dev-mission01` before any real Unity mission workload runs there.
-3. **The backend registration** (`mission01`, capacity 8, `port_base` 7770): first in the checkpoint's throwaway stack, then in the live stack when the owner deploys it.
+3. **The backend registration** (`mission01`, capacity 8, `port_base` 7800 since the Phase A authorization): first in the checkpoint's throwaway stack, then in the live stack when the owner deploys it.
 
 ## Host-specific infrastructure checkpoint (2026-10-18; for the owner's explicit authorization; nothing below has been executed)
 
@@ -1017,7 +1019,7 @@ This section supersedes the earlier "Infrastructure checkpoint package" and "Cor
 
 **Fixed values:**
 - host id `mission01`;
-- `portBase` 7770 and 8 slots (00–07, TCP 7770–7777);
+- `portBase` 7800 and 8 slots (00–07, TCP 7800–7807). The owner's Phase A authorization moved it from 7770, which stays the manual Unity experiment port (`/opt/blackglass/server/run-net.sh`, unchanged);
 - the tunnel from `127.0.0.1:5081` on the mission VM to `127.0.0.1:5080` on the services VM.
 
 **Placeholders:**
@@ -1045,14 +1047,14 @@ Phases A to C are the infrastructure installation; phase D, the end-to-end run a
 | Directories (tmpfiles) | as in "Corrected installation manifest" | adds `/var/lib/private`, `/var/lib/private/blackglass-outbox` and `/run/blackglass/credentials` (root 0700) |
 | `/opt/blackglass/agent/releases/<rev>/` and the `current` link | 0755 directories and executables, 0644 data | `blackglass-agent`, `blackglass-credential-broker`, their native libraries, `record-exit`, `slot-guard`, `RELEASE`; every file is checked against `RELEASE` |
 | `/opt/blackglass/mission/releases/stub/run-mission`, the `current` link, `/etc/blackglass-stub/plans` | 0755 | the trusted stub only. `/opt/blackglass/server` and `/opt/blackglass/dev-tokens*.txt` are never touched |
-| `/etc/systemd/system/blackglass-mission-00@.service` … `-07@.service` | 0644 | rendered for 7770 and 8 slots: `User=blackglass-mNN`, `SocketBindAllow=udp:77NN` (inert here, see B24), `ExecStartPre=+slot-guard NN %i`, `LoadCredential=process:/run/blackglass/credentials/%i/process` |
+| `/etc/systemd/system/blackglass-mission-00@.service` … `-07@.service` | 0644 | rendered for 7800 and 8 slots: `User=blackglass-mNN`, `SocketBindAllow=udp:780N` (inert here, see B24), `ExecStartPre=+slot-guard NN %i`, `LoadCredential=process:/run/blackglass/credentials/%i/process` |
 | `blackglass-credential.socket` | 0644 | `/run/blackglass/credential.sock`, `root:blackglass-agent 0660`, `Accept=yes`, at most 8 connections |
 | `blackglass-credential@.service` | 0644 | the broker, as root with an empty capability set; `PrivateNetwork`, `AF_UNIX` only; writes only `/run/blackglass/credentials`; `/etc/shadow`, `/etc/gshadow`, `/etc/ssh`, the sudoers files, `/etc/blackglass` and the result stores are inaccessible; `RuntimeMaxSec=15s` |
 | `blackglass-agent.service` | 0644 | `User=blackglass-agent`; writes `/var/lib/blackglass/{agent,relay}`; reads the exits and, through a read-only bind, the outboxes; can't listen |
 | `blackglass-tunnel.service` | 0644 | `User=blackglass-tunnel`, `ssh -N -F /etc/blackglass/tunnel/ssh_config bg-api-tunnel`. Its `SocketBindAllow=tcp:5081` is inert here too; the agent's listener-owner check is the control |
 | `/etc/polkit-1/rules.d/60-blackglass-mission.rules` | 0644 | `blackglass-agent` may only `start` and `stop` `blackglass-mission-NN@<uuid>.service`; everything else it asks is NO; other subjects are unaffected |
 | `/etc/blackglass/agent/` | `root:blackglass-agent 0750` | |
-| `/etc/blackglass/agent/agent.json` | `root:blackglass-agent 0640` | `hostId` `mission01`, `portBase` 7770, `localCapacity` 8 (set by `install.sh`). In phase D only: `serverBuildInfo` and `catalogueVersion` |
+| `/etc/blackglass/agent/agent.json` | `root:blackglass-agent 0640` | `hostId` `mission01`, `portBase` 7800, `localCapacity` 8 (set by `install.sh`). In phase D only: `serverBuildInfo` and `catalogueVersion` |
 | `/etc/blackglass/agent/host-secret` | `blackglass-agent 0600` | phase D only, by the README's `read -rs` procedure; never on a command line |
 | `/etc/blackglass/tunnel/ssh_config`, `known_hosts` | 0644 | `known_hosts` holds the pinned ED25519 key, whose fingerprint was compared with the services VM's own reading. `StrictHostKeyChecking yes`, no fallback |
 | `/etc/blackglass/tunnel/id_ed25519` and `.pub` | `blackglass-tunnel 0600` and 0644 | generated on the VM; the private key never leaves it |
@@ -1115,18 +1117,21 @@ Expected in `before.txt`:
 - systemd 255.4 with `-BPF_FRAMEWORK`;
 - `/` and `/run` shared;
 - no `blackglass` user or unit;
-- nothing on 5081 or 7770–7777.
+- nothing on 5081 or 7800–7807 (7770 is the manual experiment port: a listener there is the owner's, recorded and left alone).
 
 A5. **Install** (mission VM, root):
 
 ```
 cd /root/bg-stage10/mission
+ss -H -tuln | awk '{ n = split($5, a, ":"); p = a[n] + 0 } p >= 7800 && p <= 7807'   # immediately before installing: must print nothing, otherwise STOP
+set -o pipefail
 ./install.sh --yes --release /root/bg-stage10/agent-<rev> --services-host <services-address> \
-  --known-hosts /root/bg-stage10/services.known_hosts --port-base 7770 --slots 8 --stub | tee /root/bg-stage10/evidence/install.txt
+  --known-hosts /root/bg-stage10/services.known_hosts --port-base 7800 --slots 8 --stub 2>&1 | tee /root/bg-stage10/evidence/install.txt
+rc=${PIPESTATUS[0]}; echo "install exit=$rc" | tee -a /root/bg-stage10/evidence/install.txt   # must be 0, otherwise STOP: tee's own status never hides it
 ```
 
 Expected:
-- the tunnel's public key, then "installed agent release <rev>; slots 00..07 on ports 7770..7777";
+- the tunnel's public key, then "installed agent release <rev>; slots 00..07 on ports 7800..7807", and `install exit=0`;
 - `systemctl is-active blackglass-credential.socket` is active;
 - the tunnel and the agent are neither enabled nor running.
 
@@ -1134,10 +1139,10 @@ Checks:
 
 ```
 ls /etc/systemd/system | grep blackglass   # mission-00@ … mission-07@, credential.socket, credential@, agent, tunnel; nothing else
-systemctl cat blackglass-mission-07@.service | grep -E '^(User|SocketBindAllow)='   # User=blackglass-m07, SocketBindAllow=udp:7777
+systemctl cat blackglass-mission-07@.service | grep -E '^(User|SocketBindAllow)='   # User=blackglass-m07, SocketBindAllow=udp:7807
 stat -c '%U:%G %a %n' /run/blackglass/credential.sock /run/blackglass/credentials /etc/blackglass/agent /etc/blackglass/agent/agent.json /etc/blackglass/tunnel/id_ed25519
 # root:blackglass-agent 660; root:root 700; root:blackglass-agent 750; root:blackglass-agent 640; blackglass-tunnel:blackglass-tunnel 600
-grep -E '"(hostId|portBase|localCapacity)"' /etc/blackglass/agent/agent.json   # mission01, 7770, 8
+grep -E '"(hostId|portBase|localCapacity)"' /etc/blackglass/agent/agent.json   # mission01, 7800, 8
 id blackglass-agent; id blackglass-tunnel                                     # each only in its own group
 ```
 
@@ -1149,7 +1154,7 @@ A6. **The isolation tests** (mission VM, root):
 
 Expected:
 - exit 0;
-- every check "ok" (85 in the lab), 0 FAIL;
+- every check "ok" (88: the lab's 85 plus the three request-storage checks added before installation), 0 FAIL;
 - one "note": this systemd doesn't enforce `SocketBindAllow` (`udp_other_port=allowed`, `tcp_bind_5081=allowed`). That note is the on-VM record of B24's first mechanism.
 
 The script prints the state file for A7.
@@ -1215,7 +1220,7 @@ runuser -u blackglass-tunnel -- ssh -F /etc/blackglass/tunnel/ssh_config -o Clea
 ```
 
 The checks after phases A to C:
-- **Off-host probe:** `Backend/tools/offhost-probe.sh` from the PC, run against both VMs. Only 22 is reachable; 5080, 5081, 5432, 55432 and 7770–7777 are closed.
+- **Off-host probe:** `Backend/tools/offhost-probe.sh` from the PC, run against both VMs. Only 22 is reachable; 5080, 5081, 5432, 55432, 7770 and 7800–7807 are closed.
 - **Listeners:** `ss -H -tuln` on both VMs equals the "before" state, plus the mission VM's 127.0.0.1:5081.
 - **The server directory:** the `/opt/blackglass/server` hash is unchanged.
 
@@ -1231,7 +1236,7 @@ The checks after phases A to C:
    ss -H -ltn '( sport = :5080 )'      # must print nothing
    bash make-secrets.sh "$BLACKGLASS_SECRETS_DIR" >/dev/null && dc build api && dc up -d --wait postgres && bash deploy.sh
    curl -sf http://127.0.0.1:5080/health   # {"status":"ok","schemaVersion":9}
-   dc --profile tools run --rm -T admin host register --host-id mission01 --capacity 8 --port-base 7770 --operator owner --reason stage10-e2e --yes
+   dc --profile tools run --rm -T admin host register --host-id mission01 --capacity 8 --port-base 7800 --operator owner --reason stage10-e2e --yes
    dc --profile tools run --rm -T admin build allow --revision stage10-stub --catalogue-version sha256:<catalogue-sha> --templates procedural-standard:1 --operator owner --reason stage10-e2e --yes
    ```
 
@@ -1259,8 +1264,8 @@ The checks after phases A to C:
    - a rotation with `SIGHUP`.
 
    Also check:
-   - every claimed port is in 7770–7777;
-   - each unit is `blackglass-mission-<port − 7770>@<attempt>.service`;
+   - every claimed port is in 7800–7807;
+   - each unit is `blackglass-mission-<port − 7800>@<attempt>.service`;
    - no slot ever runs two units.
 
 4. **Afterwards:**
@@ -1290,7 +1295,7 @@ The container lab can't establish these:
    - the dynamic uid range, unused;
    - `unattended-upgrades`;
    - persistent journald.
-10. **End to end against a backend:** the claim's port allocation from `port_base` 7770, and settlement through the tunnel.
+10. **End to end against a backend:** the claim's port allocation from `port_base` 7800, and settlement through the tunnel.
 
 ### Rollback
 
@@ -1319,3 +1324,30 @@ The container lab can't establish these:
   - **A5 refuses:** nothing is half-installed past its first refusal, and `uninstall.sh` is idempotent.
   - **A6 shows a FAIL:** stop and keep the report.
   - **A failed `sshd -t` in phase B:** remove the drop-in before any reload.
+
+## Phase A authorization and infrastructure preparation (2026-10-18)
+
+The owner reviewed the checkpoint above and authorized **Phase A1–A6 only**: not the reboot (A7), and not Phases B, C or D.
+
+**Approved configuration:**
+- host id `mission01`, capacity 8, slots 00–07;
+- managed ports TCP **7800–7807** (`portBase` 7800);
+- the manual Unity experiment port stays 7770; `/opt/blackglass/server/run-net.sh` is not changed;
+- the local API tunnel stays `127.0.0.1:5081`.
+
+The renderer (`--port-base 7800 --slots 8`), `verify.sh` (which reads the port base back from the installed slot-00 template), `agent.json` (written by `install.sh` from the same flags) and the backend registration (`--port-base 7800 --capacity 8`) all take this one value. No source file names a port base: it is configuration throughout.
+
+**Pre-installation fixes** (one focused commit, before anything is installed):
+1. **`verify.sh`'s temporary credential requests:** its working directory was root `0711` with `0644` requests, so any user who learned a pathname could read a test request. It is now root:`blackglass-agent` `2750` (setgid, so every file in it carries the agent's group). Requests are `0640`, and the hashes and concurrent answers are `0600`. The agent still reads the requests the broker tests send as it, and other users can't open one. Three checks pin this on the host:
+   - the directory's owner and mode;
+   - a request's owner and mode;
+   - `nobody` reading a request by its path is refused.
+
+   The expected count becomes 88.
+2. **The installer's status:** A5 runs under `set -o pipefail`, records `${PIPESTATUS[0]}` beside the transcript, and stops on anything but 0. A `tee` can no longer hide a refusal.
+3. **The BPF note in `verify.sh`** now says that it isn't counted as a pass, and names the TCP requirement (B24) instead of the old UDP wording.
+4. **Unchanged:** every existing isolation, broker and systemd check. No installer, privilege, unit, polkit or source change.
+
+**Tests:** a new deployment-file test, `Verify_keeps_its_test_requests_from_users_outside_the_agents_group`, failed first against the old `verify.sh`. The agent suite then passed on the VM runner: 251/251, the 250 before plus this one. Domain and integration code is untouched.
+
+**Release:** built from the pinned `main` commit through a git bundle in the disposable SDK container (A2): a fresh clone, never a dirty tree. `publish-agent.sh` also refuses uncommitted changes.

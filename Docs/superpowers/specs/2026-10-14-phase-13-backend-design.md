@@ -1,6 +1,6 @@
 # Phase 13A: backend architecture and persistent mission settlement (design)
 
-Date: 2026-10-14. **Revision 2.12** (Stage 10 final owner rulings of 2026-10-18, §0.12); revision 2.11 (Stage 10 security corrections C1 and I3 authorized by the owner on 2026-10-18, §0.11); revision 2.10 (Stage 10 owner rulings A10-D1 to A10-D8 of 2026-10-17, §0.10); revision 2.9 (Stage 9 owner rulings of 2026-10-17 on the settlement plan, §0.9, with the final rulings that authorized implementation the same day); revision 2.8 (Stage 8 owner rulings B1–B13 and design corrections of 2026-10-17, §0.8); revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
+Date: 2026-10-14. **Revision 2.13** (Stage 10 Phase A authorization of 2026-10-18: port base 7800, §0.13); revision 2.12 (Stage 10 final owner rulings of 2026-10-18, §0.12); revision 2.11 (Stage 10 security corrections C1 and I3 authorized by the owner on 2026-10-18, §0.11); revision 2.10 (Stage 10 owner rulings A10-D1 to A10-D8 of 2026-10-17, §0.10); revision 2.9 (Stage 9 owner rulings of 2026-10-17 on the settlement plan, §0.9, with the final rulings that authorized implementation the same day); revision 2.8 (Stage 8 owner rulings B1–B13 and design corrections of 2026-10-17, §0.8); revision 2.7 (Stage 7 owner rulings S7-D1–S7-D9 of 2026-10-17, §0.7); revision 2.6 (Stage 6 owner rulings E1–E7 of 2026-10-16, §0.6); revision 2.5 (Stage 5 owner rulings S5-D1–S5-D8 of 2026-10-16, §0.5); revision 2.4 (Stage 4 owner rulings D1–D6 of 2026-10-15, §0.4); revision 2.3 (Stage 3 security corrections requested by the owner on 2026-10-15, §0.3); revision 2.2 (account ids, owner decision of 2026-10-14, §0.2); revision 2.1 was approved by the owner with the final rulings of 2026-10-14. Base: `main` @ `be26534`. Recorded as decisions 048–050. This document is a design only. It changes no source, scene, package, project setting or infrastructure.
 
 "Project Blackglass" is an internal codename. No identifier, table, route, credential or claim introduced here carries the product name, apart from the C# namespace and repository paths that already exist. Player-facing names live in data (`display_name`), never in keys.
 
@@ -368,7 +368,7 @@ The owner authorized corrections for the independent review's C1 (one shared mis
 - **I3 approved:** the small root-owned credential broker stays. A separate non-root broker isn't required for Stage 10.
 - **Capacity:** eight slots, 00–07, are installed and registered at first. The design keeps 64.
 - **Port base:** the registered `port_base` equals the agent's `portBase`.
-  - **The value:** **7770**, so slots 00–07 are on TCP 7770–7777 (§4.5's `127.0.0.1:<7770 + n>`).
+  - **The value:** **7770** (superseded by §0.13: **7800**), so slots 00–07 are on TCP 7770–7777 (§4.5's `127.0.0.1:<7770 + n>`).
   - **How it was chosen:** after reading `bg-dev-mission01`'s listeners and port settings on 2026-10-18.
   - The evidence, and the one conflict (the hand-run networking experiment script's default port), are in the Stage 10 plan's "Final owner rulings".
 - **Listeners corrected (this supersedes §0.11's "UDP"):** the Unity server uses FishNet over WebSockets on Unity Transport, which is TCP (decision 046), not UDP.
@@ -380,6 +380,12 @@ The owner authorized corrections for the independent review's C1 (one shared mis
   - **nftables alone:** it never proves that a process can't bind a port.
   - **Until B24's mechanism is demonstrated on `bg-dev-mission01`:** only the trusted stub may run there, never a real Unity mission workload, and Stage 12 can't be accepted.
 - **Stage 10's status:** code-complete and lab-validated, and merged into `main`. The mission-VM infrastructure validation is outstanding, and Stage 10 is not operational on the mission VM.
+
+### 0.13 Revision 2.13 (Stage 10 Phase A authorization, 2026-10-18)
+
+- **Port base 7800:** the managed mission ports are TCP 7800–7807 (slots 00–07, capacity 8, host `mission01`). The agent's `portBase`, the rendered slot templates and the backend's `port_base` all equal 7800.
+- **7770 stays the manual Unity experiment port** (`run-net.sh`), outside the managed range.
+- **Authorized:** the owner authorized the mission VM's Phase A1–A6 only (the stub installation and its isolation tests): no reboot, no services-VM SSH change, no tunnel or agent start and no backend registration yet. The Stage 10 plan's "Phase A authorization" records it.
 
 ## 1. Goal, scope and starting point
 
@@ -613,7 +619,7 @@ No secret appears in Git, logs, receipts or error bodies. Logs show at most an 8
 | DHCP client | UDP 68, if the VM uses DHCP | Expected |
 | API (services01) | `127.0.0.1:5080` (docker-proxy) | Only Docker listener of the accounts stack |
 | Test PostgreSQL (services01, development only) | 127.0.0.1:55432 (docker-proxy) | Integration tests through an SSH tunnel; Compose project blackglass-testdb |
-| Mission processes (mission01) | `127.0.0.1:7770+` | One per running attempt |
+| Mission processes (mission01) | `127.0.0.1:7800–7807` (§0.13) | One per running attempt |
 
 `bg-dev-services01` runs Debian 13; whether `systemd-resolved` (and so LLMNR) is present is recorded by E1.1 and handled in Stage 17.
 
@@ -625,7 +631,7 @@ Anything else is a finding to explain before the stage closes.
 - `docker network inspect` of the stack's networks shows `host_binding_ipv4 = 127.0.0.1`.
 - `iptables -t nat -S` and `ip6tables -t nat -S` (Docker chains): DNAT only for destination `127.0.0.1`; no IPv6 DNAT.
 - **Scans from the peer VM and from the PC, against every address** of the target: each IPv4, each global IPv6 and the link-local IPv6 (with its zone).
-  - TCP: only 22 answers; 5080, 5432, 5355 and 7770–7799 are closed or filtered.
+  - TCP: only 22 answers; 5080, 5432, 5355, 7770 and 7800–7807 are closed or filtered.
   - UDP: 5355 (and 53 on the external addresses) are closed or filtered.
 - On the host: `curl -sf http://127.0.0.1:5080/health` works, and a connection to 5432 fails.
 
@@ -642,7 +648,7 @@ Anything else is a finding to explain before the stage closes.
 **Paths:**
 - Mission VM → API: a persistent `ssh -N -L 127.0.0.1:5080:127.0.0.1:5080` service using a restricted key. Both the agent and the processes call `http://127.0.0.1:5080`, and SSH provides encryption and host authentication.
 - Client → API and mission port: `ssh -L` from the PC, as today.
-- Mission ports: each process binds `127.0.0.1:<7770 + n>` (n assigned by the agent), never another address.
+- Mission ports: each process binds `127.0.0.1:<7800 + n>` (n assigned by the agent; §0.13 moved the base from 7770), never another address.
 - Phase 14: a private VLAN, HAProxy TLS and mTLS replace the tunnels.
 
 ### 4.6 Catalogue export [P] [A-22]

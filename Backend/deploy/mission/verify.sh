@@ -63,13 +63,16 @@ s.sendall(open(sys.argv[1], "rb").read()); s.shutdown(socket.SHUT_WR)
 print(s.recv(128).decode().strip())' "$2"
 }
 new_credential() { python3 -c 'import base64, secrets; print("pc1_" + base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("="))'; }
-work="$(mktemp -d /run/blackglass-verify.XXXXXX)" # root 0700: the test credentials, removed at the end
-chmod 0711 "$work"
+# The test requests and credentials, removed at the end. Root and the agent's group only: the broker tests send the requests as the
+# agent, and no other user can open one, even by its path. mktemp -d makes it root 0700 first; setgid gives every file in it the
+# agent's group, and each file is made 0640 (a request) or 0600 (everything else) explicitly.
+work="$(mktemp -d /run/blackglass-verify.XXXXXX)" || exit 1
+chgrp blackglass-agent "$work" && chmod 2750 "$work" || { echo "cannot prepare $work" >&2; rm -rf "$work"; exit 1; }
 prepare() { # prepare <attempt> <generation> [credential] -> the broker's answer; the credential's sha256 kept in $work/<attempt>.sha
   local credential="${3:-$(new_credential)}" request
-  request="$(mktemp "$work/request.XXXXXX")" # one per call: concurrent preparations never share it
-  printf 'prepare %s %s\n%s\n' "$1" "$2" "$credential" > "$request" && chmod 0644 "$request"
-  printf '%s' "$credential" | sha > "$work/$1.sha.$2"
+  request="$(mktemp "$work/request.XXXXXX")" # 0600 at creation; one per call: concurrent preparations never share it
+  printf 'prepare %s %s\n%s\n' "$1" "$2" "$credential" > "$request" && chmod 0640 "$request"
+  (umask 077; printf '%s' "$credential" | sha > "$work/$1.sha.$2")
   broker_as blackglass-agent "$request"
   rm -f "$request"
 }
@@ -94,6 +97,7 @@ check "no static blackglass-mNN user exists (each slot's user is dynamic)" "! gr
 check "/var/lib/private is root 0700" "[ \"\$(stat -c '%U %a' /var/lib/private)\" = 'root 700' ]"
 check "the credential store is root 0700" "[ \"\$(stat -c '%U %a' /run/blackglass/credentials)\" = 'root 700' ]"
 check "the broker socket is root:blackglass-agent 0660" "[ \"\$(stat -c '%U:%G %a' /run/blackglass/credential.sock)\" = 'root:blackglass-agent 660' ]"
+check "the verification directory is root:blackglass-agent 2750" "[ \"\$(stat -c '%U:%G %a' $work)\" = 'root:blackglass-agent 2750' ]"
 
 # ---- plans: B and A attack each other; both probe after A has started ----
 for id in "$A" "$B" "$C" "$R"; do install -d -m 0755 "/etc/blackglass-stub/plans/$id"; done
@@ -107,7 +111,10 @@ check "the stored credential is root 0400 in a root 0700 directory" "[ \"\$(stat
 check "the agent cannot write in the store" "! as_agent sh -c 'echo x > /run/blackglass/credentials/x' 2>/dev/null"
 check "the agent cannot plant a link in the store" "! as_agent ln -s /etc/shadow /run/blackglass/credentials/$X 2>/dev/null"
 check "the agent cannot read a stored credential" "! as_agent cat /run/blackglass/credentials/$A/process >/dev/null 2>&1"
-printf 'prepare ../../etc/shadow 1\npc1_%s\n' "$(head -c 43 /dev/zero | tr '\0' A)" > "$work/req" && chmod 0644 "$work/req"
+install -m 0640 -o root -g blackglass-agent /dev/null "$work/req"
+printf 'prepare ../../etc/shadow 1\npc1_%s\n' "$(head -c 43 /dev/zero | tr '\0' A)" > "$work/req"
+check "a request file is root:blackglass-agent 0640" "[ \"\$(stat -c '%U:%G %a' $work/req)\" = 'root:blackglass-agent 640' ]"
+check "an unrelated user cannot read a request even by its path" "! runuser -u nobody -- cat $work/req >/dev/null 2>&1"
 check "a traversal attempt id is refused" "[ \"\$(broker_as blackglass-agent $work/req)\" = 'error bad_attempt' ]"
 printf 'prepare %s 1\n/etc/shadow\n' "$X" > "$work/req"
 check "a path in place of the credential is refused" "[ \"\$(broker_as blackglass-agent $work/req)\" = 'error bad_credential' ]"
@@ -125,7 +132,7 @@ check "generation 2 replaces generation 1" "[ \"\$(prepare $C 2)\" = ok ]"
 check "a lower generation is stale" "[ \"\$(prepare $C 1)\" = 'error stale' ]"
 check "the same generation with other bytes is a conflict" "[ \"\$(prepare $C 2)\" = 'error conflict' ]"
 pids=()
-for g in $(seq 3 10); do (prepare "$C" "$g" > "$work/concurrent.$g") & pids+=($!); done # 8: the socket's MaxConnections
+for g in $(seq 3 10); do (umask 077; prepare "$C" "$g" > "$work/concurrent.$g") & pids+=($!); done # 8: the socket's MaxConnections
 wait "${pids[@]}" # only these: a bare wait would also wait for the report's tee
 check "concurrent preparations each answer ok or stale and end at the highest generation" "[ \"\$(cat /run/blackglass/credentials/$C/generation)\" = 10 ] && [ \"\$(cat $work/concurrent.* | grep -cx -e ok -e 'error stale')\" = 8 ]"
 check "the stored credential is the highest generation's" "[ \"\$(sha < /run/blackglass/credentials/$C/process)\" = \"\$(cat $work/$C.sha.10)\" ]"
@@ -173,7 +180,7 @@ if systemctl --version | grep -q '+BPF_FRAMEWORK'; then
   check "A cannot bind B's UDP port (BPF socket-bind)" "has $A udp_other_port=denied"
   check "A cannot even bind TCP 5081 (BPF socket-bind)" "has $A tcp_bind_5081=denied"
 else
-  note "this systemd is built without BPF_FRAMEWORK: SocketBindAllow/Deny are not enforced (A: udp_other_port=$(probe_of "$A" | sed -n 's/^udp_other_port=//p'), tcp_bind_5081=$(probe_of "$A" | sed -n 's/^tcp_bind_5081=//p')); a TCP listener is still impossible (seccomp), and per-slot UDP ports are Stage 12's blocking acceptance requirement"
+  note "this systemd is built without BPF_FRAMEWORK: SocketBindAllow/Deny are not enforced (A: udp_other_port=$(probe_of "$A" | sed -n 's/^udp_other_port=//p'), tcp_bind_5081=$(probe_of "$A" | sed -n 's/^tcp_bind_5081=//p')); not counted as a pass; a TCP listener is still impossible here (seccomp), and an enforced per-slot TCP bind restriction (B24) is Stage 12's blocking acceptance requirement"
 fi
 
 # ---- the agent reads every result and changes none ----

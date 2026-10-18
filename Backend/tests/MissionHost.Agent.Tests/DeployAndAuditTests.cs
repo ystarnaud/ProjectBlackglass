@@ -226,6 +226,18 @@ public partial class DeployAndAuditTests
         Assert.DoesNotContain("BLACKGLASS_", Deploy("record-exit"), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Verify_keeps_its_test_requests_from_users_outside_the_agents_group()
+    {
+        var verify = Deploy("verify.sh");
+        // Root and the agent's group only (the broker tests send the requests as the agent); other users can't open one by its path.
+        Assert.Contains("chgrp blackglass-agent \"$work\" && chmod 2750 \"$work\"", verify, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"chmod\s+0?7[0-7]1\s+""\$work""", verify);
+        Assert.DoesNotMatch(@"chmod\s+0?6[0-7]4\b", verify);
+        Assert.Contains("check \"an unrelated user cannot read a request even by its path\"", verify, StringComparison.Ordinal);
+        Assert.Contains("check \"the verification directory is root:blackglass-agent 2750\"", verify, StringComparison.Ordinal);
+    }
+
     /// <summary>Runs a copy of slot-guard whose /usr/bin/systemctl (list-units: the listing; show: the unit's dynamic uid) and
     /// /usr/bin/ps are fakes printing the given text.</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("linux")]
