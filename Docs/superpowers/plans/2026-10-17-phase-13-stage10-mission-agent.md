@@ -1351,3 +1351,51 @@ The renderer (`--port-base 7800 --slots 8`), `verify.sh` (which reads the port b
 **Tests:** a new deployment-file test, `Verify_keeps_its_test_requests_from_users_outside_the_agents_group`, failed first against the old `verify.sh`. The agent suite then passed on the VM runner: 251/251, the 250 before plus this one. Domain and integration code is untouched.
 
 **Release:** built from the pinned `main` commit through a git bundle in the disposable SDK container (A2): a fresh clone, never a dirty tree. `publish-agent.sh` also refuses uncommitted changes.
+
+### Phase A1–A6 results (2026-10-18; A7 and Phases B, C and D not executed)
+
+- **Code and release:** `main` = `origin/main` = `d324ff5`. The release `agent-d324ff54dd5d` was built in the disposable SDK container from a fresh clone of a `main` bundle (0 uncommitted files). Its `RELEASE` SHA-256s:
+  - `blackglass-agent` `579d03d5…`;
+  - `blackglass-credential-broker` `5c8a715f…`;
+  - `record-exit` `43f1784e…`;
+  - `slot-guard` `9c7dbb88…`.
+
+  They were checked after staging and again after installation. The build container is gone.
+- **A1 (services VM, read-only):**
+  - the ED25519 fingerprint `SHA256:CCiFnZA0/WQDUAi6RbkM8Etemf42NTS+DoOcsY+Fpis` equals the owner's console reading;
+  - no `AllowUsers` or `AllowGroups`, and no `bg-api-tunnel` account;
+  - listeners: 22, 53 (loopback) and `127.0.0.1:55432`.
+- **A4:** `ssh-keyscan` from the mission VM gave the same fingerprint, now pinned in `/etc/blackglass/tunnel/known_hosts`.
+- **A5:**
+  - 7800–7807 were free immediately before the installation;
+  - `install exit=0`;
+  - "installed agent release d324ff54dd5d; slots 00..07 on ports 7800..7807".
+- **Installed:**
+  - users `blackglass-agent` (988) and `blackglass-tunnel` (987), each only in its own group, with `nologin` shells;
+  - no static `blackglass-mNN`;
+  - `/etc/sysusers.d/` (new) with `blackglass.conf`, and `/etc/tmpfiles.d/blackglass.conf` with its directories;
+  - the release under `/opt/blackglass/agent/releases/d324ff54dd5d`, with `current`;
+  - the stub under `/opt/blackglass/mission/releases/stub`, with `current`, and `/etc/blackglass-stub/plans`;
+  - templates `blackglass-mission-00@` … `-07@` (`User=blackglass-m00` … `m07`, `SocketBindAllow=udp:7800` … `7807`);
+  - `blackglass-credential.socket` and `blackglass-credential@.service`;
+  - `blackglass-agent.service` and `blackglass-tunnel.service`;
+  - the polkit rule;
+  - `/etc/blackglass/agent/agent.json` (`mission01`, 7800, 8);
+  - the tunnel's `ssh_config`, `known_hosts` and key pair.
+
+  Everything installed is root-owned and not group- or world-writable, except the tunnel's private key (`blackglass-tunnel` 0600) and the agent's own directories.
+- **Enabled and active:** only `blackglass-credential.socket`. The agent and the tunnel are disabled and inactive.
+- **A6:** `verify.sh` gave 88/88 ok and 0 FAIL, plus one note (`-BPF_FRAMEWORK`: `udp_other_port=allowed`, `tcp_bind_5081=allowed`; not counted as a pass). `systemd-analyze security`: 2.8 for a mission unit, 3.0 for the agent.
+- **Before and after** (mission VM):
+  - unchanged: the listeners, failed units (none), the firewall (inactive, empty ruleset) and dynamic users (none live);
+  - `/opt/blackglass/server` is unchanged: content hash `ce62433d…`, metadata hash `65f291a6…`, 190 entries;
+  - added: the enabled unit `blackglass-credential.socket`, and the two users and groups.
+
+  The services VM's listeners and containers are unchanged.
+- **Credential hygiene:** no credential, host secret or private key appears in any transcript, the journal or the stub's probe outputs. The test credentials stay in `/run/blackglass/credentials` (five, root 0400 in root 0700, random test values) until the reboot clears `/run`, which A7 checks.
+- **Differences from the lab:**
+  1. **Distribution timers:** the installer's `systemctl daemon-reload` re-armed two timers with randomized delays, so `fwupd-refresh` (metadata, "No devices are updatable") and `apt-daily` (download only) ran at once. No package changed (dpkg's last entry is 2026-10-16), and `fwupd.service` exits when idle.
+  2. **The tunnel's `ssh_config`:** `install.sh`'s address substitution also fills the template's comment line. It's cosmetic, since the `HostName` line holds the same address, and it's deferred.
+  3. **Otherwise as in the lab:** credential delivery works through the host's native shared mounts, under the real kernel, AppArmor and `polkitd`.
+- **Left in place:** the evidence (outboxes, logs, exit records, `/var/log/blackglass/verify-state-20261018T213633Z`, `/root/bg-stage10`), and the services VM's `/var/tmp/bg-stage10` (bundle, clone and release; root 0700).
+- **Next:** A7 (the reboot and `verify.sh --after-restart`) awaits the owner's authorization. So do Phases B to D.
