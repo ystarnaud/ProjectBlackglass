@@ -37,6 +37,7 @@ done
 [[ -n "$services_host" && -s "$known_hosts" ]] || { echo "--services-host and a pinned --known-hosts file are required" >&2; exit 64; }
 [[ "$services_host" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$ ]] || { echo "--services-host must be a host name or IPv4 address" >&2; exit 64; }
 here="$(cd "$(dirname "$0")" && pwd)"
+! grep -l $'\r' "$here"/*.sh "$here/stub/run-mission" "$here/render-slot-units.sh" || { echo "refusing: CRLF line endings in a script (copy the deploy files with LF)" >&2; exit 78; }
 units="$(mktemp -d)"
 trap 'rm -rf "$units"' EXIT
 "$here/render-slot-units.sh" "$port_base" "$slots" "$units" || { echo "--port-base and --slots are required and must be valid" >&2; exit 64; }
@@ -50,7 +51,8 @@ if [[ -e /etc/blackglass/agent/agent.json ]]; then
     || { echo "refusing: agent.json's portBase and localCapacity differ from --port-base and --slots" >&2; exit 78; }
 fi
 
-# 1. users and directories
+# 1. users and directories (a minimal system may have neither configuration directory yet)
+install -d -m 0755 -o root -g root /etc/sysusers.d /etc/tmpfiles.d /etc/polkit-1/rules.d
 install -m 0644 -o root -g root "$here/sysusers.d/blackglass.conf" /etc/sysusers.d/blackglass.conf
 systemd-sysusers /etc/sysusers.d/blackglass.conf
 install -m 0644 -o root -g root "$here/tmpfiles.d/blackglass.conf" /etc/tmpfiles.d/blackglass.conf
@@ -80,7 +82,7 @@ ln -sfn "$target" /opt/blackglass/agent/current.new && mv -Tf /opt/blackglass/ag
 if [[ "$stub" == 1 ]]; then
   install -d -m 0755 -o root -g root /opt/blackglass/mission/releases/stub /etc/blackglass-stub /etc/blackglass-stub/plans
   install -m 0755 -o root -g root "$here/stub/run-mission" /opt/blackglass/mission/releases/stub/run-mission
-  current="$(readlink -f /opt/blackglass/mission/current 2>/dev/null || true)"
+  current="$(readlink -e /opt/blackglass/mission/current 2>/dev/null || true)" # -e: empty when absent
   if [[ -z "$current" || "$current" == /opt/blackglass/mission/releases/stub ]]; then
     ln -sfn /opt/blackglass/mission/releases/stub /opt/blackglass/mission/current.new && mv -Tf /opt/blackglass/mission/current.new /opt/blackglass/mission/current
   else

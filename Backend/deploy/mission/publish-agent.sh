@@ -17,6 +17,8 @@ dotnet publish "$backend/src/MissionHost.CredentialBroker/MissionHost.Credential
   -p:PublishSingleFile=true -p:DebugType=none -o "$release" -nologo
 install -m 0755 "$here/record-exit" "$release/record-exit"
 install -m 0755 "$here/slot-guard" "$release/slot-guard"
+# A script checked out with CRLF line endings can't be executed (its interpreter line names "/bin/sh\r"): refuse it here.
+! grep -l $'\r' "$release/record-exit" "$release/slot-guard" || { echo "refusing: CRLF line endings in a script (check out with LF)" >&2; exit 78; }
 {
   echo "revision=$revision"
   echo "runtime=linux-x64"

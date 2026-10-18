@@ -63,11 +63,12 @@ new_credential() { python3 -c 'import base64, secrets; print("pc1_" + base64.url
 work="$(mktemp -d /run/blackglass-verify.XXXXXX)" # root 0700: the test credentials, removed at the end
 chmod 0711 "$work"
 prepare() { # prepare <attempt> <generation> [credential] -> the broker's answer; the credential's sha256 kept in $work/<attempt>.sha
-  local credential="${3:-$(new_credential)}"
-  printf 'prepare %s %s\n%s\n' "$1" "$2" "$credential" > "$work/req" && chmod 0644 "$work/req"
+  local credential="${3:-$(new_credential)}" request
+  request="$(mktemp "$work/request.XXXXXX")" # one per call: concurrent preparations never share it
+  printf 'prepare %s %s\n%s\n' "$1" "$2" "$credential" > "$request" && chmod 0644 "$request"
   printf '%s' "$credential" | sha > "$work/$1.sha.$2"
-  broker_as blackglass-agent "$work/req"
-  rm -f "$work/req"
+  broker_as blackglass-agent "$request"
+  rm -f "$request"
 }
 A="$(cat /proc/sys/kernel/random/uuid)" B="$(cat /proc/sys/kernel/random/uuid)" C="$(cat /proc/sys/kernel/random/uuid)"
 D="$(cat /proc/sys/kernel/random/uuid)" R="$(cat /proc/sys/kernel/random/uuid)" X="$(cat /proc/sys/kernel/random/uuid)"
@@ -117,9 +118,11 @@ check "nothing was stored for the refused requests" "[ ! -e /run/blackglass/cred
 check "generation 2 replaces generation 1" "[ \"\$(prepare $C 2)\" = ok ]"
 check "a lower generation is stale" "[ \"\$(prepare $C 1)\" = 'error stale' ]"
 check "the same generation with other bytes is a conflict" "[ \"\$(prepare $C 2)\" = 'error conflict' ]"
-for g in $(seq 3 12); do (prepare "$C" "$g" > "$work/concurrent.$g") & done; wait
-check "concurrent preparations end at the highest generation" "[ \"\$(cat /run/blackglass/credentials/$C/generation)\" = 12 ] && ! grep -qv -e '^ok\$' -e '^error stale\$' $work/concurrent.*"
-check "the stored credential is the highest generation's" "[ \"\$(sha < /run/blackglass/credentials/$C/process)\" = \"\$(cat $work/$C.sha.12)\" ]"
+pids=()
+for g in $(seq 3 10); do (prepare "$C" "$g" > "$work/concurrent.$g") & pids+=($!); done # 8: the socket's MaxConnections
+wait "${pids[@]}" # only these: a bare wait would also wait for the report's tee
+check "concurrent preparations each answer ok or stale and end at the highest generation" "[ \"\$(cat /run/blackglass/credentials/$C/generation)\" = 10 ] && [ \"\$(cat $work/concurrent.* | grep -cx -e ok -e 'error stale')\" = 8 ]"
+check "the stored credential is the highest generation's" "[ \"\$(sha < /run/blackglass/credentials/$C/process)\" = \"\$(cat $work/$C.sha.10)\" ]"
 check "a unit without a prepared credential never starts" "! as_agent systemctl --no-ask-password start $(unit 04 "$X") 2>/dev/null"
 
 # ---- polkit (A10-D4) and the start ----
@@ -203,9 +206,9 @@ check "A's results are unchanged" "[ \"\$(cat /var/lib/private/blackglass-outbox
 # ---- I3: the delivered credential is exactly the prepared one; the store never leaks into a sandbox ----
 install -d -m 0755 "/etc/blackglass-stub/plans/$C"
 printf 'probe=yes\nsleep=1\n' > "/etc/blackglass-stub/plans/$C/plan"
-check "C (slot 02) starts with its generation-12 credential" "as_agent systemctl --no-ask-password start $(unit 02 "$C")"
+check "C (slot 02) starts with its generation-10 credential" "as_agent systemctl --no-ask-password start $(unit 02 "$C")"
 sleep 2
-check "C's unit received exactly the generation-12 credential" "[ \"\$(probe_of $C | sed -n 's/^credential_sha256=//p')\" = \"\$(cat $work/$C.sha.12)\" ]"
+check "C's unit received exactly the generation-10 credential" "[ \"\$(probe_of $C | sed -n 's/^credential_sha256=//p')\" = \"\$(cat $work/$C.sha.10)\" ]"
 
 # ---- systemd's own assessment, recorded ----
 systemd-analyze security --no-pager "$(unit 02 "$C")" 2>/dev/null | tail -n 1
