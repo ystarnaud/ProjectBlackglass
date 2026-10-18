@@ -182,8 +182,9 @@ public sealed class HostStore
     }
 
     /// <summary>
-    /// The agent's exit report for one of its attempts (B11 revised, R6, R7; Stage 9 S9-B1, S9-B5, S9-B7, revision 3). Release lock
-    /// order (no host lock): every participant's accounts row FOR KEY SHARE, the attempt FOR UPDATE (this host's only, else
+    /// The agent's exit report for one of its attempts (B11 revised, R6, R7; Stage 9 S9-B1, S9-B5, S9-B7, revision 3). Lock order:
+    /// the host row FOR KEY SHARE (Stage 9: the attempt row may be updated twice), every participant's accounts row FOR KEY SHARE,
+    /// the attempt FOR UPDATE (this host's only, else
     /// NotFound), its participants, then, before any start, the release of every admitted participant with <c>process_exited</c>
     /// (which cancels the attempt). The presented secret is re-checked under the attempt lock. The report is stored once
     /// (insert-only evidence: exit code, signal, per-participant presence, the outbox scan's completeness, whether the attempt was

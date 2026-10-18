@@ -19,6 +19,7 @@
 --   quarantine_unalerted      a quarantined participant without a result_quarantined, result_malformed, catalogue_unavailable,
 --                             recorded_hash_mismatch or quarantine_escalation anomaly naming it (reviewed or not);
 --   settled_attempt_open      a settled attempt with a participant neither settled nor released;
+--   ending_without_time       an attempt in ending without the ending_at its trigger stamps (the stalled alert counts from it);
 --   submission_payload        a submission without exactly one payload row.
 with settles as (
   select attempt_id, account_id, count(*) as entries, coalesce(sum(abs(delta::bigint)), 0) as moved
@@ -115,6 +116,10 @@ select 'settled_attempt_open', a.attempt_id::text
 from mission_attempts a
 where a.state = 'settled'
   and exists (select 1 from attempt_participants p where p.attempt_id = a.attempt_id and p.state not in ('settled', 'released'))
+union all
+select 'ending_without_time', a.attempt_id::text
+from mission_attempts a
+where a.state = 'ending' and a.ending_at is null
 union all
 select 'submission_payload', r.submission_id::text
 from result_submissions r

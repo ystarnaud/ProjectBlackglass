@@ -1489,7 +1489,7 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
 - Final: the Task 5 ruling on schema-8 voids corrected (M3).
 
 **Obligations handed on:** as listed in "Obligations this stage hands on" above, plus:
-- Stage 10 sends `exited` only after relaying every published file. The operator imports the old catalogue before voiding or exit-reporting a pre-schema-9 attempt whose catalogue is missing from the history.
+- Stage 10 sends `exited` only after relaying every published file. (Superseded by merge correction 6: a void or exit report never needs the catalogue; only a result settlement waits for `catalogue import`.)
 - Phase 14 picks up the deferred minors above.
 
 ## Merge corrections (2026-10-17, the owner's "Stage 9 Final Correction and Merge Authorization")
@@ -1514,19 +1514,24 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
    - `Two_relays_and_a_revalidation_in_a_forced_order_commit_exactly_one_settlement` (two orders, forced by an advisory-lock pause at the first writer's settlement insert, with the other two queued on its locks): exactly one settlement, one unchanged receipt, and the same XP, items, stacks and settle entries as a control participant settled alone.
    - `A_path_holding_its_locks_and_a_conflicting_path_both_finish`: 14 ordered pairs of result relay, exit-evidence void, operator void, host disable and account suspension. Each holder is paused at its last write while holding all its locks; both paths always finish. No deadlock was reproduced, and no lock order changed.
    - **Lock modes as built** (A = the account row, H = the host row, T = the attempt row):
-     - result relay, `recorded`, revalidate, import and operator void: A `FOR KEY SHARE`, then H `FOR KEY SHARE`, then T `FOR UPDATE`, then the participant, hold, inventory, wallet and policy lock;
+     - result relay, revalidate, import and operator void (`RecoveryStore.LockAsync`): A `FOR KEY SHARE`, then H `FOR KEY SHARE`, then T `FOR UPDATE`, then the participant, hold, inventory, wallet and policy lock;
+     - `recorded`: A `FOR KEY SHARE`, then T `FOR UPDATE` (no H: it updates the attempt row at most once, `MarkEndingAsync`, and its anomaly names no host);
      - exit report: H `FOR KEY SHARE`, then A `FOR KEY SHARE` (in the participant release), then T `FOR UPDATE`;
      - host disable: H `FOR UPDATE`, then T `FOR UPDATE` (each attempt row updated once, so no foreign-key re-check reaches A);
+     - `host declare-lost`: its stamp transaction takes H `FOR UPDATE` alone; each void then runs in its own transaction through `RecoveryStore.LockAsync` (A, H, T as above);
      - claim and heartbeat: H `FOR UPDATE`, then attempts `SKIP LOCKED` (never waits);
      - auto-drain: H `FOR UPDATE` only;
-     - account suspension, credential rotation and revocation: A `FOR UPDATE`, then that account's sessions and credentials only (never H or T);
+     - start, process session, ready, process heartbeat, `launching`, player cancel and the deadline release: T `FOR UPDATE` (some after A `FOR KEY SHARE`) without H, each updating the attempt row once;
+     - account suspension, credential rotation and revocation: A `FOR UPDATE`, then that account's sessions and credentials only;
+     - starter backfill (A `FOR UPDATE`, then `inventories FOR UPDATE`), energy grant and open (A `FOR UPDATE`, then `energy_wallets FOR UPDATE`, then the policy lock), insurance administration (A `FOR UPDATE`, then `insurance_coverages FOR UPDATE`);
      - quarantine escalation: A `FOR KEY SHARE`, then T `SKIP LOCKED`.
    - **Why no cycle can form:**
-     - `KEY SHARE` conflicts only with `FOR UPDATE`.
-     - The only holders of A `FOR UPDATE` take no H, T or later lock, so they never wait on a lock the settlement paths hold.
-     - Every path that waits on T already holds H in `KEY SHARE`, or `FOR UPDATE` in disable's case. So disable, which needs H `FOR UPDATE`, and a T holder can never each hold what the other needs.
-     - The exit report and settlement take A and H in opposite orders, but both in `KEY SHARE`, which never conflicts with itself, and neither acquires a conflicting mode on the other row later.
-     - After T, every path takes the participant, hold, inventory, wallet and policy lock in the same order.
+     - `KEY SHARE` conflicts only with `FOR UPDATE` (and with a key update, which no path makes).
+     - **A.** The A `FOR UPDATE` holders never take H or T. Those that take later locks (inventory, wallet and the policy lock, coverage) take them only after A `FOR UPDATE`. Every settlement-family path that takes the same later locks holds A in `KEY SHARE` first, which conflicts, so an A `FOR UPDATE` holder and a settlement-family path are never both past A on the same account. The A holder either waits at A, or holds A while the other waits at A. Neither holds a lock the other is waiting for.
+     - **H.** A transaction needs H after T only if it updates an attempt row twice (PostgreSQL re-checks the host foreign key) or inserts a row with a host foreign key. Every such path takes H in `KEY SHARE` before T. The paths that wait on T without holding H update the attempt row once and never need H afterwards. So no transaction holds T while waiting for H, and the H `FOR UPDATE` holders (disable, declare-lost, claim, heartbeat, auto-drain), which take T after H or never, can't close a cycle through H and T.
+     - **A and H order.** The exit report and settlement take A and H in opposite orders, but both in `KEY SHARE`, which never conflicts with itself, and neither later acquires a conflicting mode on the other row.
+     - **After T,** every path takes the participant, hold, inventory, wallet and policy lock in the same order.
+   - Evidence: the 14-pair test above, plus the existing random-order races (suspension, credential rotation, energy grant and policy publication against every account-referencing Stage 9 path).
 6. **Historical catalogue and protective voids.** Verified: the NOT VALID foreign key from `mission_attempts.catalogue_version` was re-checked whenever a transaction updated an attempt row twice. As a result:
    - an exit-evidence void of a schema-8 attempt whose catalogue was never registered failed with 23503 (`running → ending → settled`, then the slot release);
    - so did an operator void.

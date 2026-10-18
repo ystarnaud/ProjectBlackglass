@@ -1989,6 +1989,8 @@ All are configuration, none is decided, and changing one doesn't need a code cha
 | Relay backoff | 1 s to 60 s | agent configuration |
 | Rate limits | login 10/min per presented key plus 60/min for all logins together; deploy 6/min; other 120/min per account; admin 10/min for all admin requests (Stage 3: none per IP behind the tunnel) | API configuration |
 | Anomaly thresholds, drain rule | to be set from measurements | worker configuration |
+| Stalled `ending` alert, first then repeated (Stage 9 merge corrections) | 600 s, then every 3600 s | `BLACKGLASS_ENDING_ALERT_SECONDS` (60..86400), `BLACKGLASS_ENDING_ALERT_REPEAT_SECONDS` (60..604800) |
+| Unresponsive and revoked-attempt alerts, auto-drain (Stage 9) | 600 s; 24 h; 3 distinct voided attempts in 60 min | `BLACKGLASS_UNRESPONSIVE_ALERT_SECONDS`, `BLACKGLASS_REVOKED_ALERT_HOURS`, `BLACKGLASS_AUTO_DRAIN_ATTEMPTS`, `BLACKGLASS_AUTO_DRAIN_WINDOW` |
 | Plausibility tolerance (V13) | to be set from measurements | API configuration |
 | `lock_timeout`, `statement_timeout`, retry count | 5 s, 15 s, 3 (the retry is not built yet) | API and admin CLI configuration |
 | Unit resource limits | to be set from measurements | systemd unit |

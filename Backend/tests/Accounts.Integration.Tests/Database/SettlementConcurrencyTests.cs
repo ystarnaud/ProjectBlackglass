@@ -255,7 +255,9 @@ public class SettlementConcurrencyTests : IAsyncLifetime
                 same = Task.Run(() => ManifestKit.SubmitAsync(store, db, ManifestKit.Body(valid)));
                 await FaultTriggers.WaitForPausedAsync(db, Key);
                 different = Task.Run(() => ManifestKit.SubmitAsync(store, db, ManifestKit.Body(ManifestKit.Manifest(r, "defeat"))));
-                revalidate = Task.Run(() => recovery.RevalidateAsync(r.Attempt, r.Account, 1, false, Op, default));
+                // Unquarantined and unrevoked, the participant has nothing an operator may revalidate: the call queues on the locks, then
+                // finds the participant settled and is refused before it looks at any submission (the id names none).
+                revalidate = Task.Run(() => recovery.RevalidateAsync(r.Attempt, r.Account, long.MaxValue, false, Op, default));
             }
             await AttemptFixtures.WaitForLockWaitersAsync(db, 3);
         }

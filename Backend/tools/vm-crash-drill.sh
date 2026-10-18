@@ -62,7 +62,9 @@ if docker ps -a --format '{{.Names}}' | grep -qx "$db"; then echo "refusing: a c
 net="bg-crashdrill-$$" vol="bg-crashdb-$$" sec="$(mktemp -d /run/bg-crashdrill.XXXXXX)"
 shared_before="$(docker inspect -f '{{.Id}} {{.State.StartedAt}}' "$shared")"
 listen_before="$(ss -H -ltn | awk '{print $4}' | sort -u)"
+watchdog=""
 cleanup() {
+  [[ -n "$watchdog" ]] && kill "$watchdog" 2>/dev/null
   docker rm -f "$runner" "$runner-build" "$db" >/dev/null 2>&1
   docker volume rm -f "$vol" >/dev/null 2>&1
   docker network rm "$net" >/dev/null 2>&1
@@ -74,6 +76,15 @@ trap cleanup EXIT
 trap 'echo "interrupted (SIGINT)" >&2; exit 130' INT
 trap 'echo "terminated (SIGTERM)" >&2; exit 143' TERM
 trap 'echo "hung up (SIGHUP)" >&2; exit 129' HUP
+trap 'exit 141' PIPE
+# A local interruption (Ctrl-C) ends the ssh client, which signals nothing here (no tty): a watchdog sends this script SIGTERM
+# as soon as its ssh session process (sshd or sshd-session) is gone, so the same cleanup runs.
+session=$$
+while [[ "$session" -gt 1 && "$(ps -o comm= -p "$session" 2>/dev/null)" != sshd* ]]; do session="$(ps -o ppid= -p "$session" | tr -d ' ')"; done
+if [[ "$session" -gt 1 ]]; then
+  ( while sleep 2; do kill -0 "$session" 2>/dev/null || { kill -TERM $$ 2>/dev/null; exit 0; }; done ) &
+  watchdog=$!
+fi
 for name in superuser migrator app; do head -c 24 /dev/urandom | base64 | tr -d '/+=' > "$sec/$name"; done
 chmod 755 "$sec"; chmod 444 "$sec"/*
 install -d -m 755 "$sec/client"

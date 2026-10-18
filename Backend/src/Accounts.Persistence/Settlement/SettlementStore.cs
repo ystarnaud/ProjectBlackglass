@@ -66,8 +66,8 @@ public sealed record SettlementOptions(int SubmissionsPerParticipant, int Uniden
 /// <summary>
 /// The results route (plan §C, §E; S9-B1-B5, B10-B16, B20-B22): one READ COMMITTED transaction decides and commits exactly one
 /// record (the settlement, the quarantine records, or the refusal record) before any definitive answer, and nothing is retried.
-/// Lock order (§E): the participant's accounts row FOR KEY SHARE, the attempt FOR UPDATE, the host secret by plain read, the
-/// participant FOR UPDATE; then, to settle, the hold FOR UPDATE, the inventory FOR UPDATE (V16), item and operative rows (under
+/// Lock order (§E): the participant's accounts row FOR KEY SHARE, the host row FOR KEY SHARE (the attempt row may be updated
+/// twice, which re-checks its host foreign key), the attempt FOR UPDATE, the host secret by plain read, the participant FOR UPDATE; then, to settle, the hold FOR UPDATE, the inventory FOR UPDATE (V16), item and operative rows (under
 /// the inventory lock), pool collections (under the attempt lock), the wallet FOR UPDATE, the shared energy policy lock, the
 /// clock, the ledger, the submission and settlement rows, the states, and the post-apply check. A body naming no participant
 /// of an attempt of this host takes no lock and writes only its own submission (and an anomaly without an account).

@@ -356,6 +356,18 @@ public class SettlementSchemaTests : IAsyncLifetime
         Assert.DoesNotContain(found, f => f.StartsWith("settled_attempt_open", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task The_0009_invariants_catch_an_ending_attempt_without_its_entry_time()
+    {
+        var (_, stamped) = await StartedAsync();
+        await Super("update mission_attempts set state = 'ending' where attempt_id = @stamped", new { stamped }); // the trigger stamps ending_at
+        var (_, forced) = await StartedAsync();
+        await Super("begin; set local session_replication_role = replica; update mission_attempts set state = 'ending' where attempt_id = @forced; commit", new { forced });
+        var found = await SettlementInvariantsAsync();
+        Assert.Contains($"ending_without_time:{forced}", found);
+        Assert.DoesNotContain($"ending_without_time:{stamped}", found);
+    }
+
     // ---- upgrade ----
 
     [Fact]

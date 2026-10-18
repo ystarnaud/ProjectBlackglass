@@ -19,7 +19,8 @@ public class AttemptPrivilegeTests : IAsyncLifetime
         ["attempt_insurance", "attempt_participants", "deploy_requests", "energy_holds", "insurance_activations", "insurance_coverages",
          "insurance_policies", "mission_attempts", "mission_hosts", "mission_templates"];
     static readonly string[] TriggerFunctions =
-        ["attempt_participant_transition", "energy_hold_transition", "insurance_coverage_forward_only", "mission_attempt_transition", "refuse_row_change"];
+        ["attempt_participant_transition", "energy_hold_transition", "insurance_coverage_forward_only", "mission_attempt_catalogue_registered",
+         "mission_attempt_ending_stamp", "mission_attempt_transition", "refuse_row_change"];
 
     public async Task InitializeAsync()
     {
@@ -126,6 +127,7 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "mission_attempts.credential_generation:SELECT,UPDATE",
             "mission_attempts.credential_revoked_at:SELECT,UPDATE",
             "mission_attempts.ended_at:SELECT,UPDATE",
+            "mission_attempts.ending_at:SELECT", // 0009: stamped by its trigger, never written by the app
             "mission_attempts.host_id:SELECT,UPDATE",
             "mission_attempts.join_deadline:SELECT,UPDATE",
             "mission_attempts.last_process_heartbeat_at:SELECT,UPDATE",
@@ -351,6 +353,8 @@ public class AttemptPrivilegeTests : IAsyncLifetime
             "insurance_coverages.insurance_coverage_forward_only:O:row:insurance_coverage_forward_only:",
             "insurance_policies.insurance_policies_no_truncate:O:statement:refuse_row_change:insurance_policy_is_immutable\\000",
             "insurance_policies.insurance_policy_is_immutable:O:row:refuse_row_change:insurance_policy_is_immutable\\000",
+            "mission_attempts.mission_attempt_catalogue_registered:O:row:mission_attempt_catalogue_registered:",
+            "mission_attempts.mission_attempt_ending_stamp:O:row:mission_attempt_ending_stamp:",
             "mission_attempts.mission_attempt_is_permanent:O:row:refuse_row_change:mission_attempt_is_permanent\\000",
             "mission_attempts.mission_attempt_transition:O:row:mission_attempt_transition:",
             "mission_attempts.mission_attempts_no_truncate:O:statement:refuse_row_change:mission_attempt_is_permanent\\000",
