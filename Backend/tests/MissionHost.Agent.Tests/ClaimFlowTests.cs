@@ -10,12 +10,17 @@ public class ClaimFlowTests : IDisposable
     readonly FakeBackend backend = new();
     readonly FakeSystemd systemd;
     readonly CapturedLog log = new();
+    readonly StoreBroker broker;
 
-    public ClaimFlowTests() => systemd = new FakeSystemd(dirs.Config.OutboxDir);
+    public ClaimFlowTests()
+    {
+        systemd = new FakeSystemd(dirs.Config.OutboxDir);
+        broker = new StoreBroker(dirs.Root);
+    }
 
     public void Dispose() => dirs.Dispose();
 
-    AgentHost NewAgent() => Agents.Create(dirs, backend, systemd, log);
+    AgentHost NewAgent() => Agents.Create(dirs, backend, systemd, log, broker: broker);
 
     ClaimRecord OnDisk(Guid key) =>
         JsonSerializer.Deserialize<ClaimRecord>(File.ReadAllBytes(Path.Combine(dirs.Config.StateDir, "claims", key.ToString("D") + ".json")), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -32,18 +37,17 @@ public class ClaimFlowTests : IDisposable
             Assert.Equal(["JG", "JH"], record.Participants);
             Assert.NotNull(record.ProcessCredential);
         };
-        var handoff = new CredentialHandoff(dirs.Config.LaunchDir);
         systemd.OnStart = attempt =>
         {
             Assert.True(backend.Acknowledged(a.Id, a.Generation)); // launching acknowledged with the current generation first
-            Assert.Equal(a.Credential, File.ReadAllText(handoff.PathOf(attempt))); // the credential is in place for LoadCredential
+            Assert.Equal(a.Credential, broker.Credential(attempt)); // the broker put it in place for LoadCredential
         };
         using var agent = NewAgent();
         var record = await agent.Claims.ClaimNewAsync(default);
         Assert.Equal(ClaimPhase.Started, record.Phase);
         Assert.Single(systemd.Calls, c => c.StartsWith("start:", StringComparison.Ordinal));
         Assert.Null(OnDisk(record.Key).ProcessCredential); // scrubbed once the unit has it
-        Assert.False(handoff.Exists(Guid.Parse(a.Id)));
+        Assert.Null(broker.Credential(Guid.Parse(a.Id))); // discarded once the unit has it
         Assert.DoesNotContain(a.Credential!, log.Text, StringComparison.Ordinal);
     }
 
@@ -66,7 +70,7 @@ public class ClaimFlowTests : IDisposable
         Assert.Equal((ClaimPhase.Started, a.Id), (final.Phase, final.Attempt));
         Assert.Single(systemd.Calls, c => c.StartsWith("start:", StringComparison.Ordinal));
         Assert.All(backend.Calls.Where(c => c.StartsWith("claim:", StringComparison.Ordinal)), c => Assert.Equal($"claim:{final.Key}", c)); // one key throughout
-        Assert.False(new CredentialHandoff(dirs.Config.LaunchDir).Exists(Guid.Parse(a.Id)));
+        Assert.Null(broker.Credential(Guid.Parse(a.Id)));
     }
 
     [Fact]
@@ -115,7 +119,7 @@ public class ClaimFlowTests : IDisposable
         late.Deadline = DateTime.UtcNow.AddSeconds(-1);
         Assert.Equal(ClaimPhase.Abandoned, (await agent.Claims.ClaimNewAsync(default)).Phase);
         Assert.DoesNotContain(systemd.Calls, c => c.StartsWith("start:", StringComparison.Ordinal));
-        Assert.False(Directory.Exists(dirs.Config.LaunchDir) && Directory.EnumerateFileSystemEntries(dirs.Config.LaunchDir).Any());
+        Assert.Empty(Directory.EnumerateFileSystemEntries(broker.Root)); // no credential left behind
     }
 
     [Fact]
@@ -140,7 +144,7 @@ public class ClaimFlowTests : IDisposable
         var record = await agent.Claims.ClaimNewAsync(default);
         Assert.Equal(ClaimPhase.StartFailed, record.Phase);
         Assert.Null(record.ProcessCredential);
-        Assert.False(new CredentialHandoff(dirs.Config.LaunchDir).Exists(Guid.Parse(a.Id)));
+        Assert.Null(broker.Credential(Guid.Parse(a.Id)));
         Assert.Contains("unit_start_failed", log.Text, StringComparison.Ordinal);
     }
 
@@ -149,12 +153,114 @@ public class ClaimFlowTests : IDisposable
     {
         var malformed = new MalformedBackend(backend);
         using var agent = Agents.Create(dirs, backend, systemd, log);
-        var flow = new ClaimFlow(malformed, systemd, agent.Store, new CredentialHandoff(dirs.Config.LaunchDir), agent.Auth, new LaunchGate(), TimeProvider.System,
+        var flow = new ClaimFlow(malformed, systemd, agent.Store, broker, agent.Auth, new LaunchGate(), new MissionSlots(7000, 64), TimeProvider.System,
             dirs.Config.OutboxDir, dirs.Config.ExitDir, log.Log);
         var record = await flow.ClaimNewAsync(default);
         Assert.Equal(ClaimPhase.Abandoned, record.Phase);
         Assert.StartsWith("malformed_answer", record.Note, StringComparison.Ordinal);
         Assert.Empty(systemd.Calls);
+    }
+
+    // ---- security correction C1: the slot unit, one live unit per slot ----
+
+    [Fact]
+    public async Task C1_the_unit_started_is_the_slot_of_the_attempts_port_with_the_full_attempt_id()
+    {
+        var a = backend.Admit();
+        a.Port = 7012;
+        using var agent = NewAgent();
+        Assert.Equal(ClaimPhase.Started, (await agent.Claims.ClaimNewAsync(default)).Phase);
+        Assert.Equal([$"blackglass-mission-12@{a.Id}.service"], systemd.StartedUnits);
+    }
+
+    [Theory]
+    [InlineData(7064)] // slot 64 does not exist
+    [InlineData(6999)]
+    public async Task C1_a_port_outside_the_hosts_slots_is_never_launched(int port)
+    {
+        var a = backend.Admit();
+        a.Port = port;
+        using var agent = NewAgent();
+        var record = await agent.Claims.ClaimNewAsync(default);
+        Assert.Equal((ClaimPhase.Abandoned, "port_outside_slots"), (record.Phase, record.Note));
+        Assert.Null(record.ProcessCredential);
+        Assert.DoesNotContain(backend.Calls, c => c.StartsWith("launching:", StringComparison.Ordinal)); // never reported as launching
+        Assert.Empty(systemd.StartedUnits);
+        Assert.DoesNotContain(broker.Calls, c => c.StartsWith("prepare:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task C1_a_slot_with_another_live_unit_is_not_started_until_that_unit_is_gone()
+    {
+        var other = Guid.CreateVersion7();
+        systemd.Units[other] = new FakeSystemd.Unit("active", "success", 0, 0, "x");
+        systemd.UnitSlots[other] = 0;
+        backend.Admit(); // port 7000: slot 0 as well
+        using var agent = NewAgent();
+        var record = await agent.Claims.ClaimNewAsync(default);
+        Assert.Equal(ClaimPhase.CredentialReady, record.Phase);
+        Assert.Empty(systemd.StartedUnits); // two live units in a slot would share its uid
+        Assert.Contains("slot_busy", log.Text, StringComparison.Ordinal);
+        systemd.Exit(other);
+        Assert.Equal(ClaimPhase.Started, (await agent.Claims.AdvanceAsync(record, default)).Phase);
+    }
+
+    [Fact]
+    public async Task C1_an_incomplete_unit_listing_never_starts_a_unit()
+    {
+        systemd.ListFails = true;
+        backend.Admit();
+        using var agent = NewAgent();
+        Assert.Equal(ClaimPhase.CredentialReady, (await agent.Claims.ClaimNewAsync(default)).Phase);
+        Assert.Empty(systemd.StartedUnits);
+    }
+
+    // ---- security correction I3: the root broker prepares the credential; nothing starts without its confirmation ----
+
+    [Fact]
+    public async Task I3_the_credential_is_prepared_with_the_acknowledged_generation_and_discarded_after_the_start()
+    {
+        var a = backend.Admit();
+        using var agent = NewAgent();
+        await agent.Claims.ClaimNewAsync(default);
+        var prepares = broker.Calls.Where(c => c.StartsWith("prepare:", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(prepares);
+        Assert.All(prepares, c => Assert.Equal($"prepare:{a.Id}:{a.Generation}", c));
+        Assert.Equal($"discard:{a.Id}", broker.Calls[^1]);
+    }
+
+    [Theory]
+    [InlineData("write_failed")]
+    [InlineData("unsafe_store")]
+    [InlineData("conflict")]
+    [InlineData("stale")]
+    [InlineData("unavailable")]
+    public async Task I3_a_credential_the_broker_did_not_confirm_never_starts_a_unit(string code)
+    {
+        var a = backend.Admit();
+        broker.Fail = code;
+        using var agent = NewAgent();
+        var record = await agent.Claims.ClaimNewAsync(default);
+        Assert.Equal(ClaimPhase.Acknowledged, record.Phase);
+        Assert.Empty(systemd.StartedUnits);
+        Assert.Contains("credential_prepare_failed", log.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(a.Credential!, log.Text, StringComparison.Ordinal);
+        broker.Fail = null;
+        Assert.Equal(ClaimPhase.Started, (await agent.Claims.AdvanceAsync(record, default)).Phase);
+    }
+
+    [Fact]
+    public async Task I3_a_broker_refusal_at_the_start_itself_fails_closed()
+    {
+        backend.Admit();
+        using var agent = NewAgent();
+        systemd.ListFails = true; // hold the claim at CredentialReady
+        var record = await agent.Claims.ClaimNewAsync(default);
+        Assert.Equal(ClaimPhase.CredentialReady, record.Phase);
+        systemd.ListFails = false;
+        broker.Fail = "unsafe_store";
+        Assert.Equal(ClaimPhase.CredentialReady, (await agent.Claims.AdvanceAsync(record, default)).Phase);
+        Assert.Empty(systemd.StartedUnits);
     }
 
     sealed class MalformedBackend(FakeBackend inner) : IBackend

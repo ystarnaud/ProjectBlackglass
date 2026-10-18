@@ -1,9 +1,10 @@
 # /etc/systemd/system/blackglass-agent.service (root:root 0644). The mission host agent (spec §7.4; A10-D5, A10-D6, A10-D8).
-# Never root. It may start and stop blackglass-mission@<uuid> units only, through the polkit rule 60-blackglass-mission.rules.
+# Never root. It may start and stop blackglass-mission-NN@<uuid> units only, through the polkit rule 60-blackglass-mission.rules, and
+# hand process credentials to the root broker's socket (blackglass-credential.socket, its group only).
 [Unit]
 Description=Blackglass mission host agent
-Wants=network-online.target blackglass-tunnel.service
-After=network-online.target blackglass-tunnel.service
+Wants=network-online.target blackglass-tunnel.service blackglass-credential.socket
+After=network-online.target blackglass-tunnel.service blackglass-credential.socket
 
 [Service]
 Type=simple
@@ -15,20 +16,26 @@ ExecReload=/bin/kill -HUP $MAINPID
 Restart=always
 RestartSec=5
 UMask=0077
+Environment=DOTNET_EnableDiagnostics=0
 
-# Writable: its own state, delivery records and the credential handoff only. The outbox and exit records are read-only to it.
+# Writable: its own state and delivery records only. The exit records are read-only to it, and so are the mission units' outboxes:
+# their systemd state directories (/var/lib/private, root 0700, unreachable otherwise) bound read-only at the agent's outboxDir
+# (security correction C1): a write or delete fails with EROFS whatever a mission sets its files' modes to.
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
-ReadWritePaths=/var/lib/blackglass/agent /var/lib/blackglass/relay /run/blackglass/launch
-ReadOnlyPaths=/var/lib/blackglass/outbox /var/lib/blackglass/exits
+ReadWritePaths=/var/lib/blackglass/agent /var/lib/blackglass/relay
+ReadOnlyPaths=/var/lib/blackglass/exits
+BindReadOnlyPaths=/var/lib/private/blackglass-outbox:/var/lib/blackglass/outbox
 
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-# The agent only connects; it never binds a port (security review I1).
+# The agent only connects; it never listens (seccomp, enforced everywhere) nor binds a port (BPF, where systemd has it) (I1).
+SystemCallFilter=~listen
+SystemCallErrorNumber=EPERM
 SocketBindDeny=any
 RestrictNamespaces=yes
 RestrictRealtime=yes

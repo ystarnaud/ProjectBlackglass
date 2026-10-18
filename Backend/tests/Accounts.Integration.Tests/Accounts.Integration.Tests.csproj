@@ -9,6 +9,7 @@
     <ProjectReference Include="..\..\src\Accounts.Persistence\Accounts.Persistence.csproj" />
     <!-- The mission host agent, driven against the real API (Agent/AgentBackendTests). -->
     <ProjectReference Include="..\..\src\MissionHost.Agent\MissionHost.Agent.csproj" />
+    <ProjectReference Include="..\..\src\MissionHost.CredentialBroker\MissionHost.CredentialBroker.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

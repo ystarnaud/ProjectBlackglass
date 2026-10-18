@@ -22,7 +22,7 @@ public sealed class AgentHost : IDisposable
     public Relayer Relayer { get; }
     public OutboxScanner Scanner { get; }
 
-    public AgentHost(AgentConfig config, IBackend backend, ISystemd systemd, HostSecret secret, AgentLog log, TimeProvider? clock = null)
+    public AgentHost(AgentConfig config, IBackend backend, ISystemd systemd, ICredentialBroker broker, HostSecret secret, AgentLog log, TimeProvider? clock = null)
     {
         this.config = config;
         this.log = log;
@@ -32,10 +32,11 @@ public sealed class AgentHost : IDisposable
         Scanner = new OutboxScanner(config.OutboxDir, config.MaxResultBytes);
         Relayer = new Relayer(backend, Store, Auth, new Backoff(TimeSpan.FromMilliseconds(config.RelayBackoffMinMs), TimeSpan.FromMilliseconds(config.RelayBackoffMaxMs)),
             this.clock, log);
-        Claims = new ClaimFlow(backend, systemd, Store, new CredentialHandoff(config.LaunchDir), Auth, gate, this.clock, config.OutboxDir, config.ExitDir, log);
-        Supervisor = new Supervisor(backend, systemd, Store, Scanner, Relayer, Auth, this.clock, config.ExitDir, log);
+        var slots = new MissionSlots(config.PortBase, config.LocalCapacity);
+        Claims = new ClaimFlow(backend, systemd, Store, broker, Auth, gate, slots, this.clock, config.OutboxDir, config.ExitDir, log);
+        Supervisor = new Supervisor(backend, systemd, Store, Scanner, Relayer, Auth, slots, this.clock, config.ExitDir, log);
         Heartbeat = new Heartbeat(backend, systemd, Store, Auth, gate, new BuildInfo(config.ServerBuildInfo, config.CatalogueVersion), OutboxPending, this.clock, log,
-            new CredentialHandoff(config.LaunchDir));
+            broker);
     }
 
     int OutboxPending() => Relayer.CountPending(Store.All().Where(Supervisor.Supervised)

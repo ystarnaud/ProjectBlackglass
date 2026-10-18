@@ -6,14 +6,16 @@ using Blackglass.Accounts.Domain.Ids;
 using Blackglass.Accounts.IntegrationTests.Support;
 using Blackglass.Accounts.Persistence.Hosts;
 using Blackglass.MissionHost.Agent;
+using Blackglass.MissionHost.CredentialBroker;
 using static Blackglass.Accounts.IntegrationTests.Support.AccountTestKit;
 
 namespace Blackglass.Accounts.IntegrationTests.Agent;
 
 /// <summary>
 /// Stage 10, the agent against the real API and database (systemd faked, the mission process simulated with the credential the
-/// agent handed to the unit): claim, launch, relay to settlement, exit evidence, a backend outage that only delays, and a disabled
-/// host that blocks the agent without stopping a mission or losing a result.
+/// unit received): claim, launch, relay to settlement, exit evidence, a backend outage that only delays, and a disabled host that
+/// blocks the agent without stopping a mission or losing a result. The credential goes through the real root broker's protocol
+/// and store over a real Unix socket (security correction I3), and each attempt runs in its port's slot unit (C1).
 /// </summary>
 [Trait("Requires", "Postgres")]
 public sealed class AgentBackendTests : IAsyncLifetime
@@ -22,6 +24,7 @@ public sealed class AgentBackendTests : IAsyncLifetime
     MissionKit kit = null!;
     string secret = "";
     readonly string root = Path.Combine(Path.GetTempPath(), "bg-agent-it-" + Guid.NewGuid().ToString("N"));
+    BrokerServer? broker;
 
     public async Task InitializeAsync()
     {
@@ -29,6 +32,8 @@ public sealed class AgentBackendTests : IAsyncLifetime
         kit = await MissionKit.CreateAsync(db);
         secret = (await new HostAdminStore(db.AsApp()).RotateSecretAsync("h1", Op)).Secret.Text;
         foreach (var d in new[] { "outbox", "exits", "server" }) Directory.CreateDirectory(Path.Combine(root, d));
+        if (!OperatingSystem.IsWindows()) Directory.CreateDirectory(Path.Combine(root, "credentials"), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        broker = new BrokerServer(root);
         File.WriteAllText(Path.Combine(root, "server", "build-info.txt"), $"revision={MissionKit.Build.Revision}\ncatalogueVersion={MissionKit.Build.CatalogueVersion}\n");
         WriteSecret(secret);
     }
@@ -38,6 +43,7 @@ public sealed class AgentBackendTests : IAsyncLifetime
         try { Assert.Empty(await InvariantFailuresAsync(db)); }
         finally
         {
+            broker?.Dispose();
             await db.DisposeAsync();
             try { Directory.Delete(root, recursive: true); } catch (IOException) { }
         }
@@ -64,41 +70,90 @@ public sealed class AgentBackendTests : IAsyncLifetime
         {
             HostId = "h1", ApiBaseUrl = new Uri(apiUrl.TrimEnd('/') + "/"), HostSecretFile = Path.Combine(root, "host-secret"),
             StateDir = Path.Combine(root, "state"), RelayDir = Path.Combine(root, "relay"), OutboxDir = Path.Combine(root, "outbox"),
-            ExitDir = Path.Combine(root, "exits"), LaunchDir = Path.Combine(root, "launch"), ServerBuildInfo = Path.Combine(root, "server", "build-info.txt"),
-            RelayBackoffMinMs = 10, RelayBackoffMaxMs = 20, AuthRetrySeconds = 1,
+            ExitDir = Path.Combine(root, "exits"), PortBase = 7000, CredentialSocket = Path.Combine(root, "credential.sock"),
+            ServerBuildInfo = Path.Combine(root, "server", "build-info.txt"), RelayBackoffMinMs = 10, RelayBackoffMaxMs = 20, AuthRetrySeconds = 1,
         };
         var hostSecret = new HostSecret(config.HostSecretFile);
         Assert.Equal(HostSecret.ReloadResult.Changed, hostSecret.Reload());
         var http = new HttpClient { BaseAddress = config.ApiBaseUrl, Timeout = TimeSpan.FromSeconds(10) };
-        return new Running { Agent = new AgentHost(config, new BackendClient(http, hostSecret), systemd, hostSecret, new AgentLog(TextWriter.Null)), Http = http };
+        var credentials = new SocketCredentialBroker(config.CredentialSocket, TimeSpan.FromSeconds(5));
+        return new Running { Agent = new AgentHost(config, new BackendClient(http, hostSecret), systemd, credentials, hostSecret, new AgentLog(TextWriter.Null)), Http = http };
     }
 
-    /// <summary>systemd for these tests: start runs the root ExecStartPre's directory creation and keeps the credential the unit
-    /// would receive through LoadCredential.</summary>
+    /// <summary>The root broker as systemd would run it, in process: a Unix socket whose every connection is one request handled by
+    /// the real <see cref="Broker"/> and <see cref="CredentialStore"/> (the test's own uid stands in for root and the agent).</summary>
+    sealed class BrokerServer : IDisposable
+    {
+        readonly Socket listener = new(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+        readonly CancellationTokenSource stop = new();
+        readonly string path;
+
+        public BrokerServer(string root)
+        {
+            path = Path.Combine(root, "credential.sock");
+            var store = new CredentialStore(new BrokerOptions(Path.Combine(root, "credentials"), Native.EffectiveUid), TextWriter.Null);
+            listener.Bind(new UnixDomainSocketEndPoint(path));
+            listener.Listen(8);
+            _ = Task.Run(async () =>
+            {
+                while (!stop.IsCancellationRequested)
+                {
+                    Socket client;
+                    try { client = await listener.AcceptAsync(stop.Token); } catch (Exception) { return; }
+                    using (client)
+                    {
+                        var request = new MemoryStream();
+                        var chunk = new byte[BrokerRequest.MaxBytes + 1];
+                        int read;
+                        while (request.Length <= BrokerRequest.MaxBytes && (read = await client.ReceiveAsync(chunk)) > 0) request.Write(chunk, 0, read);
+                        await client.SendAsync(Broker.Handle(request.ToArray(), Native.EffectiveUid, Native.EffectiveUid, store, TextWriter.Null));
+                    }
+                }
+            });
+        }
+
+        public void Dispose()
+        {
+            stop.Cancel();
+            listener.Dispose();
+            File.Delete(path);
+        }
+    }
+
+    /// <summary>systemd for these tests: start loads the credential the broker stored (what LoadCredential reads), creates the
+    /// attempt's state directory (the outbox), and records the unit name it was given.</summary>
     sealed class StubSystemd(string root) : ISystemd
     {
-        readonly Dictionary<Guid, (string State, int Code, int Status)> units = new();
+        readonly Dictionary<Guid, (string State, int Code, int Status, int Slot)> units = new();
         public readonly Dictionary<Guid, string> Credentials = new();
         public readonly List<string> Stops = [];
+        public readonly List<string> Started = [];
 
-        public Task<bool> StartAsync(Guid attempt, CancellationToken ct)
+        public Task<bool> StartAsync(MissionUnit unit, CancellationToken ct)
         {
-            Credentials[attempt] = File.ReadAllText(Path.Combine(root, "launch", attempt.ToString("D"), "process"));
+            var attempt = unit.Attempt;
+            var stored = Path.Combine(root, "credentials", attempt.ToString("D"), "process");
+            if (!File.Exists(stored)) return Task.FromResult(false); // LoadCredential fails: the unit never starts
+            Credentials[attempt] = File.ReadAllText(stored);
+            Started.Add(unit.Name);
             Directory.CreateDirectory(Path.Combine(root, "outbox", attempt.ToString("D")));
-            units[attempt] = ("active", 0, 0);
+            units[attempt] = ("active", 0, 0, unit.Slot);
             return Task.FromResult(true);
         }
 
-        public Task<bool> StopAsync(Guid attempt, CancellationToken ct) { Stops.Add(attempt.ToString("D")); return Task.FromResult(true); }
+        public Task<bool> StopAsync(MissionUnit unit, CancellationToken ct) { Stops.Add(unit.Attempt.ToString("D")); return Task.FromResult(true); }
 
-        public void Exit(Guid attempt, int code = 0, int? signal = null) =>
-            units[attempt] = signal is { } s ? ("failed", 2, s) : (code == 0 ? "inactive" : "failed", 1, code);
+        public void Exit(Guid attempt, int code = 0, int? signal = null)
+        {
+            var slot = units[attempt].Slot;
+            units[attempt] = signal is { } s ? ("failed", 2, s, slot) : (code == 0 ? "inactive" : "failed", 1, code, slot);
+        }
 
         public Task<UnitInventory> ListAsync(CancellationToken ct) =>
-            Task.FromResult(new UnitInventory(true, units.Select(u => new UnitEntry(u.Key.ToString("D"), u.Value.State)).ToList()));
+            Task.FromResult(new UnitInventory(true, units.Select(u => new UnitEntry(u.Key.ToString("D"), u.Value.State, u.Value.Slot)).ToList()));
 
-        public Task<UnitState?> ShowAsync(Guid attempt, CancellationToken ct) =>
-            Task.FromResult<UnitState?>(units.TryGetValue(attempt, out var u)
+        public Task<UnitState?> ShowAsync(MissionUnit unit, CancellationToken ct) =>
+            Task.FromResult<UnitState?>(units.TryGetValue(unit.Attempt, out var u)
                 ? new UnitState("loaded", u.State, u.State, "x", u.Code, u.Status, "inv")
                 : new UnitState("loaded", "inactive", "dead", "success", 0, 0, ""));
     }
@@ -138,7 +193,7 @@ public sealed class AgentBackendTests : IAsyncLifetime
         using var running = StartAgent(api.App.Urls.Single(), systemd);
         var agent = running.Agent;
         var (mission, attempt) = await LaunchedAsync(agent, systemd);
-        Assert.False(File.Exists(Path.Combine(root, "launch", attempt.ToString("D"), "process"))); // the unit has it; the agent doesn't keep it
+        Assert.False(File.Exists(Path.Combine(root, "credentials", attempt.ToString("D"), "process"))); // the unit has it; the broker's copy is discarded
 
         File.WriteAllBytes(Outbox(attempt, mission.Account, "ready"), ManifestKit.Manifest(mission).ToCanonicalBytes()); // published while running
         await agent.SuperviseOnceAsync(default);
@@ -226,5 +281,40 @@ public sealed class AgentBackendTests : IAsyncLifetime
         Assert.Null(await OutcomeAsync(attempt)); // never settled after the revocation
         Assert.True(File.Exists(Outbox(attempt, mission.Account, "ready"))); // kept for the operator's import
         Assert.Empty(systemd.Stops);
+    }
+
+    [Fact]
+    public async Task Each_attempt_runs_in_its_ports_slot_unit_with_exactly_the_backends_credential_through_the_root_broker()
+    {
+        await using var api = await ApiServer.StartAsync(db, new() { ["BLACKGLASS_CLAIM_WAIT_SECONDS"] = "0" });
+        var systemd = new StubSystemd(root);
+        using var running = StartAgent(api.App.Urls.Single(), systemd);
+        var (_, first) = await LaunchedAsync(running.Agent, systemd); // the process session registered with it: the backend's own credential
+        var (_, second) = await LaunchedAsync(running.Agent, systemd);
+        var ports = await RowAsSuperuserAsync<(int, int)>(db, "select (select mission_port from mission_attempts where attempt_id = @first), (select mission_port from mission_attempts where attempt_id = @second)",
+            new { first, second });
+        Assert.Equal((7000, 7001), ports);
+        Assert.Equal([$"blackglass-mission-00@{first:D}.service", $"blackglass-mission-01@{second:D}.service"], systemd.Started);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(Path.Combine(root, "credentials"))); // discarded once each unit had it
+    }
+
+    [Fact]
+    public async Task Without_the_brokers_confirmation_no_unit_starts_and_the_claim_waits_acknowledged()
+    {
+        await using var api = await ApiServer.StartAsync(db, new() { ["BLACKGLASS_CLAIM_WAIT_SECONDS"] = "0" });
+        var systemd = new StubSystemd(root);
+        using var running = StartAgent(api.App.Urls.Single(), systemd);
+        var agent = running.Agent;
+        broker!.Dispose(); // the broker is down (or refuses): fail closed
+        var (_, attempt) = await ManifestKit.AdmitAsync(kit, db);
+        await agent.Heartbeat.BeatAsync(default);
+        await agent.ClaimOnceAsync(default);
+        Assert.Equal(ClaimPhase.Acknowledged, agent.Store.ForAttempt(attempt.ToString("D"))!.Phase);
+        Assert.Empty(systemd.Started);
+        Assert.Equal("launching", await ScalarAsSuperuserAsync<string>(db, "select state from mission_attempts where attempt_id = @attempt", new { attempt }));
+        broker = new BrokerServer(root); // back: the same claim carries on, once
+        await agent.ClaimOnceAsync(default);
+        Assert.Equal(ClaimPhase.Started, agent.Store.ForAttempt(attempt.ToString("D"))!.Phase);
+        Assert.Equal([$"blackglass-mission-00@{attempt:D}.service"], systemd.Started);
     }
 }

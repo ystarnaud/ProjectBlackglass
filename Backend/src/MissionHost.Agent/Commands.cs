@@ -5,7 +5,7 @@ namespace Blackglass.MissionHost.Agent;
 
 /// <summary>
 /// The root-only emergency stop (A10-D5): stops every active Blackglass mission unit through systemd, needing no backend and no host
-/// secret. It requires a reason and either --dry-run (lists what it would stop) or --yes; it touches only blackglass-mission@
+/// secret. It requires a reason and either --dry-run (lists what it would stop) or --yes; it touches only blackglass-mission-NN@
 /// units, never the outbox, the relay or claim state, inventory, settlement, energy or insurance; running it twice stops nothing
 /// more. Each run is appended to an audit log (and printed, so journald keeps it too).
 /// </summary>
@@ -24,7 +24,7 @@ public static class EmergencyStop
             return Usage;
         }
         var inventory = await systemd.ListAsync(ct);
-        var targets = inventory.Units.Where(u => Stoppable.Contains(u.ActiveState)).Select(u => u.AttemptId).ToList();
+        var targets = inventory.Units.Where(u => Stoppable.Contains(u.ActiveState)).Select(u => new MissionUnit(u.Slot, Guid.Parse(u.AttemptId))).ToList();
         if (!inventory.Complete) output.WriteLine("warning: the unit list was incomplete; only the units listed are handled.");
         var safeReason = new string(reason.Where(c => !char.IsControl(c)).Take(200).ToArray());
         void Audit(string line)
@@ -36,15 +36,15 @@ public static class EmergencyStop
         Audit($"emergency-stop {(dryRun ? "dry-run" : "run")} units={targets.Count} reason=\"{safeReason}\"");
         if (dryRun)
         {
-            foreach (var t in targets) output.WriteLine($"would stop {AttemptIds.Unit(Guid.Parse(t))}");
+            foreach (var t in targets) output.WriteLine($"would stop {t.Name}");
             return 0;
         }
         var failed = 0;
         foreach (var t in targets)
         {
-            var ok = await systemd.StopAsync(Guid.Parse(t), ct);
+            var ok = await systemd.StopAsync(t, ct);
             if (!ok) failed++;
-            Audit($"stop {AttemptIds.Unit(Guid.Parse(t))} {(ok ? "ok" : "failed")}");
+            Audit($"stop {t.Name} {(ok ? "ok" : "failed")}");
         }
         return failed == 0 ? 0 : PartialFailure;
     }

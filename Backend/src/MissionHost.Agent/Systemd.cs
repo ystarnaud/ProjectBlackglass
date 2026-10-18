@@ -61,38 +61,37 @@ public sealed record UnitState(string LoadState, string ActiveState, string SubS
 /// <summary>A unit inventory: <see cref="Complete"/> only for a zero exit whose every line parsed (Stage 8 R2).</summary>
 public sealed record UnitInventory(bool Complete, IReadOnlyList<UnitEntry> Units);
 
-/// <summary>The only systemd operations the agent has (A10-D4): start, stop, list and show, of blackglass-mission@ units only.</summary>
+/// <summary>The only systemd operations the agent has (A10-D4): start, stop, list and show, of blackglass-mission-NN@ units only.</summary>
 public interface ISystemd
 {
-    Task<bool> StartAsync(Guid attempt, CancellationToken ct);
-    Task<bool> StopAsync(Guid attempt, CancellationToken ct);
+    Task<bool> StartAsync(MissionUnit unit, CancellationToken ct);
+    Task<bool> StopAsync(MissionUnit unit, CancellationToken ct);
     Task<UnitInventory> ListAsync(CancellationToken ct);
-    Task<UnitState?> ShowAsync(Guid attempt, CancellationToken ct);
+    Task<UnitState?> ShowAsync(MissionUnit unit, CancellationToken ct);
 }
 
 /// <summary>
-/// systemctl at a fixed path with fixed argument lists (A10-D4). Unit names come only from <see cref="AttemptIds.Unit"/>, after
+/// systemctl at a fixed path with fixed argument lists (A10-D4). Unit names come only from <see cref="MissionUnit.Name"/>, after
 /// "--", so no text from anywhere else reaches the command. The polkit rule (deploy/mission) allows the agent's user exactly
 /// start and stop of these units; list and show need no privilege.
 /// </summary>
 public sealed class Systemctl(string executable, IProcessRunner runner) : ISystemd
 {
     static readonly TimeSpan ControlTimeout = TimeSpan.FromSeconds(30), QueryTimeout = TimeSpan.FromSeconds(10);
-    public const string ListPattern = "blackglass-mission@*.service";
     public const string ShowProperties = "LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,InvocationID";
     static readonly string[] LoadStates = ["loaded", "not-found", "bad-setting", "error", "masked", "stub", "merged"];
     static readonly string[] ActiveStates = ["active", "reloading", "inactive", "failed", "activating", "deactivating", "maintenance", "refreshing"];
 
-    public static IReadOnlyList<string> StartArguments(Guid attempt) => ["--no-ask-password", "start", "--", AttemptIds.Unit(attempt)];
-    public static IReadOnlyList<string> StopArguments(Guid attempt) => ["--no-ask-password", "stop", "--", AttemptIds.Unit(attempt)];
+    public static IReadOnlyList<string> StartArguments(MissionUnit unit) => ["--no-ask-password", "start", "--", unit.Name];
+    public static IReadOnlyList<string> StopArguments(MissionUnit unit) => ["--no-ask-password", "stop", "--", unit.Name];
     public static IReadOnlyList<string> ListArguments() =>
-        ["--no-ask-password", "--no-pager", "--no-legend", "--plain", "--full", "--all", "list-units", "--", ListPattern];
-    public static IReadOnlyList<string> ShowArguments(Guid attempt) =>
-        ["--no-ask-password", "--no-pager", "show", "--property=" + ShowProperties, "--", AttemptIds.Unit(attempt)];
+        ["--no-ask-password", "--no-pager", "--no-legend", "--plain", "--full", "--all", "list-units", "--", MissionUnit.ListPattern];
+    public static IReadOnlyList<string> ShowArguments(MissionUnit unit) =>
+        ["--no-ask-password", "--no-pager", "show", "--property=" + ShowProperties, "--", unit.Name];
 
-    public async Task<bool> StartAsync(Guid attempt, CancellationToken ct) => (await runner.RunAsync(executable, StartArguments(attempt), ControlTimeout, ct)) is { ExitCode: 0, TimedOut: false };
+    public async Task<bool> StartAsync(MissionUnit unit, CancellationToken ct) => (await runner.RunAsync(executable, StartArguments(unit), ControlTimeout, ct)) is { ExitCode: 0, TimedOut: false };
 
-    public async Task<bool> StopAsync(Guid attempt, CancellationToken ct) => (await runner.RunAsync(executable, StopArguments(attempt), ControlTimeout, ct)) is { ExitCode: 0, TimedOut: false };
+    public async Task<bool> StopAsync(MissionUnit unit, CancellationToken ct) => (await runner.RunAsync(executable, StopArguments(unit), ControlTimeout, ct)) is { ExitCode: 0, TimedOut: false };
 
     public async Task<UnitInventory> ListAsync(CancellationToken ct)
     {
@@ -101,7 +100,8 @@ public sealed class Systemctl(string executable, IProcessRunner runner) : ISyste
     }
 
     /// <summary>Strict: every non-empty line is "UNIT LOAD ACTIVE SUB DESCRIPTION…" for a mission unit (an optional leading ●
-    /// marker aside). Any other line makes the inventory incomplete; duplicate units too.</summary>
+    /// marker aside). Any other line makes the inventory incomplete (the retired blackglass-mission@ name too); one attempt listed
+    /// twice, even in two slots, too.</summary>
     public static UnitInventory ParseList(string stdout)
     {
         var units = new List<UnitEntry>();
@@ -112,20 +112,20 @@ public sealed class Systemctl(string executable, IProcessRunner runner) : ISyste
             if (line.Trim().Length == 0) continue;
             var tokens = line.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries).ToList();
             if (tokens.Count > 0 && tokens[0] is "●" or "*" or "x") tokens.RemoveAt(0);
-            if (tokens.Count < 4 || !AttemptIds.TryParseUnit(tokens[0], out var attempt) || !LoadStates.Contains(tokens[1]) || !ActiveStates.Contains(tokens[2]))
+            if (tokens.Count < 4 || !MissionUnit.TryParse(tokens[0], out var unit) || !LoadStates.Contains(tokens[1]) || !ActiveStates.Contains(tokens[2]))
             {
                 complete = false;
                 continue;
             }
-            units.Add(new UnitEntry(AttemptIds.Text(attempt), tokens[2]));
+            units.Add(new UnitEntry(AttemptIds.Text(unit.Attempt), tokens[2], unit.Slot));
         }
         if (units.Select(u => u.AttemptId).Distinct(StringComparer.Ordinal).Count() != units.Count) complete = false;
         return new UnitInventory(complete, units);
     }
 
-    public async Task<UnitState?> ShowAsync(Guid attempt, CancellationToken ct)
+    public async Task<UnitState?> ShowAsync(MissionUnit unit, CancellationToken ct)
     {
-        var result = await runner.RunAsync(executable, ShowArguments(attempt), QueryTimeout, ct);
+        var result = await runner.RunAsync(executable, ShowArguments(unit), QueryTimeout, ct);
         return result is { ExitCode: 0, TimedOut: false } ? ParseShow(result.Stdout) : null;
     }
 

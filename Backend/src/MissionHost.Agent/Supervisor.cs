@@ -12,7 +12,7 @@ namespace Blackglass.MissionHost.Agent;
 /// A 503, a timeout, a lost tunnel or a failed scan never produces a report of absence: they only delay it.
 /// </summary>
 public sealed class Supervisor(IBackend backend, ISystemd systemd, StateStore store, OutboxScanner scanner, Relayer relayer, AuthGate auth,
-    TimeProvider clock, string exitDir, AgentLog log)
+    MissionSlots slots, TimeProvider clock, string exitDir, AgentLog log)
 {
     readonly Dictionary<Guid, DateTimeOffset> nextRescan = new();
     readonly HashSet<Guid> stopIssued = new();
@@ -35,11 +35,13 @@ public sealed class Supervisor(IBackend backend, ISystemd systemd, StateStore st
     {
         var attempt = Guid.Parse(record.Attempt!);
         if (record.Phase == ClaimPhase.Reported) return await RescanAsync(record, attempt, ct);
+        // A supervised record always has its slot: a port outside the slots is abandoned before any start.
+        var unit = slots.UnitOf(record) ?? throw new InvalidOperationException("A supervised attempt without a slot.");
 
         var exit = record.Exit;
         if (record.Phase == ClaimPhase.Started && exit is null)
         {
-            var state = await systemd.ShowAsync(attempt, ct);
+            var state = await systemd.ShowAsync(unit, ct);
             if (state is null) return record; // systemd didn't answer: nothing is concluded
             if (!state.Terminal)
             {
@@ -56,15 +58,15 @@ public sealed class Supervisor(IBackend backend, ISystemd systemd, StateStore st
             // start), and conclude nothing until systemd shows it terminal after that stop (security review I2).
             if (stopIssued.Add(attempt))
             {
-                await systemd.StopAsync(attempt, ct);
+                await systemd.StopAsync(unit, ct);
                 log.Info("unit_stop_after_failed_start", ("attempt", record.Attempt));
                 return record;
             }
-            var state = await systemd.ShowAsync(attempt, ct);
+            var state = await systemd.ShowAsync(unit, ct);
             if (state is null) return record;
             if (!state.Terminal)
             {
-                await systemd.StopAsync(attempt, ct);
+                await systemd.StopAsync(unit, ct);
                 return record;
             }
             exit = ExitRecords.Read(exitDir, attempt) ?? (state.Exit.Known ? state.Exit : ExitStatus.Unknown);
@@ -141,7 +143,7 @@ public sealed class Supervisor(IBackend backend, ISystemd systemd, StateStore st
 /// backend has ended (an authenticated directive, validated, and only for units that exist).
 /// </summary>
 public sealed class Heartbeat(IBackend backend, ISystemd systemd, StateStore store, AuthGate auth, LaunchGate gate, BuildInfo build,
-    Func<int> outboxPending, TimeProvider clock, AgentLog log, CredentialHandoff? handoff = null)
+    Func<int> outboxPending, TimeProvider clock, AgentLog log, ICredentialBroker? broker = null)
 {
     bool buildAlerted;
 
@@ -164,7 +166,7 @@ public sealed class Heartbeat(IBackend backend, ISystemd systemd, StateStore sto
             inventory = await systemd.ListAsync(ct);
             var listed = inventory.Units.Select(u => u.AttemptId).ToHashSet(StringComparer.Ordinal);
             var launching = store.All().Where(r => r.Phase is ClaimPhase.Acknowledged or ClaimPhase.CredentialReady && r.Attempt is not null && !listed.Contains(r.Attempt))
-                .Select(r => new UnitEntry(r.Attempt!, "activating"));
+                .Select(r => new UnitEntry(r.Attempt!, "activating", -1));
             inventory = inventory with { Units = [.. inventory.Units, .. launching] };
         }
         var complete = inventory.Complete && inventory.Units.Count <= 64;
@@ -178,19 +180,20 @@ public sealed class Heartbeat(IBackend backend, ISystemd systemd, StateStore sto
                 LastOk = clock.GetUtcNow();
                 foreach (var stop in ok.Stop)
                 {
-                    if (!AttemptIds.TryParse(stop, out var attempt) || units.All(u => u.AttemptId != stop)) continue;
+                    if (!AttemptIds.TryParse(stop, out var attempt) || units.FirstOrDefault(u => u.AttemptId == stop) is not { } listed) continue;
                     using (await gate.EnterAsync(ct))
                     {
                         if (store.ForAttempt(stop) is { Phase: ClaimPhase.Claimed or ClaimPhase.Acknowledged or ClaimPhase.CredentialReady } pending)
                         {
                             // Ended by the backend before it started (security review M13): never started afterwards.
                             store.Save(pending with { Phase = ClaimPhase.Abandoned, ProcessCredential = null, Note = "stop_directive_before_start" });
-                            handoff?.Delete(attempt);
+                            if (broker is not null) await broker.DiscardAsync(attempt, ct);
                             log.Info("claim_abandoned", ("attempt", stop), ("note", "stop_directive_before_start"));
                             continue;
                         }
                     }
-                    var stopped = await systemd.StopAsync(attempt, ct);
+                    if (listed.Slot < 0) continue; // a launch not yet started: nothing to stop
+                    var stopped = await systemd.StopAsync(new MissionUnit(listed.Slot, attempt), ct);
                     log.Info("unit_stop_directive", ("attempt", stop), ("stopped", stopped));
                 }
                 break;

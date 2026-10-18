@@ -20,12 +20,16 @@ public sealed partial record AgentConfig
     public required string StateDir { get; init; }
     /// <summary>Delivery state per attempt and participant: blackglass-agent, 0700. Never in the outbox (A10-D1).</summary>
     public required string RelayDir { get; init; }
-    /// <summary>The per-attempt outbox root (root:blackglass-agent 0750; read-only to the agent).</summary>
+    /// <summary>The per-attempt outbox root as the agent's unit sees it: a read-only bind of the mission units' systemd state
+    /// directories (/var/lib/private/blackglass-outbox, security correction C1).</summary>
     public required string OutboxDir { get; init; }
     /// <summary>The exit records the template's root ExecStopPost step writes (root:blackglass-agent 0750; read-only to the agent).</summary>
     public required string ExitDir { get; init; }
-    /// <summary>The process credentials handed to units (LoadCredential): blackglass-agent, 0700, on tmpfs.</summary>
-    public required string LaunchDir { get; init; }
+    /// <summary>The host's first mission port (Stage 8's port_base): port P runs as slot P - PortBase, unit blackglass-mission-NN@.
+    /// The backend's registration must use the same value and a capacity no larger than <see cref="LocalCapacity"/>.</summary>
+    public required int PortBase { get; init; }
+    /// <summary>The root credential broker's socket (security correction I3).</summary>
+    public string CredentialSocket { get; init; } = "/run/blackglass/credential.sock";
     /// <summary>The installed server build's build-info.txt (revision=, and catalogueVersion= once Stage 12's build writes it).</summary>
     public required string ServerBuildInfo { get; init; }
     /// <summary>Used when build-info.txt names no catalogueVersion (builds before Stage 12).</summary>
@@ -42,7 +46,7 @@ public sealed partial record AgentConfig
     public long MaxResultBytes { get; init; } = 4 * 1024 * 1024;
     /// <summary>Outbox disk use that raises an operational alert (the filesystem's used share, percent).</summary>
     public int OutboxAlertPercent { get; init; } = 80;
-    /// <summary>The most attempts the agent supervises at once (the host's capacity is the backend's; this is a local cap).</summary>
+    /// <summary>The host's slots (installed slot templates, at most 64), and so the most attempts it supervises at once.</summary>
     public int LocalCapacity { get; init; } = 64;
     /// <summary>The user whose socket must hold the API's loopback port before anything is sent to it (security review I1);
     /// null only in tests against an in-process API.</summary>
@@ -53,7 +57,7 @@ public sealed partial record AgentConfig
 
     static readonly string[] Members =
     [
-        "hostId", "apiBaseUrl", "hostSecretFile", "stateDir", "relayDir", "outboxDir", "exitDir", "launchDir", "serverBuildInfo", "catalogueVersion",
+        "hostId", "apiBaseUrl", "hostSecretFile", "stateDir", "relayDir", "outboxDir", "exitDir", "portBase", "credentialSocket", "serverBuildInfo", "catalogueVersion",
         "systemctl", "heartbeatSeconds", "scanIntervalMs", "relayBackoffMinMs", "relayBackoffMaxMs", "authRetrySeconds", "requestTimeoutSeconds",
         "maxResultBytes", "outboxAlertPercent", "localCapacity", "tunnelUser",
     ];
@@ -101,6 +105,8 @@ public sealed partial record AgentConfig
                     throw new AgentConfigException($"Setting '{name}' must be a whole number from {min} to {max}.");
                 return n;
             }
+            int RequiredNumber(string name, int min, int max) =>
+                root.TryGetProperty(name, out _) ? Number(name, min, min, max) : throw new AgentConfigException($"Setting '{name}' is required.");
 
             var hostId = Text("hostId");
             if (!HostIdPattern().IsMatch(hostId)) throw new AgentConfigException("Setting 'hostId' is not a host id.");
@@ -119,7 +125,8 @@ public sealed partial record AgentConfig
                 RelayDir = AbsolutePath("relayDir"),
                 OutboxDir = AbsolutePath("outboxDir"),
                 ExitDir = AbsolutePath("exitDir"),
-                LaunchDir = AbsolutePath("launchDir"),
+                PortBase = RequiredNumber("portBase", 1024, 65535),
+                CredentialSocket = root.TryGetProperty("credentialSocket", out _) ? AbsolutePath("credentialSocket") : "/run/blackglass/credential.sock",
                 ServerBuildInfo = AbsolutePath("serverBuildInfo"),
                 CatalogueVersion = catalogue.Length > 0 ? catalogue : null,
                 Systemctl = root.TryGetProperty("systemctl", out _) ? AbsolutePath("systemctl") : "/usr/bin/systemctl",
@@ -136,7 +143,8 @@ public sealed partial record AgentConfig
                     ? (HostIdPattern().IsMatch(tunnel) ? tunnel : throw new AgentConfigException("Setting 'tunnelUser' is not a user name.")) : null,
             };
             if (config.RelayBackoffMaxMs < config.RelayBackoffMinMs) throw new AgentConfigException("Setting 'relayBackoffMaxMs' is below 'relayBackoffMinMs'.");
-            var dirs = new[] { config.StateDir, config.RelayDir, config.OutboxDir, config.ExitDir, config.LaunchDir };
+            if (config.PortBase + config.LocalCapacity > 65536) throw new AgentConfigException("Settings 'portBase' and 'localCapacity' run past port 65535.");
+            var dirs = new[] { config.StateDir, config.RelayDir, config.OutboxDir, config.ExitDir };
             if (dirs.Distinct(StringComparer.Ordinal).Count() != dirs.Length) throw new AgentConfigException("The agent's directories must be distinct.");
             return config;
         }

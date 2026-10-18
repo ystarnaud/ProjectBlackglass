@@ -6,7 +6,8 @@
   "relayDir": "/var/lib/blackglass/relay",
   "outboxDir": "/var/lib/blackglass/outbox",
   "exitDir": "/var/lib/blackglass/exits",
-  "launchDir": "/run/blackglass/launch",
+  "portBase": 7000,
+  "localCapacity": 64,
   "serverBuildInfo": "/opt/blackglass/server/current/build-info.txt",
   "tunnelUser": "blackglass-tunnel",
   "catalogueVersion": "sha256:REPLACE_WITH_THE_INSTALLED_BUILDS_CATALOGUE_VERSION"

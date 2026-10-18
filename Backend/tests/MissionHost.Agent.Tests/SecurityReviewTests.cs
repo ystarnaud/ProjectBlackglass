@@ -22,10 +22,10 @@ public class SecurityReviewTests : IDisposable
     {
         int failures = showFailures;
         public readonly List<string> Stops = [];
-        public Task<bool> StartAsync(Guid attempt, CancellationToken ct) { inner.StartAsync(attempt, ct); return Task.FromResult(false); }
-        public Task<bool> StopAsync(Guid attempt, CancellationToken ct) { Stops.Add(attempt.ToString("D")); return inner.StopAsync(attempt, ct); }
+        public Task<bool> StartAsync(MissionUnit unit, CancellationToken ct) { inner.StartAsync(unit, ct); return Task.FromResult(false); }
+        public Task<bool> StopAsync(MissionUnit unit, CancellationToken ct) { Stops.Add(unit.Attempt.ToString("D")); return inner.StopAsync(unit, ct); }
         public Task<UnitInventory> ListAsync(CancellationToken ct) => inner.ListAsync(ct);
-        public Task<UnitState?> ShowAsync(Guid attempt, CancellationToken ct) => failures-- > 0 ? Task.FromResult<UnitState?>(null) : inner.ShowAsync(attempt, ct);
+        public Task<UnitState?> ShowAsync(MissionUnit unit, CancellationToken ct) => failures-- > 0 ? Task.FromResult<UnitState?>(null) : inner.ShowAsync(unit, ct);
     }
 
     [Fact]
@@ -35,7 +35,7 @@ public class SecurityReviewTests : IDisposable
         var slow = new SlowSystemd(systemd, showFailures: 3); // two during the start step, one after the stop
         var secret = new HostSecret(dirs.Config.HostSecretFile);
         secret.Reload();
-        using var agent = new AgentHost(dirs.Config with { RelayBackoffMinMs = 10, RelayBackoffMaxMs = 20 }, backend, slow, secret, log.Log);
+        using var agent = new AgentHost(dirs.Config with { RelayBackoffMinMs = 10, RelayBackoffMaxMs = 20 }, backend, slow, new StoreBroker(dirs.Root), secret, log.Log);
         var record = await agent.Claims.ClaimNewAsync(default); // start "failed" (timed out) and show didn't answer
         Assert.Equal(ClaimPhase.StartFailed, record.Phase);
         dirs.WriteResult(a.Id, "JG", "written", Manifests.For(a.Id, "JG")); // the live process's unpublished result
@@ -69,10 +69,10 @@ public class SecurityReviewTests : IDisposable
         backend.CrashAt = "launching:after";
         Assert.False(await Agents.SurvivesAsync(() => agent.Claims.AdvanceAsync(claimed, default)));
         var acknowledged = agent.Store.Save(agent.Store.All().Single(r => r.Key == key) with { Phase = ClaimPhase.Acknowledged });
-        acknowledged = agent.Store.Save(acknowledged with { Phase = ClaimPhase.CredentialReady }); // the file was written, then a reboot wiped /run
-        var handoff = new CredentialHandoff(dirs.Config.LaunchDir);
-        Assert.False(handoff.Exists(Guid.Parse(b.Id)));
-        systemd.OnStart = attempt => Assert.True(handoff.Exists(attempt)); // LoadCredential finds it
+        acknowledged = agent.Store.Save(acknowledged with { Phase = ClaimPhase.CredentialReady }); // prepared, then a reboot wiped /run
+        var broker = new StoreBroker(dirs.Root); // the broker's store the agent uses (the same directory)
+        Assert.Null(broker.Credential(Guid.Parse(b.Id)));
+        systemd.OnStart = attempt => Assert.NotNull(broker.Credential(attempt)); // LoadCredential finds it
         Assert.Equal(ClaimPhase.Started, (await agent.Claims.AdvanceAsync(acknowledged, default)).Phase);
     }
 

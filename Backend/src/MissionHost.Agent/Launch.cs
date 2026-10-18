@@ -1,40 +1,4 @@
-using System.Text;
-
 namespace Blackglass.MissionHost.Agent;
-
-/// <summary>
-/// The process credential handed to a unit (spec §4.3, §7.4): LaunchDir/&lt;attempt&gt;/process, 0400 in a 0700 directory, both the
-/// agent's, on tmpfs. The template's LoadCredential=process:… has systemd (root) copy it into the unit's private credential
-/// directory at start; the file is deleted once the unit started (or definitely didn't), and never logged.
-/// </summary>
-public sealed class CredentialHandoff(string launchDir)
-{
-    public string PathOf(Guid attempt) => Path.Combine(launchDir, AttemptIds.Text(attempt), "process");
-
-    public bool Exists(Guid attempt) => File.Exists(PathOf(attempt));
-
-    public void Write(Guid attempt, string credential)
-    {
-        AtomicFile.EnsurePrivateDirectory(launchDir);
-        var directory = Path.Combine(launchDir, AttemptIds.Text(attempt));
-        AtomicFile.EnsurePrivateDirectory(directory);
-        var path = PathOf(attempt);
-        AtomicFile.Write(path, Encoding.UTF8.GetBytes(credential));
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead);
-    }
-
-    public void Delete(Guid attempt)
-    {
-        var path = PathOf(attempt);
-        if (File.Exists(path))
-        {
-            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-            AtomicFile.Delete(path);
-        }
-        var directory = Path.GetDirectoryName(path)!;
-        if (Directory.Exists(directory) && !Directory.EnumerateFileSystemEntries(directory).Any()) Directory.Delete(directory);
-    }
-}
 
 /// <summary>The installed server build the heartbeat reports: build-info.txt's revision and catalogueVersion (the latter from the
 /// configuration until Stage 12's build writes it), each validated as the backend validates it.</summary>
@@ -83,13 +47,19 @@ public sealed class LaunchGate : IDisposable
 /// <summary>
 /// Claim and launch (Stage 8 R1, the owner's claim-durability requirements). Each step is persisted before the next one that
 /// depends on it: the key before the claim is sent; the complete answer (credential, generation, port, participants) before
-/// launching is reported; the acknowledgement before the credential file; the credential file before systemctl start. A restart
-/// resumes from the persisted phase. No unit starts with a generation the backend hasn't acknowledged, an attempt is never started
-/// twice (an existing outbox directory, exit record or unit proves it started), and the credential is deleted once the unit has it.
+/// launching is reported; the acknowledgement before the credential is prepared; the root broker's confirmation before systemctl
+/// start. A restart resumes from the persisted phase. No unit starts with a generation the backend hasn't acknowledged, an attempt
+/// is never started twice (an existing outbox directory, exit record or unit proves it started), and the credential is discarded
+/// once the unit has it.
+/// Security corrections: the unit is the slot of the attempt's port (blackglass-mission-NN@attempt, its own dynamic uid; a port
+/// outside the host's slots is never launched) and starts only when a complete inventory shows no other live unit in that slot
+/// (C1); the credential goes to the root broker, never to a file the agent could swap, and nothing starts without its "ok" (I3).
 /// </summary>
-public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore store, CredentialHandoff handoff, AuthGate auth, LaunchGate gate,
-    TimeProvider clock, string outboxDir, string exitDir, AgentLog log)
+public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore store, ICredentialBroker broker, AuthGate auth, LaunchGate gate,
+    MissionSlots slots, TimeProvider clock, string outboxDir, string exitDir, AgentLog log)
 {
+    readonly HashSet<string> busyLogged = new(StringComparer.Ordinal);
+
     static readonly ClaimPhase[] Pending = [ClaimPhase.Keyed, ClaimPhase.Claimed, ClaimPhase.Acknowledged, ClaimPhase.CredentialReady];
 
     public IEnumerable<ClaimRecord> Unfinished() => store.All().Where(r => Pending.Contains(r.Phase));
@@ -111,7 +81,7 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
             {
                 ClaimPhase.Keyed => await ClaimAsync(record, ct),
                 ClaimPhase.Claimed => await LaunchingAsync(record, ct),
-                ClaimPhase.Acknowledged => WriteCredential(record),
+                ClaimPhase.Acknowledged => await PrepareCredentialAsync(record, ct),
                 ClaimPhase.CredentialReady => await StartAsync(record, ct),
                 _ => null,
             };
@@ -132,6 +102,12 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
                     log.Alert("claim_attempt_already_tracked", ("attempt", g.Attempt));
                     return store.Save(record with { Phase = ClaimPhase.Abandoned, Note = "attempt_already_tracked" });
                 }
+                if (slots.SlotOf(g.MissionPort) is null)
+                {
+                    // No template exists for that port's slot: never launched (the backend's launch deadline cancels the attempt).
+                    log.Alert("claim_port_outside_slots", ("attempt", g.Attempt), ("port", g.MissionPort), ("port_base", slots.PortBase), ("slots", slots.Count));
+                    return store.Save(record with { Phase = ClaimPhase.Abandoned, Attempt = g.Attempt, MissionPort = g.MissionPort, Note = "port_outside_slots" });
+                }
                 log.Info("claim_granted", ("attempt", g.Attempt), ("generation", g.Generation), ("port", g.MissionPort), ("participants", g.Participants.Length),
                     ("recovered", g.Recovered));
                 return store.Save(record with
@@ -146,13 +122,13 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
             case ClaimAnswer.InvalidState:
                 auth.OnAuthenticated();
                 log.Warn("claim_key_invalid_state", ("key", record.Key));
-                return Abandon(record, "invalid_state");
+                return await AbandonAsync(record, "invalid_state", ct);
             case ClaimAnswer.Malformed m:
                 log.Alert("claim_answer_malformed", ("reason", m.Reason)); // never launched; the backend's launch deadline cancels it
-                return Abandon(record, "malformed_answer:" + m.Reason);
+                return await AbandonAsync(record, "malformed_answer:" + m.Reason, ct);
             case ClaimAnswer.Refused r:
                 log.Alert("claim_refused", ("status", r.Status), ("code", r.Code));
-                return Abandon(record, $"refused:{r.Status}");
+                return await AbandonAsync(record, $"refused:{r.Status}", ct);
             case ClaimAnswer.Failed { Kind: var kind }:
                 if (kind == Transport.Unauthorized) auth.OnUnauthorized();
                 return record; // the same key is retried later
@@ -164,7 +140,7 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
     async Task<ClaimRecord?> LaunchingAsync(ClaimRecord record, CancellationToken ct)
     {
         if (!auth.MaySend) return record;
-        if (clock.GetUtcNow().UtcDateTime > record.LaunchDeadline) return Abandon(record, "launch_deadline_passed");
+        if (clock.GetUtcNow().UtcDateTime > record.LaunchDeadline) return await AbandonAsync(record, "launch_deadline_passed", ct);
         switch (await backend.LaunchingAsync(record.Attempt!, record.Generation, ct))
         {
             case LaunchingAnswer.Acknowledged a:
@@ -178,10 +154,10 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
                 return await ReclaimAsync(record, ct);
             case LaunchingAnswer.InvalidState or LaunchingAnswer.NotFound:
                 auth.OnAuthenticated();
-                return Abandon(record, "launching_refused");
+                return await AbandonAsync(record, "launching_refused", ct);
             case LaunchingAnswer.Refused r:
                 log.Alert("launching_refused", ("attempt", record.Attempt), ("status", r.Status), ("code", r.Code));
-                return Abandon(record, $"launching_refused:{r.Status}");
+                return await AbandonAsync(record, $"launching_refused:{r.Status}", ct);
             case LaunchingAnswer.Failed { Kind: var kind }:
                 if (kind == Transport.Unauthorized) auth.OnUnauthorized();
                 return record;
@@ -198,10 +174,10 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
                 log.Info("claim_recovered", ("attempt", g.Attempt), ("generation", g.Generation));
                 return store.Save(record with { Generation = g.Generation, ProcessCredential = g.ProcessCredential, LaunchDeadline = g.LaunchDeadline });
             case ClaimAnswer.InvalidState:
-                return Abandon(record, "invalid_state_after_supersede");
+                return await AbandonAsync(record, "invalid_state_after_supersede", ct);
             case ClaimAnswer.Granted:
                 log.Alert("claim_recovery_other_attempt", ("attempt", record.Attempt));
-                return Abandon(record, "recovery_other_attempt");
+                return await AbandonAsync(record, "recovery_other_attempt", ct);
             case ClaimAnswer.Failed { Kind: Transport.Unauthorized }:
                 auth.OnUnauthorized();
                 return record;
@@ -210,56 +186,88 @@ public sealed class ClaimFlow(IBackend backend, ISystemd systemd, StateStore sto
         }
     }
 
-    ClaimRecord WriteCredential(ClaimRecord record)
+    /// <summary>The root broker stores the credential for the unit's LoadCredential; anything but its "ok" leaves the claim where
+    /// it is (retried, until the launch deadline abandons it).</summary>
+    async Task<ClaimRecord> PrepareCredentialAsync(ClaimRecord record, CancellationToken ct)
     {
-        handoff.Write(Guid.Parse(record.Attempt!), record.ProcessCredential!);
+        if (clock.GetUtcNow().UtcDateTime > record.LaunchDeadline) return await AbandonAsync(record, "launch_deadline_passed", ct);
+        if (!await PreparedAsync(record, ct)) return record;
         return store.Save(record with { Phase = ClaimPhase.CredentialReady });
     }
 
-    /// <summary>True when the attempt's unit evidently ran: the outbox directory its root ExecStartPre creates, its exit record,
-    /// or systemd still holding an invocation.</summary>
-    async Task<bool> EverStartedAsync(Guid attempt, CancellationToken ct)
+    async Task<bool> PreparedAsync(ClaimRecord record, CancellationToken ct)
     {
-        if (Directory.Exists(Path.Combine(outboxDir, AttemptIds.Text(attempt))) || File.Exists(Path.Combine(exitDir, AttemptIds.Text(attempt) + ".exit"))) return true;
-        return await systemd.ShowAsync(attempt, ct) is { } s && (s.Running || s.InvocationId.Length > 0);
+        if (record.ProcessCredential is not { } credential) return false;
+        var answer = await broker.PrepareAsync(Guid.Parse(record.Attempt!), record.Generation, credential, ct);
+        if (!answer.Ok) log.Alert("credential_prepare_failed", ("attempt", record.Attempt), ("generation", record.Generation), ("code", answer.Code));
+        return answer.Ok;
+    }
+
+    /// <summary>True when the attempt's unit evidently ran: the outbox directory systemd creates for it (its StateDirectory), its
+    /// exit record, or systemd still holding an invocation.</summary>
+    async Task<bool> EverStartedAsync(MissionUnit unit, CancellationToken ct)
+    {
+        var attempt = AttemptIds.Text(unit.Attempt);
+        if (Directory.Exists(Path.Combine(outboxDir, attempt)) || File.Exists(Path.Combine(exitDir, attempt + ".exit"))) return true;
+        return await systemd.ShowAsync(unit, ct) is { } s && (s.Running || s.InvocationId.Length > 0);
+    }
+
+    /// <summary>True when a complete inventory shows no live unit of another attempt in the unit's slot (two would share a uid).</summary>
+    async Task<bool> SlotFreeAsync(MissionUnit unit, CancellationToken ct)
+    {
+        var inventory = await systemd.ListAsync(ct);
+        if (!inventory.Complete) return false;
+        var attempt = AttemptIds.Text(unit.Attempt);
+        var busy = inventory.Units.Any(u => u.Slot == unit.Slot && u.AttemptId != attempt && u.ActiveState is not ("inactive" or "failed"));
+        if (busy && busyLogged.Add(attempt)) log.Warn("slot_busy", ("attempt", attempt), ("slot", unit.Slot));
+        return !busy;
     }
 
     async Task<ClaimRecord?> StartAsync(ClaimRecord record, CancellationToken ct)
     {
-        var attempt = Guid.Parse(record.Attempt!);
+        if (slots.UnitOf(record) is not { } unit) return await AbandonAsync(record, "port_outside_slots", ct);
         using (await gate.EnterAsync(ct))
         {
             // Under the gate, the record as it stands now: a stop directive may have abandoned it (security review M13).
             if (store.ForAttempt(record.Attempt!) is { } current && current.Phase != ClaimPhase.CredentialReady) return current;
-            if (await EverStartedAsync(attempt, ct))
+            if (await EverStartedAsync(unit, ct))
             {
                 log.Info("unit_already_started", ("attempt", record.Attempt));
-                return Started(record, attempt, ClaimPhase.Started);
+                return await StartedAsync(record, unit, ClaimPhase.Started, ct);
             }
-            if (clock.GetUtcNow().UtcDateTime > record.LaunchDeadline) return Abandon(record, "launch_deadline_passed");
-            // /run is tmpfs: after a reboot the file is gone while the record still holds the credential (security review M1).
-            if (!handoff.Exists(attempt) && record.ProcessCredential is { } credential) handoff.Write(attempt, credential);
-            var ok = await systemd.StartAsync(attempt, ct);
-            var state = await systemd.ShowAsync(attempt, ct);
+            if (clock.GetUtcNow().UtcDateTime > record.LaunchDeadline) return await AbandonAsync(record, "launch_deadline_passed", ct);
+            if (!await SlotFreeAsync(unit, ct)) return record; // waits for the slot (or the launch deadline)
+            // Confirmed again right before the start: idempotent for the same generation, and /run (the broker's store) is empty
+            // after a reboot while the record still holds the credential (security review M1). No "ok", no start.
+            if (!await PreparedAsync(record, ct)) return record;
+            var ok = await systemd.StartAsync(unit, ct);
+            var state = await systemd.ShowAsync(unit, ct);
             var started = ok || state is { Running: true } || state is { InvocationId.Length: > 0 };
-            if (started) log.Info("unit_started", ("attempt", record.Attempt), ("unit", AttemptIds.Unit(attempt)));
-            else log.Alert("unit_start_failed", ("attempt", record.Attempt), ("unit", AttemptIds.Unit(attempt)));
-            return Started(record, attempt, started ? ClaimPhase.Started : ClaimPhase.StartFailed);
+            if (started) log.Info("unit_started", ("attempt", record.Attempt), ("unit", unit.Name));
+            else log.Alert("unit_start_failed", ("attempt", record.Attempt), ("unit", unit.Name));
+            return await StartedAsync(record, unit, started ? ClaimPhase.Started : ClaimPhase.StartFailed, ct);
         }
     }
 
-    ClaimRecord Started(ClaimRecord record, Guid attempt, ClaimPhase phase)
+    async Task<ClaimRecord> StartedAsync(ClaimRecord record, MissionUnit unit, ClaimPhase phase, CancellationToken ct)
     {
         var saved = store.Save(record with { Phase = phase, ProcessCredential = null });
-        handoff.Delete(attempt);
+        await DiscardAsync(unit.Attempt, ct);
         return saved;
     }
 
-    ClaimRecord Abandon(ClaimRecord record, string note)
+    async Task<ClaimRecord> AbandonAsync(ClaimRecord record, string note, CancellationToken ct)
     {
         var saved = store.Save(record with { Phase = ClaimPhase.Abandoned, ProcessCredential = null, Note = note });
-        if (record.Attempt is { } a && AttemptIds.TryParse(a, out var attempt)) handoff.Delete(attempt);
+        if (record.Attempt is { } a && AttemptIds.TryParse(a, out var attempt)) await DiscardAsync(attempt, ct);
         log.Info("claim_abandoned", ("key", record.Key), ("attempt", record.Attempt), ("note", note));
         return saved;
+    }
+
+    /// <summary>Removes the broker's copy; a failure is logged and leaves only a root-only file on tmpfs (gone at the next boot).</summary>
+    async Task DiscardAsync(Guid attempt, CancellationToken ct)
+    {
+        var answer = await broker.DiscardAsync(attempt, ct);
+        if (!answer.Ok) log.Warn("credential_discard_failed", ("attempt", attempt), ("code", answer.Code));
     }
 }

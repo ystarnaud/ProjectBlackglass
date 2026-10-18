@@ -1,0 +1,74 @@
+# Rendered by render-slot-units.sh into /etc/systemd/system/blackglass-mission-@SLOT@@.service (root:root 0644; no drop-in directory
+# may exist), one per host slot 00..63. Spec §7.4, §9.2; A10-D7; security corrections C1 and I3 (2026-10-18).
+# One mission process per attempt: %i is the full canonical lowercase attempt UUID; slot @SLOT@ is the attempt's port (@PORT@) minus
+# the host's port base, and the agent starts a slot's unit only when no other unit of that slot is live (slot-guard checks again).
+# C1: each slot's units run as their own systemd dynamic user, blackglass-m@SLOT@ (a full UUID can't be a dynamic user name: 31
+# characters at most), so no two live missions share a uid. The outbox and logs are systemd's per-unit private directories under
+# /var/lib/private and /var/log/private (root 0700): a later unit, even one handed a recycled uid, can never reach them.
+# Only the ExecStartPre=+ and ExecStopPost=+ lines run as root, each a fixed root-owned command.
+[Unit]
+Description=Blackglass mission %i (slot @SLOT@, port @PORT@)
+After=network-online.target
+# An attempt's unit runs at most once: never again once its outbox or exit record exists.
+AssertPathExists=!/var/lib/private/blackglass-outbox/%i
+AssertPathExists=!/var/lib/blackglass/exits/%i.exit
+
+[Service]
+Type=simple
+DynamicUser=yes
+User=blackglass-m@SLOT@
+# $STATE_DIRECTORY (/var/lib/blackglass-outbox/%i in the unit's namespace): the outbox, persistent, read-only to the agent through
+# its own unit's bind of /var/lib/private/blackglass-outbox. $LOGS_DIRECTORY: the mission's logs.
+StateDirectory=blackglass-outbox/%i
+StateDirectoryMode=0755
+LogsDirectory=blackglass-mission/%i
+LogsDirectoryMode=0750
+UMask=0022
+ExecStartPre=+/opt/blackglass/agent/current/slot-guard @SLOT@ %i
+# /opt/blackglass/mission/current is a root-owned link to the server launcher release, or to the stub release for the Stage 10
+# VM tests (A10-D7); the Unity server installation under /opt/blackglass/server is never changed by those tests.
+ExecStart=/opt/blackglass/mission/current/run-mission %i
+# The exit status systemd forgets once it collects the unit: written as root, read-only to the agent.
+ExecStopPost=+/opt/blackglass/agent/current/record-exit %i
+Restart=no
+# I3: only the root credential broker's store, which the agent can't write; the unit fails to start if it is missing.
+LoadCredential=process:/run/blackglass/credentials/%i/process
+
+# Filesystem: everything read-only; the agent's, the tunnel's, the broker's and the operator's files invisible.
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RemoveIPC=yes
+InaccessiblePaths=-/etc/blackglass -/var/lib/blackglass -/run/blackglass -/var/log/blackglass
+
+# Privileges and kernel surface.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# Listeners: no stream listener at all (seccomp, enforced on every build: a mission can never impersonate the tunnel's loopback
+# port, security review I1), and binds only to this slot's UDP game port (systemd's BPF socket-bind: enforced only where systemd is
+# built with BPF_FRAMEWORK, which Ubuntu 24.04's is not; verify.sh reports which; Stage 12's acceptance requires an enforced
+# per-slot port, see the Stage 10 plan's "Security corrections").
+SystemCallFilter=~listen
+SystemCallErrorNumber=EPERM
+SocketBindAllow=udp:@PORT@
+SocketBindDeny=any
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+SystemCallArchitectures=native
+
+# Resources (provisional, spec §19).
+MemoryMax=2G
+CPUQuota=200%
+TasksMax=256

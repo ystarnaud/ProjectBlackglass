@@ -136,10 +136,11 @@ public class BackendClientTests : IDisposable
 
         respond = _ => Json(HttpStatusCode.OK, "{\"drained\":true,\"stop\":[\"0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41\"]}");
         var ok = Assert.IsType<HeartbeatAnswer.Ok>(await client.HeartbeatAsync(new HeartbeatBody("r1", "sha256:" + new string('5', 64), true,
-            [new UnitEntry("0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", "active")], 3), default));
+            [new UnitEntry("0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", "active", 7)], 3), default));
         Assert.True(ok.Drained);
         var beat = HeartbeatRequest.Parse(Encoding.UTF8.GetBytes(bodies.Last()));
         Assert.Equal((true, 1, 3), (beat.InventoryComplete, beat.Units.Count, beat.OutboxPending));
+        Assert.DoesNotContain("slot", bodies.Last(), StringComparison.OrdinalIgnoreCase); // the slot is the agent's own, never sent
 
         respond = _ => Problem(HttpStatusCode.BadRequest, "IncompleteResults");
         Assert.Equal("IncompleteResults", Assert.IsType<ExitedAnswer.Rejected>(await client.ExitedAsync("0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",

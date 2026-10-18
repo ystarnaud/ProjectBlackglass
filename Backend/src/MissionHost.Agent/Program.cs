@@ -54,7 +54,8 @@ catch (AgentConfigException e)
     Console.Error.WriteLine($"configuration refused: {e.Message}");
     return 4;
 }
-using var host = new AgentHost(config, new BackendClient(http, secret, tunnel), systemd, secret, log);
+using var host = new AgentHost(config, new BackendClient(http, secret, tunnel), systemd, new SocketCredentialBroker(config.CredentialSocket, TimeSpan.FromSeconds(10)),
+    secret, log);
 using var stop = new CancellationTokenSource();
 using var term = PosixSignalRegistration.Create(PosixSignal.SIGTERM, c => { c.Cancel = true; stop.Cancel(); });
 using var interrupt = PosixSignalRegistration.Create(PosixSignal.SIGINT, c => { c.Cancel = true; stop.Cancel(); });

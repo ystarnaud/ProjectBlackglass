@@ -73,7 +73,8 @@ public interface IBackend
     Task<RelayAnswer> RelayAsync(byte[] manifest, CancellationToken ct);
 }
 
-public sealed record UnitEntry(string AttemptId, string ActiveState);
+/// <summary>A unit in the heartbeat inventory; <see cref="Slot"/> is the agent's own (its unit name's NN) and is never sent.</summary>
+public sealed record UnitEntry(string AttemptId, string ActiveState, int Slot);
 public sealed record HeartbeatBody(string BuildRevision, string CatalogueVersion, bool InventoryComplete, IReadOnlyList<UnitEntry> Units, int OutboxPending);
 public sealed record ExitedBody(int? ExitCode, string? Signal, IReadOnlyList<(string Account, bool Present)> Results, bool OutboxComplete);
 

@@ -24,30 +24,71 @@ public partial class DeployAndAuditTests
         return values;
     }
 
-    [Fact]
-    public void The_mission_template_runs_unprivileged_sandboxed_and_sees_only_its_own_outbox()
+    /// <summary>Renders the slot templates as install.sh does (render-slot-units.sh), into a temporary directory.</summary>
+    static (int Exit, string Dir, string Error) Render(string portBase, string slots)
     {
-        var unit = UnitFile(Deploy("blackglass-mission@.service"));
+        var dir = Path.Combine(Path.GetTempPath(), "bg-units-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        using var run = Process.Start(new ProcessStartInfo("/bin/bash", [Path.Combine(AppContext.BaseDirectory, "deploy", "render-slot-units.sh"), portBase, slots, dir])
+            { RedirectStandardError = true, RedirectStandardOutput = true })!;
+        run.WaitForExit();
+        return (run.ExitCode, dir, run.StandardError.ReadToEnd());
+    }
+
+    [Fact]
+    public void Each_slot_template_runs_its_own_dynamic_user_sandboxed_with_a_systemd_managed_private_outbox()
+    {
+        Assert.False(File.Exists(Path.Combine(AppContext.BaseDirectory, "deploy", "blackglass-mission@.service"))); // the shared-uid template is gone (C1)
+        if (!OperatingSystem.IsLinux()) return;
+        var (exit, dir, error) = Render("7000", "64");
+        Assert.True(exit == 0, error);
+        Assert.Equal(64, Directory.GetFiles(dir).Length);
+        var text = File.ReadAllText(Path.Combine(dir, "blackglass-mission-07@.service"));
+        Assert.DoesNotContain("@SLOT@", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("@PORT@", text, StringComparison.Ordinal);
+        var unit = UnitFile(text);
         string One(string key) => Assert.Single(unit[key]);
-        Assert.Equal(("blackglass-mission", "blackglass-mission", "no", "0027"), (One("User"), One("Group"), One("Restart"), One("UMask")));
-        foreach (var on in new[] { "NoNewPrivileges", "ProtectHome", "PrivateTmp", "PrivateDevices", "RestrictSUIDSGID", "ProtectKernelModules", "ProtectKernelTunables" })
+        // C1: this slot's own dynamic uid; the outbox and logs are systemd's private, per-unit directories.
+        Assert.Equal(("yes", "blackglass-m07", "no", "0022"), (One("DynamicUser"), One("User"), One("Restart"), One("UMask")));
+        Assert.False(unit.ContainsKey("Group"));
+        Assert.Equal(("blackglass-outbox/%i", "0755", "blackglass-mission/%i", "0750"), (One("StateDirectory"), One("StateDirectoryMode"), One("LogsDirectory"), One("LogsDirectoryMode")));
+        Assert.Equal(["!/var/lib/private/blackglass-outbox/%i", "!/var/lib/blackglass/exits/%i.exit"], unit["AssertPathExists"]); // an attempt runs at most once
+        foreach (var gone in new[] { "TemporaryFileSystem", "BindPaths", "ReadWritePaths" }) Assert.False(unit.ContainsKey(gone), gone);
+        foreach (var on in new[] { "NoNewPrivileges", "ProtectHome", "PrivateTmp", "PrivateDevices", "RestrictSUIDSGID", "ProtectKernelModules", "ProtectKernelTunables", "RemoveIPC" })
             Assert.Equal("yes", One(on));
-        Assert.Equal(("strict", "", "AF_INET AF_INET6 AF_UNIX"), (One("ProtectSystem"), One("CapabilityBoundingSet"), One("RestrictAddressFamilies")));
-        Assert.Equal("process:/run/blackglass/launch/%i/process", One("LoadCredential"));
-        Assert.Equal("/var/lib/blackglass/outbox:ro", One("TemporaryFileSystem"));
-        Assert.Equal("/var/lib/blackglass/outbox/%i", One("BindPaths"));
-        Assert.Equal("/var/lib/blackglass/outbox/%i /var/log/blackglass/%i", One("ReadWritePaths"));
-        Assert.Equal(["+/usr/bin/install -d -o blackglass-mission -g blackglass-agent -m 2750 /var/lib/blackglass/outbox/%i",
-            "+/usr/bin/install -d -o blackglass-mission -g blackglass-mission -m 0750 /var/log/blackglass/%i"], unit["ExecStartPre"]);
+        Assert.Equal(("strict", "", "AF_INET AF_INET6 AF_UNIX", "invisible"), (One("ProtectSystem"), One("CapabilityBoundingSet"), One("RestrictAddressFamilies"), One("ProtectProc")));
+        // I3: the credential comes only from the root broker's store.
+        Assert.Equal("process:/run/blackglass/credentials/%i/process", One("LoadCredential"));
+        Assert.Equal("+/opt/blackglass/agent/current/slot-guard 07 %i", One("ExecStartPre"));
         Assert.Equal("/opt/blackglass/mission/current/run-mission %i", One("ExecStart"));
         Assert.Equal("+/opt/blackglass/agent/current/record-exit %i", One("ExecStopPost"));
-        Assert.Contains("-/etc/blackglass", One("InaccessiblePaths"), StringComparison.Ordinal);
-        Assert.Contains("-/run/blackglass", One("InaccessiblePaths"), StringComparison.Ordinal);
+        foreach (var hidden in new[] { "-/etc/blackglass", "-/var/lib/blackglass", "-/run/blackglass", "-/var/log/blackglass" })
+            Assert.Contains(hidden, One("InaccessiblePaths").Split(' '));
+        // Listeners: no stream listener at all (seccomp; enforced on Ubuntu 24.04), and only this slot's UDP port (BPF; where built).
+        Assert.Equal(("~listen", "EPERM"), (One("SystemCallFilter"), One("SystemCallErrorNumber")));
+        Assert.Equal(("udp:7007", "any"), (One("SocketBindAllow"), One("SocketBindDeny")));
         Assert.Equal(("2G", "200%", "256"), (One("MemoryMax"), One("CPUQuota"), One("TasksMax")));
-        Assert.Equal(("udp", "any"), (One("SocketBindAllow"), One("SocketBindDeny"))); // no TCP listener: the tunnel port can't be taken (I1)
-        // Root runs only the fixed ExecStartPre=+ and ExecStopPost=+ commands.
         Assert.All(unit.Where(kv => kv.Key.StartsWith("Exec", StringComparison.Ordinal)).SelectMany(kv => kv.Value.Select(v => (kv.Key, v))),
             e => Assert.True(!e.v.StartsWith('+') || e.Key is "ExecStartPre" or "ExecStopPost"));
+        var last = UnitFile(File.ReadAllText(Path.Combine(dir, "blackglass-mission-63@.service")));
+        Assert.Equal(("blackglass-m63", "udp:7063", "+/opt/blackglass/agent/current/slot-guard 63 %i"), (Assert.Single(last["User"]), Assert.Single(last["SocketBindAllow"]), Assert.Single(last["ExecStartPre"])));
+        Directory.Delete(dir, recursive: true);
+    }
+
+    [Theory]
+    [InlineData("7000", "65")]
+    [InlineData("7000", "0")]
+    [InlineData("65500", "64")]
+    [InlineData("1023", "8")]
+    [InlineData("7000x", "8")]
+    [InlineData("07000", "8")]
+    public void The_slot_templates_are_rendered_only_for_valid_ports_and_at_most_64_slots(string portBase, string slots)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var (exit, dir, _) = Render(portBase, slots);
+        Assert.NotEqual(0, exit);
+        Assert.Empty(Directory.GetFiles(dir));
+        Directory.Delete(dir, recursive: true);
     }
 
     [Fact]
@@ -56,8 +97,11 @@ public partial class DeployAndAuditTests
         var unit = UnitFile(Deploy("blackglass-agent.service"));
         string One(string key) => Assert.Single(unit[key]);
         Assert.Equal(("blackglass-agent", "always", "yes", "strict", ""), (One("User"), One("Restart"), One("NoNewPrivileges"), One("ProtectSystem"), One("CapabilityBoundingSet")));
-        Assert.Equal("/var/lib/blackglass/agent /var/lib/blackglass/relay /run/blackglass/launch", One("ReadWritePaths"));
-        Assert.Equal("/var/lib/blackglass/outbox /var/lib/blackglass/exits", One("ReadOnlyPaths"));
+        Assert.Equal("/var/lib/blackglass/agent /var/lib/blackglass/relay", One("ReadWritePaths"));
+        Assert.Equal("/var/lib/blackglass/exits", One("ReadOnlyPaths"));
+        // The mission units' private outboxes, read-only (C1): writes fail with EROFS whatever the files' modes.
+        Assert.Equal("/var/lib/private/blackglass-outbox:/var/lib/blackglass/outbox", One("BindReadOnlyPaths"));
+        Assert.Equal(("~listen", "0"), (One("SystemCallFilter"), One("Environment").Split('=')[1]));
         Assert.Equal("/opt/blackglass/agent/current/blackglass-agent run --config /etc/blackglass/agent/agent.json", One("ExecStart"));
         Assert.Equal(("256M", "64"), (One("MemoryMax"), One("TasksMax")));
         Assert.Equal("any", One("SocketBindDeny"));
@@ -67,11 +111,16 @@ public partial class DeployAndAuditTests
     private static partial Regex RuleRegex();
 
     [Theory]
-    [InlineData("blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", true)]
-    [InlineData("blackglass-mission@0192F1A4-5C2E-7B1D-9A0E-3F6C1D2B8E41.service", false)]
-    [InlineData("blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service.d", false)]
-    [InlineData("blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.serviceX", false)]
-    [InlineData("blackglass-mission@NOT-A-UUID.service", false)]
+    [InlineData("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", true)]
+    [InlineData("blackglass-mission-00@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", true)]
+    [InlineData("blackglass-mission-63@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", true)]
+    [InlineData("blackglass-mission-64@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", false)]
+    [InlineData("blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", false)] // the retired shared-uid template
+    [InlineData("blackglass-mission-07@0192F1A4-5C2E-7B1D-9A0E-3F6C1D2B8E41.service", false)]
+    [InlineData("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service.d", false)]
+    [InlineData("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.serviceX", false)]
+    [InlineData("blackglass-mission-07@NOT-A-UUID.service", false)]
+    [InlineData("blackglass-credential@0.service", false)]
     [InlineData("blackglass-agent.service", false)]
     [InlineData("ssh.service", false)]
     public void The_polkit_rule_admits_only_canonical_mission_units_for_start_and_stop(string unit, bool admitted)
@@ -91,15 +140,21 @@ public partial class DeployAndAuditTests
         var tmpfiles = Deploy(Path.Combine("tmpfiles.d", "blackglass.conf"));
         foreach (var expected in new[]
                  {
-                     "d /var/lib/blackglass/outbox        0750 root              blackglass-agent",
+                     "d /var/lib/blackglass/outbox        0755 root              root",
                      "d /var/lib/blackglass/exits         0750 root              blackglass-agent",
                      "d /var/lib/blackglass/agent         0700 blackglass-agent  blackglass-agent",
                      "d /var/lib/blackglass/relay         0700 blackglass-agent  blackglass-agent",
-                     "d /run/blackglass/launch            0700 blackglass-agent  blackglass-agent",
+                     "d /var/lib/private                  0700 root              root",
+                     "d /var/lib/private/blackglass-outbox 0755 root             root",
+                     "d /run/blackglass/credentials       0700 root              root",
                  })
             Assert.Contains(expected, tmpfiles, StringComparison.Ordinal);
+        Assert.DoesNotContain("/run/blackglass/launch", tmpfiles, StringComparison.Ordinal); // the agent-writable handoff is gone (I3)
         var users = Deploy(Path.Combine("sysusers.d", "blackglass.conf"));
-        Assert.Equal(3, Regex.Matches(users, @"^u blackglass-\w+ .*/usr/sbin/nologin$", RegexOptions.Multiline).Count);
+        // The agent and the tunnel only: mission units run as systemd dynamic users, one per slot (C1), never a static shared user.
+        Assert.Equal(2, Regex.Matches(users, @"^u blackglass-\w+ .*/usr/sbin/nologin$", RegexOptions.Multiline).Count);
+        Assert.DoesNotContain("blackglass-mission", users, StringComparison.Ordinal);
+        Assert.DoesNotMatch(@"^[ug]\s+blackglass-m\d", users);
     }
 
     [Fact]
@@ -123,14 +178,32 @@ public partial class DeployAndAuditTests
     }
 
     [Fact]
+    public void The_credential_broker_is_root_only_for_the_agents_group_one_connection_at_a_time_and_writes_only_its_store()
+    {
+        var socket = UnitFile(Deploy("blackglass-credential.socket"));
+        string S(string key) => Assert.Single(socket[key]);
+        Assert.Equal(("/run/blackglass/credential.sock", "root", "blackglass-agent", "0660", "yes"), (S("ListenStream"), S("SocketUser"), S("SocketGroup"), S("SocketMode"), S("Accept")));
+        Assert.True(int.Parse(S("MaxConnections"), System.Globalization.CultureInfo.InvariantCulture) <= 16);
+        var service = UnitFile(Deploy("blackglass-credential@.service"));
+        string One(string key) => Assert.Single(service[key]);
+        Assert.False(service.ContainsKey("User")); // root: the store is root's own
+        Assert.Equal(("/opt/blackglass/agent/current/blackglass-credential-broker", "socket", "socket"), (One("ExecStart"), One("StandardInput"), One("StandardOutput")));
+        Assert.Equal(("strict", "/run/blackglass/credentials", "yes", "AF_UNIX", "", "yes"),
+            (One("ProtectSystem"), One("ReadWritePaths"), One("PrivateNetwork"), One("RestrictAddressFamilies"), One("CapabilityBoundingSet"), One("NoNewPrivileges")));
+        Assert.Contains("-/var/lib/private", One("InaccessiblePaths").Split(' '));
+        Assert.Contains("-/etc/blackglass", One("InaccessiblePaths").Split(' '));
+        Assert.Equal("15s", One("RuntimeMaxSec"));
+    }
+
+    [Fact]
     public void The_scripts_parse_need_their_confirmation_and_never_delete_evidence()
     {
-        foreach (var script in new[] { "install.sh", "uninstall.sh", "verify.sh", "publish-agent.sh", "record-exit", Path.Combine("stub", "run-mission") })
+        foreach (var script in new[] { "install.sh", "uninstall.sh", "verify.sh", "publish-agent.sh", "render-slot-units.sh", "record-exit", "slot-guard", Path.Combine("stub", "run-mission") })
         {
             var text = Deploy(script);
             if (OperatingSystem.IsLinux())
             {
-                using var check = Process.Start(new ProcessStartInfo(script.EndsWith("record-exit", StringComparison.Ordinal) ? "/bin/sh" : "/bin/bash", ["-n", Path.Combine(AppContext.BaseDirectory, "deploy", script)])
+                using var check = Process.Start(new ProcessStartInfo(script is "record-exit" or "slot-guard" ? "/bin/sh" : "/bin/bash", ["-n", Path.Combine(AppContext.BaseDirectory, "deploy", script)])
                     { RedirectStandardError = true })!;
                 check.WaitForExit();
                 Assert.True(check.ExitCode == 0, $"{script}: {check.StandardError.ReadToEnd()}");
@@ -142,12 +215,76 @@ public partial class DeployAndAuditTests
         Assert.DoesNotMatch(@"rm\s+-[a-z]*r[a-z]*\s+/var/lib/blackglass", uninstall);
         Assert.DoesNotMatch(@"rm\s[^\n]*/opt/blackglass/server", Deploy("install.sh") + uninstall + Deploy("verify.sh"));
         Assert.Contains("grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'", Deploy("record-exit"), StringComparison.Ordinal);
+        Assert.Contains("grep -Eqx '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'", Deploy("slot-guard"), StringComparison.Ordinal);
+        Assert.Contains("grep -Eqx '[0-5][0-9]|6[0-3]'", Deploy("slot-guard"), StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", true)]
+    [InlineData("64", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", false)]
+    [InlineData("7", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", false)]
+    [InlineData("07", "../../etc", false)]
+    [InlineData("07;id", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41", false)]
+    public void The_slot_guard_refuses_malformed_arguments_before_asking_systemd(string slot, string attempt, bool valid)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        // A fake systemctl that lists nothing: a valid call passes; a malformed one never reaches it.
+        var dir = Path.Combine(Path.GetTempPath(), "bg-guard-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var fake = Path.Combine(dir, "systemctl");
+        File.WriteAllText(fake, "#!/bin/sh\necho called >> " + Path.Combine(dir, "calls") + "\n");
+        File.SetUnixFileMode(fake, (UnixFileMode)0b111_101_101);
+        using var run = Process.Start(new ProcessStartInfo("/bin/sh", [Path.Combine(AppContext.BaseDirectory, "deploy", "slot-guard"), slot, attempt])
+            { Environment = { ["BLACKGLASS_SYSTEMCTL"] = fake }, RedirectStandardError = true })!;
+        run.WaitForExit();
+        Assert.Equal(valid, run.ExitCode == 0);
+        Assert.Equal(valid, File.Exists(Path.Combine(dir, "calls")));
+        Directory.Delete(dir, recursive: true);
+    }
+
+    [Fact]
+    public void The_slot_guard_refuses_a_second_live_unit_in_the_slot()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var dir = Path.Combine(Path.GetTempPath(), "bg-guard-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var fake = Path.Combine(dir, "systemctl");
+        int Guard(string listing)
+        {
+            File.WriteAllText(fake, "#!/bin/sh\nprintf '" + listing + "'\n");
+            File.SetUnixFileMode(fake, (UnixFileMode)0b111_101_101);
+            using var run = Process.Start(new ProcessStartInfo("/bin/sh", [Path.Combine(AppContext.BaseDirectory, "deploy", "slot-guard"), "07", "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41"])
+                { Environment = { ["BLACKGLASS_SYSTEMCTL"] = fake }, RedirectStandardError = true })!;
+            run.WaitForExit();
+            return run.ExitCode;
+        }
+        Assert.Equal(0, Guard("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded activating start-pre x\\n")); // itself only
+        Assert.NotEqual(0, Guard("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded activating start-pre x\\n"
+            + "blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e42.service loaded active running x\\n"));
+        Directory.Delete(dir, recursive: true);
     }
 
     // ---- the agent's sources ----
 
     static IEnumerable<(string File, string Text)> Sources() =>
         Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory, "source"), "*.cs", SearchOption.AllDirectories).Select(f => (Path.GetFileName(f), File.ReadAllText(f)));
+
+    static IEnumerable<(string File, string Text)> BrokerSources() =>
+        Directory.EnumerateFiles(Path.Combine(AppContext.BaseDirectory, "broker-source"), "*.cs", SearchOption.AllDirectories).Select(f => (Path.GetFileName(f), File.ReadAllText(f)));
+
+    [Fact]
+    public void The_root_broker_runs_nothing_reads_no_path_it_is_given_and_never_logs_the_credential()
+    {
+        var all = string.Concat(BrokerSources().Select(s => s.Text));
+        Assert.True(BrokerSources().Count() >= 4);
+        foreach (var launch in new[] { "Process.Start", "ProcessStartInfo", "UseShellExecute", "execve", "system(" })
+            Assert.DoesNotContain(launch, all, StringComparison.Ordinal);
+        Assert.DoesNotContain("/bin/", all, StringComparison.Ordinal);
+        foreach (var line in all.Split('\n').Where(l => l.Contains("WriteLine(", StringComparison.Ordinal)))
+            foreach (var forbidden in new[] { "{credential", "{p.Credential", "{request", "Encoding.ASCII.GetString(request" })
+                Assert.False(line.Contains(forbidden, StringComparison.Ordinal), $"a broker log line names {forbidden}: {line.Trim()}");
+        Assert.Contains("\"/run/blackglass/credentials\"", all, StringComparison.Ordinal); // its one fixed store
+    }
 
     [Fact]
     public void The_agent_never_uses_a_shell_and_builds_no_command_line_from_text()

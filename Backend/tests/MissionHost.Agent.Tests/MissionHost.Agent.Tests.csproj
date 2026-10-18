@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\MissionHost.Agent\MissionHost.Agent.csproj" />
+    <ProjectReference Include="..\..\src\MissionHost.CredentialBroker\MissionHost.CredentialBroker.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />
@@ -23,5 +24,6 @@
     <!-- The agent's sources and deploy files, for the source audit and the deployment file tests. -->
     <None Include="..\..\src\MissionHost.Agent\**\*.cs" Exclude="..\..\src\MissionHost.Agent\obj\**;..\..\src\MissionHost.Agent\bin\**" Link="source\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\deploy\mission\**\*" Link="deploy\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\MissionHost.CredentialBroker\**\*.cs" Exclude="..\..\src\MissionHost.CredentialBroker\obj\**;..\..\src\MissionHost.CredentialBroker\bin\**" Link="broker-source\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

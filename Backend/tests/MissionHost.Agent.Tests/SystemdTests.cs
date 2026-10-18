@@ -6,6 +6,7 @@ namespace Blackglass.MissionHost.Agent.Tests;
 public class SystemdTests
 {
     static readonly Guid Attempt = Guid.Parse("0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41");
+    static readonly MissionUnit Unit = new(7, Attempt);
 
     sealed class RecordingRunner(CommandResult result) : IProcessRunner
     {
@@ -22,17 +23,17 @@ public class SystemdTests
     {
         var runner = new RecordingRunner(new CommandResult(0, "", false));
         var systemctl = new Systemctl("/usr/bin/systemctl", runner);
-        await systemctl.StartAsync(Attempt, default);
-        await systemctl.StopAsync(Attempt, default);
+        await systemctl.StartAsync(Unit, default);
+        await systemctl.StopAsync(Unit, default);
         await systemctl.ListAsync(default);
-        await systemctl.ShowAsync(Attempt, default);
+        await systemctl.ShowAsync(Unit, default);
         Assert.All(runner.Calls, c => Assert.Equal("/usr/bin/systemctl", c.Exe));
-        Assert.Equal(["--no-ask-password", "start", "--", "blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service"], runner.Calls[0].Args);
-        Assert.Equal(["--no-ask-password", "stop", "--", "blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service"], runner.Calls[1].Args);
-        Assert.Equal(["--no-ask-password", "--no-pager", "--no-legend", "--plain", "--full", "--all", "list-units", "--", "blackglass-mission@*.service"], runner.Calls[2].Args);
+        Assert.Equal(["--no-ask-password", "start", "--", "blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service"], runner.Calls[0].Args);
+        Assert.Equal(["--no-ask-password", "stop", "--", "blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service"], runner.Calls[1].Args);
+        Assert.Equal(["--no-ask-password", "--no-pager", "--no-legend", "--plain", "--full", "--all", "list-units", "--", "blackglass-mission-*@*.service"], runner.Calls[2].Args);
         Assert.Equal(["--no-ask-password", "--no-pager", "show", "--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,InvocationID", "--",
-            "blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service"], runner.Calls[3].Args);
-        Assert.Throws<ArgumentException>(() => AttemptIds.Unit(Guid.Empty));
+            "blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service"], runner.Calls[3].Args);
+        Assert.Throws<ArgumentException>(() => new MissionUnit(7, Guid.Empty));
         Assert.DoesNotContain(typeof(ISystemd).GetMethods(), m => m.Name.Contains("Enable", StringComparison.Ordinal) || m.Name.Contains("Mask", StringComparison.Ordinal)
             || m.Name.Contains("Restart", StringComparison.Ordinal) || m.Name.Contains("Reload", StringComparison.Ordinal));
     }
@@ -41,28 +42,32 @@ public class SystemdTests
     public async Task A_failed_or_timed_out_command_is_never_success_and_never_a_complete_inventory()
     {
         var failing = new Systemctl("/usr/bin/systemctl", new RecordingRunner(new CommandResult(1, "", false)));
-        Assert.False(await failing.StartAsync(Attempt, default));
+        Assert.False(await failing.StartAsync(Unit, default));
         Assert.False((await failing.ListAsync(default)).Complete);
-        Assert.Null(await failing.ShowAsync(Attempt, default));
+        Assert.Null(await failing.ShowAsync(Unit, default));
         var timedOut = new Systemctl("/usr/bin/systemctl", new RecordingRunner(new CommandResult(0, "", true)));
-        Assert.False(await timedOut.StopAsync(Attempt, default));
+        Assert.False(await timedOut.StopAsync(Unit, default));
         Assert.False((await timedOut.ListAsync(default)).Complete);
     }
 
     [Fact]
     public void A_listing_is_complete_only_when_every_line_is_a_mission_unit()
     {
-        const string good = "blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded active running Blackglass mission\n"
-            + "● blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e42.service loaded failed failed Blackglass mission\n";
+        const string good = "blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded active running Blackglass mission\n"
+            + "● blackglass-mission-08@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e42.service loaded failed failed Blackglass mission\n";
         var inventory = Systemctl.ParseList(good);
         Assert.True(inventory.Complete);
         Assert.Equal(["active", "failed"], inventory.Units.Select(u => u.ActiveState));
+        Assert.Equal([7, 8], inventory.Units.Select(u => u.Slot));
+        // The retired shared-uid name, or one attempt listed in two slots, is never a complete inventory.
+        Assert.False(Systemctl.ParseList(good + "blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e43.service loaded active running x\n").Complete);
+        Assert.False(Systemctl.ParseList(good + "blackglass-mission-09@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded active running x\n").Complete);
         Assert.True(Systemctl.ParseList("").Complete); // no units at all
         Assert.False(Systemctl.ParseList(good + "ssh.service loaded active running OpenSSH\n").Complete);
         Assert.False(Systemctl.ParseList(good + "garbage\n").Complete);
-        Assert.False(Systemctl.ParseList("blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded weird running x\n").Complete);
+        Assert.False(Systemctl.ParseList("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded weird running x\n").Complete);
         Assert.False(Systemctl.ParseList(good + good).Complete); // duplicates
-        Assert.False(Systemctl.ParseList("blackglass-mission@0192F1A4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded active running x\n").Complete);
+        Assert.False(Systemctl.ParseList("blackglass-mission-07@0192F1A4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service loaded active running x\n").Complete);
     }
 
     [Fact]

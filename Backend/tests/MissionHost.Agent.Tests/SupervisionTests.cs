@@ -149,7 +149,7 @@ public class SupervisionTests : IDisposable
         var (agent, attempt) = await StartedAsync("JG");
         agent.Dispose();
         systemd.Units.Clear(); // the reboot: systemd remembers nothing, /run is empty
-        if (Directory.Exists(dirs.Config.LaunchDir)) Directory.Delete(dirs.Config.LaunchDir, recursive: true);
+        foreach (var d in Directory.EnumerateDirectories(Path.Combine(dirs.Root, "credentials"))) Directory.Delete(d, recursive: true);
         dirs.WriteResult(attempt, "JG", "written", Manifests.For(attempt, "JG"));
         using var restarted = NewAgent();
         await restarted.RecoverAsync(default);
@@ -293,7 +293,7 @@ public class SupervisionTests : IDisposable
         Assert.Equal(EmergencyStop.Usage, await EmergencyStop.RunAsync(systemd, true, false, false, "test", output, audit, clock, default)); // no --yes
         Assert.Equal(EmergencyStop.Usage, await EmergencyStop.RunAsync(systemd, true, true, false, " ", output, audit, clock, default)); // no reason
         Assert.Equal(0, await EmergencyStop.RunAsync(systemd, true, true, false, "drill", output, audit, clock, default));
-        Assert.Contains($"would stop blackglass-mission@{attempt}.service", output.ToString(), StringComparison.Ordinal);
+        Assert.Contains($"would stop blackglass-mission-00@{attempt}.service", output.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain(systemd.Calls, c => c.StartsWith("stop:", StringComparison.Ordinal));
         Assert.Equal(0, await EmergencyStop.RunAsync(systemd, true, false, true, "host compromised", output, audit, clock, default));
         Assert.Equal(0, await EmergencyStop.RunAsync(systemd, true, false, true, "again", output, audit, clock, default));

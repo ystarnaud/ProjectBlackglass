@@ -26,20 +26,50 @@ public class FoundationTests
     public void Only_a_canonical_lowercase_uuid_is_an_attempt_id(string text, bool accepted)
     {
         Assert.Equal(accepted, AttemptIds.TryParse(text, out var id));
-        if (accepted) Assert.Equal("blackglass-mission@" + text + ".service", AttemptIds.Unit(id));
+        if (accepted) Assert.Equal("blackglass-mission-07@" + text + ".service", new MissionUnit(7, id).Name);
+    }
+
+    // ---- slot units (security correction C1): blackglass-mission-NN@<full attempt id>.service ----
+
+    [Theory]
+    [InlineData("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", 7)]
+    [InlineData("blackglass-mission-00@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", 0)]
+    [InlineData("blackglass-mission-63@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", 63)]
+    [InlineData("blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", -1)] // the retired shared-uid template
+    [InlineData("blackglass-mission-64@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", -1)]
+    [InlineData("blackglass-mission-7@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", -1)]
+    [InlineData("blackglass-mission-007@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", -1)]
+    [InlineData("blackglass-mission-07@0192F1A4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", -1)]
+    [InlineData("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service.d", -1)]
+    [InlineData("blackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.timer", -1)]
+    [InlineData("blackglass-mission-07@00000000-0000-0000-0000-000000000000.service", -1)]
+    [InlineData("blackglass-agent.service", -1)]
+    [InlineData("ssh.service", -1)]
+    [InlineData("blackglass-mission-07@.service", -1)]
+    [InlineData("xblackglass-mission-07@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", -1)]
+    public void Only_a_slot_unit_for_a_canonical_attempt_parses(string unit, int slot)
+    {
+        Assert.Equal(slot >= 0, MissionUnit.TryParse(unit, out var parsed));
+        if (slot >= 0) Assert.Equal((slot, unit), (parsed.Slot, parsed.Name));
+    }
+
+    [Fact]
+    public void A_unit_is_built_only_from_a_slot_from_0_to_63_and_a_real_attempt()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new MissionUnit(64, Guid.CreateVersion7()));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new MissionUnit(-1, Guid.CreateVersion7()));
+        Assert.Throws<ArgumentException>(() => new MissionUnit(0, Guid.Empty));
     }
 
     [Theory]
-    [InlineData("blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", true)]
-    [InlineData("blackglass-mission@0192F1A4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", false)]
-    [InlineData("blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service.d", false)]
-    [InlineData("blackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.timer", false)]
-    [InlineData("blackglass-agent.service", false)]
-    [InlineData("ssh.service", false)]
-    [InlineData("blackglass-mission@.service", false)]
-    [InlineData("xblackglass-mission@0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41.service", false)]
-    public void Only_a_mission_unit_for_a_canonical_attempt_parses(string unit, bool accepted) =>
-        Assert.Equal(accepted, AttemptIds.TryParseUnit(unit, out _));
+    [InlineData(7000, 7000, 64, 0)]
+    [InlineData(7063, 7000, 64, 63)]
+    [InlineData(7064, 7000, 64, -1)]
+    [InlineData(6999, 7000, 64, -1)]
+    [InlineData(7007, 7000, 8, 7)]
+    [InlineData(7008, 7000, 8, -1)]
+    public void A_port_maps_to_its_slot_only_inside_the_hosts_range(int port, int portBase, int count, int slot) =>
+        Assert.Equal(slot >= 0 ? slot : null, new MissionSlots(portBase, count).SlotOf(port));
 
     [Theory]
     [InlineData("JG", true)]
@@ -55,13 +85,14 @@ public class FoundationTests
     static string Config(string overrides = "") =>
         "{\"hostId\":\"h1\",\"apiBaseUrl\":\"http://127.0.0.1:5081/\",\"hostSecretFile\":\"/etc/blackglass/agent/host-secret\",\"stateDir\":\"/var/lib/blackglass/agent\","
         + "\"relayDir\":\"/var/lib/blackglass/relay\",\"outboxDir\":\"/var/lib/blackglass/outbox\",\"exitDir\":\"/var/lib/blackglass/exits\","
-        + "\"launchDir\":\"/run/blackglass/launch\",\"serverBuildInfo\":\"/opt/blackglass/server/current/build-info.txt\"" + overrides + "}";
+        + "\"portBase\":7000,\"serverBuildInfo\":\"/opt/blackglass/server/current/build-info.txt\"" + overrides + "}";
 
     [Fact]
     public void A_valid_configuration_loads_with_the_provisional_defaults()
     {
         var c = AgentConfig.Parse(Encoding.UTF8.GetBytes(Config()));
         Assert.Equal((10, 1000, 60_000, 60, 4 * 1024 * 1024L, "/usr/bin/systemctl"), (c.HeartbeatSeconds, c.RelayBackoffMinMs, c.RelayBackoffMaxMs, c.AuthRetrySeconds, c.MaxResultBytes, c.Systemctl));
+        Assert.Equal((7000, 64, "/run/blackglass/credential.sock"), (c.PortBase, c.LocalCapacity, c.CredentialSocket));
     }
 
     [Theory]
@@ -69,6 +100,9 @@ public class FoundationTests
     [InlineData(",\"heartbeatSeconds\":0")]
     [InlineData(",\"catalogueVersion\":\"sha256:XYZ\"")]
     [InlineData(",\"systemctl\":\"systemctl\"")]
+    [InlineData(",\"launchDir\":\"/run/blackglass/launch\"")] // the agent-writable credential handoff is gone (security correction I3)
+    [InlineData(",\"credentialSocket\":\"run/credential.sock\"")]
+    [InlineData(",\"localCapacity\":65")]
     public void A_bad_setting_is_refused(string overrides) => Assert.Throws<AgentConfigException>(() => AgentConfig.Parse(Encoding.UTF8.GetBytes(Config(overrides))));
 
     [Theory]
@@ -85,6 +119,13 @@ public class FoundationTests
     [InlineData("\"stateDir\":\"/var/lib/blackglass/agent\"", "\"stateDir\":\"/var/lib/../../etc\"")]
     [InlineData("\"stateDir\":\"/var/lib/blackglass/agent\"", "\"stateDir\":\"/var/lib/blackglass/relay\"")] // two settings, one directory
     public void Directories_are_absolute_distinct_and_never_climb(string from, string to) =>
+        Assert.Throws<AgentConfigException>(() => AgentConfig.Parse(Encoding.UTF8.GetBytes(Config().Replace(from, to))));
+
+    [Theory]
+    [InlineData("\"portBase\":7000", "\"portBase\":1023")]
+    [InlineData("\"portBase\":7000", "\"portBase\":65500")] // 65500 + 64 slots runs past 65535
+    [InlineData("\"portBase\":7000,", "")] // required
+    public void The_port_base_is_required_and_keeps_every_slot_port_valid(string from, string to) =>
         Assert.Throws<AgentConfigException>(() => AgentConfig.Parse(Encoding.UTF8.GetBytes(Config().Replace(from, to))));
 
     // ---- durable files ----
@@ -173,21 +214,23 @@ public class FoundationTests
     }
 
     [Fact]
-    public void A_credential_file_is_owner_read_only_and_gone_after_delete()
+    public async Task A_credential_file_is_owner_read_only_and_gone_after_delete()
     {
+        // Since security correction I3 the root broker's store holds it (LoadCredential's source), never an agent-writable file.
         using var dirs = new AgentDirs();
-        var handoff = new CredentialHandoff(dirs.Config.LaunchDir);
+        var broker = new StoreBroker(dirs.Root);
         var attempt = Guid.CreateVersion7();
         var credential = OpaqueSecret.New(OpaqueSecret.ProcessCredentialPrefix).Text;
-        handoff.Write(attempt, credential);
-        Assert.Equal(credential, File.ReadAllText(handoff.PathOf(attempt)));
+        Assert.True((await broker.PrepareAsync(attempt, 1, credential, default)).Ok);
+        var path = Path.Combine(broker.Root, attempt.ToString("D"), "process");
+        Assert.Equal(credential, File.ReadAllText(path));
         if (!OperatingSystem.IsWindows())
         {
-            Assert.Equal(UnixFileMode.UserRead, File.GetUnixFileMode(handoff.PathOf(attempt)));
-            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(Path.GetDirectoryName(handoff.PathOf(attempt))!));
+            Assert.Equal(UnixFileMode.UserRead, File.GetUnixFileMode(path));
+            Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(Path.GetDirectoryName(path)!));
         }
-        handoff.Delete(attempt);
-        Assert.False(File.Exists(handoff.PathOf(attempt)));
-        Assert.False(Directory.Exists(Path.GetDirectoryName(handoff.PathOf(attempt))));
+        Assert.True((await broker.DiscardAsync(attempt, default)).Ok);
+        Assert.False(File.Exists(path));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(path)));
     }
 }
