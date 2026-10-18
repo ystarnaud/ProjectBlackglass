@@ -1539,3 +1539,27 @@ Task<VoidResult> VoidParticipantLockedAsync(NpgsqlConnection c, NpgsqlTransactio
    It is replaced in 0009, which is not yet applied anywhere (0000–0008 are unchanged), by an insert-time trigger raising the same 23503 under the same constraint name. A new attempt still needs a registered catalogue. The reference can't dangle: `catalogue_version` never changes, and history rows are immutable and never removed. Result settlement still waits for the admission catalogue (`202 held`, then `catalogue import`).
    - Test: `An_attempt_admitted_before_the_catalogue_history_is_voided_without_a_catalogue_import` (an exit-evidence void and a revoked-mode operator void).
    - The final review's M3 and the corrected Task 5 ruling are resolved.
+
+**Merge corrections, evidence (2026-10-18):**
+- Commits:
+  - `33aa7ff`: the six corrections;
+  - `b683943`: the correction review's fixes (privilege snapshots, the `ending_without_time` invariant, the crash-drill session watchdog, the corrected lock table, the register and doc fixes).
+- The tested `Backend/` tree is `9dfaaff` (`HEAD:Backend` at `b683943`).
+- **Tests (VM runner, `9dfaaff`):** Domain 759 passed, 0 failed. Integration 1,765 passed, 0 failed, in 8 m 35 s. The local wrapper was stopped by the PC's low-memory reaper, but the VM run finished and its results were collected; no `bg_t_*` database was left.
+- **Focused suites:** monitoring, concurrency (including the forced three-way race and the 14 lock-order pairs), fault, settlement, recovery, evidence-void, schema and privilege classes all green.
+- **Crash drill:**
+  - a real run: killed (verified, exit 137) mid-load at 11 s, restarted (verified), the driver saw the restart, 60 participants with exactly one outcome each, cleanup verified;
+  - a second real run with the session watchdog: also passed;
+  - the negative run (`--negative-skip-kill`): exit 80, and the driver failed on the unchanged postmaster start time;
+  - SIGTERM on the VM: exit 143, nothing left;
+  - the local ssh session killed mid-run: the VM-side script cleaned up within about 13 s, leaving no container, network, volume, password or remote process.
+- **Smoke at `b683943`:** 0 failures, including the restore drill at schema 9 (41 count lines, 7 invariant files).
+- **Off-host probe:** 5080, 5432 and 55432 closed; 22 open. The VM's containers, volumes and listeners are identical before and after.
+- **Correction review** (opus): 0 Critical, 1 Important, 8 Minor.
+  - I1 (the two privilege snapshots) is fixed.
+  - Regraded and fixed: M1 (the lock table), M5 (an `ending` attempt without `ending_at`, now an invariant), M7 (a local interruption now reaches the VM-side cleanup), M8 (docs), M2 (test clarity).
+  - Deferred minors:
+    - M3: the lock-pair test pauses only at the holder's last write. The no-cycle argument covers the intermediate points.
+    - M4: no test replays a revoked attempt's body after an operator revalidation settled it. The revocation check runs first, so the replay is refused.
+    - M6: after a void, a re-encoded replay past the cap answers its stored 202, where below the cap it gets 409 `AlreadySettledAsVoid`. Neither is resent.
+- Migrations `0000`–`0008` are byte-identical; `0009` changed before it was applied anywhere. The owner's two Unity files and `.claude/` are untouched.
