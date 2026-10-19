@@ -1430,7 +1430,98 @@ The owner authorized A7 (the controlled reboot and post-reboot validation) and a
      - the rule file is root 0644 and still loads;
      - another run of the installer would reset the directory again until the next boot.
 
-     **Fixing it means changing `install.sh`** (create the directory only when absent, or leave it to the package), so it waits for the owner's decision.
+     **Fixing it means changing `install.sh`** (create the directory only when absent, or leave it to the package), so it waits for the owner's decision. (Fixed in `37aa0bc`; see below.)
 - **Evidence:** on the mission VM in `/root/bg-stage10/evidence/` (`a7-before-reboot.txt`, `a7-after-reboot.txt`, `verify-after-reboot.txt`, `verify-after-reboot-run.txt`). The outboxes, exit records and the state file stay in place. Address-redacted copies, with the boot's warning-level journal, are in the local evidence folder. A secret scan of them is clean.
 - **B24:** the per-slot TCP bind restriction is still unenforced (`-BPF_FRAMEWORK`). It remains Stage 12's blocking requirement before any real Unity mission workload. Until then only the trusted stub runs on the mission VM.
-- **Next:** Phases B, C and D await the owner's authorization.
+- **Next:** the installer correction, a full re-verification and Phase B (below).
+
+## Installer correction, re-verification on kernel 6.8.0-147 and Phase B (2026-10-19)
+
+The owner authorized, in order:
+1. the `install.sh` correction;
+2. a full `verify.sh` run on the new kernel;
+3. Phase B, only if both passed.
+
+Phases C and D, the tunnel, the agent, a backend registration, a host secret, the live accounts stack and the `bg-e2e` stack stay out of scope. So do any firewall, Docker or Unity-server change.
+
+### Step 1: the installer correction (`37aa0bc`, merged into `main` and pushed)
+
+- **The fix:** `install.sh` creates `/etc/sysusers.d`, `/etc/tmpfiles.d` and `/etc/polkit-1/rules.d` only when they are absent, and never changes an existing one's owner or mode.
+- **The regression test:** `Install_never_changes_the_owner_or_mode_of_a_directory_it_does_not_own` checks that:
+  - every `install -d`, `chmod` and `chown` in `install.sh` names only Blackglass's own paths;
+  - the three configuration directories are created only when absent;
+  - `tmpfiles.d/blackglass.conf` adjusts only Blackglass's directories, plus systemd's `/var/lib/private` at systemd's own 0700 root:root.
+
+  It failed against the old line 55, on `/etc/sysusers.d`. The agent suite then passed on the VM runner: 252/252.
+- **The audit for similar changes:**
+  - line 55 was the only command that changed a package's directory. `/etc/tmpfiles.d` and `/etc/sysusers.d` had been forced to their existing 0755 root, so nothing visible changed;
+  - every other `install -d`, `chmod` and `chown` in the deploy scripts targets Blackglass's own paths. `verify.sh` adds test plans and logs under Blackglass's own directories;
+  - the tmpfiles rule for `/var/lib/private` pins systemd's own value. On the host, `/var/lib/private` and `/var/log/private` are root:root 0700, `/etc/polkit-1/rules.d` is root:`polkitd` 0750, and `/etc/sysusers.d` and `/etc/tmpfiles.d` are root:root 0755.
+- **Not reinstalled:** the installer was not rerun on the mission VM.
+
+### Step 2: full verification on kernel 6.8.0-147
+
+`verify.sh --yes --report /root/bg-stage10/evidence/verify-2-k147.txt` (the installed copy from `d324ff5`; `37aa0bc` changed only `install.sh`):
+- **Result:** 88 ok, 0 FAIL, exit 0.
+- **The `-BPF_FRAMEWORK` note:** unchanged (`udp_other_port=allowed`, `tcp_bind_5081=allowed`), reported as a note and not counted as a pass.
+- **Host snapshots before and after the run:** identical apart from their timestamps: listeners, running services, enabled units, failed units (none), users, the polkit directory, the firewall, and the `/opt/blackglass/server` hashes (`ce62433d…`, `65f291a6…`, 190 entries).
+- **The agent and the tunnel:** disabled and inactive.
+- **Journal:** 0 AppArmor denials, and no unknown-setting error. The warnings in the run window are the suite's intended refusals:
+  - a forged credential request;
+  - `slot-guard` refusing a busy slot;
+  - a replayed attempt failing its assertion.
+- **Evidence kept:** the earlier outboxes and exit records (12 outbox directories, 8 exit records). The new state file is `/var/log/blackglass/verify-state-20261019T014500Z`. The broker's five new test credentials stay in `/run` until the next boot.
+
+### Step 3: Phase B on `bg-dev-services01`
+
+**Before:**
+- the previous SSH configuration was backed up to `/var/tmp/bg-stage10/ssh-backup` (root 0700);
+- a snapshot was taken (`evidence-b/before.txt`):
+  - `sshd -t`, `sshd -T`, and `sshd -T -C` for the admin and for `bg-api-tunnel`;
+  - the admin's identity and sudo rights;
+  - listeners, services, enabled units, containers and the firewall.
+
+Facts it recorded:
+- OpenSSH 10.0p2. `ssh.service` is a daemon (not socket-activated), so a staged file takes effect only on reload. `UsePAM yes`.
+- The only `Include` is at `sshd_config` line 12. There is no `AllowUsers`, `AllowGroups`, `DenyUsers` or `DenyGroups`, and no fail2ban, sshguard or ufw.
+
+**The admin session:** this PC's OpenSSH can't multiplex connections. A held-open root shell (`ssh … 'sudo -n bash -s'` fed by `tail -f`) stayed authenticated from before the staging until after a new admin login had succeeded. The reload ran through it.
+
+**Staged** (no reload yet):
+- `useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin bg-api-tunnel`: uid 999, group 987 only, password locked (`!`);
+- `/etc/ssh/authorized_keys.d/` (root 0755, new);
+- `/etc/ssh/authorized_keys.d/bg-api-tunnel` (root 0644, one line): `restrict,port-forwarding,permitopen="127.0.0.1:5080",command="/bin/false"`, the mission VM's existing tunnel public key (`SHA256:KkqRiqrnwLEHx19FthSGAa+6G4ad8UUU4Dfl8D9dmrg`), and the comment;
+- `/etc/ssh/sshd_config.d/60-bg-api-tunnel.conf` (root 0644): byte-identical to `tunnel/services-vm-sshd.conf` at `37aa0bc` (SHA-256 `e45917ad…`).
+
+**Checks, all passed before the reload:**
+- `sshd -t` is clean.
+- `sshd -T -C user=bg-api-tunnel,host=bg-dev-mission01,addr=<mission-address>` gives:
+  - `authenticationmethods publickey`, `passwordauthentication no`, `kbdinteractiveauthentication no`;
+  - `allowtcpforwarding local`, `permitopen 127.0.0.1:5080`, `permitlisten none`;
+  - `allowagentforwarding no`, `allowstreamlocalforwarding no`, `x11forwarding no`, `permittunnel no`, `gatewayports no`;
+  - `permittty no`, `permituserrc no`, `forcecommand /bin/false`;
+  - `authorizedkeysfile /etc/ssh/authorized_keys.d/bg-api-tunnel`.
+- Identical before and after staging:
+  - the global `sshd -T`;
+  - the admin's whole effective configuration (`sshd -T -C user=admin,…`);
+  - the admin's identity (`admin`, only its own group);
+  - the admin's sudo rights (`(ALL) NOPASSWD: ALL`).
+
+**Reload:** `sshd -t && systemctl reload ssh.service` at 01:49:28 UTC. It was a SIGHUP, the listener kept its pid, and the journal shows no error.
+
+**After:**
+- a new, separate admin login and `sudo -n` succeeded;
+- a probe as `bg-api-tunnel` offering only password and keyboard-interactive was refused with "Permission denied (publickey)": the running server offers that account public-key authentication only;
+- the listeners (22 on IPv4 and IPv6, 53 on loopback, `127.0.0.1:55432`), running services, enabled units and containers (`blackglass-testdb-postgres-1` only) are unchanged;
+- the mission VM is unchanged: the agent and the tunnel disabled and inactive, only the broker's socket active, nothing on 5081 or 7800–7807.
+
+**One measurement correction:** the snapshot's firewall line hashed `nft list ruleset`. Docker's rules carry packet counters, so that hash changes between two runs 2 seconds apart with nothing changed. The counter-free `nft -s list ruleset` is stable (`548998bc…`, saved as `evidence-b/nft-stateless-after.txt`). No firewall command was run; the journal shows only the read-only `nft list` commands.
+
+**Evidence:**
+- services VM `/var/tmp/bg-stage10/evidence-b/` (`before.txt`, `staged.txt`, `after.txt`, `nft-stateless-after.txt`);
+- mission VM `/root/bg-stage10/evidence/` (`s2-before.txt`, `s2-after.txt`, `verify-2-k147.txt`, `verify-2-k147-run.txt`);
+- address-redacted local copies.
+
+**Rollback:** unchanged (the services VM part of "Rollback" above). The backup in `/var/tmp/bg-stage10/ssh-backup` holds the previous `sshd_config` and `sshd_config.d`.
+
+**Next:** Phase C (starting the tunnel) needs the owner's separate approval. Phase D needs its own. Stage 12's B24 stays a hard requirement before any real Unity mission.
