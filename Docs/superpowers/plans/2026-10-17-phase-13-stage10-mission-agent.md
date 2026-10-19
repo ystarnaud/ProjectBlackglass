@@ -1065,9 +1065,9 @@ Phases A to C are the infrastructure installation; phase D, the end-to-end run a
 
 | Item | Detail |
 |---|---|
-| Account `bg-api-tunnel` | system account, own group, no home, shell `/usr/sbin/nologin`, no password, in no administrator group |
-| `/etc/ssh/authorized_keys.d/` (new) and `/etc/ssh/authorized_keys.d/bg-api-tunnel` | root 0755 and root 0644. One line: `restrict,port-forwarding,permitopen="127.0.0.1:5080",command="/bin/false"` plus the mission VM's tunnel public key |
-| `/etc/ssh/sshd_config.d/60-bg-api-tunnel.conf` | root 0644, `tunnel/services-vm-sshd.conf` (`Match User bg-api-tunnel`: public key only, local forward to 127.0.0.1:5080 only, no listen, TTY, agent, X11, stream-local or tunnel; `ForceCommand /bin/false`) |
+| Account `bg-api-tunnel-v2` (superseding `bg-api-tunnel`, see "Tunnel identity correction") | `tunnel/services-vm-sysusers.conf` as `/etc/sysusers.d/bg-api-tunnel-v2.conf`: uid and gid 47080, its own private group only, no home, shell `/usr/sbin/nologin`, locked password |
+| `/etc/ssh/authorized_keys.d/` (new) and `/etc/ssh/authorized_keys.d/bg-api-tunnel-v2` | root 0755 and root 0644. One line: `restrict,port-forwarding,permitopen="127.0.0.1:5080",command="/bin/false"` plus the mission VM's tunnel public key |
+| `/etc/ssh/sshd_config.d/60-bg-api-tunnel.conf` | root 0644, `tunnel/services-vm-sshd.conf` (`Match User bg-api-tunnel-v2`: public key only, local forward to 127.0.0.1:5080 only, no listen, TTY, agent, X11, stream-local or tunnel; `ForceCommand /bin/false`. `Match User bg-api-tunnel`: no authentication method at all) |
 | `AllowUsers`/`AllowGroups` | none set (`sshd -T`, 2026-10-18), so no edit |
 | Phase D only | a throwaway Compose project `bg-e2e` on `127.0.0.1:5080`, removed afterwards; never the live stack |
 
@@ -1176,9 +1176,15 @@ Keep the current admin session open throughout. Close it only after a new admin 
 
 ```
 ssh -t bg-dev-services01-admin sudo -i
-useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin bg-api-tunnel
+# 47080 must still be unused: no passwd or group entry, no process, no file owner, no container identity, no subordinate range
+getent passwd 47080; getent group 47080; ps -eo uid=,gid= | grep -w 47080; find / -xdev \( -path /proc -o -path /sys \) -prune -o \( -uid 47080 -o -gid 47080 \) -print -quit   # all print nothing
+[ -d /etc/sysusers.d ] || install -d -m 0755 -o root -g root /etc/sysusers.d   # Debian 13 ships without it; never change an existing one
+install -m 0644 -o root -g root <copy of tunnel/services-vm-sysusers.conf> /etc/sysusers.d/bg-api-tunnel-v2.conf && systemd-sysusers /etc/sysusers.d/bg-api-tunnel-v2.conf
+getent passwd bg-api-tunnel-v2; id bg-api-tunnel-v2       # 47080:47080, /nonexistent, /usr/sbin/nologin; groups 47080 only
 install -d -m 0755 -o root -g root /etc/ssh/authorized_keys.d
 ```
+
+Never `useradd --system` without a fixed id: it picked 999, the PostgreSQL image's uid (see "Tunnel identity correction").
 
 From the PC, install the two files from `<rev>`. The public key isn't a secret.
 
@@ -1186,16 +1192,15 @@ From the PC, install the two files from `<rev>`. The public key isn't a secret.
 git show <rev>:Backend/deploy/mission/tunnel/services-vm-sshd.conf | ssh bg-dev-services01-admin 'sudo -n tee /etc/ssh/sshd_config.d/60-bg-api-tunnel.conf >/dev/null && sudo -n chmod 0644 /etc/ssh/sshd_config.d/60-bg-api-tunnel.conf'
 pub="$(ssh bg-dev-mission01 cat /etc/blackglass/tunnel/id_ed25519.pub | awk '{print $1" "$2}')"
 printf 'restrict,port-forwarding,permitopen="127.0.0.1:5080",command="/bin/false" %s bg-api-tunnel@bg-dev-mission01\n' "$pub" \
-  | ssh bg-dev-services01-admin 'sudo -n tee /etc/ssh/authorized_keys.d/bg-api-tunnel >/dev/null && sudo -n chmod 0644 /etc/ssh/authorized_keys.d/bg-api-tunnel'
+  | ssh bg-dev-services01-admin 'sudo -n tee /etc/ssh/authorized_keys.d/bg-api-tunnel-v2 >/dev/null && sudo -n chmod 0644 /etc/ssh/authorized_keys.d/bg-api-tunnel-v2'
 ```
 
-Then, in the root shell:
+Then, in the root shell (the admin session stays open):
 
 ```
 sshd -t                                    # no output
-sshd -T -C user=bg-api-tunnel,host=bg-dev-mission01,addr=<mission-address> | grep -Ei '^(authenticationmethods|allowtcpforwarding|permitopen|permitlisten|permittty|forcecommand|authorizedkeysfile|x11forwarding|allowagentforwarding|allowstreamlocalforwarding|permittunnel|gatewayports) '
-# expected: publickey; local; 127.0.0.1:5080; none; no; /bin/false; /etc/ssh/authorized_keys.d/bg-api-tunnel; no; no; no; no; no
-sshd -T -C user=admin,host=pc,addr=<an admin source address> | grep -Ei '^(allowtcpforwarding|permitopen|forcecommand) '   # yes; any; none (admin unchanged)
+bash services-vm-check.sh --mission-addr <mission-address>   # tunnel/services-vm-check.sh: every line "ok"
+sshd -T -C user=admin,host=pc,addr=<an admin source address> | sort > admin-after.txt; diff admin-before.txt admin-after.txt   # no difference
 systemctl reload ssh
 ```
 
@@ -1210,14 +1215,25 @@ ss -H -ltn 'sport = :5081'                                                      
 journalctl -u blackglass-tunnel -n 20 --no-pager                                                 # no host-key or forwarding error
 ```
 
-Negative checks of the key, the pinning and the forced restrictions. Each must fail:
+The tunnel and the negative checks of the key, the pinning and the forced restrictions:
 
 ```
-runuser -u blackglass-tunnel -- ssh -F /etc/blackglass/tunnel/ssh_config -o ClearAllForwardings=yes -o UserKnownHostsFile=/dev/null bg-api-tunnel true; echo exit=$?   # 255, "Host key verification failed"
-runuser -u blackglass-tunnel -- ssh -F /etc/blackglass/tunnel/ssh_config -o ClearAllForwardings=yes -o SessionType=default -T bg-api-tunnel id; echo exit=$?          # no shell: /bin/false (exit 1), no id output
-runuser -u blackglass-tunnel -- ssh -F /etc/blackglass/tunnel/ssh_config -o ClearAllForwardings=yes -o ExitOnForwardFailure=yes -R 127.0.0.1:15082:127.0.0.1:22 bg-api-tunnel; echo exit=$?   # remote forward refused
-runuser -u blackglass-tunnel -- ssh -F /etc/blackglass/tunnel/ssh_config -o ClearAllForwardings=yes -L 127.0.0.1:15081:127.0.0.1:22 -f -N bg-api-tunnel; timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/15081; head -c 4 <&3'; pkill -u blackglass-tunnel -f 15081   # prints no "SSH-" banner: the open is "administratively prohibited"
+bash tunnel/verify-tunnel.sh                       # mission VM, root: every line "ok" (or "note"), exit 0; prints since=@<epoch seconds>
+bash services-vm-check.sh --mission-addr <mission-address> --expect-session --since '@<epoch seconds>'   # services VM, root: every line "ok"
 ```
+
+`verify-tunnel.sh` checks the process (`/usr/bin/ssh` as `blackglass-tunnel`, no capabilities) and the one 127.0.0.1:5081 listener from systemctl, ss and `/proc`. It then runs, as `blackglass-tunnel` with the tunnel's key and pinned host key, a temporary copy of the tunnel's `ssh_config` minus its `LocalForward`. It requires refusals of:
+- an unknown or a different host key;
+- a command;
+- a remote forward ("remote port forwarding failed");
+- local forwards to 127.0.0.1:22, 127.0.0.1:55432, `localhost:5080` and 192.0.2.1:80, each through a real connection ("administratively prohibited");
+- a SOCKS forward;
+- a stream-local forward to the Docker socket;
+- a TTY and X11.
+
+The one allowed destination, 127.0.0.1:5080, must not be prohibited (while no API runs it gives "connect failed: Connection refused"). `services-vm-check.sh --since` confirms the server logged the denials, that every tunnel session runs as 47080:47080, and that nothing SSH runs as uid 999.
+
+Superseded (2026-10-19): the first version of these commands passed `-o ClearAllForwardings=yes`. That also clears the `-L`, `-R` and `-D` given on the command line, so the forwarding checks never reached the server and would have passed without testing anything.
 
 The checks after phases A to C:
 - **Off-host probe:** `Backend/tools/offhost-probe.sh` from the PC, run against both VMs. Only 22 is reachable; 5080, 5081, 5432, 55432, 7770 and 7800–7807 are closed.
@@ -1315,11 +1331,12 @@ The container lab can't establish these:
     - in an open admin session:
 
       ```
-      rm -f /etc/ssh/authorized_keys.d/bg-api-tunnel /etc/ssh/sshd_config.d/60-bg-api-tunnel.conf; rmdir /etc/ssh/authorized_keys.d
+      rm -f /etc/ssh/authorized_keys.d/bg-api-tunnel-v2 /etc/ssh/sshd_config.d/60-bg-api-tunnel.conf; rmdir /etc/ssh/authorized_keys.d
       sshd -t && systemctl reload ssh
       ```
     - a new admin login must work;
-    - then `userdel bg-api-tunnel`, `rm -rf /var/tmp/bg-stage10`, and phase D's cleanup if it ran.
+    - then `userdel bg-api-tunnel-v2`, remove `/etc/sysusers.d/bg-api-tunnel-v2.conf`, `rm -rf /var/tmp/bg-stage10`, and phase D's cleanup if it ran;
+    - the retired `bg-api-tunnel` (uid 999) is removed only when no process uses uid 999: never while PostgreSQL runs, and never with `userdel -r`, `userdel -f`, `pkill`, `killall` or `loginctl terminate-user`, which would act on the database's processes or files.
 - **Partial failures:**
   - **A5 refuses:** nothing is half-installed past its first refusal, and `uninstall.sh` is idempotent.
   - **A6 shows a FAIL:** stop and keep the report.
@@ -1631,3 +1648,78 @@ The live accounts stack and `bg-e2e` use the same image, so they would collide t
 - address-redacted local copies and the scripts.
 
 **Next:** the owner's decision on the uid collision; then Phase C again (start, the corrected negative tests). Phase D needs its own approval. Stage 12's B24 stays a hard requirement before any real Unity mission.
+
+## Tunnel identity correction (2026-10-19)
+
+**The finding (Phase C, 2026-10-19):** Phase B created the services VM's tunnel account with `useradd --system`, which gave `bg-api-tunnel` uid 999. That is the `postgres:17` image's uid and gid. Docker on the services VM does not remap user namespaces, so on the host uid 999 owns:
+- the test database's data volume;
+- the test stack's PostgreSQL password files.
+
+The restricted account, which exists to contain a compromised mission VM, shared its uid with the owner of the database's secrets and data. While the tunnel ran, its post-authentication `sshd-session` and `systemd --user` ran as that uid. Phase C was stopped and the tunnel disabled. Nothing showed that a credential was exposed (the forced command and `nologin` give no execution), so the database credentials are not rotated.
+
+**The owner's correction:**
+- a replacement account with a deliberately chosen, unique uid and gid;
+- the same restrictions;
+- the same tunnel key, authorized for the new account only;
+- the old account's key revoked and its authentication refused;
+- the old account itself left in place while PostgreSQL runs;
+- no change to PostgreSQL's uid, gid, files, image, container or volumes, and no restart;
+- no recursive `chown`/`chmod` on uid 999's files;
+- no `pkill`, `killall` or `loginctl` against uid 999.
+
+**Identity allocation (services VM):**
+
+| id | owner |
+|---|---|
+| 47080 (uid and gid) | `bg-api-tunnel-v2`, the tunnel's remote account (`tunnel/services-vm-sysusers.conf`) |
+| 999 (uid and gid) | the `postgres:17` image (container); on the host also the retired `bg-api-tunnel` and the group `systemd-journal` |
+| 1654 | the accounts API image (`blackglass-accounts-api`) |
+| 1000 | the administrator |
+| 100000–165535 | the administrator's subordinate uid and gid range |
+| 61184–65519 | systemd's dynamic users |
+
+47080 was chosen after checking:
+- the passwd and group databases;
+- every process's uid and gid;
+- every file owner on the root filesystem, Docker volumes included;
+- the containers' and images' users;
+- the subordinate ranges;
+- systemd's dynamic range.
+
+A new host account (on either VM) takes a fixed id after the same checks. A container image that would use 47080 is a conflict to resolve before it runs.
+
+**Repository changes:**
+- `tunnel/services-vm-sysusers.conf`: new; uid and gid 47080.
+- `tunnel/services-vm-sshd.conf`:
+  - `Match User bg-api-tunnel-v2`, with the restrictions unchanged and `AuthorizedKeysFile /etc/ssh/authorized_keys.d/bg-api-tunnel-v2`;
+  - `Match User bg-api-tunnel`: `PubkeyAuthentication no`, `PasswordAuthentication no`, `KbdInteractiveAuthentication no`, `HostbasedAuthentication no`, `GSSAPIAuthentication no`, `AuthorizedKeysFile none`, `DisableForwarding yes`, `PermitTTY no` and `ForceCommand /bin/false`.
+  - The old account also holds no credential of its own: a locked password, `nologin`, no home, and its key file removed. `usermod` is not run on it while PostgreSQL runs under its uid.
+- `tunnel/ssh_config`: `User bg-api-tunnel-v2`. The `Host` alias `bg-api-tunnel` (the unit's argument) is unchanged.
+- `tunnel/services-vm-authorized_keys`: the new path.
+- `install.sh`: the message's path only.
+- `tunnel/verify-tunnel.sh` (new) and `tunnel/services-vm-check.sh` (new, read-only) replace the Phase C commands above; the earlier commands were vacuous (`ClearAllForwardings`).
+- Tests in `DeployAndAuditTests`:
+  - the identity, the retired account's refusal, and the user name agreeing across the three files;
+  - the check scripts: no `ClearAllForwardings`, a test configuration minus only `LocalForward`, every ssh start under a timeout as `blackglass-tunnel`, a refusal required from the server, a forward that never connected counted as a failure, the required destinations, cleanup by recorded pid only, and the services check read-only;
+  - both scripts parse.
+
+**The correction on an installed pair of VMs** (the admin session stays open throughout):
+1. **Services VM, read-only:**
+   - record PostgreSQL's numeric ownership and modes (data volume, password files), its processes and its health;
+   - record `sshd -T` (global), `sshd -T -C` for the admin, and the admin's identity and sudo rights;
+   - back up `/etc/ssh/sshd_config.d` and `/etc/ssh/authorized_keys.d`.
+2. **Recheck 47080** (Phase B's commands). Create `/etc/sysusers.d` (root 0755) only if it is absent, install `/etc/sysusers.d/bg-api-tunnel-v2.conf`, and run `systemd-sysusers` on that file.
+3. **Install the files:**
+   - `/etc/ssh/authorized_keys.d/bg-api-tunnel-v2`, with the same key line;
+   - the new `60-bg-api-tunnel.conf`;
+   - move `/etc/ssh/authorized_keys.d/bg-api-tunnel` into the backup.
+4. **Check before the reload:**
+   - `sshd -t`;
+   - `services-vm-check.sh --mission-addr …` (all ok);
+   - the global `sshd -T` and the admin's `sshd -T -C` identical to step 1.
+5. `systemctl reload ssh`; a new admin login with `sudo -n` must work.
+6. **Mission VM:** replace only the `User` line of `/etc/blackglass/tunnel/ssh_config` (root 0644; it then equals the template rendered for this host). From the mission VM, prove the old account refused with the tunnel key: `ssh -F <test copy> -o User=bg-api-tunnel` gets "Permission denied".
+7. **Repeat Phase C** with `verify-tunnel.sh` and `services-vm-check.sh --expect-session --since`.
+8. Repeat step 1's PostgreSQL record: it must be unchanged.
+
+If any step can't be performed safely, stop: no forced account change.
