@@ -52,6 +52,9 @@ namespace Blackglass.Tests
         public IEnumerable<int> ContainerIndexes => containers.Keys;
         public int LinesIn(int index) => lineEntries.Keys.Count(k => k.Item1 == index);
 
+        /// <summary>The container entry id of a pool line, as the fill left it.</summary>
+        public string EntryIdOf(int containerIndex, int line) => lineEntries[(containerIndex, line)];
+
         /// <summary>ItemInventory(0).Add per plan item (merging same-definition stacks), then RegisterContainer with the entries.</summary>
         public void FillContainer(int containerIndex, IEnumerable<(string DefinitionId, int Quantity)> plan)
         {

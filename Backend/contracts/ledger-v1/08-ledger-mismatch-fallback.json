@@ -1,0 +1,161 @@
+{
+  "name": "ledger-mismatch-fallback",
+  "covers": "the D2 fallback: the admission snapshot restated (an equipped item and a stack), nothing collected or consumed, ledgerMismatch; no events",
+  "attempt": {
+    "attemptId": "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",
+    "processSessionId": "0192f1a5-0000-7000-8000-000000000001",
+    "buildRevision": "r1",
+    "layoutHash": "cf2e14dece9cc2a6",
+    "lootTableVersion": 7
+  },
+  "snapshot": {
+    "accountId": "JG",
+    "inventoryVersion": 3,
+    "catalogueVersion": "sha256:32de05dc35562d22604f0d43ea5fd1a6f2cfa3fe99cc12595e821fdba81ef19b",
+    "operatives": [
+      {
+        "slot": 0,
+        "operativeId": "C",
+        "definitionId": "00000000-0000-4000-8000-000000000001",
+        "experience": 0,
+        "rank": 1,
+        "choices": [],
+        "bag": {
+          "instances": [
+            {
+              "itemId": "2k",
+              "definitionId": "item.alpha-rifle"
+            }
+          ],
+          "stacks": [
+            {
+              "definitionId": "item.gamma-kit",
+              "quantity": 2
+            }
+          ]
+        },
+        "equipment": {
+          "weapon": "2k",
+          "armor": null,
+          "utility": null
+        }
+      },
+      {
+        "slot": 1,
+        "operativeId": "D",
+        "definitionId": "00000000-0000-4000-8000-000000000001",
+        "experience": 0,
+        "rank": 1,
+        "choices": [],
+        "bag": {
+          "instances": [
+            {
+              "itemId": "2m",
+              "definitionId": "item.beta-vest"
+            }
+          ],
+          "stacks": []
+        },
+        "equipment": {
+          "weapon": null,
+          "armor": "2m",
+          "utility": null
+        }
+      }
+    ]
+  },
+  "pool": [
+    {
+      "containerIndex": 0,
+      "line": 0,
+      "definitionId": "item.gamma-kit",
+      "quantity": 1
+    }
+  ],
+  "objectives": [
+    {
+      "objectiveId": "extract",
+      "required": true,
+      "state": "active"
+    }
+  ],
+  "result": {
+    "outcome": "defeat",
+    "outcomeSequence": 12,
+    "serverElapsedMs": 90000,
+    "dead": [
+      "D"
+    ]
+  },
+  "build": "fallback",
+  "events": [],
+  "expectedManifest": {
+    "formatVersion": 1,
+    "attemptId": "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",
+    "accountId": "JG",
+    "processSessionId": "0192f1a5-0000-7000-8000-000000000001",
+    "buildRevision": "r1",
+    "catalogueVersion": "sha256:32de05dc35562d22604f0d43ea5fd1a6f2cfa3fe99cc12595e821fdba81ef19b",
+    "integrity": "ledgerMismatch",
+    "outcome": "defeat",
+    "outcomeSequence": 12,
+    "serverElapsedMs": 90000,
+    "layoutHash": "cf2e14dece9cc2a6",
+    "lootTableVersion": 7,
+    "lootHash": "sha256:dd440676889aa9e742406412bf00b5fba9661079dac1fe11aa502c9f87d29f5e",
+    "objectives": [
+      {
+        "objectiveId": "extract",
+        "state": "active"
+      }
+    ],
+    "operatives": [
+      {
+        "operativeId": "C",
+        "slot": 0,
+        "alive": true,
+        "collected": [],
+        "consumed": [],
+        "equipment": [
+          {
+            "slot": "weapon",
+            "itemId": "2k"
+          }
+        ],
+        "held": [
+          {
+            "origin": "owned",
+            "itemId": "2k"
+          },
+          {
+            "origin": "owned",
+            "definitionId": "item.gamma-kit",
+            "quantity": 2
+          }
+        ]
+      },
+      {
+        "operativeId": "D",
+        "slot": 1,
+        "alive": false,
+        "collected": [],
+        "consumed": [],
+        "equipment": [
+          {
+            "slot": "armor",
+            "itemId": "2m"
+          }
+        ],
+        "held": [
+          {
+            "origin": "owned",
+            "itemId": "2m"
+          }
+        ]
+      }
+    ]
+  },
+  "expectedErrors": [
+    "V14.integrity"
+  ]
+}

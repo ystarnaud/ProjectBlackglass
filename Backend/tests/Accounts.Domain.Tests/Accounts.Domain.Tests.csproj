@@ -24,5 +24,6 @@
     <None Include="..\..\contracts\starter\*" Link="contracts\starter\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\contracts\inventory\*" Link="contracts\inventory\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\contracts\manifest-v1\**\*" Link="contracts\manifest-v1\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\contracts\ledger-v1\**\*" Link="contracts\ledger-v1\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

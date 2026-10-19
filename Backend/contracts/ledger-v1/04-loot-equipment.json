@@ -1,0 +1,152 @@
+{
+  "name": "loot-equipment",
+  "covers": "a collected rifle equipped as the weapon; the owned rifle stays held; item ids of mixed length (z = 57, 21 = 58)",
+  "attempt": {
+    "attemptId": "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",
+    "processSessionId": "0192f1a5-0000-7000-8000-000000000001",
+    "buildRevision": "r1",
+    "layoutHash": "cf2e14dece9cc2a6",
+    "lootTableVersion": 7
+  },
+  "snapshot": {
+    "accountId": "JG",
+    "inventoryVersion": 3,
+    "catalogueVersion": "sha256:32de05dc35562d22604f0d43ea5fd1a6f2cfa3fe99cc12595e821fdba81ef19b",
+    "operatives": [
+      {
+        "slot": 0,
+        "operativeId": "C",
+        "definitionId": "00000000-0000-4000-8000-000000000001",
+        "experience": 0,
+        "rank": 1,
+        "choices": [],
+        "bag": {
+          "instances": [
+            {
+              "itemId": "z",
+              "definitionId": "item.alpha-rifle"
+            },
+            {
+              "itemId": "21",
+              "definitionId": "item.beta-vest"
+            }
+          ],
+          "stacks": []
+        },
+        "equipment": {
+          "weapon": "z",
+          "armor": "21",
+          "utility": null
+        }
+      }
+    ]
+  },
+  "pool": [
+    {
+      "containerIndex": 0,
+      "line": 0,
+      "definitionId": "item.alpha-rifle",
+      "quantity": 1
+    },
+    {
+      "containerIndex": 0,
+      "line": 1,
+      "definitionId": "item.gamma-kit",
+      "quantity": 1
+    }
+  ],
+  "objectives": [
+    {
+      "objectiveId": "extract",
+      "required": true,
+      "state": "completed"
+    }
+  ],
+  "result": {
+    "outcome": "success",
+    "outcomeSequence": 10,
+    "serverElapsedMs": 60000,
+    "dead": []
+  },
+  "events": [
+    {
+      "op": "collect",
+      "operativeId": "C",
+      "containerIndex": 0,
+      "line": 0,
+      "quantity": 1
+    },
+    {
+      "op": "equip",
+      "operativeId": "C",
+      "item": {
+        "containerIndex": 0,
+        "line": 0
+      }
+    }
+  ],
+  "expectedManifest": {
+    "formatVersion": 1,
+    "attemptId": "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",
+    "accountId": "JG",
+    "processSessionId": "0192f1a5-0000-7000-8000-000000000001",
+    "buildRevision": "r1",
+    "catalogueVersion": "sha256:32de05dc35562d22604f0d43ea5fd1a6f2cfa3fe99cc12595e821fdba81ef19b",
+    "integrity": "ok",
+    "outcome": "success",
+    "outcomeSequence": 10,
+    "serverElapsedMs": 60000,
+    "layoutHash": "cf2e14dece9cc2a6",
+    "lootTableVersion": 7,
+    "lootHash": "sha256:84d1760b0a181ebe33b2cf278a344e136135bb2d6bf4da1daa39a65be7e1b952",
+    "objectives": [
+      {
+        "objectiveId": "extract",
+        "state": "completed"
+      }
+    ],
+    "operatives": [
+      {
+        "operativeId": "C",
+        "slot": 0,
+        "alive": true,
+        "collected": [
+          {
+            "containerIndex": 0,
+            "line": 0,
+            "quantity": 1
+          }
+        ],
+        "consumed": [],
+        "equipment": [
+          {
+            "slot": "armor",
+            "itemId": "21"
+          },
+          {
+            "slot": "weapon",
+            "containerIndex": 0,
+            "line": 0
+          }
+        ],
+        "held": [
+          {
+            "origin": "loot",
+            "containerIndex": 0,
+            "line": 0,
+            "quantity": 1
+          },
+          {
+            "origin": "owned",
+            "itemId": "z"
+          },
+          {
+            "origin": "owned",
+            "itemId": "21"
+          }
+        ]
+      }
+    ]
+  },
+  "expectedErrors": []
+}

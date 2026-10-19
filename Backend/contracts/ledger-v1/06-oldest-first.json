@@ -1,0 +1,169 @@
+{
+  "name": "oldest-first",
+  "covers": "two kit lines (in different containers, so the fill can't merge them) collected at different times: the older line is used first",
+  "attempt": {
+    "attemptId": "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",
+    "processSessionId": "0192f1a5-0000-7000-8000-000000000001",
+    "buildRevision": "r1",
+    "layoutHash": "cf2e14dece9cc2a6",
+    "lootTableVersion": 7
+  },
+  "snapshot": {
+    "accountId": "JG",
+    "inventoryVersion": 3,
+    "catalogueVersion": "sha256:32de05dc35562d22604f0d43ea5fd1a6f2cfa3fe99cc12595e821fdba81ef19b",
+    "operatives": [
+      {
+        "slot": 0,
+        "operativeId": "C",
+        "definitionId": "00000000-0000-4000-8000-000000000001",
+        "experience": 0,
+        "rank": 1,
+        "choices": [],
+        "bag": {
+          "instances": [],
+          "stacks": [
+            {
+              "definitionId": "item.gamma-kit",
+              "quantity": 1
+            }
+          ]
+        },
+        "equipment": {
+          "weapon": null,
+          "armor": null,
+          "utility": null
+        }
+      }
+    ]
+  },
+  "pool": [
+    {
+      "containerIndex": 0,
+      "line": 0,
+      "definitionId": "item.gamma-kit",
+      "quantity": 2
+    },
+    {
+      "containerIndex": 1,
+      "line": 0,
+      "definitionId": "item.gamma-kit",
+      "quantity": 2
+    }
+  ],
+  "objectives": [
+    {
+      "objectiveId": "extract",
+      "required": true,
+      "state": "completed"
+    }
+  ],
+  "result": {
+    "outcome": "success",
+    "outcomeSequence": 10,
+    "serverElapsedMs": 60000,
+    "dead": []
+  },
+  "events": [
+    {
+      "op": "collect",
+      "operativeId": "C",
+      "containerIndex": 1,
+      "line": 0,
+      "quantity": 2
+    },
+    {
+      "op": "collect",
+      "operativeId": "C",
+      "containerIndex": 0,
+      "line": 0,
+      "quantity": 2
+    },
+    {
+      "op": "use",
+      "operativeId": "C",
+      "definitionId": "item.gamma-kit"
+    },
+    {
+      "op": "use",
+      "operativeId": "C",
+      "definitionId": "item.gamma-kit"
+    },
+    {
+      "op": "use",
+      "operativeId": "C",
+      "definitionId": "item.gamma-kit"
+    }
+  ],
+  "expectedManifest": {
+    "formatVersion": 1,
+    "attemptId": "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41",
+    "accountId": "JG",
+    "processSessionId": "0192f1a5-0000-7000-8000-000000000001",
+    "buildRevision": "r1",
+    "catalogueVersion": "sha256:32de05dc35562d22604f0d43ea5fd1a6f2cfa3fe99cc12595e821fdba81ef19b",
+    "integrity": "ok",
+    "outcome": "success",
+    "outcomeSequence": 10,
+    "serverElapsedMs": 60000,
+    "layoutHash": "cf2e14dece9cc2a6",
+    "lootTableVersion": 7,
+    "lootHash": "sha256:15465e2428aa7287da9940aba1a12148058d7c7990108dc63d49258ce4928ba2",
+    "objectives": [
+      {
+        "objectiveId": "extract",
+        "state": "completed"
+      }
+    ],
+    "operatives": [
+      {
+        "operativeId": "C",
+        "slot": 0,
+        "alive": true,
+        "collected": [
+          {
+            "containerIndex": 0,
+            "line": 0,
+            "quantity": 2
+          },
+          {
+            "containerIndex": 1,
+            "line": 0,
+            "quantity": 2
+          }
+        ],
+        "consumed": [
+          {
+            "source": "loot",
+            "containerIndex": 0,
+            "line": 0,
+            "definitionId": "item.gamma-kit",
+            "quantity": 1
+          },
+          {
+            "source": "loot",
+            "containerIndex": 1,
+            "line": 0,
+            "definitionId": "item.gamma-kit",
+            "quantity": 2
+          }
+        ],
+        "equipment": [],
+        "held": [
+          {
+            "origin": "loot",
+            "containerIndex": 0,
+            "line": 0,
+            "quantity": 1
+          },
+          {
+            "origin": "owned",
+            "definitionId": "item.gamma-kit",
+            "quantity": 1
+          }
+        ]
+      }
+    ]
+  },
+  "expectedErrors": []
+}
