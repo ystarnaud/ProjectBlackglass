@@ -367,6 +367,8 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 11: Unity backend core (library-free)
 
+**Status (2026-10-19):** detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md` (revision 1.1, after an independent review), awaiting the owner's rulings D1–D8. Implementation is not authorized. Where it differs from this outline, it wins.
+
 **Touches:**
 - `Assets/_Project/Scripts/Backend/Core/` (new);
 - new EditMode test files;
