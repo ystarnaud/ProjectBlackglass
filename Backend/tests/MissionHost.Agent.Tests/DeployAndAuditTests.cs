@@ -172,14 +172,83 @@ public partial class DeployAndAuditTests
             Assert.Contains("  " + line + "\n", ssh.Replace("\r\n", "\n"), StringComparison.Ordinal);
         Assert.DoesNotContain("StrictHostKeyChecking no", ssh, StringComparison.Ordinal);
         Assert.DoesNotContain("accept-new", ssh, StringComparison.Ordinal);
-        var sshd = Deploy(Path.Combine("tunnel", "services-vm-sshd.conf"));
+        var tunnelBlock = MatchBlock(Deploy(Path.Combine("tunnel", "services-vm-sshd.conf")), "bg-api-tunnel-v2");
         foreach (var line in new[] { "AllowTcpForwarding local", "PermitOpen 127.0.0.1:5080", "PermitTTY no", "X11Forwarding no", "AllowAgentForwarding no",
-                     "ForceCommand /bin/false", "PermitListen none", "AuthenticationMethods publickey" })
-            Assert.Contains(line, sshd, StringComparison.Ordinal);
+                     "ForceCommand /bin/false", "PermitListen none", "AuthenticationMethods publickey", "AllowStreamLocalForwarding no", "PermitTunnel no",
+                     "PasswordAuthentication no", "KbdInteractiveAuthentication no", "AuthorizedKeysFile /etc/ssh/authorized_keys.d/bg-api-tunnel-v2" })
+            Assert.Contains(line, tunnelBlock);
         Assert.Contains("restrict,port-forwarding,permitopen=\"127.0.0.1:5080\",command=\"/bin/false\"", Deploy(Path.Combine("tunnel", "services-vm-authorized_keys")), StringComparison.Ordinal);
         var unit = UnitFile(Deploy(Path.Combine("tunnel", "blackglass-tunnel.service")));
         Assert.Equal(("blackglass-tunnel", "always", "120"), (Assert.Single(unit["User"]), Assert.Single(unit["Restart"]), Assert.Single(unit["RestartMaxDelaySec"])));
         Assert.Equal(("tcp:5081", "any"), (Assert.Single(unit["SocketBindAllow"]), Assert.Single(unit["SocketBindDeny"])));
+    }
+
+    // The services VM's sshd drop-in: the lines of one "Match User <user>" block.
+    static List<string> MatchBlock(string sshd, string user)
+    {
+        var lines = sshd.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith('#')).ToList();
+        var start = lines.IndexOf("Match User " + user);
+        Assert.True(start >= 0, $"no Match User {user} block");
+        return lines.Skip(start + 1).TakeWhile(l => !l.StartsWith("Match ", StringComparison.Ordinal)).ToList();
+    }
+
+    // A script's lines without its comments.
+    static string Code(string script) =>
+        string.Join('\n', Deploy(script).Replace("\r\n", "\n").Split('\n').Where(l => !l.TrimStart().StartsWith('#')));
+
+    [Fact]
+    public void The_tunnels_remote_account_has_its_own_fixed_identity_and_the_retired_uid_999_account_cannot_authenticate()
+    {
+        // uid 999 is the PostgreSQL image's: the first account (bg-api-tunnel, uid 999) shared it with the database's files.
+        var sysusers = Deploy(Path.Combine("tunnel", "services-vm-sysusers.conf")).Replace("\r\n", "\n");
+        Assert.Equal(["g bg-api-tunnel-v2 47080", "u bg-api-tunnel-v2 47080:47080 \"Blackglass API tunnel (forward-only)\" /nonexistent /usr/sbin/nologin"],
+            sysusers.Split('\n').Where(l => l.Length > 0 && !l.StartsWith('#')));
+        Assert.Contains("  User bg-api-tunnel-v2\n", Deploy(Path.Combine("tunnel", "ssh_config")).Replace("\r\n", "\n"), StringComparison.Ordinal);
+        Assert.StartsWith("# /etc/ssh/authorized_keys.d/bg-api-tunnel-v2 ", Deploy(Path.Combine("tunnel", "services-vm-authorized_keys")), StringComparison.Ordinal);
+        var sshd = Deploy(Path.Combine("tunnel", "services-vm-sshd.conf"));
+        Assert.Equal(["PubkeyAuthentication no", "PasswordAuthentication no", "KbdInteractiveAuthentication no", "HostbasedAuthentication no", "GSSAPIAuthentication no",
+                      "AuthorizedKeysFile none", "DisableForwarding yes", "PermitTTY no", "ForceCommand /bin/false"], MatchBlock(sshd, "bg-api-tunnel"));
+        // nothing else changes the server's configuration: no top-level directive before the first Match, and only these two blocks
+        Assert.Equal("Match User bg-api-tunnel-v2", sshd.Replace("\r\n", "\n").Split('\n').Select(l => l.Trim()).First(l => l.Length > 0 && !l.StartsWith('#')));
+        Assert.Equal(2, Regex.Matches(sshd, @"^Match ", RegexOptions.Multiline).Count);
+        Assert.Contains("authorized_keys.d/bg-api-tunnel-v2 on the services VM", Deploy("install.sh"), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_tunnel_checks_exercise_real_forwarding_requests_and_never_touch_the_live_tunnel_or_uid_999()
+    {
+        var code = Code(Path.Combine("tunnel", "verify-tunnel.sh"));
+        // ClearAllForwardings also clears the -L, -R and -D on the command line: the request would never reach the server.
+        Assert.DoesNotContain("ClearAllForwardings", code, StringComparison.Ordinal);
+        Assert.Contains("grep -v -E '^[[:space:]]*LocalForward[[:space:]]' \"$CFG\" > \"$TCFG\"", code, StringComparison.Ordinal);
+        Assert.Contains("SSH=(ssh -F \"$TCFG\")", code, StringComparison.Ordinal);
+        Assert.Contains("AS=(runuser -u blackglass-tunnel --)", code, StringComparison.Ordinal);
+        // every ssh and ssh-agent the checks start runs under a timeout, as blackglass-tunnel, with the test configuration
+        var starts = Regex.Matches(code, @"^.*(?:""\$\{SSH\[@\]\}""|ssh-agent ).*$", RegexOptions.Multiline);
+        Assert.True(starts.Count >= 10, $"{starts.Count} ssh starts");
+        foreach (Match start in starts)
+            Assert.Matches(@"\btimeout \d+ ""\$\{AS\[@\]\}"" ", start.Value);
+        Assert.Single(Regex.Matches(code, @"(?<![/\w-])ssh -")); // only the SSH=(...) definition (/usr/bin/ssh -N is the unit's command line)
+        // a forwarding test passes only on the server's refusal, and a forward that never connected is a failure
+        Assert.Contains("'open failed: administratively prohibited'", code, StringComparison.Ordinal);
+        Assert.Contains("'remote port forwarding failed for listen port 15082'", code, StringComparison.Ordinal);
+        Assert.Contains("bad \"$what: the test forward never connected, so nothing reached the server\"", code, StringComparison.Ordinal);
+        foreach (var target in new[] { "127.0.0.1:22 denied", "127.0.0.1:55432 denied", "localhost:5080 denied", "192.0.2.1:80 denied", "15088 D denied",
+                     "/var/run/docker.sock streamlocal", "127.0.0.1:5080 allowed" })
+            Assert.Contains(target, code, StringComparison.Ordinal);
+        // processes are stopped by their recorded pid only, and never the live tunnel's
+        Assert.DoesNotMatch(@"\b(pkill|killall|loginctl)\b", code);
+        Assert.Contains("[[ \"$p\" != \"$main\" ]] && kill \"$p\"", code, StringComparison.Ordinal);
+
+        // read-only on the services VM: no account, file, process or service change (PostgreSQL's processes share uid 999)
+        var check = Code(Path.Combine("tunnel", "services-vm-check.sh"));
+        Assert.DoesNotMatch(@"\b(useradd|usermod|userdel|groupadd|groupmod|groupdel|chown|chmod|chpasswd|kill|pkill|killall|loginctl|install|rm|rmdir|mv|cp|ln|touch|mkdir|truncate|dd|tee|systemctl)\b|\bsed\s+-i|\bdocker\s|>\s*/(?!dev/null\b)", check);
+        // the PostgreSQL probe proves it runs as 47080 before trusting a "not readable"
+        Assert.Contains("check \"the probe runs as $USER_V2 ($ID:$ID)\"", check, StringComparison.Ordinal);
+        Assert.Contains("runuser -u \"$USER_V2\" -- find \"${data[@]}\" \"${secrets[@]}\" -readable -print", check, StringComparison.Ordinal);
+        // the journal window is an absolute instant, never a zone-less local time
+        Assert.Contains("echo \"since=@$(date +%s)\"", code, StringComparison.Ordinal);
+        Assert.Contains("[[ \"$since\" =~ ^@[0-9]+$ || \"$since\" =~ \\ UTC$ ]]", check, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -203,7 +272,7 @@ public partial class DeployAndAuditTests
     [Fact]
     public void The_scripts_parse_need_their_confirmation_and_never_delete_evidence()
     {
-        foreach (var script in new[] { "install.sh", "uninstall.sh", "verify.sh", "publish-agent.sh", "render-slot-units.sh", "record-exit", "slot-guard", Path.Combine("stub", "run-mission") })
+        foreach (var script in new[] { "install.sh", "uninstall.sh", "verify.sh", "publish-agent.sh", "render-slot-units.sh", "record-exit", "slot-guard", Path.Combine("stub", "run-mission"), Path.Combine("tunnel", "verify-tunnel.sh"), Path.Combine("tunnel", "services-vm-check.sh") })
         {
             var text = Deploy(script);
             if (OperatingSystem.IsLinux())

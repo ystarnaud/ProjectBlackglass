@@ -1,3 +1,3 @@
-# /etc/ssh/authorized_keys.d/bg-api-tunnel (root:root 0644) on the services VM. A10-D3. One line: the public key install.sh prints on the
-# mission VM (generated there; the private key never leaves it), with every restriction OpenSSH offers for a forward-only key.
+# /etc/ssh/authorized_keys.d/bg-api-tunnel-v2 (root:root 0644) on the services VM. A10-D3. One line: the public key install.sh prints on
+# the mission VM (generated there; the private key never leaves it), with every restriction OpenSSH offers for a forward-only key.
 restrict,port-forwarding,permitopen="127.0.0.1:5080",command="/bin/false" PUBLIC_KEY_FROM_MISSION_VM bg-api-tunnel@bg-dev-mission01

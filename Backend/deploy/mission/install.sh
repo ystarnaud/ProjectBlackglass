@@ -117,7 +117,7 @@ if [[ ! -e /etc/blackglass/tunnel/id_ed25519 ]]; then
 fi
 chown blackglass-tunnel:blackglass-tunnel /etc/blackglass/tunnel/id_ed25519
 chmod 0600 /etc/blackglass/tunnel/id_ed25519
-echo "tunnel public key (for /etc/ssh/authorized_keys.d/bg-api-tunnel on the services VM):"
+echo "tunnel public key (for /etc/ssh/authorized_keys.d/bg-api-tunnel-v2 on the services VM):"
 cat /etc/blackglass/tunnel/id_ed25519.pub
 
 # 5. systemd

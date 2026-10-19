@@ -62,7 +62,7 @@ It was validated end to end in a disposable Ubuntu 24.04 systemd container (syst
   The agent resumes from its state directory; running units are untouched.
 - **Full rollback:** `uninstall.sh --yes` removes the units (slot templates, broker, agent, tunnel), the polkit rule and the stub link, and empties root's tmpfs credential copies.
   - It never deletes the outboxes (`/var/lib/private/blackglass-outbox`), exit records, delivery records, agent state or logs.
-  - To retire the tunnel completely: on the services VM, remove `/etc/ssh/authorized_keys.d/bg-api-tunnel` and `/etc/ssh/sshd_config.d/60-bg-api-tunnel.conf`, run `systemctl reload ssh`, and lock or remove `bg-api-tunnel`; on the mission VM, remove `/etc/blackglass/tunnel/id_ed25519*`.
+  - To retire the tunnel completely: on the services VM, remove `/etc/ssh/authorized_keys.d/bg-api-tunnel-v2` and `/etc/ssh/sshd_config.d/60-bg-api-tunnel.conf`, run `systemctl reload ssh`, and lock or remove `bg-api-tunnel`; on the mission VM, remove `/etc/blackglass/tunnel/id_ed25519*`.
 
 ## Host secret rotation (A10-D8)
 
@@ -96,16 +96,27 @@ A disabled host's old secret never works again.
 
 ## The tunnel (A10-D3)
 
-- **Path:** mission VM `127.0.0.1:5081` → SSH as `bg-api-tunnel` → services VM `127.0.0.1:5080`.
+- **Path:** mission VM `127.0.0.1:5081` → SSH as `bg-api-tunnel-v2` → services VM `127.0.0.1:5080`. (`bg-api-tunnel` is only the `Host` alias in `ssh_config`.)
 - **Mission VM side:**
   - the key pair `/etc/blackglass/tunnel/id_ed25519` is generated on the VM and never leaves it;
   - `ssh_config` pins the host key in `/etc/blackglass/tunnel/known_hosts` with `StrictHostKeyChecking yes` and no global known-hosts file;
   - there is no fallback that accepts an unknown key.
 - **Services VM side:**
-  - the account `bg-api-tunnel` (`nologin`);
+  - the account `bg-api-tunnel-v2` (`services-vm-sysusers.conf`): uid and gid **47080**, its own private group only, no home, `nologin`, locked password;
+  - the retired first account `bg-api-tunnel` had uid 999, the PostgreSQL image's uid, which owns the database's data and password files on the host. `services-vm-sshd.conf` allows it no authentication method, and its key file is gone. Remove it only when no process uses uid 999: never while PostgreSQL runs, and never with `userdel -r`, `userdel -f`, `pkill`, `killall` or `loginctl`;
   - `services-vm-sshd.conf`: local forwarding to `127.0.0.1:5080` only; no TTY, command, agent, X11, stream-local or remote forwarding;
   - `services-vm-authorized_keys`: `restrict,port-forwarding,permitopen=…,command="/bin/false"`.
 - **Failures:** `Restart=always` with bounded backoff (5 s to 120 s). A tunnel failure stops no mission and loses no result.
+- **Identity allocation on the services VM:**
+  - 47080 is the tunnel account's uid and gid;
+  - 999 belongs to the `postgres:17` image;
+  - 1654 belongs to the accounts API image;
+  - 100000 and up are subordinate ranges, and 61184–65519 are systemd's dynamic users.
+
+  A new host account takes a fixed id after the same checks (passwd, group, processes, file owners including Docker volumes, container identities, subordinate ranges); never `useradd --system` without one.
+- **Checks:**
+  - `tunnel/verify-tunnel.sh` (mission VM, root) checks the live tunnel and runs the negative tests; each forwarding test must reach the server and be refused there;
+  - `tunnel/services-vm-check.sh` (services VM, root, read-only) checks the account, PostgreSQL's isolation, the effective SSH settings, the sessions' uid and the server's denials.
 
 ## The stub mission and the VM checks (A10-D7)
 

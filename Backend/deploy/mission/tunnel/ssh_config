@@ -1,9 +1,10 @@
 # /etc/blackglass/tunnel/ssh_config (root:root 0644) on the mission VM. A10-D3. install.sh replaces SERVICES_HOST with the services
 # VM's address at installation; no address is committed. The pinned host key is /etc/blackglass/tunnel/known_hosts (root:root 0644),
 # verified against the services VM's own fingerprint before installation. There is no fallback that accepts an unknown key.
+# The Host alias bg-api-tunnel is only the name blackglass-tunnel.service uses; the remote account is bg-api-tunnel-v2.
 Host bg-api-tunnel
   HostName SERVICES_HOST
-  User bg-api-tunnel
+  User bg-api-tunnel-v2
   IdentityFile /etc/blackglass/tunnel/id_ed25519
   IdentitiesOnly yes
   UserKnownHostsFile /etc/blackglass/tunnel/known_hosts
