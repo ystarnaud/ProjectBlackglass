@@ -1984,3 +1984,47 @@ Every settled success granted one medkit and 150 XP once. Every void refunded on
 - **Afterwards:** the same checks as above, then cleanup.
 
 **Status:** Phase D's non-reboot scenarios passed and everything is cleaned up. The tunnel stays enabled and running; the agent is disabled again. Stage 10's infrastructure acceptance awaits the owner's decision on the reboot test. Stage 12's B24 is still open.
+
+## The final mid-mission reboot test (2026-10-19, authorized by the owner)
+
+The owner accepted Phase D's nine scenarios and authorized one mid-mission reboot of `bg-dev-mission01` only. It passed. Evidence: `/root/bg-stage10/evidence-r` (mission VM), `/var/tmp/bg-stage10/evidence-r` and `/var/tmp/bg-e2e/evidence` (services VM). Phase D's work directory moved intact to `/var/tmp/bg-stage10/evidence-d/bg-e2e-phase-d`; every earlier record is untouched.
+
+### Setup (13:37–13:47 UTC)
+
+- **Preflight:** `main` = `origin/main` = `7cc662d`; agent disabled, no mission units, no host secret, 7800–7807 and 5080 free, `blackglass-testdb` healthy; `verify-tunnel.sh` 29 ok, `services-vm-check.sh` 28 ok, the retired uid-999 account refused, off-host probes 28/28.
+- **Backend:** a fresh `bg-e2e` from `7cc662d` (resolved configuration inspected first: API on 127.0.0.1:5080 only, PostgreSQL unpublished, project-scoped volume and networks, development hosts and admin routes off); `deploy.sh` exit 0, schema 9 locally and through the tunnel, `EXPOSURE PASS`. Build `stage10-stub` with `sha256:e83352b1…c496b` for `procedural-standard:1`; `mission01` registered (capacity 8, port base 7800); the new host secret piped into the atomic installer (0600 `blackglass-agent`, never shown). Two fresh accounts.
+- **Cleanup that survives the reboot:** on the mission VM a persistent dead-man (a unit file and a `Persistent=true` timer at an absolute time, 10 h); on the services VM a transient 10 h timer running `bg-e2e`'s teardown (that VM isn't rebooted). Test secrets lived in `/root/bg-stage10/r-secrets` (root 0700, on disk so the receipts could be read after the reboot), shredded at cleanup.
+- **Stale records:** Phase D's 14 `Reported` claim records (none incomplete, no credential) and 11 relay records stayed byte-identical. Its one pending `Keyed` key had no attempt: against the new backend it was answered with no work and deleted. No old attempt can be relaunched: only `Keyed` to `CredentialReady` records are resumed, and old attempt ids don't exist in the new database.
+- **Mission A** (`01a15467-6bfe…`): slot 00, port 7800, `blackglass-m00` uid 62833; started, energy 50 to 40 (hold `charged`); the stub kept running with no result file.
+- **Mission B** (`01a15467-74d1…`): slot 01, port 7801, `blackglass-m01` uid 62728; started, energy 50 to 40; the stub's durable publication (`.tmp`, fsync, rename) left `3.manifest.written` (951 bytes, sha256 `0cfca44e…`, identical to its source, a complete success result) with no `.ready`, and the harness never sent the recorded-hash notification (the crash boundary before it).
+- **Before the reboot:** both units running; no exit or relay record for either; both attempts `running` with no submission; `mission01` drained at 13:45:07 (the agent saw it). Tunnel, agent, broker socket and dead-man timer enabled; persistent journal; only Claude's own root SSH sessions, no editor sessions.
+
+### Reboot (13:47:13 UTC; back at 13:47:30, boot `853212ad`)
+
+- **Shutdown:** systemd stopped both units and the agent together. The agent logged `agent_stopped` at 13:47:13.401, before either unit finished stopping, so nothing was reported during shutdown. `record-exit` wrote `code=killed status=TERM` for both (13:47:13.475 and .484). The tunnel stopped after the agent.
+- **Startup:** `network-online` 13:47:30.507; credential socket listening .556; tunnel .574; agent .576. The agent's first call succeeded through the tunnel at 13:47:31.4 with the persisted host secret.
+- **Recovery (13:47:31):** A's exit (SIGTERM, complete scan, result absent) was applied as `voided`. B's `.written` was relayed in place (status 200, sha256 `0cfca44e`), then its exit was reported (result present). No mission unit started in the new boot; each unit started exactly once across both boots. `/run/blackglass/credentials` was empty, including Phase D's 5 old `verify.sh` entries. The outboxes, exit records and agent state survived; B's file is unrenamed and unchanged.
+
+### Results
+
+| | Mission A (no result) | Mission B (durable `.written`) |
+|---|---|---|
+| Exit evidence | `killed/TERM`, outbox complete, absent | `killed/TERM`, outbox complete, present |
+| Settlement | `infra_void` (`exit_evidence`), once | `success`, once (submission received once, raw hash = file) |
+| Energy | reserve −10, charge 0, `void_refund` +10, balance 50 | reserve −10, charge 0, settle 0, balance 40 |
+| Loot and XP | none | 1 medkit (10 to 11), 150 XP |
+| Receipt | 200 `infra_void`, refunded 10 | 200 `success`, medkit ×1, XP 150 |
+| Anomalies | `infra_void` | `result_without_recorded_hash` (expected: the crash came before the notification) |
+
+All duplicate checks were 0: ledger, settlements, insurance, collected pool lines, minted items, port holdings, and wallet against ledger. No unit was launched twice.
+
+### Security, exposure and cleanup
+
+- **After the reboot, API up:** `verify-tunnel.sh` 29 ok; `services-vm-check.sh` 28 ok (the session runs as 47080:47080, no sshd as uid 999); the retired account was refused; off-host probes were 28/28 (and 28/28 before the reboot with the API up). 5081 is on 127.0.0.1 only, owned by `blackglass-tunnel`; no listener on 7800–7807; no Unity process; `/opt/blackglass/server` is unchanged.
+- **Cleanup (13:51 UTC):**
+  - Mission VM: agent disabled and stopped; the emergency stop's dry run lists 0 units; host secret and test secrets shredded; `agent.json` restored byte-identical; build-info and plans removed (plans archived in the evidence); dead-man units removed.
+  - Mission VM, compared with preflight: it differs only by the reboot's pids and timestamps, directory mtimes, the preserved evidence (+1 relay, +2 exit records, +2 outboxes) and the emptied credential store.
+  - Services VM: only `bg-e2e`'s containers, volume, networks, image, secrets and backups removed; dead-man stopped. Docker resources and listeners, firewall, Docker daemon and SSH hashes are identical to preflight; PostgreSQL's record and the test database's counters are identical. The build cache (2.29 GB) was not pruned.
+  - The tunnel stays enabled and running. Final off-host probes: 28/28.
+
+**Status:** Stage 10's infrastructure validation is complete for trusted-stub workloads. Real Unity mission workloads stay blocked until Stage 12's B24 (an enforced per-slot TCP bind restriction) is demonstrated on the mission VM.
