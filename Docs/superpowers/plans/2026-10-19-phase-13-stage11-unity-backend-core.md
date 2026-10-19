@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-19):** revision 2. The owner approved the architecture and ruled on D1–D8 ("Owner rulings" near the end). This revision applies the rulings' corrections: D2 (format versus settlement validation, the truthful `ledgerMismatch` fallback, fail-closed builds), D6 (every file operation on a dedicated I/O worker, the checked `$STATE_DIRECTORY`, a no-replace rename, the libc set the requirements need) and D7 (consumables must stack for new registrations and exports, with stored catalogues still readable). It also corrects the staged plan's Stage 13 settlement poll. Implementation is authorized on `phase13-stage11` once an independent review of this revision leaves no Critical or Important finding. No merge, push or deployment without the owner. Revision 1.1 (`2777623`) applied the first plan review (0 Critical, 5 Important, 14 Minor).
+**Status (2026-10-19):** revision 2.1 (revision 2 plus its review, at the end). The owner approved the architecture and ruled on D1–D8 ("Owner rulings" near the end). This revision applies the rulings' corrections: D2 (format versus settlement validation, the truthful `ledgerMismatch` fallback, fail-closed builds), D6 (every file operation on a dedicated I/O worker, the checked `$STATE_DIRECTORY`, a no-replace rename, the libc set the requirements need) and D7 (consumables must stack for new registrations and exports, with stored catalogues still readable). It also corrects the staged plan's Stage 13 settlement poll. Implementation is authorized on `phase13-stage11` once an independent review of this revision leaves no Critical or Important finding. No merge, push or deployment without the owner. Revision 1.1 (`2777623`) applied the first plan review (0 Critical, 5 Important, 14 Minor).
 
 **Goal:** a plain C# core inside the Unity project that later stages (12, 13, 14, 16) build on:
 - the backend DTOs;
@@ -134,7 +134,7 @@ Assets/_Project/Scripts/Backend/Core/
   Manifest/ManifestBuilder.cs          ParticipantFacts + header + result → BuiltManifest (format self-check); the snapshot fallback; BuildForPublication
   Manifest/LootPoolHash.cs             port of Backend LootHash.Compute
   Ledger/LedgerCatalogue.cs            definition id → stackable, consumable, slot
-  Ledger/LedgerInputs.cs               OperativeSnapshot, ContainerEntry, RuntimeEntry, RuntimeEquipment, PoolLine
+  Ledger/LedgerInputs.cs               OperativeSnapshot, ContainerEntry, RuntimeEntry, RuntimeEquipment, PoolLine, OperativeRuntimeState, ContainerRuntimeState
   Ledger/MissionItemLedger.cs          lots, events, verification, freeze
   Ledger/ParticipantFacts.cs           the per-operative facts a manifest reports
   Outbox/OutboxFileNames.cs            the agent's naming contract
@@ -203,13 +203,15 @@ namespace Blackglass.Backend.Core
     {
         public static bool IsUuid(string text);         // 36 chars, lowercase hex, hyphens at 8,13,18,23 (Backend CanonicalUuid)
         public static bool IsAttemptId(string text);    // IsUuid && text[14]=='7' && text[19] in "89ab"
-        public static bool IsSha256(string text);       // ^sha256:[0-9a-f]{64}$
-        public static bool IsLayoutHash(string text);   // ^[0-9a-f]{16}$
+        public static bool IsSha256(string text);       // ^sha256:[0-9a-f]{64}\z
+        public static bool IsLayoutHash(string text);   // ^[0-9a-f]{16}\z
         public static bool IsDefinitionId(string text); // Backend CanonicalCatalogueJson.IsWellFormedId: [a-z0-9]+([.-][a-z0-9]+)*, at most 64
         public static bool IsWord(string text, int maxLength);    // Backend StrictJson.IsWord: [a-z0-9]+([._-][a-z0-9]+)*
-        public static bool IsBuildRevision(string text); // Backend BuildIdentity.IsWellFormedRevision: ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$
+        public static bool IsBuildRevision(string text); // Backend BuildIdentity.IsWellFormedRevision: ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\z
     }
 }
+// Every predicate is anchored at the true end of the text (the backend's \z, never $, which in .NET also matches before a
+// final "\n"): the predicates are written as explicit character loops, with no Regex (rev 2 review I1).
 ```
 Each pattern is copied from the named backend member. Read those files first; where this table and the backend differ, the backend wins and the difference goes in the ledger as a ruling.
 
@@ -237,7 +239,8 @@ Asmdef:
     - an uppercase UUID and a version-4 UUID as attempt ids (refused);
     - `sha256:` with 63 or 65 digits or uppercase hex (refused);
     - the definition id `item.medkit` (accepted) and `Item.Medkit`, `item..x`, a 65-character id (refused);
-    - the build revision `r1` (accepted), `-r1` and 65 characters (refused).
+    - the build revision `r1` (accepted), `-r1` and 65 characters (refused);
+    - for every predicate, the accepted example plus a trailing `"\n"` is refused (review I1).
 - [ ] **Step 2: Run** `Tools/run-tests.sh EditMode "Blackglass.Tests.CoreSourceAuditTests;Blackglass.Tests.Base58IdTests;Blackglass.Tests.CanonicalIdsTests"`. Expected: EXIT=1 (compile error: `Blackglass.Backend.Core` doesn't exist).
 - [ ] **Step 3: Implement** the asmdef, `AssemblyInfo.cs` and the two id classes as ports of the backend members named above. `Base58Id.Format` and `TryParse` follow `Backend/src/Accounts.Domain/Ids/Base58Id.cs` line for line (overflow guard `value > (long.MaxValue - digit) / 58`).
 - [ ] **Step 4: Run** the same command. Expected: EXIT=0, all new tests pass.
@@ -329,7 +332,7 @@ public static class LootPoolHash { public static string Compute(int lootTableVer
 
 `Int` checks:
 - the JSON kind (`WrongType`);
-- the raw literal against `^(?:0|[1-9][0-9]*)$` (`NotInteger`);
+- the raw literal against `^(?:0|[1-9][0-9]*)\z` (`NotInteger`);
 - the length > 10, the parse and the range (`OutOfBounds`).
 
 `Str` checks the kind (`WrongType`), then a lone surrogate (`NotJson`, where the backend's `GetString()` throws), then the UTF-8 byte count > 128 (`OutOfBounds`). `RawMembers` raises `NotJson` for a member name with a lone surrogate, where the backend's `p.Name` would throw. The reader itself never refuses a lone surrogate. The executor records any refusal-order difference found while porting as a ruling, and adds a Unity-only test for it (never a vector).
@@ -344,7 +347,7 @@ public static class LootPoolHash { public static string Compute(int lootTableVer
       - the canonical form is a fixed point (`Parse(canonical).CanonicalBytes` equals it).
     - `Every_invalid_vector_is_refused_with_its_code`: for each input, the code equals `.code.txt` without its final `\n`. The set of codes seen equals `ManifestCodes.All` minus `TooLarge`, so a lost vector fails the test.
     - `Vectors_10_11_12_share_02s_canonical_bytes`: the README's statement, checked.
-    - `A_body_over_65536_bytes_is_TooLarge`: built in the test like the backend's: the 02-full canonical bytes padded inside `buildRevision`'s place with spaces before the closing brace to 65,537 bytes. `TooLarge` wins over everything else.
+    - `A_body_over_65536_bytes_is_TooLarge`: the 02-full canonical bytes with spaces inserted before the final closing brace up to 65,537 bytes (otherwise a valid manifest). `TooLarge` wins over everything else.
     - `The_vector_folder_is_unchanged`: the folder's file set equals the dictionary's keys (no file added or removed, M13), and the SHA-256 of each file's bytes, listed in the dictionary, equals the file's. This pins "never silently modify the vectors". The executor fills the dictionary by hashing the files at `6bdc6ca` (`git show 6bdc6ca:<path> | sha256sum`), never from the working tree after a change.
   - `ManifestCodecTests` (Unity-only cases the vectors don't cover; each is one input and its expected code or bytes):
     - a BOM → `NotJson`; a comment → `NotJson`; a lone surrogate escape `"\ud800"` in `buildRevision` → `NotJson`;
@@ -482,7 +485,7 @@ public sealed class MissionItemLedger
     public LedgerEventResult Equip(string operativeId, string entryId);
     public LedgerCheck VerifyOperative(string operativeId, IReadOnlyList<RuntimeEntry> bag, RuntimeEquipment equipment);
     public LedgerCheck VerifyContainer(int containerIndex, IReadOnlyList<RuntimeEntry> contents);
-    public void ReportIntegrityFailure(string accountId, string code);
+    public void ReportIntegrityFailure(string accountId, string code);   // InvalidOperationException once that participant is frozen
     public ParticipantFacts Freeze(string accountId, IReadOnlyList<OperativeRuntimeState> operatives, IReadOnlyList<ContainerRuntimeState> containers);
     // OperativeRuntimeState(operativeId, bag entries, RuntimeEquipment); ContainerRuntimeState(containerIndex, entries)
     public bool IsFrozen(string accountId);
@@ -505,7 +508,7 @@ public sealed class OperativeFacts
 
 **`AddParticipant` refuses:**
 - an operative id or item id that isn't canonical Base58;
-- a duplicate operative id, slot or item id across the ledger;
+- a duplicate operative id, slot or item id across the ledger, or two stacks of one definition in one operative;
 - a slot outside 0..7;
 - an unknown definition;
 - an item whose definition is stackable, or a stack whose definition isn't;
@@ -645,7 +648,7 @@ public static class ManifestBuilder
 ```
 
 **`Build` steps:**
-1. **Check the header** with `CanonicalIds` (each failure throws `ManifestFormatException` with the code the codec would give for the written value: `NonCanonicalId` for ids and hashes, `BadValue` for the build revision, `NotInteger` for a negative number (written as `-n`), `OutOfBounds` for a number above its bound). `header.accountId == facts.AccountId`, and `facts` comes from `Freeze` (an unfrozen ledger has no `ParticipantFacts`, by construction).
+1. **Check the header** with `CanonicalIds` (each failure throws `ManifestFormatException` with the code the codec would give for the written value: `NonCanonicalId` for ids and hashes, `BadValue` for the build revision, `NotInteger` for a negative number (written as `-n`), `OutOfBounds` for a number outside its bounds, such as `lootTableVersion` 0). `header.accountId == facts.AccountId`, and `facts` comes from `Freeze` (an unfrozen ledger has no `ParticipantFacts`, by construction).
 2. **Map facts to `ResultManifestV1`:**
    - Base58 → `long` through `Base58Id.TryParse`;
    - integrity from `facts.Integrity`;
@@ -672,7 +675,7 @@ The fallback can rescue only a facts-level failure (for example a ledger output 
   - `The_same_inputs_give_the_same_bytes`: two independent ledgers fed the same events give byte-identical output;
   - `An_unfrozen_participant_cannot_be_built` (compile-time: `Build` takes `ParticipantFacts`, which only `Freeze` returns; the test asserts there is no public constructor, by reflection);
   - `Events_after_freeze_do_not_change_the_bytes` (Review Focus 5);
-  - `A_refused_string_fails_closed` (Review Focus 4): objective id `Extract`, a definition id `item medkit` reached through a crafted catalogue, a 65-character build revision and an uppercase attempt id each throw `ManifestFormatException` with the expected code, and nothing is returned;
+  - `A_refused_string_fails_closed` (Review Focus 4): objective id `Extract`, objective id `"extract\n"`, build revision `"r1\n"`, a definition id `item medkit` reached through a crafted catalogue, a 65-character build revision and an uppercase attempt id each throw `ManifestFormatException` with the expected code, and nothing is returned;
   - `A_known_mismatch_never_builds_as_ok`: facts with `LedgerMismatch` give `"integrity":"ledgerMismatch"` from `Build` and from every `BuildForPublication` path;
   - `The_fallback_restates_the_snapshot`: exact expected bytes, written in the test, for a two-operative snapshot with an equipped item and a stack (same bytes as ledger-v1 scenario 08, Task 7);
   - `BuildForPublication_uses_the_fallback_only_after_a_format_failure`: valid facts → `Normal`; facts with an unrepresentable entry (a crafted catalogue whose definition id breaks the format, reached only through the ledger) → `LedgerMismatchFallback`, diagnostics `["normal:BadValue", ...]`; a malformed objective id → `Failed`, diagnostics `["normal:BadValue", "fallback:BadValue"]`, no bytes;
@@ -744,7 +747,7 @@ The README states:
 - that each expected manifest is hand-written from the events (the authority, like the manifest-v1 vectors);
 - that a change to a scenario is a contract change needing the owner.
 
-- [ ] **Step 1: Write** the seven scenarios by hand, working each expected manifest out from its events on paper; note the arithmetic in the README per scenario. Then write both test classes.
+- [ ] **Step 1: Write** the eight scenarios by hand, working each expected manifest out from its events on paper; note the arithmetic in the README per scenario. Then write both test classes.
 - [ ] **Step 2: Run** `dotnet test Backend/tests/Accounts.Domain.Tests --filter "FullyQualifiedName~LedgerScenario"`. Expected: PASS (it needs only the backend and the hand-written files). A failure here is a scenario-authoring error, fixed in the scenario before any Unity work.
 - [ ] **Step 3: Run** `Tools/run-tests.sh EditMode "Blackglass.Tests.LedgerScenarioVectorTests"`. Expected: EXIT=0 if Tasks 4–6 are right. A mismatch is investigated against the hand-written manifest, never by copying Unity's output into the scenario.
 - [ ] **Step 4: Run** the backend domain suite (`dotnet test Backend/tests/Accounts.Domain.Tests`) and `Backend/tools/vm-test.sh --filter "FullyQualifiedName~LedgerFallbackQuarantineTests"`. Expected: all pass, with the count before plus the new tests.
@@ -773,7 +776,7 @@ public static class OutboxFileNames      // the agent's naming contract (OutboxS
     public const string TmpSuffix = ".manifest.tmp", WrittenSuffix = ".manifest.written", ReadySuffix = ".manifest.ready";
     public static string Tmp(string accountId); public static string Written(string accountId); public static string Ready(string accountId);
         // ArgumentException unless accountId is canonical Base58 (Base58Id.TryParse and Format round trip)
-    public static bool IsOutboxName(string name);   // ^[1-9A-HJ-NP-Za-km-z]{1,11}\.manifest\.(tmp|written|ready)$ and canonical Base58
+    public static bool IsOutboxName(string name);   // ^[1-9A-HJ-NP-Za-km-z]{1,11}\.manifest\.(tmp|written|ready)\z and canonical Base58 (explicit checks, no Regex)
 }
 public sealed class OutboxIOException : IOException
 {
@@ -839,7 +842,7 @@ public sealed class OutboxWorker : IDisposable
     public OutboxWorker(IOutboxDirectory directory);    // starts the background thread "blackglass-outbox"; owns the directory
     public PublicationHandle Submit(string accountId, byte[] canonicalBytes, string manifestHash);
     public bool Stop(TimeSpan drain);                   // see below; true when every job reached a resting stage in time
-    public void Dispose();                              // Stop(TimeSpan.Zero), then closes the directory once the thread ends
+    public void Dispose();                              // Stop(TimeSpan.Zero); never closes the directory itself (review I3)
 }
 ```
 
@@ -861,17 +864,18 @@ Nothing ever deletes, truncates or rewrites a `.written` or `.ready` file. A `.t
   - otherwise a new `Queued` handle. After `Stop`, `Submit` throws `InvalidOperationException`.
 - The thread takes jobs in submission order: a `Queued` job is written first (verifying `SHA-256(bytes)` against the hash, else `Failed("hash_mismatch")`), then any `Written` job whose publication is allowed is published.
 - Results: `Written`/`AlreadyWritten` → `Written` (`Durable`); `AlreadyPublished`/`Published` → `Published`; `Conflict` → `Conflict`; `OutboxIOException` → `Failed` with its code and errno; any other exception → `Failed("unexpected")`. The thread never dies on a job's exception. `Durable` stays false when a failure came before the directory fsync completed.
-- **No automatic retry.** A failed `fsync` may have dropped the dirty pages, so a later `fsync` proves nothing about the old write. A new `Submit` of the same bytes runs the protocol again: a fresh `.tmp` rewritten in full, or, when `.written` already exists, another directory fsync (`AlreadyWritten`). Stage 12 decides whether to resubmit.
+- **No automatic retry.** A failed `fsync` may have dropped the dirty pages, so a later `fsync` proves nothing about the old write. For a failed **directory** fsync the same caution applies: on ext4 it normally means the journal aborted and the filesystem went read-only, so the resubmit's directory fsync fails too; if it does succeed, `Durable` means "a directory fsync succeeded after the rename", which is the best evidence Linux offers. Stage 12 resubmits at most once and logs the first failure (review M2). A new `Submit` of the same bytes runs the protocol again: a fresh `.tmp` rewritten in full, or, when `.written` already exists, another directory fsync (`AlreadyWritten`). Stage 12 decides whether to resubmit.
 - `Cancel()`: a `Queued` job becomes `Cancelled` with nothing written. A job being written finishes its durable write (never half), then becomes `Cancelled` with `Durable` true. A `Written` job becomes `Cancelled` and is never published (its `.written` stays for the agent's exit recovery). A job being published finishes as `Published`. Terminal stages ignore it.
+- **Only the worker thread closes the directory**, as its very last action after its loop ends (review I3). `Stop` and `Dispose` only signal; neither ever closes the descriptor from the caller's thread, so a descriptor number can't be reused under a worker still in `fsync`. The thread is a background thread (`IsBackground = true`), so it never keeps the process alive.
 - `Stop(drain)`: no new submissions. The thread still completes every queued durable write and every allowed publication, then ends. `Stop` waits at most `drain` and returns whether the thread ended. A job still waiting for `AllowPublication` stays `Written`, and its `.written` is the result.
 
 **`PosixOutboxDirectory`** (Linux x86_64; every call through `ILibc`, so its loops are tested with a fake in EditMode and with the real libc on Linux):
 - **Open:** `open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)` (it follows the root-owned symlinks systemd's `DynamicUser=` layout puts under `/var/lib`), then `fstat` the descriptor: a directory (`not_a_directory`), owned by `geteuid()` (`wrong_owner`), with no group or other write bit (`writable_by_others`). The directory descriptor is kept, and every later call is relative to it, so a renamed or replaced path can't redirect a write.
-- **Probe and read:** `openat(dirfd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)` (`ENOENT` → `Absent`; `ELOOP` → `Unsafe`), then `fstat`: regular and `st_nlink == 1`, else `Unsafe`; `read` in a loop to the `fstat` size (bounded by `maxBytes`), `EINTR` retried.
-- **Write:** `openat(dirfd, name, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0644)`; `write` in a loop over a pinned buffer (`GCHandle`, no unsafe code), continuing after a partial write and retrying `EINTR`; `fsync`, retrying `EINTR`; `close`. A failed `write` or `fsync` closes the descriptor and throws (`write_failed`, `fsync_failed`). `close` is never retried: `EINTR` from `close` counts as closed (Linux has released the descriptor); any other `close` error is `close_failed`. The mode reaches the agent through the unit's `UMask=0022` and the `0755` state directory.
+- **Probe and read:** `openat(dirfd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)` (`ENOENT` → `Absent`; `ELOOP` → `Unsafe`; any other errno → `open_failed`), then `fstat`: regular and `st_nlink == 1`, else `Unsafe`; `read` in a loop to the `fstat` size (bounded by `maxBytes`), `EINTR` retried.
+- **Write:** `openat(dirfd, name, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0644)`, then `fstat` (regular, one link, owned by `geteuid()`, else `unsafe_entry`) and `fchmod(fd, 0644)`, since `O_CREAT`'s mode applies only to a new file (review M3); `write` in a loop over a pinned buffer (`GCHandle`, no unsafe code), continuing after a partial write and retrying `EINTR`; `fsync`, retrying `EINTR`; `close`. A failed `write` or `fsync` closes the descriptor and throws (`write_failed`, `fsync_failed`). `close` is never retried: `EINTR` from `close` counts as closed (Linux has released the descriptor); any other `close` error is `close_failed`. The mode reaches the agent through the unit's `UMask=0022` and the `0755` state directory.
 - **Rename:** `renameat2(dirfd, from, dirfd, to, RENAME_NOREPLACE)`, retrying `EINTR`. An existing target is `EEXIST`, so even a race can't replace a result (`rename_failed` with errno 17). A filesystem without `RENAME_NOREPLACE` (`EINVAL`) fails closed (`rename_failed`); ext4, the mission VM's filesystem, supports it.
 - **Directory sync:** `fsync(dirfd)`, retrying `EINTR` (`directory_sync_failed`).
-- **Calls** (all `libc.so.6`, `SetLastError = true`, errno from `Marshal.GetLastWin32Error()`): `open`, `openat`, `read`, `write`, `fsync`, `close`, `fstat`, `renameat2`, `geteuid`. `fstat` and `renameat2` need glibc 2.33 and 2.28; Ubuntu 24.04 has 2.39. The `struct stat` layout is x86_64's, as in the agent's `Unix.cs`. `openat`'s mode argument is passed as a fourth integer, which the x86_64 variadic calling convention accepts.
+- **Calls** (all `libc.so.6`, `SetLastError = true`, errno from `Marshal.GetLastWin32Error()`): `open`, `openat`, `read`, `write`, `fsync`, `close`, `fstat`, `fchmod`, `renameat2`, `geteuid`, `umask` (tests only). `size_t`/`ssize_t` are `IntPtr`/`UIntPtr`; names are passed as NUL-terminated ASCII `byte[]` (no string marshalling question on Mono). Any `openat` errno other than `ENOENT` (`Absent`) and `ELOOP` (`Unsafe`) is a failure (`open_failed`), never `Absent`; `read` or `write` returning 0 before the end is a failure, not another loop (review M4). `fstat` and `renameat2` need glibc 2.33 and 2.28; Ubuntu 24.04 has 2.39. The `struct stat` layout is x86_64's, as in the agent's `Unix.cs`. `openat`'s mode argument is passed as a fourth integer, which the x86_64 variadic calling convention accepts.
 
 **`FakeLibc`** (EditMode helper): in-memory files and descriptors behind `ILibc`. Scripted faults: a short `write`, `EINTR` on the next N calls of a function, `EIO` from `fsync` or `close`, `EEXIST`/`EINVAL` from `renameat2`, a symlink or FIFO entry, a directory with the wrong owner or mode.
 
@@ -896,7 +900,9 @@ Nothing ever deletes, truncates or rewrites a `.written` or `.ready` file. A `.t
     - **Retry after a failed directory sync (M4):** the first `SyncDirectory` fails; a second `WriteDurable` returns `AlreadyWritten` and the calls show a second `SyncDirectory`. The same for `AlreadyPublished`.
   - **`OutboxWorkerTests`** (real thread; every wait in a test is bounded, 5 s):
     - `Submit_returns_before_any_file_operation`: with a `FaultingOutboxDirectory` whose `WriteAndSync` blocks on a gate, `Submit` returns a `Queued` or `Writing` handle and no `.written` exists;
-    - `The_simulation_is_not_blocked_by_a_slow_fsync` (the responsiveness check): with `fsync` held on a gate, 1,000 simulated ticks each call `Status` on the handle; every call returns in under 5 ms, and the gate is still closed after the loop. Then the gate opens and the handle reaches `Written`;
+    - `The_simulation_is_not_blocked_by_a_slow_fsync` (the responsiveness check): with `WriteAndSync` held on a gate, 1,000 simulated ticks each call `Status` and `Submit` (another account) and all complete while the gate is still closed (the structural proof: the calls returned while the worker was blocked), with a generous 250 ms bound on the slowest call against Editor jitter. Then the gate opens and the handle reaches `Written`;
+    - `Dispose_while_the_worker_is_blocked_closes_nothing_early` (review I3): `Dispose` while `WriteAndSync` is held; release the gate; the file lands in the original directory, and the recorded calls show `Dispose` of the directory after the last file call;
+    - every test releases its gates and stops its worker in `TearDown`, so a failing test can't leave a blocked thread across a domain reload (review M5);
     - `Submit_copies_the_bytes` (changing the caller's array afterwards changes nothing on disk);
     - `Written_waits_for_AllowPublication`, then `Published` with `.ready`;
     - `AllowPublication_before_the_write_completes_publishes_after_it`;
@@ -908,7 +914,7 @@ Nothing ever deletes, truncates or rewrites a `.written` or `.ready` file. A `.t
     - `Stop_completes_queued_writes_and_allowed_publications`; `Stop_leaves_an_unreleased_result_written`; `Submit_after_Stop_throws`;
     - `An_unexpected_exception_does_not_kill_the_worker` (the next job still completes);
     - `No_backend_is_needed_to_preserve_a_result`: no `AllowPublication` at all; the `.written` holds the exact bytes from the moment the handle is `Written`.
-  - **Linux (D8, `Backend/tests/UnityCore.Linux.Tests`, xUnit on .NET 10):** the project compiles Core's `Outbox/*.cs` and `Ids/Base58Id.cs` by link (`Nullable` and implicit usings off, as Unity compiles them) and references `MissionHost.Agent`. With the real libc, in a fresh temporary directory (umask 0022):
+  - **Linux (D8, `Backend/tests/UnityCore.Linux.Tests`, xUnit on .NET 10):** the project compiles Core's `Outbox/*.cs`, `Ids/Base58Id.cs` and `Ids/CanonicalIds.cs` by link (`Nullable` and implicit usings off, as Unity compiles them; `TreatWarningsAsErrors` stays on, with any .NET 10 analyzer rule that a .NET Standard 2.1 source can't satisfy suppressed by name in the project file and listed in the ledger) and references `MissionHost.Agent`. Core uses only .NET Standard 2.1 APIs (`RuntimeInformation.IsOSPlatform`/`ProcessArchitecture`, `Marshal.GetLastWin32Error`, `SHA256.Create`, hand-written lowercase hex), never the agent's .NET-only ones (`OperatingSystem.IsLinux`, `GetLastPInvokeError`, `Convert.ToHexString`, `SHA256.HashData`). With the real libc, in a fresh directory on the `/work` volume (the VM's filesystem, not the container's overlay), after the fixture sets `umask(0022)` through libc:
     - a full write and publish through `OutboxWorker`, then read back with the agent's own `Unix.ReadUntrusted` and `OutboxScanner.Scan`: a regular file, one link, mode 0644, the exact bytes; `.tmp` ignored; `.written` relayable only with `includeWritten`; `.ready` relayable at once;
     - `RENAME_NOREPLACE` refuses an existing target, and the target's bytes are unchanged;
     - a planted symlink `.written` and a planted FIFO probe as `Unsafe` (the FIFO without blocking);
@@ -916,7 +922,7 @@ Nothing ever deletes, truncates or rewrites a `.written` or `.ready` file. A `.t
     - a `FaultingLibc` wrapper around the real libc forces partial writes and `EINTR` on every call once, and the file is still exact;
     - the directory fsync succeeds.
 
-    Run by `Backend/tools/vm-test.sh --unity-core`. The mode snapshots `Backend/` and `Assets/_Project/Scripts/Backend/Core/` and builds only this project (no change for the other modes). Its container has `--network none`, no database secrets and the same user, CPU, memory, capability and lock limits; NuGet packages come from the runner's cache. Because the project links files outside `Backend/`, it is **not** added to `Backend.sln`.
+    Run by `Backend/tools/vm-test.sh --unity-core` (review I2). The mode snapshots `Backend/` and `Assets/_Project/Scripts/Backend/Core/` into one tree id and syncs both to their repo-relative paths, so the links resolve. It then uses two containers, each with the runner's user, CPU, memory, capability and lock limits and **no database secrets or settings**: (1) restore and build this project only, in the existing networked container design (`--network container:<test cluster>`, the only route to the package feed); (2) run its tests with `--network none --no-restore --no-build`. Nothing changes for the other modes. Because the project links files outside `Backend/`, it is **not** added to `Backend.sln`.
 
     Passing it proves the code on CoreCLR, not Mono: Stage 12 must run the same operations in Unity's Linux Mono server player on the mission VM (`-outbox-selftest`, with the owner's go-ahead) before relying on them.
 - [ ] **Step 2: Run** `Tools/run-tests.sh EditMode "Blackglass.Tests.OutboxLocationTests;Blackglass.Tests.PosixOutboxDirectoryTests;Blackglass.Tests.OutboxWriterTests;Blackglass.Tests.OutboxWorkerTests"`. Expected: EXIT=1 (types missing).
@@ -950,7 +956,9 @@ No stored bytes, hash identities, item definitions, catalogue data or settled ou
     - `A_historical_catalogue_with_one_still_loads`: the same document's canonical bytes load through `GameCatalogue.Load` (its version is the hash of those bytes, unchanged).
   - `CatalogueHistoryTests` (integration):
     - `A_stored_catalogue_that_breaks_the_registration_rule_stays_readable`: the bytes inserted directly as history (superuser, as an older registration would have left them) → `LookupAsync` is `Found` with the same version; `RegisterAsync` of the same catalogue returns false and doesn't throw;
-    - `A_new_catalogue_that_breaks_the_rule_is_not_registered`: `RegisterAsync` throws `CatalogueRegistrationException`, and no row exists for its version.
+    - `A_new_catalogue_that_breaks_the_rule_is_not_registered`: a fresh consumable id (so the identity-kind check can't be what throws) at `maxStack` 1; `RegisterAsync` throws `CatalogueRegistrationException` whose message names the registration rule, and no row exists for its version (review M7).
+
+  Accepted limitation (review M7): `serve` keeps admitting under an already-registered version that breaks the rule. None exists today, and refusing would break the historical-compatibility ruling.
   - `CatalogueBuilderTests.Build_RefusesANonStackableConsumable`: a consumable asset with `maxStack` 1 → `incompatible:` and `a consumable must be stackable`.
 - [ ] **Step 2: Run** `dotnet test Backend/tests/Accounts.Domain.Tests --filter "FullyQualifiedName~CatalogueRegistrationRules"` (expected: build failure), `Tools/run-tests.sh EditMode "Blackglass.Tests.CatalogueBuilderTests"` (expected: EXIT=2, one failure) and `Backend/tools/vm-test.sh --filter "FullyQualifiedName~CatalogueHistoryTests"` (expected: the new test fails).
 - [ ] **Step 3: Implement** the rule, the `RegisterAsync` check and the exporter rule.
@@ -1072,7 +1080,7 @@ The owner approved the architecture and authorized implementation after this rev
   - Parse and canonicalize format v1, reproducing all 13 valid and 20 invalid vectors (bytes, hashes, codes), using only APIs of Unity's runtime (Task 2).
   - **Format validation is not settlement validation:** a local parse proves the bytes are a format-v1 manifest. It does not prove the admission snapshot, the loot pool, conservation or any other V-rule; only the backend's `ManifestValidator` judges those (Tasks 2, 6, 7).
   - A known ledger mismatch never produces `integrity: "ok"` (Tasks 4, 6).
-  - The minimal `ledgerMismatch` fallback restates only verified attempt metadata and the preserved admission snapshot, and is tested to be quarantined by the backend (Tasks 6, 7). When that isn't possible, the build fails closed with diagnostics; nothing is fabricated and quarantine is never assumed.
+  - The minimal `ledgerMismatch` fallback restates only verified attempt metadata, the authoritative result (outcome, sequence, elapsed time, objectives and who died, all known to the server independently of the item ledger) and the preserved admission snapshot, and is tested to be quarantined by the backend (Tasks 6, 7). Including the result is this plan's reading of "verified attempt metadata" (review M8). When that isn't possible, the build fails closed with diagnostics; nothing is fabricated and quarantine is never assumed.
 - **D3, shared ledger vectors: approved.** `Backend/contracts/ledger-v1/` with successful and integrity-failure cases; the backend reconstructs the snapshot, pool and expected state and runs its own parser and validator over the same bytes Unity produces. The validator is never weakened (Task 7).
 - **D4, receipts yes, retention no: approved.** The three receipt vectors are read; no retention or insurance selection in Unity; the retention salt never reaches the mission process (Task 3).
 - **D5, a pollable `INetAdmission`: approved.** Abstraction only; refusal codes and network messages unchanged; no FishNet change (Task 10).
@@ -1097,7 +1105,7 @@ How revision 1.1 answers each finding:
 
 | Finding | Change |
 |---|---|
-| I1 a blocking publisher | `ResultPublisher` replaced by the step-wise `ResultPublication` (Begin / OnNotice / Tick), driven by the main thread |
+| I1 a blocking publisher | `ResultPublisher` replaced by the step-wise `ResultPublication` (Begin / OnNotice / Tick), driven by the main thread (itself replaced in revision 2 by the I/O worker, D6) |
 | I2 no runnable Linux test | D8: a .NET 10 Linux test project on the VM runner, reading back through the agent's code; `libc.so.6`; a write loop without unsafe code; a Mono self-test obligation for Stage 12 |
 | I3 non-stackable consumables | D7 added |
 | I4 `INetAdmission` didn't fit the harness | shape-only decision (opaque account, owned-unit keys, capabilities); refusal-to-wire mapping; D5 revised |
@@ -1116,3 +1124,22 @@ How revision 1.1 answers each finding:
 | M12 inconsistencies | fixed (no `Compare`; five libc calls; get-only model; raw integer nodes; no double count; codes; receipt shapes; slot sorting by word) |
 | M13 vector file set | the folder's file set is pinned too |
 | M14 audit false positives | the audit matches names, not substrings |
+
+## Plan review (2026-10-19, independent reviewer, revision 2)
+
+0 Critical, 3 Important, 9 Minor, all applied in revision 2.1 before implementation (the owner's condition: no unresolved Critical or Important finding). The reviewer confirmed the vector counts and refusal order, that any V-code quarantines (`SettlementStore`) and that revalidation re-runs V14, that a snapshot-restating fallback trips only V14, that every registration path goes through `RegisterAsync` while stored versions keep loading through `GameCatalogue.Load`, that the unit file (`StateDirectory`, `StateDirectoryMode=0755`, `UMask=0022`, `DynamicUser`) agrees with the location and open checks, the glibc minimums, and the Stage 13 correction.
+
+| Finding | Change |
+|---|---|
+| I1 `$` anchors accept a trailing newline the backend's `\z` refuses | every pattern anchored with `\z`; predicates as explicit loops, no Regex; a trailing-`\n` refusal per predicate and in the builder test |
+| I2 `--unity-core` can't restore offline | restore and build in the existing networked container without secrets, test with `--network none --no-restore --no-build`; one tree id for both subtrees, synced repo-relative |
+| I3 `Dispose` could close the descriptor under the worker | only the worker closes the directory, as its last action; a test for it |
+| M1 links and .NET Standard 2.1 APIs | `CanonicalIds.cs` linked; the replacements named; analyzer suppressions by name |
+| M2 resubmit after a failed directory fsync | the meaning of `Durable` stated; at most one resubmit |
+| M3 `.tmp` mode | `fstat` and `fchmod(0644)` after the write open |
+| M4 libc details | other errnos are failures, a 0-byte read or write is a failure, `IntPtr` sizes, NUL-terminated names |
+| M5 test threads | background thread; gates released in `TearDown`; a structural responsiveness check with a generous bound |
+| M6 Linux test directory | on `/work`; `umask(0022)` set through libc |
+| M7 D7 tests | a fresh item id and the message asserted; the already-registered limitation recorded |
+| M8 fallback and ledger | the result's inclusion stated as this plan's reading; duplicate stacks refused; `ReportIntegrityFailure` after the freeze throws |
+| M9 consistency | eight scenarios; `CLAUDE.md` status; the review table note; the runtime-state types listed; bounds wording; the TooLarge test; the gated level named |
