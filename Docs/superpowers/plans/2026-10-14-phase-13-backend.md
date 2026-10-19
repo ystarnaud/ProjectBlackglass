@@ -334,7 +334,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 10: mission host agent
 
-**Status (2026-10-17):** planned only; the detailed plan is `2026-10-17-phase-13-stage10-mission-agent.md` (revision 1), awaiting the owner's decisions A10-D1 to A10-D8. Where it differs from this outline, it wins.
+**Status (2026-10-19): accepted by the owner. Code-complete and infrastructure-validated for trusted-stub workloads**, merged into `main` and pushed. The detailed plan is `2026-10-17-phase-13-stage10-mission-agent.md` ("Final acceptance" lists the evidence: Phases A–D and the mid-mission reboot test on `bg-dev-mission01`). Where it differs from this outline, it wins. Real Unity mission hosting is not validated: Stage 12's B24 (the assigned per-slot TCP gameplay port, enforced on the mission VM) remains a blocking requirement. Minor follow-up: signalled-exit logging (the agent should log a killed mission's signal ahead of systemd's `result=success`).
 
 **Touches:**
 - `Backend/src/MissionHost.Agent/` and its tests;
