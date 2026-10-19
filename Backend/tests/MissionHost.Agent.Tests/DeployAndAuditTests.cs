@@ -238,6 +238,28 @@ public partial class DeployAndAuditTests
         Assert.Contains("check \"the verification directory is root:blackglass-agent 2750\"", verify, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Install_never_changes_the_owner_or_mode_of_a_directory_it_does_not_own()
+    {
+        // Found at the mission VM's Phase A7: `install -d -m 0755 -o root -g root ... /etc/polkit-1/rules.d` reset polkitd's
+        // root:polkitd 0750 directory to root:root 0755. install -d, chmod and chown name only Blackglass's own paths; a system
+        // configuration directory is created only when absent and otherwise left exactly as its package made it.
+        string[] owned = ["/opt/blackglass/agent", "/opt/blackglass/mission", "/etc/blackglass", "/etc/blackglass-stub", "/var/lib/blackglass", "/var/lib/private/blackglass-outbox", "/var/log/blackglass", "/run/blackglass"];
+        var install = Deploy("install.sh");
+        foreach (Match command in Regex.Matches(install, @"(?m)\b(?:install\s+-d|chmod|chown|chgrp)\b[^\n;|&]*"))
+            foreach (Match path in Regex.Matches(command.Value, @"(?<=\s)/[^\s""']+"))
+                Assert.True(owned.Any(o => path.Value == o || path.Value.StartsWith(o + "/", StringComparison.Ordinal)), $"install.sh changes {path.Value}: {command.Value}");
+        Assert.Contains("for dir in /etc/sysusers.d /etc/tmpfiles.d /etc/polkit-1/rules.d; do\n  [[ -d \"$dir\" ]] || install -d -m 0755 -o root -g root \"$dir\"\ndone",
+            install.Replace("\r\n", "\n"), StringComparison.Ordinal);
+        // tmpfiles.d adjusts an existing directory too: only Blackglass's own, plus systemd's /var/lib/private at systemd's own 0700 root.
+        foreach (var line in Deploy(Path.Combine("tmpfiles.d", "blackglass.conf")).Split('\n').Select(l => l.Trim()).Where(l => l.StartsWith("d ", StringComparison.Ordinal)))
+        {
+            var fields = Regex.Split(line, @"\s+");
+            if (fields[1] == "/var/lib/private") Assert.Equal(["0700", "root", "root"], fields[2..5]);
+            else Assert.True(owned.Any(o => fields[1] == o || fields[1].StartsWith(o + "/", StringComparison.Ordinal)), $"tmpfiles.d changes {fields[1]}");
+        }
+    }
+
     /// <summary>Runs a copy of slot-guard whose /usr/bin/systemctl (list-units: the listing; show: the unit's dynamic uid) and
     /// /usr/bin/ps are fakes printing the given text.</summary>
     [System.Runtime.Versioning.SupportedOSPlatform("linux")]

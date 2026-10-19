@@ -51,8 +51,11 @@ if [[ -e /etc/blackglass/agent/agent.json ]]; then
     || { echo "refusing: agent.json's portBase and localCapacity differ from --port-base and --slots" >&2; exit 78; }
 fi
 
-# 1. users and directories (a minimal system may have neither configuration directory yet)
-install -d -m 0755 -o root -g root /etc/sysusers.d /etc/tmpfiles.d /etc/polkit-1/rules.d
+# 1. users and directories. A minimal system may lack a configuration directory; one that exists belongs to its package (polkitd
+# ships /etc/polkit-1/rules.d root:polkitd 0750) and keeps its owner and mode.
+for dir in /etc/sysusers.d /etc/tmpfiles.d /etc/polkit-1/rules.d; do
+  [[ -d "$dir" ]] || install -d -m 0755 -o root -g root "$dir"
+done
 install -m 0644 -o root -g root "$here/sysusers.d/blackglass.conf" /etc/sysusers.d/blackglass.conf
 systemd-sysusers /etc/sysusers.d/blackglass.conf
 install -m 0644 -o root -g root "$here/tmpfiles.d/blackglass.conf" /etc/tmpfiles.d/blackglass.conf
