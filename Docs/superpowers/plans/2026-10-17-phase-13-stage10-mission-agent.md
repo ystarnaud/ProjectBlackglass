@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status (2026-10-19): accepted by the owner. Stage 10 is code-complete and infrastructure-validated for trusted-stub workloads** (see "Final acceptance" at the end). Real Unity mission hosting is not validated: Stage 12's B24 still blocks it.
+
 **Status (2026-10-17):** revision 2. Implementation is authorized under the owner's rulings below, with an infrastructure checkpoint: nothing changes `bg-dev-mission01`, `bg-dev-services01`, SSH, a firewall, Docker networking or the live accounts stack until the owner separately authorizes it. Revision 1 (the recommendations) follows the rulings unchanged.
 
 **Goal:** an unprivileged agent on `bg-dev-mission01` that:
@@ -1507,7 +1509,7 @@ Facts it recorded:
 **Staged** (no reload yet):
 - `useradd --system --user-group --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin bg-api-tunnel`: uid 999, group 987 only, password locked (`!`);
 - `/etc/ssh/authorized_keys.d/` (root 0755, new);
-- `/etc/ssh/authorized_keys.d/bg-api-tunnel` (root 0644, one line): `restrict,port-forwarding,permitopen="127.0.0.1:5080",command="/bin/false"`, the mission VM's existing tunnel public key (`SHA256:KkqRiqrnwLEHx19FthSGAa+6G4ad8UUU4Dfl8D9dmrg`), and the comment;
+- `/etc/ssh/authorized_keys.d/bg-api-tunnel` (root 0644, one line): `restrict,port-forwarding,permitopen="127.0.0.1:5080",command="/bin/false"`, the mission VM's existing tunnel public key (`SHA256:KkqRiqrn…`), and the comment;
 - `/etc/ssh/sshd_config.d/60-bg-api-tunnel.conf` (root 0644): byte-identical to `tunnel/services-vm-sshd.conf` at `37aa0bc` (SHA-256 `e45917ad…`).
 
 **Checks, all passed before the reload:**
@@ -2028,3 +2030,22 @@ All duplicate checks were 0: ledger, settlements, insurance, collected pool line
   - The tunnel stays enabled and running. Final off-host probes: 28/28.
 
 **Status:** Stage 10's infrastructure validation is complete for trusted-stub workloads. Real Unity mission workloads stay blocked until Stage 12's B24 (an enforced per-slot TCP bind restriction) is demonstrated on the mission VM.
+
+## Final acceptance (2026-10-19, the owner)
+
+The owner accepted Stage 10 as complete for trusted-stub workloads. Acceptance evidence (each recorded above):
+
+- **Phase A:** the stub installation and real-VM isolation verification on `bg-dev-mission01` (`verify.sh` 88/88 with the BPF note; 88/88 again on kernel 6.8.0-147 after the installer correction `37aa0bc`) and the reboot validation (`verify.sh --after-restart` 9/9, empty credential store).
+- **Phase B:** the restricted SSH identity on `bg-dev-services01` (public key only, one permitted forward to 127.0.0.1:5080, no shell; the admin's access unchanged).
+- **Phase C:** the tunnel, repeated after the identity correction (`7cc662d`): its session runs as uid and gid 47080 on the services VM, separate from PostgreSQL's uid 999; the retired uid-999 account is refused; `verify-tunnel.sh` and `services-vm-check.sh` pass.
+- **Phase D:** nine non-reboot integration scenarios against a throwaway `bg-e2e` stack with the real agent, systemd, broker and tunnel, with exactly-once effects audited.
+- **The final mid-mission reboot test:** both recovery cases passed.
+  - Mission A (no durable result): SIGTERM confirmed by `record-exit`, a complete outbox scan, exactly one infrastructure void and one refund.
+  - Mission B (a durable unpublished `.manifest.written`): the file survived the reboot, was relayed unchanged and unrenamed, and settled successfully once.
+- **No duplicate effects** (ledger, settlements, insurance, pool lines, minted items, refunds; no unit launched twice) and **no unexpected external network exposure** (off-host probes 28/28 throughout; nothing listens on 7800–7807; the tunnel listens on 127.0.0.1:5081 only).
+- **PostgreSQL's existing test database was untouched** (identity, files, container and counters identical before and after).
+- **Cleanup completed:** the agent is disabled, the temporary host secret is removed, every `bg-e2e` resource is removed, and the tunnel is enabled and running.
+
+**Status: Stage 10 is code-complete and infrastructure-validated for trusted-stub workloads.** Real Unity mission hosting is **not** validated. **Stage 12's B24 remains a blocking requirement:** the assigned per-slot TCP gameplay port must be enforced on the actual mission VM before any real Unity workload runs there. Until then, only the trusted stub runs on `bg-dev-mission01`.
+
+**Minor follow-up (not blocking):** signalled-exit logging. systemd reports a unit stopped by SIGTERM as `$SERVICE_RESULT=success`, so the exit record's `result=` field and the agent's log line say `success` for a killed mission, while `code=killed status=TERM` correctly carries the signal. Settlement is unaffected (the agent decides from code and status). The follow-up: have the agent log a derived outcome (for example `signalled TERM`) ahead of systemd's raw result, so a reader can't mistake a killed mission for a clean exit. It changes no unit template and no wire format.
