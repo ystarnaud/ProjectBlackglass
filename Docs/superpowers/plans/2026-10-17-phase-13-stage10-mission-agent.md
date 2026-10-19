@@ -1723,3 +1723,121 @@ A new host account (on either VM) takes a fixed id after the same checks. A cont
 8. Repeat step 1's PostgreSQL record: it must be unchanged.
 
 If any step can't be performed safely, stop: no forced account change.
+
+## Identity correction applied and Phase C repeated (2026-10-19; the tunnel is enabled and running)
+
+The owner authorized the identity correction (above) and a repeat of Phase C. Phase D, the agent, a host secret, a backend registration, the live accounts stack, `bg-e2e`, Stage 11 and real Unity missions stay out of scope. Stage 12's B24 stays a hard requirement before real Unity mission workloads.
+
+### Repository (`7cc662d`, merged into `main` and pushed)
+
+- **Content:** the files listed under "Tunnel identity correction".
+- **Tests:**
+  - **RED:** 4 tests failed against `37aa0bc`'s templates, then 2 against the first review draft.
+  - **GREEN:** the mission host agent suite passed 254/254 on the VM runner, last on exactly the committed `Backend/` tree `73a5ee4…`.
+- **Independent security review:** 0 Critical, 3 Important, 10 Minor.
+  - **Fixed:**
+    - the journal window is now an absolute instant (`@<epoch>`), since a zone-less time would be read in the VM's local zone;
+    - the retired account's block also sets `HostbasedAuthentication no` and `GSSAPIAuthentication no`, and it is checked from a second source address, along with its locked password and `nologin` shell;
+    - the PostgreSQL probe proves it runs as 47080 (positive control) and checks only the database volumes and the password files;
+    - the allowed destination's check requires that the request was actually made;
+    - "no command" requires the forced command's exit status 1;
+    - reaped pids are never signalled again;
+    - more `sshd -T` keys are checked;
+    - the drop-in may hold no top-level directive;
+    - the read-only check's forbidden-command list is wider;
+    - the docs add `userdel -f`.
+  - **Declined:** `usermod -e 1` on the retired account. The owner ruled that it not be modified while PostgreSQL runs under its uid. It holds no usable credential (locked password, key file removed, no home), and sshd offers it no method.
+
+### Services VM
+
+The admin session was held open throughout, as a root shell fed by `tail -f`. It was closed only after the reload and a new admin login.
+
+1. **Before (05:26 UTC):**
+   - **PostgreSQL:**
+     - `blackglass-testdb-postgres-1`: image `2d2b8998…`, started 2026-10-14T17:43:47Z, 0 restarts, healthy, private IPC;
+     - 6 host processes as 999:999;
+     - the data volume `_data` is 999:999 0700, and every entry under it is 999:999 (1,285 files at 0600, 28 directories at 0700);
+     - the three password files are 999:999 0400, under root 0700 directories; one combined hash.
+   - **SSH:** the global `sshd -T`, the admin's `sshd -T -C`, and the admin's identity and sudo rights recorded; `sshd_config`, `sshd_config.d` and `authorized_keys.d` backed up to `/var/tmp/bg-stage10/ssh-backup-c2` (root 0700).
+2. **Choosing 47080:** no passwd or group entry, no process, no file owner, no container identity, no subordinate range. `/etc/sysusers.d` did not exist on this Debian 13; it was created (root 0755) only because it was absent. `systemd-sysusers` created `bg-api-tunnel-v2`:
+   - uid and gid 47080, groups 47080 only;
+   - `/nonexistent`, `/usr/sbin/nologin`;
+   - password `!*`.
+3. **Staging (two attempts stopped safely, then a third passed):**
+   - Each failed attempt restored the previous SSH files before any reload: the running sshd never saw them, and `sshd -t` stayed clean.
+   - Both failures came from the isolation check being too broad:
+     - first, it included every uid-999 path under `/opt/blackglass`, which caught the VM test runner's world-readable results (`test-out/`, 0755, written as uid 999);
+     - then the pattern `*secrets*` matched the script `make-secrets.sh`.
+   - Neither path is PostgreSQL's. The check was narrowed (the review asked for the same).
+   - The staged files:
+     - `/etc/ssh/authorized_keys.d/bg-api-tunnel-v2`: root 0644, the same key line, `SHA256:KkqRiqrn…`;
+     - the new drop-in (`f5461862…`);
+     - the old key file moved into the backup, revoked.
+4. **Checks before the reload, all ok:**
+   - `sshd -t`;
+   - `services-vm-check.sh`: the account, PostgreSQL isolation including `/proc/<pid>/root` and `environ`, the effective restrictions, and the retired account allowing no method from the mission VM or from another address;
+   - identical to step 1: the global `sshd -T`, the admin's `sshd -T -C`, and the admin's identity and sudo rights (`(ALL) NOPASSWD: ALL`).
+5. **Reload** (05:33:53 UTC): a SIGHUP, listener pid 712 unchanged, no error. A new, separate admin login and `sudo -n` succeeded.
+
+### Mission VM
+
+- **The client configuration:** `/etc/blackglass/tunnel/ssh_config` was re-rendered from `7cc662d`'s template for this host. The diff is exactly the new comment line and `User bg-api-tunnel-v2`. It stays root:root 0644, LF only, `d970a267…`.
+- **The retired account, with the real tunnel key:** the server offered no method (`Authentications that can continue:` empty), then `Permission denied ()`, rc 255.
+- **The new account:** "is known and matches the ED25519 host key", then `Authenticated … using "publickey"`.
+
+### Phase C repeated
+
+- **Before:**
+  - **Mission VM:** equal to its state after the first Phase C stop, apart from the client configuration's hash. The tunnel and the agent are disabled and inactive, and the broker's socket is active. Nothing listens on 5081, 7770 or 7800–7807, and there is no mission unit.
+  - **Services VM:** the counter-free firewall is byte-identical to Phase B's.
+  - **Off-host probe:** only 22 answers on either VM.
+- **The start:** `systemctl enable --now blackglass-tunnel.service` at 05:36:33 UTC. `verify-tunnel.sh` exited 0, with no FAIL:
+  - **Process:** main pid 13612; `/usr/bin/ssh` with exactly the unit's command line; uid and gid 987:987 in every field; no capabilities.
+  - **Listener:** exactly one TCP listener, 127.0.0.1:5081, and no IPv6 one. `/proc/net/tcp` gives `0100007F:13D9` with uid 987, and the socket's inode is held by the main pid. The process is connected to the services VM.
+  - **Host key and commands:**
+    - the pinned host key matched;
+    - an unknown key and a different key were refused (rc 255);
+    - a command ended with the forced command's failure (rc 1) and no output.
+  - **Forwards:**
+    - a remote forward got "remote port forwarding failed";
+    - local forwards to 127.0.0.1:22, 127.0.0.1:55432, `localhost:5080` and 192.0.2.1:80, and a SOCKS CONNECT to 127.0.0.1:22: each local test listener appeared, a real connection went through it, and the server answered "administratively prohibited", with nothing coming through;
+    - the Docker socket: the open failed;
+    - the allowed 127.0.0.1:5080: requested, and "connect failed: Connection refused" (no API runs, as expected before Phase D).
+  - **TTY and X11:** refused.
+  - **Agent forwarding and tunnel devices:** recorded as notes, not observed refusals. OpenSSH sends no reply to an agent-forwarding request, and the client can't open a tunnel device; the server side is in `services-vm-check.sh`.
+- **The services VM's side** (`services-vm-check.sh --expect-session --since @1792388199`, all ok):
+  - **The session runs under the new identity:** the tunnel's session process is `sshd-session: bg-api-tunnel-v2` running as **47080:47080** (its `[priv]` monitor runs as root, as usual). No sshd process runs as 999; only PostgreSQL's 6 processes do.
+  - **The server's log:** one denial each for 127.0.0.1:22 (twice: the local test and the SOCKS test), 127.0.0.1:55432, `localhost:5080` and 192.0.2.1:80, and `refused streamlocal port forward … /var/run/docker.sock`. All 14 tunnel logins were `bg-api-tunnel-v2` with `SHA256:KkqRiqrn…`, and none was the retired account.
+- **Controlled restart:** new main pid 14051, the old one gone. `verify-tunnel.sh` exited 0 again, and the mission VM's running services are unchanged.
+- **Exposure after the start:**
+  - two off-host rounds against both VMs: only 22 answers; 5080, 5081, 5432, 55432, 7770 and 7800–7807 are closed;
+  - a capture on the mission VM saw 120 SYNs, 120 resets and no SYN-ACK.
+- **After:**
+  - **Mission VM:** the only differences are the 5081 listener and the tunnel being enabled and running. `/opt/blackglass/server` is unchanged (content and metadata hashes), the agent is disabled and inactive, and there is no mission unit.
+  - **Services VM:**
+    - the only new items are `user@47080.service` (`pam_systemd`'s per-user manager for the tunnel's session) and the tunnel's established connection;
+    - listeners, containers and the counter-free firewall are unchanged;
+    - PostgreSQL's record equals the one from before any change, apart from the new 47080 lookup line: same start time, 0 restarts, healthy, same ownership counts and modes, same password-file hash.
+  - **Admin access:** new admin logins work on both VMs.
+
+### The 5080 probe anomaly
+
+- **The target:** the alias `bg-dev-mission01` is a static IPv4 literal, with no conditional `Match` or `exec` in the PC's ssh configuration, so the probe was IPv4 only.
+- **The path:** the PC leaves through its Ethernet interface (a private address behind a gateway), not through Tailscale. There is no proxy or port proxy, and Windows Defender is the only security product. The mission VM answers on `eth0`; it has no nftables, iptables or DNAT rules.
+- **Methods:** `bash /dev/tcp` (the probe's own test, 30 attempts), `curl` (30) and .NET `TcpClient` (30), against 5079 (a control), 5080 and 5081. Every attempt was closed. One `curl` attempt hit its 3-second connect timeout: a Windows refusal takes about 2.3 s, because Windows retries the SYN after each reset.
+- **Ruled out:** a `timeout` firing mid-connect always gave exit 124 ("closed"), in 50 runs, including a black-holed address.
+- **The capture:** 568 SYNs to 5079, 5080 and 5081 got 568 resets and no SYN-ACK, from one source (the PC).
+- **A second vantage point:** from the services VM, both IPv4 and the mission VM's global IPv6 show only 22 open.
+- **Conclusion:** no listener and no forwarding path exists; the single earlier "open" result was not reproduced and remains unexplained. No capture was running at the time, so a middlebox on the routed path can't be confirmed or excluded.
+
+**Evidence:**
+- mission VM `/root/bg-stage10/evidence-c2/`;
+- services VM `/var/tmp/bg-stage10/evidence-c2/`, with the SSH backup in `/var/tmp/bg-stage10/ssh-backup-c2`;
+- address-redacted local copies, the scripts and the review.
+
+**Remaining items:**
+- the retired `bg-api-tunnel` account (uid 999) stays until no process uses uid 999;
+- the VM test runner writes its results as uid 999;
+- the services VM's public port 22 keeps receiving brute-force attempts.
+
+**Next:** Phase D needs the owner's separate approval.
