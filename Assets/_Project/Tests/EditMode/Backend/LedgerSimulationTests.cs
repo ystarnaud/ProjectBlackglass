@@ -21,18 +21,23 @@ namespace Blackglass.Tests
         ItemCatalogue catalogue;
         LedgerCatalogue ledgerCatalogue;
 
-        T Track<T>(T o) where T : Object { made.Add(o); return o; }
-
         [SetUp]
         public void SetUp()
         {
-            catalogue = Track(ItemCatalogue.Create(
-                Track(ItemDefinition.Create(Rifle, "Rifle", ItemCategory.Weapon, ItemSlot.Weapon)),
-                Track(ItemDefinition.Create(Vest, "Vest", ItemCategory.Armor, ItemSlot.Armor)),
-                Track(ItemDefinition.Create(Boots, "Boots", ItemCategory.Utility, ItemSlot.Utility)),
-                Track(ItemDefinition.Create(Kit, "Kit", ItemCategory.Consumable, ItemSlot.None, maxStack: 3, healAmount: 10)),
-                Track(ItemDefinition.Create(Charm, "Charm", ItemCategory.Utility, ItemSlot.None))));
+            catalogue = UnityCatalogue(made);
             ledgerCatalogue = MissionItemLedgerTests.TestCatalogue();
+        }
+
+        /// <summary>The test definitions as real ItemDefinitions; every created object is added to <paramref name="made"/> for TearDown.</summary>
+        internal static ItemCatalogue UnityCatalogue(List<Object> made)
+        {
+            T Keep<T>(T o) where T : Object { made.Add(o); return o; }
+            return Keep(ItemCatalogue.Create(
+                Keep(ItemDefinition.Create(Rifle, "Rifle", ItemCategory.Weapon, ItemSlot.Weapon)),
+                Keep(ItemDefinition.Create(Vest, "Vest", ItemCategory.Armor, ItemSlot.Armor)),
+                Keep(ItemDefinition.Create(Boots, "Boots", ItemCategory.Utility, ItemSlot.Utility)),
+                Keep(ItemDefinition.Create(Kit, "Kit", ItemCategory.Consumable, ItemSlot.None, maxStack: 3, healAmount: 10)),
+                Keep(ItemDefinition.Create(Charm, "Charm", ItemCategory.Utility, ItemSlot.None))));
         }
 
         [TearDown]
@@ -150,59 +155,69 @@ namespace Blackglass.Tests
             var actions = 0;
             for (var seed = 1; seed <= 200; seed++)
             {
-                var random = new Random(seed);
-                var nextItem = 100L;
-                var snapshot = new List<OperativeSnapshot>();
-                var capacity = 3 + random.Next(6);
-                foreach (var slot in Enumerable.Range(0, 1 + random.Next(3)))
-                {
-                    var items = new List<(string, string)>();
-                    string weapon = null, armor = null, utility = null;
-                    foreach (var definition in new[] { Rifle, Vest, Boots, Charm })
-                    {
-                        if (random.Next(2) == 0) continue;
-                        var id = Base58Id.Format(nextItem++);
-                        items.Add((id, definition));
-                        if (random.Next(2) == 0) continue;
-                        if (definition == Rifle) weapon = id; else if (definition == Vest) armor = id; else if (definition == Boots) utility = id;
-                    }
-                    var kits = random.Next(4);
-                    capacity = Math.Max(capacity, items.Count + (kits > 0 ? 1 : 0));
-                    snapshot.Add(Op(Base58Id.Format(10 + slot), slot, items.ToArray(), kits, weapon, armor, utility));
-                }
-                var sim = Sim(capacity, snapshot.ToArray());
-                foreach (var index in Enumerable.Range(0, 1 + random.Next(4)))
-                    sim.FillContainer(index, Enumerable.Range(0, 1 + random.Next(4))
-                        .Select(_ => Definitions[random.Next(Definitions.Length)]).Select(d => (d, d == Kit ? 1 + random.Next(5) : 1)).ToList());
-                var containerCount = sim.ContainerIndexes.Count();
-                var operativeIds = snapshot.Select(s => s.OperativeId).ToList();
-                var steps = random.Next(41);
-                for (var step = 0; step < steps; step++)
-                {
-                    var op = operativeIds[random.Next(operativeIds.Count)];
-                    switch (random.Next(3))
-                    {
-                        case 0:
-                            var index = random.Next(containerCount + 1); // sometimes an unknown container
-                            sim.Collect(op, index, random.Next(Math.Max(1, sim.LinesIn(index)) + 1), 1 + random.Next(4));
-                            break;
-                        case 1:
-                            sim.Use(op, Definitions[random.Next(Definitions.Length)]);
-                            break;
-                        default:
-                            var bag = sim.BagOf(op).Entries;
-                            if (bag.Count > 0) sim.Equip(op, bag[random.Next(bag.Count)].InstanceId);
-                            break;
-                    }
-                    actions++;
-                    sim.AssertConsistent();
-                }
+                var sim = RandomMission(seed, catalogue, ledgerCatalogue, ref actions);
                 var facts = sim.Freeze();
                 Assert.That(facts.Integrity, Is.EqualTo(ManifestIntegrity.Ok), "seed " + seed + ": " + string.Join(",", facts.FailureCodes));
-                Conservation.Check(snapshot, facts, sim.Pool, ledgerCatalogue);
+                Conservation.Check(sim.Snapshot, facts, sim.Pool, ledgerCatalogue);
             }
             Assert.That(actions, Is.GreaterThan(2000), "the runs did real work");
             Assert.That(clock.Elapsed.TotalSeconds, Is.LessThan(10));
+        }
+
+        /// <summary>
+        /// One reproducible random mission (System.Random(seed)): 1-3 operatives with random snapshots, 1-4 containers filled
+        /// from random plans, 0-40 random actions including ones Unity refuses, AssertConsistent after every action. Not frozen.
+        /// </summary>
+        internal static LedgerSimulation RandomMission(int seed, ItemCatalogue catalogue, LedgerCatalogue ledgerCatalogue, ref int actions)
+        {
+            var random = new Random(seed);
+            var nextItem = 100L;
+            var snapshot = new List<OperativeSnapshot>();
+            var capacity = 3 + random.Next(6);
+            foreach (var slot in Enumerable.Range(0, 1 + random.Next(3)))
+            {
+                var items = new List<(string, string)>();
+                string weapon = null, armor = null, utility = null;
+                foreach (var definition in new[] { Rifle, Vest, Boots, Charm })
+                {
+                    if (random.Next(2) == 0) continue;
+                    var id = Base58Id.Format(nextItem++);
+                    items.Add((id, definition));
+                    if (random.Next(2) == 0) continue;
+                    if (definition == Rifle) weapon = id; else if (definition == Vest) armor = id; else if (definition == Boots) utility = id;
+                }
+                var kits = random.Next(4);
+                capacity = Math.Max(capacity, items.Count + (kits > 0 ? 1 : 0));
+                snapshot.Add(Op(Base58Id.Format(10 + slot), slot, items.ToArray(), kits, weapon, armor, utility));
+            }
+            var sim = new LedgerSimulation(catalogue, ledgerCatalogue, "JG", snapshot, capacity);
+            foreach (var index in Enumerable.Range(0, 1 + random.Next(4)))
+                sim.FillContainer(index, Enumerable.Range(0, 1 + random.Next(4))
+                    .Select(_ => Definitions[random.Next(Definitions.Length)]).Select(d => (d, d == Kit ? 1 + random.Next(5) : 1)).ToList());
+            var containerCount = sim.ContainerIndexes.Count();
+            var operativeIds = snapshot.Select(s => s.OperativeId).ToList();
+            var steps = random.Next(41);
+            for (var step = 0; step < steps; step++)
+            {
+                var op = operativeIds[random.Next(operativeIds.Count)];
+                switch (random.Next(3))
+                {
+                    case 0:
+                        var index = random.Next(containerCount + 1); // sometimes an unknown container
+                        sim.Collect(op, index, random.Next(Math.Max(1, sim.LinesIn(index)) + 1), 1 + random.Next(4));
+                        break;
+                    case 1:
+                        sim.Use(op, Definitions[random.Next(Definitions.Length)]);
+                        break;
+                    default:
+                        var bag = sim.BagOf(op).Entries;
+                        if (bag.Count > 0) sim.Equip(op, bag[random.Next(bag.Count)].InstanceId);
+                        break;
+                }
+                actions++;
+                sim.AssertConsistent();
+            }
+            return sim;
         }
     }
 }
