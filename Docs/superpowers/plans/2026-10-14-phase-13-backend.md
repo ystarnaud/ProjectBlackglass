@@ -367,7 +367,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 11: Unity backend core (library-free)
 
-**Status (2026-10-19):** detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md` (revision 1.1, after an independent review), awaiting the owner's rulings D1–D8. Implementation is not authorized. Where it differs from this outline, it wins.
+**Status (2026-10-19):** detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md`, revision 2: the owner ruled on D1–D8 and authorized implementation on `phase13-stage11` after an independent review of revision 2 (no merge, push or deployment without the owner). Where it differs from this outline, it wins.
 
 **Touches:**
 - `Assets/_Project/Scripts/Backend/Core/` (new);
@@ -433,7 +433,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - register (process credential), configure, generate, ready;
 - the start hold (`NotStarted`) with idempotent start retries;
 - the heartbeat;
-- the outcome freeze → outbox → `NetResultRecordedMessage` → status poll → `NetResultConfirmedMessage` → exit.
+- the outcome freeze → the durable outbox write (`.written`, on Stage 11's I/O worker) → the bounded `recorded` notice (any answer or the time bound ends it) → publication (`.ready`) → `NetResultRecordedMessage` (saved, pending) → exit. **The process never polls settlement** (S9-B6, which supersedes this outline's earlier "status poll → `NetResultConfirmedMessage`"): the authenticated player client polls its own receipt (`GET /v1/attempts/{id}/receipt`), and durable publication never waits for the backend.
 
 **Tests:**
 - EditMode with an HTTP seam: retries, a lost start response, 409 handling;

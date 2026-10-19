@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-19):** revision 1.1, **plan only, for the owner's review. Implementation is not authorized.** Branch `phase13-stage11-plan` from `main` at `6bdc6ca` (Stage 10 accepted and closed). The decisions in "Decisions for the owner" (D1–D8) need rulings first. Revision 1.1 applies the independent plan review (0 Critical, 5 Important, 14 Minor; see "Plan review" at the end).
+**Status (2026-10-19):** revision 2. The owner approved the architecture and ruled on D1–D8 ("Owner rulings" near the end). This revision applies the rulings' corrections: D2 (format versus settlement validation, the truthful `ledgerMismatch` fallback, fail-closed builds), D6 (every file operation on a dedicated I/O worker, the checked `$STATE_DIRECTORY`, a no-replace rename, the libc set the requirements need) and D7 (consumables must stack for new registrations and exports, with stored catalogues still readable). It also corrects the staged plan's Stage 13 settlement poll. Implementation is authorized on `phase13-stage11` once an independent review of this revision leaves no Critical or Important finding. No merge, push or deployment without the owner. Revision 1.1 (`2777623`) applied the first plan review (0 Critical, 5 Important, 14 Minor).
 
 **Goal:** a plain C# core inside the Unity project that later stages (12, 13, 14, 16) build on:
 - the backend DTOs;
@@ -15,7 +15,7 @@
 Nothing here runs in a scene yet. No gameplay, networking, scene, prefab, HUD, input or project-settings file changes.
 
 **Architecture:**
-- New assembly `Blackglass.Backend.Core` in `Assets/_Project/Scripts/Backend/Core/` (D1). It has no references and `noEngineReferences: true`, so the compiler itself keeps out UnityEngine, FishNet and every other library. Only the base class library is used: `System.IO`, `System.Security.Cryptography.SHA256`, `System.Text`, and `System.Runtime.InteropServices` for five libc calls (D6).
+- New assembly `Blackglass.Backend.Core` in `Assets/_Project/Scripts/Backend/Core/` (D1). It has no references and `noEngineReferences: true`, so the compiler itself keeps out UnityEngine, FishNet and every other library. Only the base class library is used: `System.IO`, `System.Security.Cryptography.SHA256`, `System.Text`, `System.Threading` for the outbox's I/O worker, and `System.Runtime.InteropServices` for the durable writer's libc calls (D6).
 - Data flows one way:
 
   ```
@@ -23,7 +23,8 @@ Nothing here runs in a scene yet. No gameplay, networking, scene, prefab, HUD, i
   container fill (pool lines) ───┼─► MissionItemLedger ─► ParticipantFacts ─► ManifestBuilder ─► BuiltManifest (canonical bytes + hash)
   collect / use / equip events ──┘        ▲ verify against the runtime bags                             │
                                                                                                          ▼
-                                                     ResultPublication (step-wise, main thread): WriteDurable → await the recorded notice or its deadline → Publish
+                          main thread: OutboxWorker.Submit(bytes, hash) → PublicationHandle (status polled, never waited on)
+                          I/O worker:  .tmp + fsync → rename → .written + directory fsync ... AllowPublication (Stage 13) ... → .ready + directory fsync
   ```
 - The ledger never reads Unity objects. Stage 12 feeds it events and plain snapshots of `ItemInventory` contents.
 - The manifest model and its strict reader are a faithful port of `Backend/src/Accounts.Domain/Settlement/ResultManifest.cs` and `CanonicalJson.cs`. The vectors in `Backend/contracts/manifest-v1/` are the authority. Nothing in that folder changes.
@@ -32,7 +33,7 @@ Nothing here runs in a scene yet. No gameplay, networking, scene, prefab, HUD, i
 - Unity 6000.3.25f1, API compatibility .NET Standard 2.1, C# as the project compiles it (no records or `init`).
 - NUnit EditMode tests in the existing `Blackglass.Tests.EditMode` assembly, run by `Tools/run-tests.sh`.
 - The Linux server player is Mono (`ServerBuild` enforces `Mono2x`).
-- One new xUnit test file in `Backend/tests/Accounts.Domain.Tests` (D3), run with `dotnet test`; it needs no database.
+- Backend tests (xUnit, .NET 10): `LedgerScenarioTests` and `CatalogueRegistrationRulesTests` in `Accounts.Domain.Tests` (no database, `dotnet test`); two `CatalogueHistoryTests` and one `LedgerFallbackQuarantineTests` file in `Accounts.Integration.Tests` (the VM runner, `vm-test.sh --filter`); the new `UnityCore.Linux.Tests` project (`vm-test.sh --unity-core`).
 
 **Spec:**
 - `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md`: revision 2.13, §2.3, §4.7, §5.1, §8, §9, §14.6, §16.3.
@@ -52,7 +53,7 @@ Nothing here runs in a scene yet. No gameplay, networking, scene, prefab, HUD, i
 | EditMode (`Blackglass.Tests.EditMode`) | **1579 total, 1579 passed, 0 failed, 0 skipped** (EXIT=0) |
 | PlayMode (`Blackglass.Tests.PlayMode`) | **1434 total, 1434 passed, 0 failed, 0 skipped** (EXIT=0) |
 
-The evidence is in `.claude/scratchpad/phase13/stage-11/baseline/` (local, not committed). Every task below adds EditMode tests only, so the PlayMode total must stay at its baseline, and the EditMode total must grow only by this stage's new tests.
+The evidence is in `.claude/scratchpad/phase13/stage-11/baseline/` (local, not committed). Every Unity test this stage adds is an EditMode test, so the PlayMode total must stay at its baseline, and the EditMode total must grow only by this stage's new tests. If `main` moves before implementation starts, both baselines are measured again first.
 
 ---
 
@@ -65,8 +66,10 @@ The evidence is in `.claude/scratchpad/phase13/stage-11/baseline/` (local, not c
   - `Backend/contracts/ledger-v1/**` (new, D3);
   - `Backend/tests/Accounts.Domain.Tests/Settlement/LedgerScenarioTests.cs` (new, D3);
   - `Backend/tests/Accounts.Domain.Tests/Accounts.Domain.Tests.csproj` (one copy line, D3);
-  - `Backend/tests/UnityCore.Linux.Tests/**` (new, D8), its entry in `Backend/Backend.sln`, and `Backend/tools/vm-test.sh` (a `--unity-core` mode that also snapshots `Assets/_Project/Scripts/Backend/Core`, D8);
-  - this plan, the staged plan's Stage 11 status, and `CLAUDE.md`'s status lines.
+  - `Backend/contracts/ledger-v1/**` also holds the fallback scenario (D2); `Backend/tests/Accounts.Integration.Tests/Database/LedgerFallbackQuarantineTests.cs` (new, D2);
+  - `Backend/tests/UnityCore.Linux.Tests/**` (new, D8; not in `Backend.sln`, because it links files outside `Backend/`), and the `unity-core` mode in `Backend/tools/vm-test.sh` and `Backend/tools/run-tests-in-container.sh` (D8);
+  - D7: `Backend/src/Accounts.Domain/Catalogue/CatalogueRegistrationRules.cs` (new), `Backend/src/Accounts.Persistence/Catalogue/CatalogueHistoryStore.cs` (`RegisterAsync` only), `Backend/tests/Accounts.Domain.Tests/Catalogue/CatalogueRegistrationRulesTests.cs` (new), `Backend/tests/Accounts.Integration.Tests/Database/CatalogueHistoryTests.cs` (two tests), `Assets/_Project/Editor/Backend/CatalogueBuilder.cs` (one rule), `Assets/_Project/Tests/EditMode/CatalogueBuilderTests.cs` (one test);
+  - this plan, the staged plan's Stage 11 status and Stage 13 lifecycle line, and `CLAUDE.md`'s status lines.
 - **Never** change a file in `Backend/contracts/manifest-v1/`, `catalogue/`, `inventory/`, `progression/` or `starter/`. A vector change is a format change and needs the owner. No second manifest format: there is one model, `ResultManifestV1`, written only by `ManifestCodec`.
 - **No change** to:
   - `Assets/_Project/Scripts/Blackglass.asmdef`, `Scripts/Net/**`, `Scripts/Items/**`, `Scripts/Server/**`, `Scripts/Mission/**`;
@@ -91,7 +94,9 @@ The evidence is in `.claude/scratchpad/phase13/stage-11/baseline/` (local, not c
 - **The outbox contract (§H, agent as built):**
   - files `<accountBase58>.manifest.tmp|written|ready`, mode 0644, regular and singly linked;
   - every move is a real `rename(2)`, never link plus unlink (the agent refuses a file with two links);
-  - the process never deletes a `.written` or `.ready` file.
+  - the process never deletes a `.written` or `.ready` file;
+  - production publication uses only the systemd-provided `$STATE_DIRECTORY`, checked, and every file operation is relative to that one directory;
+  - no file write or `fsync` runs in the simulation frame loop: one dedicated I/O worker does them (D6).
 - **DTOs:** `[Serializable]` classes with public camelCase fields named exactly as the backend's JSON; arrays, no dictionaries, no nullables (`JsonUtility`). Shapes `JsonUtility` cannot represent (nulls with meaning, polymorphic members) use the strict reader (D4).
 - **Secrets:** no DTO overrides `ToString`. No test or log prints an access token, ticket, process credential or seed.
 - **Commits:** stage by explicit paths, never `git commit -a`. Keep the owner's `Assets/Settings/Mobile_RPAsset.asset`, `ProjectSettings/URPProjectSettings.asset` and the untracked `.claude/` unstaged and unchanged. Commit messages end with the attribution line given in the session.
@@ -106,7 +111,7 @@ The evidence is in `.claude/scratchpad/phase13/stage-11/baseline/` (local, not c
 
    Task 4 (`Collect_partial_then_rest_merges_one_lot_per_line`) and Task 5 (the bag-full simulation).
 2. **A container filled with two plan items of the same stackable, which `ItemInventory.Add` merges into one entry.** The pool line is the entry index after the fill, so the ledger's pool lines, the `ready` report's pool and `LootPoolHash` must agree on one line. Task 4 (`RegisterContainer_uses_entries_after_fill`).
-3. **A crash between the rename and the directory fsync, a leftover `.tmp` beside a `.written`, and a second write for the same participant.** Expected: `.written` is complete or absent, never partial. A `.tmp` is never promoted or relayed. A durable result is never replaced: identical bytes are a no-op, different bytes are refused as `Conflict`. Task 8.
+3. **A crash between the rename and the directory fsync, a leftover `.tmp` beside a `.written`, a second write for the same participant, and a slow or failing `fsync` while the simulation runs.** Expected: `.written` is complete or absent, never partial. A `.tmp` is never promoted or relayed. A durable result is never replaced: identical bytes are a no-op, different bytes are refused as `Conflict`, and the rename itself refuses an existing target. The simulation's calls return at once while the worker waits on the disk. Task 8.
 4. **A runtime string the format refuses**, such as an objective id `Extract` (uppercase), a definition id with a space, or a build revision over 64 characters. The builder fails closed with the format's code (`ManifestFormatException`) and never produces bytes the backend would answer with 422. Task 6.
 5. **Play after the freeze** (decision 033): a collect, use or equip after the participant's outcome changes neither the facts nor the bytes. The container's remainder still follows real takes. Task 4 (`Events_after_freeze_change_no_facts`) and Task 6.
 
@@ -126,17 +131,23 @@ Assets/_Project/Scripts/Backend/Core/
   Manifest/ManifestCodes.cs            the 15 refusal codes
   Manifest/ResultManifestV1.cs         the typed model (facts only), enums ManifestOutcome, ManifestIntegrity, ObjectiveStateKind, EquipSlot
   Manifest/ManifestCodec.cs            Parse (strict, first refusal, same order as the backend), ToCanonicalBytes, HashOf
-  Manifest/ManifestBuilder.cs          ParticipantFacts + header + result → BuiltManifest, with the fail-closed self-check
+  Manifest/ManifestBuilder.cs          ParticipantFacts + header + result → BuiltManifest (format self-check); the snapshot fallback; BuildForPublication
   Manifest/LootPoolHash.cs             port of Backend LootHash.Compute
   Ledger/LedgerCatalogue.cs            definition id → stackable, consumable, slot
   Ledger/LedgerInputs.cs               OperativeSnapshot, ContainerEntry, RuntimeEntry, RuntimeEquipment, PoolLine
   Ledger/MissionItemLedger.cs          lots, events, verification, freeze
   Ledger/ParticipantFacts.cs           the per-operative facts a manifest reports
-  Outbox/IDurableFileSystem.cs         the seam: write-durable, rename, sync-directory, read, exists
-  Outbox/PortableDurableFileSystem.cs  FileStream + Flush(true) + File.Move; directory sync is a no-op (Editor, Windows)
-  Outbox/PosixDurableFileSystem.cs     libc open/write/fsync/close/rename (Linux x86_64 server)
-  Outbox/OutboxWriter.cs               .tmp → .written → .ready for one attempt directory
-  Outbox/ResultPublication.cs          §H order as a main-thread state machine: durable write, notice or deadline, publish
+  Outbox/OutboxFileNames.cs            the agent's naming contract
+  Outbox/OutboxIOException.cs          a bounded failure code plus errno
+  Outbox/IOutboxDirectory.cs           one approved directory, addressed by outbox file names only
+  Outbox/OutboxLocation.cs             the $STATE_DIRECTORY rule (exactly <parent>/<attemptId>)
+  Outbox/ILibc.cs, NativeLibc.cs       the libc seam and its DllImports (libc.so.6)
+  Outbox/PosixOutboxDirectory.cs       dirfd-relative openat/write/fsync/renameat2(NOREPLACE)/fsync(dir) (Linux x86_64 server)
+  Outbox/PortableOutboxDirectory.cs    FileStream + Flush(true) + File.Move; directory sync a no-op (Editor and tests only)
+  Outbox/OutboxDirectories.cs          OpenForServer (Posix, checked) and OpenForEditor
+  Outbox/OutboxWriter.cs               the §H protocol, synchronous, used only by the worker
+  Outbox/OutboxWorker.cs               the dedicated I/O thread and its job queue
+  Outbox/PublicationHandle.cs          the thread-safe status the simulation polls
   Dto/ProcessDtos.cs                   /server/v1 requests and responses, LoadoutSnapshotDto
   Dto/ClientDtos.cs                    /v1 login, me, roster, inventory read, deploy, attempt, tickets
   Dto/ReceiptV1.cs                     receipt read model + reader on StrictJsonReader (D4)
@@ -144,12 +155,16 @@ Assets/_Project/Scripts/Backend/Core/
 Assets/_Project/Tests/EditMode/Backend/
   CoreSourceAuditTests.cs, Base58IdTests.cs, CanonicalIdsTests.cs, ManifestGoldenVectorTests.cs, ManifestCodecTests.cs,
   LootPoolHashTests.cs, DtoTests.cs, ReceiptVectorTests.cs, MissionItemLedgerTests.cs, LedgerSimulation.cs (test helper),
-  LedgerSimulationTests.cs, ManifestBuilderTests.cs, LedgerScenarioVectorTests.cs, OutboxWriterTests.cs,
-  FaultingFileSystem.cs (test helper), ResultPublicationTests.cs, NetAdmissionContractTests.cs
+  LedgerSimulationTests.cs, ManifestBuilderTests.cs, LedgerScenarioVectorTests.cs, OutboxLocationTests.cs,
+  PosixOutboxDirectoryTests.cs, OutboxWriterTests.cs, OutboxWorkerTests.cs, FaultingOutboxDirectory.cs, FakeLibc.cs, AgentView.cs
+  (test helpers), NetAdmissionContractTests.cs
 Backend/contracts/ledger-v1/
   .gitattributes ("* -text"), README.md, NN-name.json (scenarios with hand-written expected manifests)
 Backend/tests/Accounts.Domain.Tests/Settlement/LedgerScenarioTests.cs
-Backend/tests/UnityCore.Linux.Tests/      (D8) xUnit, compiles Core's Outbox and Ids sources by link, references MissionHost.Agent
+Backend/tests/Accounts.Integration.Tests/Database/LedgerFallbackQuarantineTests.cs   (D2)
+Backend/tests/UnityCore.Linux.Tests/      (D8) xUnit, compiles Core's Outbox and Base58Id sources by link, references MissionHost.Agent
+Backend/src/Accounts.Domain/Catalogue/CatalogueRegistrationRules.cs                 (D7) and its call in CatalogueHistoryStore.RegisterAsync
+Assets/_Project/Editor/Backend/CatalogueBuilder.cs                                   (D7) one exporter rule
 ```
 
 Unity creates a `.meta` file for every new file and folder at the first batch run; commit them with their files. Test classes use the namespace `Blackglass.Tests` like the existing ones. Core's namespace is `Blackglass.Backend.Core`.
@@ -158,13 +173,13 @@ Focused run (each task): `Tools/run-tests.sh EditMode "<fully qualified class or
 
 ---
 
-## Task 0: record the plan's authorization (docs only, after the owner's rulings)
+## Task 0: record the rulings (docs only; done by this revision)
 
-**Files:** this plan (rulings recorded under "Decisions for the owner"), `Docs/superpowers/plans/2026-10-14-phase-13-backend.md` (Stage 11 status), `CLAUDE.md` (status lines).
+**Files:** this plan, `Docs/superpowers/plans/2026-10-14-phase-13-backend.md` (Stage 11 status, Stage 13's lifecycle line), `CLAUDE.md` (status lines).
 
-- [ ] **Step 1:** Record the owner's rulings on D1–D8, and any plan change they require, in this plan (revision 2).
-- [ ] **Step 2:** Re-measure both baselines if `main` moved since `6bdc6ca`; update the Baselines table.
-- [ ] **Step 3:** Commit the docs by explicit paths.
+- [x] **Step 1:** Record the owner's rulings on D1–D8 and the plan changes they require (revision 2, "Owner rulings").
+- [x] **Step 2:** Correct the staged plan's Stage 13 line: no process-side settlement poll (S9-B6).
+- [ ] **Step 3:** Before Task 1, re-measure both baselines if `main` moved since `6bdc6ca`; update the Baselines table.
 
 ## Task 1: The core assembly, ids and the library audit
 
@@ -318,6 +333,8 @@ public static class LootPoolHash { public static string Compute(int lootTableVer
 - the length > 10, the parse and the range (`OutOfBounds`).
 
 `Str` checks the kind (`WrongType`), then a lone surrogate (`NotJson`, where the backend's `GetString()` throws), then the UTF-8 byte count > 128 (`OutOfBounds`). `RawMembers` raises `NotJson` for a member name with a lone surrogate, where the backend's `p.Name` would throw. The reader itself never refuses a lone surrogate. The executor records any refusal-order difference found while porting as a ruling, and adds a Unity-only test for it (never a vector).
+
+**Format validation only (D2).** `ManifestCodec.Parse` answers one question: are these bytes a format-v1 manifest, and what is its canonical form? It does not check the admission snapshot, the loot pool, conservation, the objectives or any other V-rule. Its documentation says so, and no Unity code treats a successful parse as acceptance. Only the backend's `ManifestValidator` judges settlement (Task 7 runs it over Unity's bytes).
 
 - [ ] **Step 1: Write the failing tests.**
   - `ManifestGoldenVectorTests` (reads `Backend/contracts/manifest-v1` through `ContractVectors.ProjectRoot`, files as raw bytes with `File.ReadAllBytes`):
@@ -589,7 +606,7 @@ internal sealed class LedgerSimulation
 - [ ] **Step 4: Run** the same command. Expected: EXIT=0.
 - [ ] **Step 5: Commit.**
 
-## Task 6: `ManifestBuilder`
+## Task 6: `ManifestBuilder`, with the truthful fallback (D2)
 
 **Files:**
 - Create: `Manifest/ManifestBuilder.cs`
@@ -610,13 +627,24 @@ public sealed class ParticipantResult  // the authoritative outcome at the freez
 }
 public sealed class BuiltManifest { public byte[] CanonicalBytes { get; } public string ManifestHash { get; } public ResultManifestV1 Manifest { get; } }
 public sealed class ManifestFormatException : Exception { public string Code { get; } }   // the format code; never carries a secret
+public enum ManifestBuildKind { Normal, LedgerMismatchFallback, Failed }
+public sealed class ManifestBuildOutcome
+{
+    public ManifestBuildKind Kind { get; }
+    public BuiltManifest Manifest { get; }              // null when Failed
+    public IReadOnlyList<string> Diagnostics { get; }   // bounded words, in order: "normal:<code>", "fallback:<code>", the ledger's failure codes
+}
 public static class ManifestBuilder
 {
     public static BuiltManifest Build(ManifestHeader header, ParticipantResult result, ParticipantFacts facts);
+    public static BuiltManifest BuildLedgerMismatchFallback(ManifestHeader header, ParticipantResult result,
+        string accountId, IReadOnlyList<OperativeSnapshot> admissionSnapshot);
+    public static ManifestBuildOutcome BuildForPublication(ManifestHeader header, ParticipantResult result, ParticipantFacts facts,
+        IReadOnlyList<OperativeSnapshot> admissionSnapshot);   // never throws ManifestFormatException
 }
 ```
 
-**Build steps:**
+**`Build` steps:**
 1. **Check the header** with `CanonicalIds` (each failure throws `ManifestFormatException` with the code the codec would give for the written value: `NonCanonicalId` for ids and hashes, `BadValue` for the build revision, `NotInteger` for a negative number (written as `-n`), `OutOfBounds` for a number above its bound). `header.accountId == facts.AccountId`, and `facts` comes from `Freeze` (an unfrozen ledger has no `ParticipantFacts`, by construction).
 2. **Map facts to `ResultManifestV1`:**
    - Base58 → `long` through `Base58Id.TryParse`;
@@ -625,8 +653,17 @@ public static class ManifestBuilder
    - `alive` from `deadOperativeIds`;
    - every operative of the participant, in slot order.
 3. **`bytes = ManifestCodec.ToCanonicalBytes(model)`.**
-4. **Self-check (fail closed, D2):** `ManifestCodec.Parse(bytes)` must be `Ok`. Its canonical bytes must equal `bytes`, its attempt and account must equal the header's, and `bytes.Length` must be ≤ 65,536. Otherwise throw `ManifestFormatException(code)`. The builder never returns bytes the backend's parser would refuse.
+4. **Format self-check (fail closed, D2):** `ManifestCodec.Parse(bytes)` must be `Ok`. Its canonical bytes must equal `bytes`; its attempt, account and **integrity** must equal the header's and the facts' (so a `LedgerMismatch` can never come out as `ok`); `bytes.Length` ≤ 65,536. Otherwise throw `ManifestFormatException(code)`. The builder never returns bytes the backend's parser would refuse. **This check is format-only:** it says nothing about V4–V15, which only the backend judges.
 5. **Return** the bytes, `ManifestCodec.HashOf(bytes)` and the model.
+
+**`BuildLedgerMismatchFallback`** restates only what is verified and preserved: the header, the authoritative result (outcome, sequence, elapsed time, objectives, the dead set) and the admission snapshot's operatives (ids, slots, owned items as held items, owned stacks as held stacks, the snapshot's equipment as item refs), with no consumption, no collection and no loot, and `integrity: "ledgerMismatch"`. Its meaning: "the mission's item facts are unknown; here is the admission state". It claims no item change, and `ledgerMismatch` makes the backend quarantine it for an operator (V14) instead of settling it. It checks `accountId == header.accountId`, the same header checks as `Build` and the same self-check. It never reads the ledger, so it survives a ledger defect.
+
+**`BuildForPublication`:**
+1. Try `Build`. Success → `Normal` (the facts' own integrity, `ok` or `ledgerMismatch`), with the ledger's failure codes as diagnostics.
+2. On `ManifestFormatException(code)`, add `normal:<code>` and try the fallback. Success → `LedgerMismatchFallback`.
+3. On a second `ManifestFormatException(code2)`, add `fallback:<code2>` and return `Failed` with no bytes. Stage 12 then writes nothing, keeps the diagnostics in its log and reports the failure. It never assumes a quarantine.
+
+The fallback can rescue only a facts-level failure (for example a ledger output the format can't hold). A malformed header or objective id fails both builds, because the fallback needs the same header and result.
 
 - [ ] **Step 1: Write the failing tests:**
   - `Builds_02_full_from_facts`: a ledger fed the events that produce 02-full's operatives, a header and a result equal to 02-full's, give exactly `valid/02-full.canonical.json`'s bytes and `.hash.txt`'s hash. The events are written out in the test, in this order: operative C (slot 0, snapshot: items `2k` weapon and `2m` armor equipped, 3 medkits) uses one medkit (owned, since no loot is held yet), then collects (0,0)×2 and (0,1)×1 (medkit lines), then uses one medkit (loot first, oldest first: from (0,0)); operative D (slot 1, snapshot: item `2n` weapon equipped) collects (2,0)×1 (a utility item), equips it and is dead at the freeze. The facts then equal the vector: an owned use before the collects is the only order loot-first consumption allows;
@@ -636,7 +673,11 @@ public static class ManifestBuilder
   - `An_unfrozen_participant_cannot_be_built` (compile-time: `Build` takes `ParticipantFacts`, which only `Freeze` returns; the test asserts there is no public constructor, by reflection);
   - `Events_after_freeze_do_not_change_the_bytes` (Review Focus 5);
   - `A_refused_string_fails_closed` (Review Focus 4): objective id `Extract`, a definition id `item medkit` reached through a crafted catalogue, a 65-character build revision and an uppercase attempt id each throw `ManifestFormatException` with the expected code, and nothing is returned;
-  - `Facts_only`: by reflection, no public member of `ManifestHeader`, `ParticipantResult`, `ResultManifestV1`, `OperativeFact` or `BuiltManifest` is named like `seed`, `salt`, `xp`, `experience`, `reward`, `energy`, `insurance`, `refund` or `retention` (case-insensitive substring). And a builder run whose test harness also holds a seed value `0x5EED1234` never contains `"5EED"`, `"1592660532"` or `"seed"` in its bytes;
+  - `A_known_mismatch_never_builds_as_ok`: facts with `LedgerMismatch` give `"integrity":"ledgerMismatch"` from `Build` and from every `BuildForPublication` path;
+  - `The_fallback_restates_the_snapshot`: exact expected bytes, written in the test, for a two-operative snapshot with an equipped item and a stack (same bytes as ledger-v1 scenario 08, Task 7);
+  - `BuildForPublication_uses_the_fallback_only_after_a_format_failure`: valid facts → `Normal`; facts with an unrepresentable entry (a crafted catalogue whose definition id breaks the format, reached only through the ledger) → `LedgerMismatchFallback`, diagnostics `["normal:BadValue", ...]`; a malformed objective id → `Failed`, diagnostics `["normal:BadValue", "fallback:BadValue"]`, no bytes;
+  - `A_parse_proves_the_format_only`: a manifest that parses cleanly but breaks conservation (more held than the snapshot) still parses, documenting that local parsing is not settlement validation;
+  - `Facts_only`: by reflection, no public member of `ManifestHeader`, `ParticipantResult`, `ResultManifestV1`, `OperativeFact`, `BuiltManifest` or `ManifestBuildOutcome` is named like `seed`, `salt`, `xp`, `experience`, `reward`, `energy`, `insurance`, `refund` or `retention` (case-insensitive substring). And a builder run whose test harness also holds a seed value `0x5EED1234` never contains `"5EED"`, `"1592660532"` or `"seed"` in its bytes;
   - `Conservation_holds_for_every_built_manifest`: `Conservation.Check` on the parsed output of the Task 5 seeded runs, built through the builder.
 - [ ] **Step 2: Run** `Tools/run-tests.sh EditMode "Blackglass.Tests.ManifestBuilderTests"`. Expected: EXIT=1.
 - [ ] **Step 3: Implement.**
@@ -646,7 +687,8 @@ public static class ManifestBuilder
 ## Task 7: Shared ledger scenarios, validated by the backend (D3)
 
 **Files:**
-- Create: `Backend/contracts/ledger-v1/.gitattributes` (`* -text`), `README.md`, `01-owned-swap-and-use.json` … `07-ledger-mismatch.json`
+- Create: `Backend/contracts/ledger-v1/.gitattributes` (`* -text`), `README.md`, `01-owned-swap-and-use.json` … `08-ledger-mismatch-fallback.json`
+- Create: `Backend/tests/Accounts.Integration.Tests/Database/LedgerFallbackQuarantineTests.cs` (D2: the store quarantines a snapshot-restating `ledgerMismatch` manifest with no effect)
 - Create: `Backend/tests/Accounts.Domain.Tests/Settlement/LedgerScenarioTests.cs` (the scenarios, plus the Unity-only parser expectations of Task 2 asserted against `ResultManifest.Parse`, M2)
 - Modify: `Backend/tests/Accounts.Domain.Tests/Accounts.Domain.Tests.csproj`: add `<None Include="..\..\contracts\ledger-v1\**\*" Link="contracts\ledger-v1\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />`
 - Test: `Tests/EditMode/Backend/LedgerScenarioVectorTests.cs`
@@ -691,8 +733,11 @@ Each scenario is checked twice, independently:
 | 05 two-operatives-defeat | two operatives on one line, one dead, defeat; consumption from both | `[]` |
 | 06 oldest-first | two kit lines collected at different times; the older line is used first | `[]` |
 | 07 ledger-mismatch | a rogue bag change without an event; the manifest is still built | `["V14.integrity"]` |
+| 08 ledger-mismatch-fallback | `"build": "fallback"`: the fallback manifest of a two-operative snapshot (an equipped item, a stack); no events | `["V14.integrity"]` |
 
-**Event vocabulary** (defined in the README): `collect {operativeId, containerIndex, line, quantity}`; `use {operativeId, definitionId}`; `equip {operativeId, item: {itemId} | {containerIndex, line}}`; `rogueAdd {operativeId, definitionId, quantity}` (a bag change with no ledger event, scenario 07). Optional top-level `bagCapacity` overrides the golden catalogue's 6 (scenario 03). Containers are filled one entry per pool line, in line order, with `ItemInventory(0).Add`; since `Add` merges same-definition stackables, **two lines of one stackable are placed in different containers** (scenario 06), or the first line is at `maxStack`. The Unity side maps each golden item to `ItemDefinition.Create(id, id, category, slot, maxStack, heal)` with the golden catalogue's category, slot, `maxStack` and heal amount. `AssertConsistent` runs after every event except a `rogueAdd`, whose mismatch is expected at the freeze. **Ids of mixed length** (`"z"` and `"21"`) appear in scenario 04's held items, so the backend confirms numeric ordering (M3).
+Scenario 08 checks D2's fallback with the real validator: restating the snapshot breaks no rule except V14, so the backend quarantines it and never settles it. `LedgerFallbackQuarantineTests` then submits a manifest of the same shape (the attempt's own snapshot, nothing collected or consumed, `ledgerMismatch`) through `SettlementStore` and asserts: `Quarantined` with exactly `["V14.integrity"]`, the participant `quarantined`, no settlement row, the inventory and energy unchanged.
+
+**Event vocabulary** (defined in the README): `collect {operativeId, containerIndex, line, quantity}`; `use {operativeId, definitionId}`; `equip {operativeId, item: {itemId} | {containerIndex, line}}`; `rogueAdd {operativeId, definitionId, quantity}` (a bag change with no ledger event, scenario 07). Optional top-level `bagCapacity` overrides the golden catalogue's 6 (scenario 03). Optional top-level `build`: `"normal"` (the default) or `"fallback"` (scenario 08: Unity calls `BuildLedgerMismatchFallback` with the snapshot and replays no events). Containers are filled one entry per pool line, in line order, with `ItemInventory(0).Add`; since `Add` merges same-definition stackables, **two lines of one stackable are placed in different containers** (scenario 06), or the first line is at `maxStack`. The Unity side maps each golden item to `ItemDefinition.Create(id, id, category, slot, maxStack, heal)` with the golden catalogue's category, slot, `maxStack` and heal amount. `AssertConsistent` runs after every event except a `rogueAdd`, whose mismatch is expected at the freeze. **Ids of mixed length** (`"z"` and `"21"`) appear in scenario 04's held items, so the backend confirms numeric ordering (M3).
 
 The README states:
 - the format;
@@ -702,130 +747,217 @@ The README states:
 - [ ] **Step 1: Write** the seven scenarios by hand, working each expected manifest out from its events on paper; note the arithmetic in the README per scenario. Then write both test classes.
 - [ ] **Step 2: Run** `dotnet test Backend/tests/Accounts.Domain.Tests --filter "FullyQualifiedName~LedgerScenario"`. Expected: PASS (it needs only the backend and the hand-written files). A failure here is a scenario-authoring error, fixed in the scenario before any Unity work.
 - [ ] **Step 3: Run** `Tools/run-tests.sh EditMode "Blackglass.Tests.LedgerScenarioVectorTests"`. Expected: EXIT=0 if Tasks 4–6 are right. A mismatch is investigated against the hand-written manifest, never by copying Unity's output into the scenario.
-- [ ] **Step 4: Run** the backend domain suite (`dotnet test Backend/tests/Accounts.Domain.Tests`). Expected: all pass, with the count before plus the new tests.
+- [ ] **Step 4: Run** the backend domain suite (`dotnet test Backend/tests/Accounts.Domain.Tests`) and `Backend/tools/vm-test.sh --filter "FullyQualifiedName~LedgerFallbackQuarantineTests"`. Expected: all pass, with the count before plus the new tests.
 - [ ] **Step 5: Commit** (the contracts folder, the backend test, the csproj line, the Unity test).
 
-## Task 8: `OutboxWriter`, durable file systems and `ResultPublication`
+## Task 8: The outbox: an approved directory, the durable protocol and the I/O worker (D6, D8)
 
 **Files:**
-- Create: `Outbox/IDurableFileSystem.cs`, `Outbox/PortableDurableFileSystem.cs`, `Outbox/PosixDurableFileSystem.cs`, `Outbox/OutboxWriter.cs`, `Outbox/ResultPublication.cs`
-- Create (D8): `Backend/tests/UnityCore.Linux.Tests/UnityCore.Linux.Tests.csproj` and `PosixOutboxTests.cs`; the project's line in `Backend/Backend.sln`; the `--unity-core` mode in `Backend/tools/vm-test.sh`
-- Test: `Tests/EditMode/Backend/FaultingFileSystem.cs` (helper), `OutboxWriterTests.cs`, `ResultPublicationTests.cs`
+- Create: `Outbox/OutboxFileNames.cs`, `Outbox/OutboxIOException.cs`, `Outbox/IOutboxDirectory.cs`, `Outbox/OutboxLocation.cs`, `Outbox/ILibc.cs`, `Outbox/NativeLibc.cs`, `Outbox/PosixOutboxDirectory.cs`, `Outbox/PortableOutboxDirectory.cs`, `Outbox/OutboxDirectories.cs`, `Outbox/OutboxWriter.cs`, `Outbox/OutboxWorker.cs`, `Outbox/PublicationHandle.cs`
+- Create (D8): `Backend/tests/UnityCore.Linux.Tests/UnityCore.Linux.Tests.csproj`, `PosixOutboxTests.cs`; the `unity-core` mode in `Backend/tools/vm-test.sh` and `Backend/tools/run-tests-in-container.sh`
+- Test: `Tests/EditMode/Backend/FaultingOutboxDirectory.cs`, `FakeLibc.cs`, `AgentView.cs` (helpers), `OutboxLocationTests.cs`, `PosixOutboxDirectoryTests.cs`, `OutboxWriterTests.cs`, `OutboxWorkerTests.cs`
+
+**The execution model (owner ruling D6).** Nothing in the simulation frame loop writes a file or calls `fsync`:
+1. On the simulation (main) thread, Stage 12 captures the immutable result: `BuiltManifest.CanonicalBytes` and `ManifestHash` (Task 6).
+2. `OutboxWorker.Submit(accountId, bytes, hash)` copies the bytes, queues the job and returns a `PublicationHandle` at once. It takes one short lock that the worker never holds across I/O.
+3. One dedicated background thread (`blackglass-outbox`) owns the `IOutboxDirectory` and performs every file operation, one job at a time.
+4. The simulation reads `handle.Status`, an immutable snapshot taken under the same short lock; it never waits.
+5. Core has no engine references (D1), so the worker cannot touch a Unity object or API. Stage 12 reads handles only from the main thread.
+
+No backend communication is in the outbox. The §H step 3 (the bounded `recorded` notice) is Stage 13's: it sends the notice once a handle is `Written`, and calls `handle.AllowPublication()` when that attempt ends (any answer, or its time bound). The worker then performs §H step 4. Until then a durable `.written` is the result, and the agent's read-only recovery relays it after a verified exit (A10-D1), so preserving a result never needs the backend.
 
 **Interfaces (produced):**
 ```csharp
-public interface IDurableFileSystem
-{
-    bool DirectoryExists(string path);
-    bool FileExists(string path);
-    byte[] ReadAllBytes(string path);
-    void WriteDurable(string path, byte[] bytes);   // create or truncate, mode 0644, write everything, fsync the file, close
-    void Rename(string from, string to);            // one atomic rename(2); the caller has checked that `to` is absent
-    void SyncDirectory(string path);                // fsync the directory, so a rename inside it is durable
-}
-public static class DurableFileSystems
-{
-    public static IDurableFileSystem ForServer();   // Posix on Linux x86_64; anything else → PlatformNotSupportedException (fail closed, M5)
-    public static IDurableFileSystem ForEditor();   // Portable: tests and Editor tools only, never a real outbox
-}
-
-public enum OutboxState { None, TemporaryOnly, Written, Ready }
-public enum WriteResult { Written, AlreadyWritten, Conflict }
-public enum PublishResult { Published, AlreadyPublished, NothingWritten }
-public sealed class OutboxWriter
+public static class OutboxFileNames      // the agent's naming contract (OutboxScanner.FileName, A10-D1)
 {
     public const string TmpSuffix = ".manifest.tmp", WrittenSuffix = ".manifest.written", ReadySuffix = ".manifest.ready";
-    public OutboxWriter(string attemptDirectory, IDurableFileSystem fileSystem);   // the directory must already exist (systemd creates it)
-    public OutboxState StateOf(string accountId);
-    public WriteResult WriteDurable(string accountId, byte[] canonicalBytes);      // §H steps 1–2
-    public PublishResult Publish(string accountId);                                // §H step 4
+    public static string Tmp(string accountId); public static string Written(string accountId); public static string Ready(string accountId);
+        // ArgumentException unless accountId is canonical Base58 (Base58Id.TryParse and Format round trip)
+    public static bool IsOutboxName(string name);   // ^[1-9A-HJ-NP-Za-km-z]{1,11}\.manifest\.(tmp|written|ready)$ and canonical Base58
+}
+public sealed class OutboxIOException : IOException
+{
+    public OutboxIOException(string code, int errno);   // code: [a-z_]{1,40}; errno 0 when not from libc
+    public string Code { get; } public int Errno { get; }
+}
+public enum EntryKind { Absent, RegularFile, Unsafe }   // Unsafe: a symbolic link, a non-regular file, or more than one hard link
+/// One approved directory, addressed by outbox file names only (never a path): every method refuses a name that fails
+/// OutboxFileNames.IsOutboxName, so no operation can leave the directory. Not thread-safe: the worker is its only user.
+public interface IOutboxDirectory : IDisposable
+{
+    EntryKind Probe(string name);
+    byte[] ReadRegular(string name, int maxBytes);          // a regular, singly linked file of at most maxBytes; else OutboxIOException
+    void WriteAndSync(string name, byte[] bytes);           // create or truncate, mode 0644, no symlink, write all, fsync, close
+    void RenameNoReplace(string fromName, string toName);   // one atomic rename that never replaces an existing name
+    void SyncDirectory();                                   // fsync the directory itself
+}
+public static class OutboxLocation
+{
+    public const string StateDirectoryVariable = "STATE_DIRECTORY";
+    /// The only production path rule: the value systemd set must be exactly "<requiredParent>/<attemptId>": absolute, one path
+    /// (systemd joins several with ':'), normalized (no "//", ".", "..", trailing '/'), at most 4096 bytes, under the parent,
+    /// with the attempt's canonical UUIDv7 as its last segment. Refusal codes: missing, not_absolute, multiple_paths,
+    /// not_normalized, too_long, outside_parent, wrong_attempt.
+    public static bool TryResolve(string stateDirectory, string requiredParent, string attemptId, out string path, out string refusal);
+}
+public static class OutboxDirectories
+{
+    /// Production: Linux x86_64 only (else PlatformNotSupportedException). Resolves the value with OutboxLocation (refusal →
+    /// OutboxIOException(refusal, 0)), then opens it as a PosixOutboxDirectory. Called once at process start, before the loop.
+    public static IOutboxDirectory OpenForServer(string stateDirectory, string requiredParent, string attemptId);
+    /// Tests and Editor tools only, never a real outbox: PortableOutboxDirectory (FileStream + Flush(true), File.Move,
+    /// SyncDirectory a no-op). A missing directory → DirectoryNotFoundException; nothing is created.
+    public static IOutboxDirectory OpenForEditor(string path);
 }
 
-public enum RecordedNotice { Accepted, Rejected, Unauthorized, Unavailable, TimedOut }   // any value continues to publication
-public enum PublicationStage { AwaitingNotice, Published, Conflict }
-/// One participant's §H publication as a state machine driven by the main thread (I1): nothing in it blocks or waits.
-/// Stage 13's UnityWebRequest adapter sends `recorded` after Begin and calls OnNotice with the answer; the server's
-/// tick calls Tick, which publishes once the deadline (provisional 30 s, configuration) has passed with no answer.
-public sealed class ResultPublication
+public enum WriteResult { Written, AlreadyWritten, AlreadyPublished, Conflict }
+public enum PublishResult { Published, AlreadyPublished, NothingWritten, Conflict }
+/// The §H protocol over one directory, synchronous: only the worker (and tests) call it.
+public sealed class OutboxWriter
 {
-    public static ResultPublication Begin(OutboxWriter outbox, string accountId, BuiltManifest manifest, DateTime nowUtc, TimeSpan noticeDeadline);
-        // §H 1–2: WriteDurable. Written or AlreadyWritten → AwaitingNotice; Conflict → Conflict (no notice, no publish).
-        // An IOException propagates: nothing was published and no notice may be sent.
-    public PublicationStage Stage { get; }
-    public string ManifestHash { get; }        // what the adapter sends to `recorded`
-    public RecordedNotice? Notice { get; }
-    public PublicationStage OnNotice(RecordedNotice notice);   // §H 3 ended by an answer → §H 4 Publish; idempotent once Published
-    public PublicationStage Tick(DateTime nowUtc);             // past the deadline with no notice → TimedOut → Publish
+    public const int MaxBytes = 65536;
+    public OutboxWriter(IOutboxDirectory directory);
+    public WriteResult WriteDurable(string accountId, byte[] canonicalBytes);   // §H 1–2
+    public PublishResult Publish(string accountId, byte[] canonicalBytes);      // §H 4; the bytes identify the result it may publish
+}
+
+public enum PublicationStage { Queued, Writing, Written, Publishing, Published, Conflict, Failed, Cancelled }
+public sealed class PublicationStatus   // immutable
+{
+    public PublicationStage Stage { get; } public bool Durable { get; } public bool PublicationAllowed { get; }
+    public string FailureCode { get; } public int Errno { get; }   // set only when Failed
+}
+public sealed class PublicationHandle
+{
+    public string AccountId { get; } public string ManifestHash { get; }
+    public PublicationStatus Status { get; }   // thread-safe, never waits for I/O
+    public void AllowPublication();             // Stage 13: the recorded-notice attempt ended; idempotent
+    public void Cancel();                       // see below; idempotent; never deletes anything
+}
+public sealed class OutboxWorker : IDisposable
+{
+    public OutboxWorker(IOutboxDirectory directory);    // starts the background thread "blackglass-outbox"; owns the directory
+    public PublicationHandle Submit(string accountId, byte[] canonicalBytes, string manifestHash);
+    public bool Stop(TimeSpan drain);                   // see below; true when every job reached a resting stage in time
+    public void Dispose();                              // Stop(TimeSpan.Zero), then closes the directory once the thread ends
 }
 ```
 
-**`WriteDurable(account, bytes)`, exactly:**
-1. `account` must be canonical Base58, `bytes` 1..65,536 long, and the directory must exist. Otherwise `ArgumentException` or `DirectoryNotFoundException`, and nothing is written.
-2. If `.ready` exists: identical bytes → `fs.SyncDirectory(dir)` then `AlreadyWritten`; different → `Conflict`. Else if `.written` exists: the same comparison and the same sync. **A durable result is never replaced.** The sync on the `AlreadyWritten` path covers a retry after a failed directory fsync (M4).
-3. `fs.WriteDurable(dir/<account>.manifest.tmp, bytes)`. This creates or truncates: a `.tmp` left by an earlier failed write in this process is rewritten, never promoted.
-4. `fs.Rename(tmp, written)`, then `fs.SyncDirectory(dir)`. From here the result is complete and durable. `→ Written`.
+**`OutboxWriter.WriteDurable(account, bytes)`, exactly:**
+1. `account` canonical Base58 and `bytes` 1..65,536 long, else `ArgumentException` and no file operation.
+2. `Probe(ready)`: `Unsafe` → `OutboxIOException("unsafe_entry")`. `RegularFile` → `ReadRegular`; equal bytes → `SyncDirectory()`, `AlreadyPublished`; different → `Conflict`.
+3. `Probe(written)`: the same, giving `AlreadyWritten` (after `SyncDirectory()`, M4) or `Conflict`. **A durable result is never replaced.**
+4. `Probe(tmp)`: `Unsafe` → `unsafe_entry`. A regular leftover `.tmp` is truncated and rewritten by the next step, never promoted.
+5. `WriteAndSync(tmp, bytes)`, `RenameNoReplace(tmp, written)`, `SyncDirectory()` → `Written`. Only after the directory fsync is the result durable.
 
-**`Publish(account)`:**
-- `.ready` exists → `fs.SyncDirectory(dir)`, then `AlreadyPublished` (M4);
-- `.written` absent → `NothingWritten`;
-- otherwise `fs.Rename(written, ready)`, then `fs.SyncDirectory(dir)` → `Published`.
+**`Publish(account, bytes)`:** `Probe(ready)` regular → equal: `SyncDirectory()`, `AlreadyPublished`; different: `Conflict`. `Probe(written)` absent → `NothingWritten`; regular with different bytes → `Conflict`; equal → `RenameNoReplace(written, ready)`, `SyncDirectory()` → `Published`. `Unsafe` anywhere → `unsafe_entry`.
 
-Nothing ever deletes `.written`, `.ready` or `.tmp`. A completed `.written` stays after the process exits, for the agent's read-only recovery (A10-D1).
+Nothing ever deletes, truncates or rewrites a `.written` or `.ready` file. A `.tmp` is truncated only by the next write of the same participant.
 
-**`PosixDurableFileSystem`** (Linux x86_64 only; `DllImport("libc.so.6", SetLastError = true)`: the explicit soname resolves under both Mono and CoreCLR without relying on Mono's dllmap, I2):
-- **Calls:** `open`, `write`, `fsync`, `close`, `rename`.
-- **Flags:** `O_WRONLY=0x1 | O_CREAT=0x40 | O_TRUNC=0x200 | O_NOFOLLOW=0x20000 | O_CLOEXEC=0x80000`, mode `0644` (420). The agent, another uid without capabilities, reads through the unit's `UMask=0022` and the `0755` state directory.
-- **Directory sync:** `O_RDONLY=0 | O_DIRECTORY=0x10000 | O_CLOEXEC`, then `fsync`.
-- **Writes:** `write(int fd, byte[] buffer, IntPtr count)`; a partial write copies the unwritten tail into a new array (`Buffer.BlockCopy`) and writes again, so no unsafe code or pointer arithmetic is needed (Core keeps `allowUnsafeCode: false`). `EINTR` (4) is retried. Every failure is an `IOException` with the errno from `Marshal.GetLastWin32Error()`.
-- The flag values match `Backend/src/MissionHost.Agent/Unix.cs`. **Why libc:** Mono's `FileStream.Flush(true)` and `File.Move` don't document an fsync or a single `rename(2)`. A link-and-unlink move would leave a doubly linked file, which the agent refuses (`Unix.ReadUntrusted`). There is no managed directory fsync.
+**The worker, exactly:**
+- `Submit` validates its arguments on the caller's thread (`ArgumentException`: account, length 1..65,536, a `sha256:` hash), copies the bytes, and returns:
+  - the existing handle, when one for that account is not `Failed` or `Cancelled` and has equal bytes and hash (a repeated request);
+  - a new handle already in `Conflict`, with no file operation, when that existing handle has different bytes;
+  - otherwise a new `Queued` handle. After `Stop`, `Submit` throws `InvalidOperationException`.
+- The thread takes jobs in submission order: a `Queued` job is written first (verifying `SHA-256(bytes)` against the hash, else `Failed("hash_mismatch")`), then any `Written` job whose publication is allowed is published.
+- Results: `Written`/`AlreadyWritten` → `Written` (`Durable`); `AlreadyPublished`/`Published` → `Published`; `Conflict` → `Conflict`; `OutboxIOException` → `Failed` with its code and errno; any other exception → `Failed("unexpected")`. The thread never dies on a job's exception. `Durable` stays false when a failure came before the directory fsync completed.
+- **No automatic retry.** A failed `fsync` may have dropped the dirty pages, so a later `fsync` proves nothing about the old write. A new `Submit` of the same bytes runs the protocol again: a fresh `.tmp` rewritten in full, or, when `.written` already exists, another directory fsync (`AlreadyWritten`). Stage 12 decides whether to resubmit.
+- `Cancel()`: a `Queued` job becomes `Cancelled` with nothing written. A job being written finishes its durable write (never half), then becomes `Cancelled` with `Durable` true. A `Written` job becomes `Cancelled` and is never published (its `.written` stays for the agent's exit recovery). A job being published finishes as `Published`. Terminal stages ignore it.
+- `Stop(drain)`: no new submissions. The thread still completes every queued durable write and every allowed publication, then ends. `Stop` waits at most `drain` and returns whether the thread ended. A job still waiting for `AllowPublication` stays `Written`, and its `.written` is the result.
 
-**`PortableDurableFileSystem`** (the Editor on Windows, and any non-Linux system):
-- `FileStream(FileMode.Create)`, `Write`, `Flush(true)`;
-- `File.Move` for the rename;
-- `SyncDirectory` is a no-op. Durability across power loss is a Linux concern, verified in Stage 12 on the VM.
+**`PosixOutboxDirectory`** (Linux x86_64; every call through `ILibc`, so its loops are tested with a fake in EditMode and with the real libc on Linux):
+- **Open:** `open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)` (it follows the root-owned symlinks systemd's `DynamicUser=` layout puts under `/var/lib`), then `fstat` the descriptor: a directory (`not_a_directory`), owned by `geteuid()` (`wrong_owner`), with no group or other write bit (`writable_by_others`). The directory descriptor is kept, and every later call is relative to it, so a renamed or replaced path can't redirect a write.
+- **Probe and read:** `openat(dirfd, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)` (`ENOENT` → `Absent`; `ELOOP` → `Unsafe`), then `fstat`: regular and `st_nlink == 1`, else `Unsafe`; `read` in a loop to the `fstat` size (bounded by `maxBytes`), `EINTR` retried.
+- **Write:** `openat(dirfd, name, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW | O_CLOEXEC, 0644)`; `write` in a loop over a pinned buffer (`GCHandle`, no unsafe code), continuing after a partial write and retrying `EINTR`; `fsync`, retrying `EINTR`; `close`. A failed `write` or `fsync` closes the descriptor and throws (`write_failed`, `fsync_failed`). `close` is never retried: `EINTR` from `close` counts as closed (Linux has released the descriptor); any other `close` error is `close_failed`. The mode reaches the agent through the unit's `UMask=0022` and the `0755` state directory.
+- **Rename:** `renameat2(dirfd, from, dirfd, to, RENAME_NOREPLACE)`, retrying `EINTR`. An existing target is `EEXIST`, so even a race can't replace a result (`rename_failed` with errno 17). A filesystem without `RENAME_NOREPLACE` (`EINVAL`) fails closed (`rename_failed`); ext4, the mission VM's filesystem, supports it.
+- **Directory sync:** `fsync(dirfd)`, retrying `EINTR` (`directory_sync_failed`).
+- **Calls** (all `libc.so.6`, `SetLastError = true`, errno from `Marshal.GetLastWin32Error()`): `open`, `openat`, `read`, `write`, `fsync`, `close`, `fstat`, `renameat2`, `geteuid`. `fstat` and `renameat2` need glibc 2.33 and 2.28; Ubuntu 24.04 has 2.39. The `struct stat` layout is x86_64's, as in the agent's `Unix.cs`. `openat`'s mode argument is passed as a fourth integer, which the x86_64 variadic calling convention accepts.
 
-**`FaultingFileSystem`** (test helper) wraps the portable one. It records every call in order (`WriteDurable(tmp)`, `Rename(tmp→written)`, `SyncDirectory`, …) and can "crash" by throwing a `SimulatedCrash` exception:
-- before or after any numbered call;
-- in the middle of `WriteDurable`, after half the bytes, leaving a partial `.tmp`.
+**`FakeLibc`** (EditMode helper): in-memory files and descriptors behind `ILibc`. Scripted faults: a short `write`, `EINTR` on the next N calls of a function, `EIO` from `fsync` or `close`, `EEXIST`/`EINVAL` from `renameat2`, a symlink or FIFO entry, a directory with the wrong owner or mode.
 
-A helper `AgentView.Classify(dir, account)` mirrors the agent's rules: `.tmp` is never a result; `.ready` is relayable now; `.written` is relayable only after a verified exit. It also checks that every manifest file parses with `ManifestCodec.Parse`, identifies the attempt and account, and is a regular file.
+**`FaultingOutboxDirectory`** (EditMode helper) wraps `PortableOutboxDirectory`. It records every call in order, and can "crash" (throw `SimulatedCrash`) before or after any numbered call or halfway through `WriteAndSync`, leaving a partial `.tmp`. It can also fail a call with an `OutboxIOException`, or block a call on a gate (a delayed `fsync`). `AgentView.Classify(dir, account)` mirrors the agent's rules (`.tmp` never a result; `.ready` relayable now; `.written` only after a verified exit) and checks that each result file parses with `ManifestCodec.Parse` and names the attempt and account.
 
 - [ ] **Step 1: Write the failing tests:**
-  - **The call order:** `WriteDurable_calls_in_order` gives exactly `[WriteDurable(tmp), Rename(tmp, written), SyncDirectory(dir)]`; `Publish_calls_in_order` gives `[Rename(written, ready), SyncDirectory(dir)]`.
-  - **Crash boundaries** (one test per crash point; each asserts `AgentView` and the bytes):
-    - in the middle of the tmp write: a partial `.tmp`, no `.written`, absent to the agent;
-    - after the tmp write, before the rename: a complete `.tmp`, still absent (a `.tmp` is never a result);
-    - after the rename, before the directory sync: `.written` complete (on the portable system the rename is already visible; the test documents that on Linux the directory fsync makes it durable);
-    - after the written sync, before the notice: `.written` complete, recoverable after exit, `present` once the exit is verified;
-    - after the notice, before publication: the same;
-    - after the publish rename: `.ready`, relayable now.
-  - **Idempotence and refusals:**
-    - `A_second_write_of_identical_bytes_is_AlreadyWritten`;
-    - `A_second_write_of_different_bytes_is_Conflict_and_changes_nothing` (Review Focus 3);
-    - `A_leftover_tmp_is_rewritten_never_promoted`;
-    - `Publish_without_written_is_NothingWritten`; `Publish_twice_is_AlreadyPublished`;
-    - `A_missing_directory_is_refused_and_nothing_is_created`;
-    - `A_bad_account_name_or_empty_or_oversized_bytes_is_refused`;
-    - `The_written_file_survives_writer_disposal` (no `Publish`, then a new `OutboxWriter` reads `Written`);
-    - `File_names_match_the_agents_pattern`: `^[1-9A-HJ-NP-Za-km-z]{1,11}\.manifest\.(tmp|written|ready)$`, copied from `Outbox.cs`.
-  - **Retry after a failed directory sync (M4):** the first `SyncDirectory` fails, the retry returns `AlreadyWritten`, and the recorded calls show a second `SyncDirectory`; the same for `AlreadyPublished`.
-  - **Publication (`ResultPublicationTests`, a fake clock):**
-    - `Begin_writes_durably_and_awaits_the_notice` (`.written` exists, no `.ready`, `ManifestHash` set);
-    - `Every_notice_value_publishes`;
-    - `No_answer_publishes_at_the_deadline`: `Tick` before 30 s changes nothing; after it, `TimedOut` and `.ready`;
-    - `A_late_notice_after_publication_is_ignored`;
-    - `A_Conflict_publishes_nothing`;
-    - `A_failed_durable_write_propagates_and_creates_no_publication`;
-    - `No_backend_is_needed_to_preserve_a_result`: with no notice at all, `.written` holds the exact bytes from `Begin` on, and `.ready` after the deadline;
-    - `Nothing_blocks`: every call returns within 50 ms with the clock frozen.
-  - **Platform selection:** on Windows, `ForServer()` throws `PlatformNotSupportedException` and `ForEditor()` returns the portable type (M5).
-  - **Linux (D8, `Backend/tests/UnityCore.Linux.Tests`, xUnit on .NET 10):** the project compiles `Assets/_Project/Scripts/Backend/Core/Outbox/*.cs` and `Ids/*.cs` by link and references `MissionHost.Agent`. `PosixOutboxTests` write through `PosixDurableFileSystem` + `OutboxWriter` into a temporary directory, then read back with the agent's own `Unix.ReadUntrusted` and `OutboxScanner.Scan`: a regular file, one link, mode 0644 under umask 0022, the exact bytes, `.tmp` ignored, `.written` relayable only with `includeWritten`, `.ready` relayable at once. Also: a rename leaves the inode count at 1 (`fstat`), and the directory fsync succeeds. Run: `Backend/tools/vm-test.sh --unity-core` (the disposable .NET SDK container on the services VM; it touches no VM configuration). Mono coverage is a Stage 12 obligation: a server-player `-outbox-selftest` run on the mission VM with the owner's go-ahead.
-- [ ] **Step 2: Run** `Tools/run-tests.sh EditMode "Blackglass.Tests.OutboxWriterTests;Blackglass.Tests.ResultPublicationTests"`. Expected: EXIT=1. Run `Backend/tools/vm-test.sh --unity-core`. Expected: a build failure (types missing).
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** the same commands. Expected: EXIT=0, and the Linux tests pass.
+  - **`OutboxLocationTests`:** the good value `/var/lib/blackglass-outbox/<attempt>` resolves; one case per refusal code (empty, relative, `a:b`, `//`, `/./`, `/../`, a trailing `/`, a sibling of the parent, a prefix trick such as `/var/lib/blackglass-outbox-evil/<attempt>`, another attempt id, an uppercase attempt id, 4,097 bytes). `OpenForServer` on Windows throws `PlatformNotSupportedException`; `OpenForEditor` on a missing directory throws and creates nothing.
+  - **`PosixOutboxDirectoryTests` (over `FakeLibc`):**
+    - the open refuses a non-directory, another owner and a group- or world-writable directory, and closes its descriptor;
+    - a write split into three partial writes produces the exact bytes;
+    - `EINTR` on `openat`, `write`, `fsync` and `renameat2` is retried, and the result is correct;
+    - `EINTR` on `close` is not retried and counts as success;
+    - `fsync` `EIO` → `fsync_failed` (errno 5), the descriptor closed, no rename attempted by the writer;
+    - `close` `EIO` → `close_failed`;
+    - `renameat2` `EEXIST` and `EINVAL` → `rename_failed` (17, 22), nothing replaced;
+    - a symlink and a FIFO entry probe as `Unsafe`; a doubly linked file probes as `Unsafe`;
+    - every method refuses `../x.manifest.tmp`, `a/b`, an empty name and a non-canonical Base58 name before any libc call.
+  - **`OutboxWriterTests` (over `FaultingOutboxDirectory`):**
+    - **Call order:** `WriteDurable_calls_in_order` gives exactly `[Probe(ready), Probe(written), Probe(tmp), WriteAndSync(tmp), RenameNoReplace(tmp, written), SyncDirectory]`; `Publish_calls_in_order` gives `[Probe(ready), Probe(written), ReadRegular(written), RenameNoReplace(written, ready), SyncDirectory]`.
+    - **Crash boundaries** (one test per point; each asserts `AgentView` and the bytes after a fresh writer re-reads the directory): halfway through the tmp write (a partial `.tmp`, absent); after the tmp write (absent: a `.tmp` is never a result); after the rename, before the directory sync (`.written` complete; on Linux the directory fsync makes it durable); after the written sync (`.written`, present once the exit is verified); after the publish rename (`.ready`, relayable now).
+    - **Idempotence and refusals:** identical bytes again → `AlreadyWritten`; different bytes → `Conflict` with nothing changed (Review Focus 3); a leftover `.tmp` is rewritten, never promoted; `Publish` with nothing written → `NothingWritten`; twice → `AlreadyPublished`; `Publish` with different bytes → `Conflict`; an `Unsafe` `.written` → `unsafe_entry`; a bad account, empty or oversized bytes → `ArgumentException` with no call recorded; the file names match the agent's pattern.
+    - **Retry after a failed directory sync (M4):** the first `SyncDirectory` fails; a second `WriteDurable` returns `AlreadyWritten` and the calls show a second `SyncDirectory`. The same for `AlreadyPublished`.
+  - **`OutboxWorkerTests`** (real thread; every wait in a test is bounded, 5 s):
+    - `Submit_returns_before_any_file_operation`: with a `FaultingOutboxDirectory` whose `WriteAndSync` blocks on a gate, `Submit` returns a `Queued` or `Writing` handle and no `.written` exists;
+    - `The_simulation_is_not_blocked_by_a_slow_fsync` (the responsiveness check): with `fsync` held on a gate, 1,000 simulated ticks each call `Status` on the handle; every call returns in under 5 ms, and the gate is still closed after the loop. Then the gate opens and the handle reaches `Written`;
+    - `Submit_copies_the_bytes` (changing the caller's array afterwards changes nothing on disk);
+    - `Written_waits_for_AllowPublication`, then `Published` with `.ready`;
+    - `AllowPublication_before_the_write_completes_publishes_after_it`;
+    - `A_repeated_identical_Submit_returns_the_same_handle`; `A_different_Submit_is_Conflict_and_touches_nothing`;
+    - `A_failure_at_each_step_is_reported` (one case per injected failure: tmp write, `fsync`, rename, directory sync, publish rename, publish sync): the handle is `Failed` with the code and errno, `Durable` is right, and `AgentView` classifies the files correctly;
+    - `A_resubmit_after_a_failed_directory_sync_becomes_Written` (`AlreadyWritten` path, a second `SyncDirectory`);
+    - `A_hash_that_does_not_match_the_bytes_is_Failed`;
+    - `Cancel_before_the_write_writes_nothing`; `Cancel_during_the_write_finishes_it_and_never_publishes`; `Cancel_after_Written_never_publishes`;
+    - `Stop_completes_queued_writes_and_allowed_publications`; `Stop_leaves_an_unreleased_result_written`; `Submit_after_Stop_throws`;
+    - `An_unexpected_exception_does_not_kill_the_worker` (the next job still completes);
+    - `No_backend_is_needed_to_preserve_a_result`: no `AllowPublication` at all; the `.written` holds the exact bytes from the moment the handle is `Written`.
+  - **Linux (D8, `Backend/tests/UnityCore.Linux.Tests`, xUnit on .NET 10):** the project compiles Core's `Outbox/*.cs` and `Ids/Base58Id.cs` by link (`Nullable` and implicit usings off, as Unity compiles them) and references `MissionHost.Agent`. With the real libc, in a fresh temporary directory (umask 0022):
+    - a full write and publish through `OutboxWorker`, then read back with the agent's own `Unix.ReadUntrusted` and `OutboxScanner.Scan`: a regular file, one link, mode 0644, the exact bytes; `.tmp` ignored; `.written` relayable only with `includeWritten`; `.ready` relayable at once;
+    - `RENAME_NOREPLACE` refuses an existing target, and the target's bytes are unchanged;
+    - a planted symlink `.written` and a planted FIFO probe as `Unsafe` (the FIFO without blocking);
+    - the open refuses a directory chmodded 0777 (`writable_by_others`) and a regular file (`not_a_directory`);
+    - a `FaultingLibc` wrapper around the real libc forces partial writes and `EINTR` on every call once, and the file is still exact;
+    - the directory fsync succeeds.
+
+    Run by `Backend/tools/vm-test.sh --unity-core`. The mode snapshots `Backend/` and `Assets/_Project/Scripts/Backend/Core/` and builds only this project (no change for the other modes). Its container has `--network none`, no database secrets and the same user, CPU, memory, capability and lock limits; NuGet packages come from the runner's cache. Because the project links files outside `Backend/`, it is **not** added to `Backend.sln`.
+
+    Passing it proves the code on CoreCLR, not Mono: Stage 12 must run the same operations in Unity's Linux Mono server player on the mission VM (`-outbox-selftest`, with the owner's go-ahead) before relying on them.
+- [ ] **Step 2: Run** `Tools/run-tests.sh EditMode "Blackglass.Tests.OutboxLocationTests;Blackglass.Tests.PosixOutboxDirectoryTests;Blackglass.Tests.OutboxWriterTests;Blackglass.Tests.OutboxWorkerTests"`. Expected: EXIT=1 (types missing).
+- [ ] **Step 3: Implement**, the protocol first, then the directories, then the worker.
+- [ ] **Step 4: Run** the same command. Expected: EXIT=0. Run `Backend/tools/vm-test.sh --unity-core`. Expected: all Linux tests pass.
 - [ ] **Step 5: Commit.**
 
-## Task 9: `INetAdmission`, the final audit, docs and the stop
+**If the worker cannot meet these conditions** (for example a Mono threading limitation discovered later), stop and report. There is no synchronous main-thread fallback.
+
+## Task 9: Consumables must stack, for new exports and registrations only (D7)
+
+**Why:** format v1 can report a consumable's use only as a stack (V8 needs a stackable consumable; V10 needs every snapshot instance held), so a non-stackable consumable could never be used without a `ledgerMismatch`. Both validators accept one today; no catalogue in the repository has one (the medkit and `item.gamma-kit` stack to 3).
+
+**Historical compatibility (checked):** `GameCatalogue.Load` runs `CatalogueValidator.Validate`, and `CatalogueHistoryStore.LookupLockedAsync` loads every stored version through `GameCatalogue.Load`, returning `Unavailable("invalid")` when it throws. A rule added to `CatalogueValidator` would make a stored catalogue unreadable and hold its settlements (`catalogue_unavailable`). So the rule is **not** added there. It is a separate registration rule:
+- `CatalogueValidator.Validate` and `GameCatalogue.Load` are unchanged: they remain format 2's reading rules, for every stored version.
+- New `CatalogueRegistrationRules.Check(CatalogueDocument)` returns the registration-only problems (today one: `incompatible: items[i] '<id>': a consumable must be stackable (registration rule, Stage 11)`).
+- `CatalogueHistoryStore.RegisterAsync` applies it **only when it inserts a new version** (inside the `!exists` branch, before the identity-kind check), throwing `CatalogueRegistrationException`. Re-registering an already stored version (serve's startup, an admission) is unchanged. Every registration path goes through `RegisterAsync`: `serve` (exit `CatalogueIdentityChanged` with the message), `recover catalogue import`, and the first admission.
+- Unity's exporter (`CatalogueBuilder`) refuses a non-stackable consumable, so a new export can't produce one. `ItemDefinition.IsValid` (offline gameplay validation) is unchanged: offline play may keep any stack size, and only the export to the backend is constrained.
+
+No stored bytes, hash identities, item definitions, catalogue data or settled outcomes change.
+
+**Files:**
+- Create: `Backend/src/Accounts.Domain/Catalogue/CatalogueRegistrationRules.cs`; `Backend/tests/Accounts.Domain.Tests/Catalogue/CatalogueRegistrationRulesTests.cs`
+- Modify: `Backend/src/Accounts.Persistence/Catalogue/CatalogueHistoryStore.cs` (the check in `RegisterAsync`); `Backend/tests/Accounts.Integration.Tests/Database/CatalogueHistoryTests.cs` (two tests)
+- Modify: `Assets/_Project/Editor/Backend/CatalogueBuilder.cs` (one rule); `Assets/_Project/Tests/EditMode/CatalogueBuilderTests.cs` (one test)
+
+- [ ] **Step 1: Write the failing tests:**
+  - `CatalogueRegistrationRulesTests`:
+    - `The_golden_and_committed_catalogues_pass`;
+    - `A_non_stackable_consumable_is_refused_for_registration`: the golden document with `item.gamma-kit` at `maxStack` 1 and `stackable` false gives exactly the one problem;
+    - `A_historical_catalogue_with_one_still_loads`: the same document's canonical bytes load through `GameCatalogue.Load` (its version is the hash of those bytes, unchanged).
+  - `CatalogueHistoryTests` (integration):
+    - `A_stored_catalogue_that_breaks_the_registration_rule_stays_readable`: the bytes inserted directly as history (superuser, as an older registration would have left them) → `LookupAsync` is `Found` with the same version; `RegisterAsync` of the same catalogue returns false and doesn't throw;
+    - `A_new_catalogue_that_breaks_the_rule_is_not_registered`: `RegisterAsync` throws `CatalogueRegistrationException`, and no row exists for its version.
+  - `CatalogueBuilderTests.Build_RefusesANonStackableConsumable`: a consumable asset with `maxStack` 1 → `incompatible:` and `a consumable must be stackable`.
+- [ ] **Step 2: Run** `dotnet test Backend/tests/Accounts.Domain.Tests --filter "FullyQualifiedName~CatalogueRegistrationRules"` (expected: build failure), `Tools/run-tests.sh EditMode "Blackglass.Tests.CatalogueBuilderTests"` (expected: EXIT=2, one failure) and `Backend/tools/vm-test.sh --filter "FullyQualifiedName~CatalogueHistoryTests"` (expected: the new test fails).
+- [ ] **Step 3: Implement** the rule, the `RegisterAsync` check and the exporter rule.
+- [ ] **Step 4: Run** the same three commands. Expected: all pass. The committed `Backend/catalogue/catalogue.json` is unchanged, and Unity's stale-export test still passes.
+- [ ] **Step 5: Commit.**
+
+## Task 10: `INetAdmission`, the final audit, docs and the stop
 
 **Files:**
 - Create: `Net/INetAdmission.cs`
@@ -872,18 +1004,19 @@ public interface INetAdmission
   - `Decisions_are_immutable` (lists copied);
   - `The_interface_mentions_no_connection_or_transport_type`: by reflection, every parameter and return type of `INetAdmission` is in the `Blackglass.Backend.Core` namespace or is `string`, `int` or `void`.
 - [ ] **Step 2: Run** `Tools/run-tests.sh EditMode "Blackglass.Tests.NetAdmissionContractTests"`. Expected: EXIT=1. Then implement it, and run again. Expected: EXIT=0. Commit.
-- [ ] **Step 3: Run the full suites:** `Tools/run-tests.sh EditMode`, `Tools/run-tests.sh PlayMode`, `dotnet test Backend/tests/Accounts.Domain.Tests` and `Backend/tools/vm-test.sh --unity-core` (D8). Expected:
+- [ ] **Step 3: Run the full suites:** `Tools/run-tests.sh EditMode`, `Tools/run-tests.sh PlayMode`, `dotnet test Backend/tests/Accounts.Domain.Tests`, `Backend/tools/vm-test.sh --unity-core` (D8) and `Backend/tools/vm-test.sh --filter "FullyQualifiedName~CatalogueHistoryTests|FullyQualifiedName~LedgerFallbackQuarantineTests|FullyQualifiedName~SettlementTests"` (the integration tests the shared contracts touch). Expected:
   - EditMode: 1579 + this stage's tests, 0 failed;
   - PlayMode: exactly the baseline total, 0 failed;
-  - backend domain: the previous total + `LedgerScenarioTests`, 0 failed.
+  - backend domain: the previous total + the new tests, 0 failed;
+  - the Linux and integration runs: 0 failed.
 
   Save the outputs to `.claude/scratchpad/phase13/stage-11/`.
 - [ ] **Step 4: The scope check:**
   - `git status --short` shows only this stage's paths plus the owner's two Unity files and `.claude/`;
   - `git diff --stat main...HEAD` lists only the paths in Global Constraints;
-  - `git diff main...HEAD -- Backend/contracts/manifest-v1 Assets/_Project/Scripts/Blackglass.asmdef Assets/_Project/Scripts/Net Assets/_Project/Scripts/Items` is empty.
-- [ ] **Step 5: The final review:** one independent whole-branch review on the most capable model, against this plan and the spec, with Review Focus verbatim. Fix Critical and Important findings test-first. Record the minors.
-- [ ] **Step 6: Docs as built:** counts, rulings and deferred minors in this plan; the Stage 11 status in the staged plan and `CLAUDE.md`. Commit by explicit paths. **Stop for the owner's review:** no merge or push without approval.
+  - `git diff main...HEAD -- Backend/contracts/manifest-v1 Backend/catalogue Assets/_Project/Scripts/Blackglass.asmdef Assets/_Project/Scripts/Net Assets/_Project/Scripts/Items Backend/deploy` is empty.
+- [ ] **Step 5: The final review:** one independent whole-branch review on the most capable model, against this plan and the spec, with Review Focus verbatim: contract fidelity, the worker's thread safety, filesystem crash safety, path safety, historical catalogue compatibility. Fix Critical and Important findings test-first. Record the minors.
+- [ ] **Step 6: Docs as built:** counts, rulings, known runtime limitations, Stage 12 obligations and deferred minors in this plan; the Stage 11 status in the staged plan and `CLAUDE.md`. Commit by explicit paths. **Stop for the owner's review:** no merge, push or deployment.
 
 ---
 
@@ -896,99 +1029,58 @@ public interface INetAdmission
   - stays consistent with Unity's real `ItemInventory` after every mutation in 200 seeded runs and every named case;
   - conserves (V10), uses loot first and oldest first;
   - keeps non-stackable identities through collect and equip, and records equipment changes;
-  - detects a rogue mutation as `ledgerMismatch`.
-- The seven ledger-v1 scenarios produce byte-identical manifests in Unity and validate in the backend's `ManifestValidator` with exactly the expected errors: none, or `V14.integrity` for the mismatch scenario.
-- The builder is deterministic, facts-only and fail-closed; it never sees a seed or salt.
-- The outbox writer follows `.tmp` → `.written` → `.ready` with a file fsync, an atomic rename and a directory fsync, verified on Linux against the agent's own reader (D8). Publication never blocks the main thread. Every crash boundary leaves a state the agent classifies correctly. A durable result is never replaced or deleted, and preserving one needs no backend.
+  - detects a rogue mutation as `ledgerMismatch`, which never becomes `ok`.
+- The eight ledger-v1 scenarios produce byte-identical manifests in Unity and validate in the backend's `ManifestValidator` with exactly the expected errors: none, or `V14.integrity` for the mismatch and fallback scenarios. The backend store quarantines a snapshot-restating `ledgerMismatch` manifest with no effect.
+- The builder is deterministic, facts-only and fail-closed; it never sees a seed or salt. `BuildForPublication` returns the normal manifest, the truthful fallback, or a failure with diagnostics, never an invented result.
+- The outbox follows `.tmp` → `.written` → `.ready` with a file fsync, a no-replace rename and a directory fsync, all relative to the one approved directory, verified on Linux against the agent's own reader (D8). Every file operation runs on the worker thread; the simulation's calls never wait for I/O. Every crash and failure point leaves a state the agent classifies correctly. A durable result is never replaced or deleted, and preserving one needs no backend.
+- New catalogue registrations and Unity exports refuse a non-stackable consumable; every stored catalogue stays readable under its original rules (D7).
 - `INetAdmission` exists, library-free. `NetAdmission` and all networking code are unchanged.
 - The Core assembly references nothing, and the source audit passes.
-- EditMode = baseline + new tests, PlayMode = baseline, backend domain tests green. Only the listed paths changed.
+- EditMode = baseline + new tests, PlayMode = baseline, backend domain and the touched integration tests green. Only the listed paths changed.
 
 ## Out of scope (later stages)
 
 - Wiring the ledger to `UnitItems` events, snapshot mode and the server initializer (Stage 12).
-- The `UnityWebRequest` client, the bounded `recorded` notifier, start, heartbeat and register (Stage 13).
+- The `UnityWebRequest` client, the bounded `recorded` notifier (which calls `AllowPublication`), start, heartbeat and register (Stage 13).
 - `NetTicketAdmission`, ownership lists and new requests (Stage 14).
 - The inventory-operations request writer and the client receipt screen (Stage 16).
-- Verifying `PosixDurableFileSystem` under Mono on the mission VM (Stage 12's `-outbox-selftest`, with the owner's go-ahead); CoreCLR on Linux is covered in Stage 11 (D8).
-- Forbidding non-stackable consumables in the catalogue validators, if the owner chooses D7 (a), unless authorized into Stage 11.
+- Verifying the outbox's libc calls and worker thread under Unity's Linux Mono server player on the mission VM (Stage 12's `-outbox-selftest`, with the owner's go-ahead); CoreCLR on Linux is covered here (D8).
+- Retention and insurance selection (the backend's, D4).
 - Any B24 work.
 
 ## Compatibility with Stages 12 and 13
 
 - **Stage 12:**
-  - snapshot mode: `OperativeSnapshot.FromDto` feeds the ledger and the runtime builds bag entries whose ids are the Base58 item ids;
+  - snapshot mode: `OperativeSnapshot.FromDto` feeds the ledger and the runtime builds bag entries whose ids are the Base58 item ids; the same snapshot is kept for the fallback;
   - the container fill calls `RegisterContainer` with the entries after `LootContainer.Initialize`, and the `ready` report's `lootPool` and `lootHash` come from `PoolLines()` and `LootPoolHash`;
   - `UnitItems`' additive detail events call `Collect`, `Use` and `Equip`;
-  - the outcome freeze calls `VerifyOperative` and `VerifyContainer` for that participant, then `Freeze`, then `ManifestBuilder.Build` and `ResultPublication.Begin`. **The outbox directory is `$STATE_DIRECTORY`** (systemd `StateDirectory=blackglass-outbox/%i`; the unit makes `/var/lib/blackglass` inaccessible, I5): the process never builds the path itself and refuses to run an attempt if the variable is missing or the directory doesn't exist. The server constructs the durable file system with `DurableFileSystems.ForServer()` and refuses to start without it (M5). A Mono self-test (`-outbox-selftest`) verifies the libc path on the mission VM (D8);
-  - a `ManifestFormatException` is Stage 12's to handle (D2).
-- **Stage 13:** the `UnityWebRequest` adapter posts `RecordedRequest {manifestHash}` after `ResultPublication.Begin`, feeds the answer to `OnNotice`, and the server tick calls `Tick`; nothing blocks the main thread. The DTOs are the request and response bodies. The process does not poll settlement (S9-B6): the staged plan's Stage 13 line "status poll → `NetResultConfirmedMessage`" is superseded and is not inherited here.
+  - at process start, before the mission loop: `OutboxDirectories.OpenForServer(Environment.GetEnvironmentVariable("STATE_DIRECTORY"), "/var/lib/blackglass-outbox", attemptId)` and one `OutboxWorker`. A refusal stops the process before it reports ready (nothing is charged). The unit's `StateDirectory=blackglass-outbox/%i` and `StateDirectoryMode=0755` already satisfy the checks;
+  - the outcome freeze calls `Freeze` (which verifies), then `ManifestBuilder.BuildForPublication`, then `OutboxWorker.Submit` with the bytes and hash. A `Failed` build writes nothing, logs its diagnostics and reports the failure; quarantine is never assumed (D2). A `Failed` handle is resubmitted or reported per Stage 12's policy;
+  - the Mono self-test (`-outbox-selftest`) runs the worker and the libc path in the server player on the mission VM before any real result depends on them (D8).
+- **Stage 13:** the `UnityWebRequest` adapter posts `RecordedRequest {manifestHash}` once a handle is `Written` (never before: the hash must name a durable result), retries within the provisional 30 s bound, then calls `handle.AllowPublication()` whatever the answer. The process then tells the client the result is saved and pending, and exits. **It does not poll settlement** (S9-B6): the authenticated player client polls its own receipt. The staged plan's Stage 13 line is corrected in this revision.
 - **Stage 14:** `NetAdmission` and `NetTicketAdmission` implement `INetAdmission`.
 - **Stage 16:** client DTOs and `ReceiptV1`.
 
 ---
 
-## Decisions for the owner
+## Owner rulings (2026-10-19)
 
-Each is a genuine architectural choice the spec leaves open. The plan is written for the recommendation; a different ruling changes only the task named.
+The owner approved the architecture and authorized implementation after this revision and its review, with these rulings. Each is reflected in the task named.
 
-**D1. Where Core lives: its own assembly (recommended) or a folder of the gameplay assembly.**
-- *Recommended:* `Blackglass.Backend.Core` asmdef with no references and no engine references. The compiler, not only a text audit, stops UnityEngine, FishNet or `UnityWebRequest` from entering Core. It compiles in seconds and is reusable by an Editor tool or a plain .NET test project later.
-- *Cost:*
-  - one reference line in the EditMode test asmdef now;
-  - one in `Blackglass.asmdef` in Stage 12;
-  - Core can't use `UnityEngine.Debug` or `JsonUtility` itself (the DTOs are still `JsonUtility`-compatible, because `JsonUtility` runs in the caller).
-- *Alternative:* the spec's literal folder `Scripts/Backend/Core` inside `Blackglass`, with a source audit as `Net/Core` has today. Simpler, but the audit is the only guard, and Core would compile against FishNet.
+- **D1, its own assembly: approved.** `Blackglass.Backend.Core`, `noEngineReferences`, no networking or third-party reference; plain C# types; DTOs `JsonUtility`-compatible without referencing UnityEngine. The EditMode tests reference it now; Stage 12 adds the gameplay reference (Task 1).
+- **D2, the strict parser: approved with safeguards.**
+  - Parse and canonicalize format v1, reproducing all 13 valid and 20 invalid vectors (bytes, hashes, codes), using only APIs of Unity's runtime (Task 2).
+  - **Format validation is not settlement validation:** a local parse proves the bytes are a format-v1 manifest. It does not prove the admission snapshot, the loot pool, conservation or any other V-rule; only the backend's `ManifestValidator` judges those (Tasks 2, 6, 7).
+  - A known ledger mismatch never produces `integrity: "ok"` (Tasks 4, 6).
+  - The minimal `ledgerMismatch` fallback restates only verified attempt metadata and the preserved admission snapshot, and is tested to be quarantined by the backend (Tasks 6, 7). When that isn't possible, the build fails closed with diagnostics; nothing is fabricated and quarantine is never assumed.
+- **D3, shared ledger vectors: approved.** `Backend/contracts/ledger-v1/` with successful and integrity-failure cases; the backend reconstructs the snapshot, pool and expected state and runs its own parser and validator over the same bytes Unity produces. The validator is never weakened (Task 7).
+- **D4, receipts yes, retention no: approved.** The three receipt vectors are read; no retention or insurance selection in Unity; the retention salt never reaches the mission process (Task 3).
+- **D5, a pollable `INetAdmission`: approved.** Abstraction only; refusal codes and network messages unchanged; no FishNet change (Task 10).
+- **D6, durable Linux writes: approved, with the execution-model change.** The immutable snapshot is captured on the simulation thread; a dedicated I/O worker performs every file operation; progress is a non-blocking thread-safe status; Unity stays on the main thread. The exact `.tmp` → `.written` → `.ready` contract with file and directory fsyncs; partial writes, `EINTR`, failed `fsync`, rename failures, repeated requests, cancellation and crashes handled; only `$STATE_DIRECTORY`, checked, with no escape. The libc set is what the requirements need (nine functions), not five. Injected-filesystem tests, Linux native tests and a Stage 12 Mono obligation (Task 8). No synchronous fallback.
+- **D7, consumables must stack: approved with historical compatibility.** A registration rule and an exporter rule; stored catalogues stay readable under their original rules, with a regression test; no data change (Task 9).
+- **D8, Linux verification: approved.** `UnityCore.Linux.Tests` through an isolated `vm-test.sh --unity-core` mode (no network, no database, the existing lock and cleanup); not proof of Mono compatibility, which stays a Stage 12 check (Task 8).
 
-**D2. A strict manifest reader in Core, used as a fail-closed self-check (recommended), or a writer only.**
-- *Recommended:* port the backend's parser to Unity.
-  - It is the only way to run every `invalid/` vector with its exact code, as S9-B4 requires.
-  - It gives the builder a self-check: its own bytes must parse, re-canonicalize identically and name the right attempt and account before anything reaches the outbox.
-  - About 400 lines of ported code.
-- *Consequence for Stage 12:* on a self-check failure (a server bug, never expected), the builder throws, and Stage 12 must choose.
-  - **(a)** Write nothing and log an alert. The agent's positive exit evidence then voids the participant and refunds energy, and owned items are untouched. This is my recommendation for Stage 12.
-  - **(b)** Write the raw bytes anyway, so the backend stores them as malformed for operator review.
-  - **(c)** Write a minimal valid manifest instead (the header, the participant's operatives with empty lists, `integrity: ledgerMismatch`). It is quarantined under V14 for an operator, with no automatic refund.
-  - *Trade-off (M11):* (a) is an infrastructure void, so a reproducible builder failure in a lost mission would turn a defeat into a full refund; (c) closes that incentive at the cost of a little more code. **Revised recommendation: (c)**, with (a) only if (c)'s own self-check fails.
-- *Alternative:* a writer only, testing the invalid vectors indirectly at the typed-model level. Less code, but the syntax-level codes (`NotJson`, `DuplicateKey`, `NotInteger`, …) would be untestable in Unity, which falls short of "reproduce every vector".
-
-**D3. Proving backend acceptance: shared ledger scenarios run by both runtimes (recommended), or a Unity-side mirror of the validator.**
-- *Recommended:* `Backend/contracts/ledger-v1/` with hand-written expected manifests. Unity must produce them byte for byte from events, and the backend's own `ManifestValidator` must accept them.
-  - This meets the staged plan's evidence item ("one manifest accepted byte for byte by the stage 9 validator fixture") with the real validator, independently.
-  - *Cost:* a new contract folder plus one backend test file and one csproj line outside `Assets/`.
-- *Alternative:* a test-side Unity copy of V8–V12 only. No backend change, but it is a second implementation of the validator that could drift.
-
-**D4. Receipt and retention vectors.**
-- *Recommended:*
-  - read the `receipt/` vectors now with a small `ReceiptV1` reader on the strict JSON reader (`JsonUtility` can't hold `alive: null` or the two insurance shapes), so Stage 16 inherits a tested reader;
-  - do **not** consume the `retention/` vectors in Unity at all. Retention is computed by the backend with a secret salt the mission process must never see, and a test asserts no Core type has a salt member.
-- *Alternative:* defer the receipt reader to Stage 16 (Stage 11 shrinks by one class and one test file).
-
-**D5. The `INetAdmission` shape: poll-based, shape-only, in Core (recommended; revised after review I4).**
-- *Recommended:*
-  - `Begin` / `Poll` / `Release` with immutable decisions. Ticket redemption is asynchronous (an HTTP call), and FishNet's callbacks run on the main thread, so polling keeps tasks and threads out of Core.
-  - The decision carries an opaque account string, a list of opaque owned-unit keys and opaque capability words, so both spec §14.6 implementations fit: the harness `NetAdmission` (free-form accounts, unit ids 1..n, `+fixture`) and `NetTicketAdmission` (Base58 account, backend operative ids). Each implementation enforces its own id forms.
-  - New refusal reasons map onto the existing `NetRefusal` byte, so the wire doesn't change.
-  - The existing `NetAdmission` keeps its synchronous API until Stage 14 adapts it.
-- *Alternative:* a callback or `Task`-based interface, or putting the interface in `Net/Core`. The spec's §2.3 places it in Backend Core.
-
-**D6. Durability through five libc calls in Core (recommended).**
-- *Recommended:* `PosixDurableFileSystem` with `DllImport("libc")` for `open`/`write`/`fsync`/`close`/`rename` on the Linux server (Mono), plus a portable fallback for the Editor.
-  - Mono documents neither an fsync behind `FileStream.Flush(true)` nor a single `rename(2)` behind `File.Move`, and offers no directory fsync.
-  - A link-and-unlink move would leave a doubly linked file that Stage 10's agent refuses.
-  - The library is named `libc.so.6` explicitly, and writes need no unsafe code.
-  - Verification is D8.
-- *Alternative:* managed calls only (`FileStream.Flush(true)`, `File.Move`), accepting unproven durability and the hard-link risk.
-
-**D7. Consumables that don't stack (review I3).** Both catalogue validators accept a consumable with `maxStack` 1 (`ItemDefinition.cs:364-369`, `CatalogueValidator.cs:54-67`) and `UnitItems` lets it be used, but format v1 can't report its use (V8 requires a stackable consumable; V10 requires every snapshot instance to be held). Every legitimate use would be a `ledgerMismatch` and a quarantine. It is latent: today's only consumable, the medkit, stacks to 3.
-- *Recommended (a):* forbid it in both validators (Unity `ItemDefinition.IsValid` and the backend `CatalogueValidator`, a test each). It is a small change outside Stage 11's paths, so either authorize it into Stage 11 (two source files and two test files) or schedule it before Stage 12.
-- *Alternative (b):* accept the limitation; the ledger refuses such a use with `use_not_stackable`, and a test pins it.
-
-**D8. Verifying the Linux durable write path in Stage 11 (review I2).** No Linux Unity Editor exists in this workflow, so an EditMode test can't run the libc path, and the mission VM runs only the server player.
-- *Recommended:* because Core has no engine references (D1), compile its `Outbox` and `Ids` sources by link into a new .NET 10 xUnit project, `Backend/tests/UnityCore.Linux.Tests`, that references `MissionHost.Agent`. Run it through `Backend/tools/vm-test.sh` with a new `--unity-core` mode that also snapshots Core's sources (the existing disposable SDK container on the services VM; no VM configuration change). Its tests read the files back with the agent's own `Unix.ReadUntrusted` and `OutboxScanner`, so the writer is proven against the real reader on Linux.
-  - *Cost:* a new test project, its solution entry and one mode in `vm-test.sh`, all outside `Assets/`.
-  - This covers CoreCLR. Mono-specific behaviour (the `DllImport` resolution) remains a Stage 12 obligation: a server-player `-outbox-selftest` on the mission VM, with your go-ahead.
-- *Alternative:* no Linux check in Stage 11; Stage 12's mission-VM self-test is the first and only proof.
+The original decision texts (revision 1.1) are in this file's history at `2777623`.
 
 ---
 
