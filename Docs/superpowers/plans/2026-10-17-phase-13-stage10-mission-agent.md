@@ -1524,4 +1524,110 @@ Facts it recorded:
 
 **Rollback:** unchanged (the services VM part of "Rollback" above). The backup in `/var/tmp/bg-stage10/ssh-backup` holds the previous `sshd_config` and `sshd_config.d`.
 
-**Next:** Phase C (starting the tunnel) needs the owner's separate approval. Phase D needs its own. Stage 12's B24 stays a hard requirement before any real Unity mission.
+**Next:** Phase C (below).
+
+## Phase C: the tunnel (2026-10-19; stopped on a finding, tunnel disabled)
+
+The owner authorized Phase C only: start and validate the tunnel, then leave it enabled and running if everything passed. Phase D, the agent, a host secret, a backend registration, the live accounts stack, `bg-e2e`, any SSH or firewall change and Stage 11 stay out of scope. Stage 12's B24 stays a hard requirement before any real Unity mission.
+
+**Outcome:** every tunnel check passed, but a uid collision on the services VM (below) breaks the restricted account's isolation. Following the owner's failure procedure, the tunnel was disabled and stopped (04:34:04 UTC); 5081 no longer listens; the broker, Phase A's components and Phase B's account and SSH files are unchanged. Restarting it needs the owner's decision on the collision.
+
+### 1. Checks before the start (all passed)
+
+- **Hosts:** `bg-dev-mission01` (kernel 6.8.0-147) and `bg-dev-services01`.
+- **Phase B unchanged:**
+  - the services VM's snapshot equals `evidence-b/after.txt` apart from its timestamp and the firewall hash method;
+  - the counter-free `nft -s list ruleset` is byte-identical to `evidence-b/nft-stateless-after.txt`;
+  - the drop-in is still `e45917ad…`, and the authorized key is still `SHA256:KkqRiqrn…` (root 0644);
+  - the effective settings of `sshd -T -C` for `bg-api-tunnel` and for the admin are unchanged.
+- **The pinned host key:**
+  - `/etc/blackglass/tunnel/known_hosts` is identical to A4's verified copy;
+  - its fingerprint `SHA256:CCiFnZA0/WQDUAi6RbkM8Etemf42NTS+DoOcsY+Fpis` equals A1's reading and the services VM's own host key.
+- **Mission VM state:**
+  - the tunnel and the agent are disabled and inactive, and the broker's socket is active;
+  - nothing listens on 5081, 7770 or 7800–7807, and no mission unit exists;
+  - the snapshot equals `s2-after.txt` apart from `fwupd.service`. That service is static and D-Bus-activated: its hourly refresh starts it, it stops after 5 idle minutes, and it was also running at Phase A's baseline.
+- **Off-host probe (the PC):**
+  - **One unreproduced result:** the first mission run reported 5080 as answering, although nothing listened there.
+  - **Nine later runs** found it closed.
+  - **A packet capture on the mission VM** during three runs showed every SYN to 5080 answered by a reset from the VM (15 SYN, 15 RST).
+  - **Recorded as unexplained:** the PC reaches both VMs through a routed path, so a middlebox is the likely source. The tunnel never touches 5080.
+
+### 2. The start
+
+`systemctl enable --now blackglass-tunnel.service` at 04:19:04 UTC.
+
+- **Service:** active and running, with `NRestarts=0` throughout.
+- **Process:**
+  - main pid 7811: `/proc/7811/exe` is `/usr/bin/ssh`, and its command line is exactly `/usr/bin/ssh -N -F /etc/blackglass/tunnel/ssh_config bg-api-tunnel`;
+  - uid and gid 987 (`blackglass-tunnel`), parent pid 1, empty effective and bounding capabilities, `NoNewPrivs` 1.
+- **Listener:**
+  - exactly one, `127.0.0.1:5081`;
+  - `/proc/net/tcp` gives uid 987 for `0100007F:13D9`, which is the agent's own check;
+  - the socket's inode is held by pid 7811;
+  - nothing on `0.0.0.0:5081`, and no `tcp6` entry.
+- **The services VM's log:** `Accepted publickey for bg-api-tunnel … ED25519 SHA256:KkqRiqrn…`.
+- **The unit's journal:** only systemd's start, stop and restart lines; no host-key, authentication or forwarding error.
+
+### 3. Negative tests (`c-negative.sh`, as `blackglass-tunnel` with the tunnel's own key)
+
+**A defect in the checkpoint's commands.** They pass `-o ClearAllForwardings=yes`, which also clears the `-L`, `-R`, `-D` and `-w` given on the command line. So the remote-forward and local-forward commands never asked the server for anything, and would have "passed" without testing anything. The first run (kept as `c-negative-run1.txt`) showed this: each test timed out with no local test listener.
+
+The tests that count use a temporary copy of the tunnel's client configuration with only its `LocalForward` removed (the live tunnel holds 127.0.0.1:5081). The live configuration was not touched. Every test process had a timeout and was stopped by its exact pid. The live tunnel's pid and `NRestarts` were unchanged afterwards, and no test port remained.
+
+| Test | Result |
+|---|---|
+| Positive: the pinned key, verbose | "is known and matches the ED25519 host key", `Authenticated … using "publickey"` |
+| Unrecognized host key (empty `known_hosts`) | "Host key verification failed", exit 255 |
+| Wrong host key (the services name pinned to another ED25519 key) | "REMOTE HOST IDENTIFICATION HAS CHANGED", "Host key verification failed", exit 255 |
+| A command (`id`), then a shell command | no output; the forced command runs through the account's `nologin` shell ("This account is currently not available"), exit 1 |
+| Remote forward `-R 127.0.0.1:15082:127.0.0.1:22` | "remote port forwarding failed for listen port 15082", exit 255; nothing listened on the services VM |
+| Local forward to 127.0.0.1:22, 127.0.0.1:55432, `localhost:5080`, 192.0.2.1:80 | the local test listener appeared; a real connection through it got no bytes; the client logged "administratively prohibited"; the server logged "…but the request was denied" for each |
+| Local forward to `/var/run/docker.sock` | the server logged "refused streamlocal port forward"; the client got "connect failed: open failed" |
+| Dynamic (SOCKS4) forward to 127.0.0.1:22 | "administratively prohibited"; the server denied it |
+| Contrast: the permitted 127.0.0.1:5080 | "connect failed: Connection refused": permitted, but no API is running (expected before Phase D) |
+| Forced TTY | "PTY allocation request failed on channel 0" |
+| X11 (fake `DISPLAY`, trusted) | "Remote: X11 forwarding disabled by key options", "X11 forwarding request failed" |
+| Agent forwarding (with a temporary empty agent) | the request was sent. OpenSSH asks for no reply, so the refusal is not visible to the client; it rests on `allowagentforwarding no` and the key's `restrict` |
+| Tunnel device `-w any` | the client cannot open one (no capabilities, `PrivateDevices` in the unit); the server side rests on `permittunnel no` |
+
+**Admin access:** new, separate logins worked: `admin` with `sudo -n` on the services VM, and root on the mission VM.
+
+### 4. Restart, exposure and the after state
+
+- **Controlled restart** (04:28:53): the new main pid is 10696; the old one is gone. The single 127.0.0.1:5081 listener is back with uid 987 and its inode is held by 10696. The mission VM's running services are unchanged.
+- **Off-host probe after the start:** two rounds against both VMs. Only 22 answers; 5080, 5081, 5432, 55432, 7770 and 7800–7807 are closed or filtered. A capture on the mission VM shows every SYN to 5080 and 5081 answered by a reset (20 SYN, 20 RST).
+- **Firewall:** the services VM's counter-free ruleset is unchanged, and the mission VM's ruleset line count is unchanged.
+- **Mission VM after the start:** `/opt/blackglass/server` is unchanged (content and metadata hashes); the agent is disabled and inactive; there is no mission unit. The only differences are the 5081 listener and the tunnel being enabled and running.
+- **Services VM after the start:** listeners and containers are unchanged. The only differences are:
+  - one more established SSH connection;
+  - `user@999.service`: `pam_systemd`'s per-user manager for the tunnel's session (`systemd --user` and a user D-Bus; no lingering).
+
+### The finding: uid 999 is shared with the test database's container
+
+`useradd --system` gave `bg-api-tunnel` uid 999 in Phase B: Debian allocates system uids downwards from 999, and 999 was free in `/etc/passwd`. But the official PostgreSQL image runs as uid and gid 999, and Docker here does not remap user namespaces. So, on the host, uid 999 (now named `bg-api-tunnel`) owns:
+- the test database's data directory: `/var/lib/docker/volumes/blackglass-testdb_testdata/_data`, 0700, 3,613 files;
+- the test stack's PostgreSQL superuser, app and migrator password files: `/opt/blackglass/backend/testdb-secrets/postgres/*`, 0400.
+
+The container's postgres processes appear on the host as `bg-api-tunnel`. While the tunnel runs, the account's post-authentication `sshd-session` and its `systemd --user` run as that same uid. The restricted account, which exists to contain a compromised mission VM, therefore shares its uid with the owner of the database's secrets and data. Exploiting this would still need code execution in those processes; the forced command and `nologin` give none. But the isolation layer is weaker than designed.
+
+The live accounts stack and `bg-e2e` use the same image, so they would collide too. (The host group 999, `systemd-journal`, also owns those files as the image's gid; that predates Phase B, and the modes give the group no access.)
+
+**Effect of the stop:**
+- **Services VM:** equal to its pre-Phase-C snapshot apart from the timestamp. `user@999` is gone, and no host process runs as uid 999 except the container's postgres.
+- **The test database:** healthy and not restarted. Its shared memory lives in the container's private IPC namespace, and the host has no shared-memory segments, so logind's `RemoveIPC` could not have touched it.
+- **Mission VM:** equal to its pre-Phase-C snapshot apart from systemd's file-descriptor numbers for the SSH socket.
+
+**Proposed correction (for the owner's decision; nothing was changed):** give `bg-api-tunnel` a uid and gid that no container image uses, for example a fixed value chosen after a check of `find / -xdev -uid N`. Then confirm `sshd -T -C` again, and rerun Phase C with the corrected negative tests. The checkpoint's two forwarding commands also need the test-configuration form above.
+
+### Other warnings
+
+- **Public SSH:** the services VM's port 22 receives continuous internet brute-force attempts (root, admin, invalid users; about 2,100–7,300 a day since 2026-10-13, falling). All are refused before authentication: `permitrootlogin no`, public key only. There is no fail2ban or sshguard. The only accepted logins are the admin's, root's before 2026-10-14's hardening, and the tunnel account's.
+- **The SOCKS4 probe** got no SOCKS reply bytes, only a closed connection; the server's denial is in its log.
+
+**Evidence:**
+- mission VM `/root/bg-stage10/evidence/c-*` (snapshots, checks, both negative runs, the tunnel journal, captures);
+- services VM `/var/tmp/bg-stage10/evidence-c/` (`before.txt`, `after.txt`, `after-stop.txt`, `sshd-negative-window.txt`);
+- address-redacted local copies and the scripts.
+
+**Next:** the owner's decision on the uid collision; then Phase C again (start, the corrected negative tests). Phase D needs its own approval. Stage 12's B24 stays a hard requirement before any real Unity mission.
