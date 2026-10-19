@@ -283,6 +283,14 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Build_RefusesANonStackableConsumable()
+        {
+            // Format-v1 manifests report consumption per definition, so a new export requires every consumable to stack (Stage 11, D7).
+            a.Items = a.Keep(ItemCatalogue.Create(a.Kit, a.Boots, a.Rifle, a.Vest, a.Item("item.single-kit", ItemCategory.Consumable, ItemSlot.None, 1, 10)));
+            AssertRefused(a.Sources(), "incompatible:", "a consumable must be stackable");
+        }
+
+        [Test]
         public void Build_RefusesANegativeHealAmount()
         {
             // ItemDefinition.IsValid only checks consumables' healing; the backend refuses a negative amount on any item.

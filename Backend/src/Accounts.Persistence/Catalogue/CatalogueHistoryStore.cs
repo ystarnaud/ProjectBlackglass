@@ -38,7 +38,8 @@ public sealed class CatalogueHistoryStore(NpgsqlDataSource db)
     /// <summary>
     /// Registers <paramref name="catalogue"/> when absent and verifies the stored row; returns true when this call inserted it.
     /// With <paramref name="op"/>, the insert is audited (<c>catalogue_import</c>) in the same transaction. Throws
-    /// <see cref="CatalogueRegistrationException"/> for an identity-kind change. No retry.
+    /// <see cref="CatalogueRegistrationException"/> for an identity-kind change or, for a new version only, a failed registration rule
+    /// (<see cref="CatalogueRegistrationRules"/>). No retry.
     /// </summary>
     public async Task<bool> RegisterAsync(GameCatalogue catalogue, OperatorContext? op, CancellationToken ct)
     {
@@ -52,6 +53,10 @@ public sealed class CatalogueHistoryStore(NpgsqlDataSource db)
             "select exists (select 1 from catalogue_versions where version = @Version)", new { catalogue.Version }, tx, cancellationToken: ct));
         if (!exists)
         {
+            // Stage 11, owner ruling D7: rules for new registrations only. A stored version is never re-judged by them, so it stays
+            // readable under its original rules (LookupLockedAsync loads it with GameCatalogue.Load alone).
+            var problems = CatalogueRegistrationRules.Check(catalogue.Document);
+            if (problems.Count > 0) throw new CatalogueRegistrationException(string.Join("; ", problems));
             var versions = (await conn.QueryAsync<string>(new CommandDefinition("select version from catalogue_versions order by version", transaction: tx, cancellationToken: ct))).ToList();
             foreach (var version in versions)
             {
