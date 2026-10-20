@@ -392,6 +392,8 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 12: server mission from a snapshot, with abilities (D-24)
 
+**Status (2026-10-20):** planning only. The detailed plan is `2026-10-20-phase-13-stage12-server-mission.md` (revision 1.1, on `phase13-stage12-plan`), with the outbox self-test prepared on `phase13-outbox-selftest` and its host manifest `2026-10-20-phase-13-stage12-outbox-selftest-manifest.md`. Not authorized for implementation; nothing has run on either VM. Where the detailed plan differs from this outline, it wins.
+
 **Touches:**
 - `MissionDirector` (`GenerateForAttempt`, the pool read);
 - `SquadRoster` (`InitializeFromSnapshot`);
