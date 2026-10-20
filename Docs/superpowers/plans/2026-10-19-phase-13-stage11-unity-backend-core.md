@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-19):** revision 2.1 (revision 2 plus its review, at the end). The owner approved the architecture and ruled on D1–D8 ("Owner rulings" near the end). This revision applies the rulings' corrections: D2 (format versus settlement validation, the truthful `ledgerMismatch` fallback, fail-closed builds), D6 (every file operation on a dedicated I/O worker, the checked `$STATE_DIRECTORY`, a no-replace rename, the libc set the requirements need) and D7 (consumables must stack for new registrations and exports, with stored catalogues still readable). It also corrects the staged plan's Stage 13 settlement poll. Implementation is authorized on `phase13-stage11` once an independent review of this revision leaves no Critical or Important finding. No merge, push or deployment without the owner. Revision 1.1 (`2777623`) applied the first plan review (0 Critical, 5 Important, 14 Minor).
+**Status (2026-10-19):** **implemented on `phase13-stage11`, not merged or pushed; stopped for the owner's review** ("As built" at the end: all suites green; final review 0 Critical, 1 Important (I1, the container fill against the ready-report rule, needs an owner ruling before Stage 12), 7 Minor). Plan revision 2.1 (revision 2 plus its review). The owner approved the architecture and ruled on D1–D8 ("Owner rulings" near the end). This revision applies the rulings' corrections: D2 (format versus settlement validation, the truthful `ledgerMismatch` fallback, fail-closed builds), D6 (every file operation on a dedicated I/O worker, the checked `$STATE_DIRECTORY`, a no-replace rename, the libc set the requirements need) and D7 (consumables must stack for new registrations and exports, with stored catalogues still readable). It also corrects the staged plan's Stage 13 settlement poll. Implementation is authorized on `phase13-stage11` once an independent review of this revision leaves no Critical or Important finding. No merge, push or deployment without the owner. Revision 1.1 (`2777623`) applied the first plan review (0 Critical, 5 Important, 14 Minor).
 
 **Goal:** a plain C# core inside the Unity project that later stages (12, 13, 14, 16) build on:
 - the backend DTOs;
@@ -1143,3 +1143,63 @@ How revision 1.1 answers each finding:
 | M7 D7 tests | a fresh item id and the message asserted; the already-registered limitation recorded |
 | M8 fallback and ledger | the result's inclusion stated as this plan's reading; duplicate stacks refused; `ReportIntegrityFailure` after the freeze throws |
 | M9 consistency | eight scenarios; `CLAUDE.md` status; the review table note; the runtime-state types listed; bounds wording; the TooLarge test; the gated level named |
+
+## As built (2026-10-19, branch `phase13-stage11`, not merged or pushed)
+
+Implemented test-first, natively in one session, from `23a9c04` (plan revision 2.1) to the commit that records this section. One commit per task: Task 1 `36fe67c`, 2 `d50047b`, 3 `0430a23`, 4 `ba83a38`, 5 `b23feda`, 6 `6aec104`, 7 `46aaf5e`, 8 `cc174f7`, 9 `db90546`, 10 `e41da26`.
+
+**Tests (all green):**
+
+| Suite | Result |
+|---|---|
+| Unity EditMode (full, at `e41da26`) | **1835 / 1835** (baseline 1579 + 256 new) |
+| Unity PlayMode (full, at `e41da26`) | **1434 / 1434** (exactly the baseline) |
+| Backend domain (`Accounts.Domain.Tests`) | **787 / 787** (759 before + 28 new) |
+| VM runner `--full` at `e41da26` | domain 786, agent 254, integration **1773**, 0 failed |
+| VM runner `--unity-core` (`UnityCore.Linux.Tests`, real libc, `--network none`) | **8 / 8** |
+| manifest-v1 golden vectors in Unity | all 13 valid and 20 invalid, byte for byte; the folder pinned by file set and hashes |
+| ledger-v1 scenarios | 8 / 8 byte-identical in Unity; exactly the expected errors from the real `ManifestValidator` |
+
+Evidence (local, not committed): `.claude/scratchpad/phase13/stage-11/runs/`.
+
+**Rulings made during execution** (each in the ledger with its cost if wrong):
+- Full Unity suites ran at a mid-point (1727/1727 after Task 5) and at the end, not after every task.
+- Tasks 3 and 10 wrote their code before the red run (the compile failure was certain); Task 9's two integration tests were not run red first.
+- The fallback test in Task 6 uses the builder tests' own header, not scenario 08's bytes; scenario 08 pins its own bytes in both runtimes.
+- The write path opens without `O_TRUNC`, checks `fstat` (regular, one link, ours) and then calls `ftruncate`, so a hard-linked or foreign file is never truncated. This adds `ftruncate` to the libc set, which is now `open`, `openat`, `read`, `write`, `fsync`, `close`, `fstat`, `fchmod`, `ftruncate`, `renameat2` and `geteuid`.
+- `UnityCore.Linux.Tests` also links `Json/StrictJsonReader.cs` and `JsonNode.cs`, because `OutboxLocation` counts UTF-8 bytes.
+
+**Final independent review** (most capable model, whole branch): **0 Critical, 1 Important, 7 Minor.**
+
+It confirmed:
+- contract fidelity: the refusal order, entry member order, lone surrogates, the canonical writer, the ids and `LootPoolHash`;
+- that the D2 fallback is truthful and a known mismatch can never come out as `ok`;
+- Review Focus 1, 3, 4 and 5;
+- the worker's thread safety;
+- the outbox's filesystem and path safety;
+- D7's historical compatibility, the scope, and the runner change.
+
+- **I1, open, needs an owner ruling before Stage 12:**
+  - The problem: `LootContainer.Initialize` fills with `ItemInventory.Add`, which merges same-definition plan items, and the ledger takes pool lines from the entries after the fill. Two medkit plan items in one container (1 + 2) become one line of 3. The backend's ready-report rule (`LootPoolValidator`: each line's quantity inside a loot-table entry's range, 1..2 for the medkit) then refuses the pool, and the attempt is cancelled (`InvalidPool`). With the live catalogue this is plausible in a noticeable share of missions.
+  - Why the tests missed it: the ledger-v1 scenarios avoided merged pools on purpose, and nothing ran the ready-report rule on a merged pool.
+  - Now pinned by `LedgerScenarioTests.A_merged_container_line_is_refused_by_the_ready_report_rule`.
+  - The ways to resolve it:
+    - **(a) recommended:** Stage 12's attempt-mode fill adds one entry per plan item (the existing internal `ItemInventory.TryAddEntry(new ItemEntry(id, quantity))`, no merging), so a pool line is a plan item, as the backend expects, and the ledger is unchanged. The table's `maxQuantity` must not exceed the item's `maxStack`; the fill should refuse that case.
+    - **(b)** The backend judges a container's per-definition totals instead of per-line quantities. This changes the ready-report contract.
+    - **(c)** The ledger keeps plan lines and attributes merged entries to them by a fixed rule. This adds complexity to every collect.
+- **Minor, deferred** (not fixed; for the owner):
+  - **M1 (pre-existing, backend):** `ResultManifest.Parse` calls `Claims()` outside its `try`. A root member name of at least 9 raw bytes holding a lone surrogate escape may make `NameEquals` throw instead of returning `NotJson`. Unity returns `NotJson`. The agent's `OutboxScanner.Identifies` parses mission-written files, so a one-line backend fix and test is advisable. Not verified.
+  - **M2:** `BuildForPublication` lets a caller error escape as an `ArgumentException` instead of returning `Failed`: a header/facts account mismatch, or a dead id that isn't the participant's. It still writes no bytes; Stage 12 must catch it.
+  - **M3:** the `.tmp` write open lacks `O_NONBLOCK`. A FIFO planted between the probe and the open, possible only by the same uid, would block the worker.
+  - **M4:** the `--unity-core` build container shares the test cluster's network namespace, as every other mode does (no secrets are mounted). Only its test container has no network.
+  - **M5:** `serve` reports a failed D7 registration rule with the exit code named `CatalogueIdentityChanged`; the message is correct.
+  - **M6:** these docs. Done by this commit.
+  - **M7:** `Cancel` is not sticky per participant. A later `Submit` of the same bytes starts a new job; Stage 12 decides.
+
+**Known runtime limitations and Stage 12 obligations:**
+- **Mono:** the outbox's libc calls and its worker thread are proven on CoreCLR on Linux only. Stage 12 must run them in Unity's Linux Mono server player on the mission VM (`-outbox-selftest`, with the owner's go-ahead) before any real result depends on them.
+- **The fill (I1):** containers must be filled so that each pool line satisfies the ready-report rule, per the owner's ruling on I1.
+- **The outbox directory:** open it with `OutboxDirectories.OpenForServer($STATE_DIRECTORY, "/var/lib/blackglass-outbox", attemptId)` at start, before the loop, and refuse to run without it. Read handles only from the main thread.
+- **`BuildForPublication`:** a `Failed` outcome writes nothing and is reported. Catch an `ArgumentException` from it (M2).
+- **Stage 13:** send `recorded` only once a handle is `Written`, then call `AllowPublication()` whatever the answer. The process never polls settlement.
+- **B24:** remains blocking. No real Unity mission workload ran, and none may until the per-slot TCP bind restriction is demonstrated.

@@ -367,7 +367,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 11: Unity backend core (library-free)
 
-**Status (2026-10-19):** detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md`, revision 2: the owner ruled on D1–D8 and authorized implementation on `phase13-stage11` after an independent review of revision 2 (no merge, push or deployment without the owner). Where it differs from this outline, it wins.
+**Status (2026-10-19):** implemented on `phase13-stage11` per the detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md` (revision 2.1, "As built"), not merged or pushed, awaiting the owner's review. EditMode 1835/1835, PlayMode 1434/1434, backend green (VM full suite and the Linux outbox tests). Open before Stage 12: final-review I1 (fill attempt containers one entry per plan item, or another owner ruling) and the Mono `-outbox-selftest`. Where the detailed plan differs from this outline, it wins.
 
 **Touches:**
 - `Assets/_Project/Scripts/Backend/Core/` (new);

@@ -65,6 +65,21 @@ public class LedgerScenarioTests
             plan.Collections.ToDictionary(p => (p.Key.ContainerIndex, p.Key.Line), p => p.Value));
     }
 
+    /// <summary>
+    /// Final review I1, an open Stage 12 obligation: ItemInventory.Add merges same-definition plan items in one container, so
+    /// two kit plan items (1 + 2) become one entry, one pool line of 3, outside the table's 1..2: the ready report is refused
+    /// and the attempt cancelled (InvalidPool). The ledger takes lines from the entries after the fill, so Stage 12 must fill
+    /// attempt containers one entry per plan item (or the owner rules another fix). This pins today's backend rule.
+    /// </summary>
+    [Fact]
+    public void A_merged_container_line_is_refused_by_the_ready_report_rule()
+    {
+        PoolLine[] merged = [new(0, 0, "item.gamma-kit", 3)];
+        PoolLine[] unmerged = [new(0, 0, "item.gamma-kit", 1), new(0, 1, "item.gamma-kit", 2)];
+        Assert.Equal(["line (0,0): quantity 3 is outside the entry's range"], LootPoolValidator.Validate(Golden.Document.LootTable, 7, merged));
+        Assert.Empty(LootPoolValidator.Validate(Golden.Document.LootTable, 7, unmerged));
+    }
+
     // ---- the Unity-only parser expectations (Stage 11 ManifestCodecTests), pinned against the authoritative parser ----
 
     static string Vector(string name) => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "contracts", "manifest-v1", "valid", name + ".canonical.json"));
