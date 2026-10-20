@@ -197,6 +197,14 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void The_uid_reader_is_local_to_the_diagnostic_and_linux_x64_only()
+        {
+            // The Editor runs on Windows: the reader must refuse rather than guess (the self-test then fails, never passes).
+            Assert.Throws<PlatformNotSupportedException>(() => OutboxSelftest.EffectiveUserId());
+            Assert.That(typeof(OutboxDirectories).GetMethod("EffectiveUserId"), Is.Null, "no production API in the core for it");
+        }
+
+        [Test]
         public void The_options_are_read()
         {
             var o = ServerOptions.Parse(new[] { "-outboxSelftest", "hold", "-selftestParent", "/var/lib/x", "-selftestId", "019a0000-0000-7000-8000-00000000a001" }, out var warnings);

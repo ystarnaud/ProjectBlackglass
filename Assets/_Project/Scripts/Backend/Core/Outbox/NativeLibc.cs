@@ -8,7 +8,7 @@ namespace Blackglass.Backend.Core
     /// resolve it alike without a dllmap. fstat needs glibc 2.33 and renameat2 2.28. The struct stat layout is x86_64's (as in
     /// the agent's Unix.cs). openat's mode is passed as a fourth integer, which the x86_64 variadic convention accepts. No
     /// unsafe code: buffers are pinned with GCHandle. Unity's Linux Mono player must still prove these calls in Stage 12
-    /// (-outboxSelftest on the mission VM) before a real result depends on them.
+    /// (-outbox-selftest on the mission VM) before a real result depends on them.
     /// </summary>
     internal sealed class NativeLibc : ILibc
     {

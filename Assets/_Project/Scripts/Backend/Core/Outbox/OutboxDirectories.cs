@@ -20,14 +20,6 @@ namespace Blackglass.Backend.Core
             return PosixOutboxDirectory.Open(path, NativeLibc.Instance);
         }
 
-        /// <summary>The process's effective uid (geteuid), linux-x64 only: the outbox self-test refuses to run as root.</summary>
-        public static long EffectiveUserId()
-        {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.ProcessArchitecture != Architecture.X64)
-                throw new PlatformNotSupportedException("The effective uid is read on linux-x64 only.");
-            return NativeLibc.Instance.GetEuid();
-        }
-
         /// <summary>Tests and Editor tools only, never a real outbox. A missing directory is never created.</summary>
         public static IOutboxDirectory OpenForEditor(string path)
         {

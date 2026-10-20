@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using Blackglass.Backend.Core;
 
@@ -66,6 +67,20 @@ namespace Blackglass
             this.log = log ?? throw new ArgumentNullException(nameof(log));
             steps = Run();
         }
+
+        /// <summary>
+        /// The process's effective uid, for the root refusal: geteuid through libc, local to this diagnostic (no production API).
+        /// linux-x64 players only; anywhere else it throws, so the self-test fails rather than guesses.
+        /// </summary>
+        public static long EffectiveUserId()
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.ProcessArchitecture != Architecture.X64)
+                throw new PlatformNotSupportedException("The effective uid is read on linux-x64 only.");
+            return geteuid();
+        }
+
+        [DllImport("libc.so.6", EntryPoint = "geteuid")]
+        static extern uint geteuid();
 
         public static bool IsPhase(string value) => value == "publish" || value == "hold" || value == "resume";
 

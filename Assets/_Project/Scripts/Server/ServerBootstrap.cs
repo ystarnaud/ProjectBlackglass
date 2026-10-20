@@ -57,7 +57,7 @@ namespace Blackglass
         /// <summary>Opens the self-test's outbox directory from $STATE_DIRECTORY; tests replace it with a portable directory.</summary>
         internal Func<ServerOptions, IOutboxDirectory> OpenOutbox = o => OpenSelftestOutbox(o, Environment.GetEnvironmentVariable("STATE_DIRECTORY"));
         /// <summary>The effective uid the self-test checks (it refuses root); tests replace it.</summary>
-        internal Func<long> EffectiveUserId = OutboxDirectories.EffectiveUserId;
+        internal Func<long> EffectiveUserId = OutboxSelftest.EffectiveUserId;
         internal ServerOptions Options => options;
         internal bool HasExited { get; private set; }
         internal int ExitCode { get; private set; } = -1;
