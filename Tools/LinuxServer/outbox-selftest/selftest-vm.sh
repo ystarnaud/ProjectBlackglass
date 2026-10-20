@@ -58,12 +58,25 @@ files() { # files <id>: the state directory's entries as root sees them, with th
   (cd "$d" && sha256sum -- * 2>/dev/null)
 }
 
-run_phase() { # run_phase <unit> <state id> <phase> <selftest id>: in the foreground, its exit status last
-  local bin
+new_token() { cat /proc/sys/kernel/random/uuid; }
+
+# The run's journal lines and the identity journald recorded for them: _UID and _GID come from the kernel (the stream's
+# SCM_CREDENTIALS), independent of anything the self-test itself prints. Every line of a run carries BLACKGLASS_SELFTEST=<token>.
+report_run() { # report_run <token>
+  journalctl --sync 2>/dev/null
+  journalctl "BLACKGLASS_SELFTEST=$1" -o cat --no-pager | grep -E '^\[(Server|Selftest)\]'
+  echo "journal_identity=$(journalctl "BLACKGLASS_SELFTEST=$1" -o export --no-pager | grep -aE '^_(UID|GID)=' | sort -u | tr '\n' ' ')"
+}
+
+run_phase() { # run_phase <unit> <state id> <phase> <selftest id>: in the foreground; the exit status, then the journal report
+  local bin token code
   bin="$(binary)" || exit 1
-  systemd-run --quiet --unit="blackglass-selftest-$1" --wait --collect --pipe "${props[@]}" -p "StateDirectory=blackglass-selftest/$2" \
-    "$bin" -batchmode -nographics -logFile - -outboxSelftest "$3" -selftestId "$4" < /dev/null | grep -E '^\[(Server|Selftest)\]'
-  echo "exit=${PIPESTATUS[0]}"
+  token="$(new_token)"
+  systemd-run --quiet --unit="blackglass-selftest-$1" --wait --collect "${props[@]}" -p "LogExtraFields=BLACKGLASS_SELFTEST=$token" \
+    -p "StateDirectory=blackglass-selftest/$2" "$bin" -batchmode -nographics -logFile - -outboxSelftest "$3" -selftestId "$4"
+  code=$?
+  report_run "$token"
+  echo "exit=$code"
 }
 
 case "$step" in
@@ -114,23 +127,25 @@ case "$step" in
     ;;
   hold)
     bin="$(binary)" || exit 1
-    systemd-run --quiet --unit=blackglass-selftest-hold --collect "${props[@]}" -p "StateDirectory=blackglass-selftest/$id2" \
-      "$bin" -batchmode -nographics -logFile - -outboxSelftest hold -selftestId "$id2"
-    inv="$(systemctl show -p InvocationID --value blackglass-selftest-hold)"
+    token="$(new_token)"
+    systemd-run --quiet --unit=blackglass-selftest-hold --collect "${props[@]}" -p "LogExtraFields=BLACKGLASS_SELFTEST=$token"       -p "StateDirectory=blackglass-selftest/$id2" "$bin" -batchmode -nographics -logFile - -outboxSelftest hold -selftestId "$id2"
     held=no
     for _ in $(seq 1 120); do
-      if journalctl "_SYSTEMD_INVOCATION_ID=$inv" -o cat --no-pager | grep -q '^\[Selftest\] held'; then held=yes; break; fi
+      if journalctl "BLACKGLASS_SELFTEST=$token" -o cat --no-pager | grep -q '^\[Selftest\] held'; then held=yes; break; fi
       systemctl is-active -q blackglass-selftest-hold || break
       sleep 1
     done
     echo "held=$held"
     echo "unit=$(systemctl show blackglass-selftest-hold -p User -p DynamicUser -p PrivateNetwork -p NoNewPrivileges | tr '\n' ' ')"
     pid="$(systemctl show -p MainPID --value blackglass-selftest-hold)"
-    [ "$pid" != "0" ] && echo "process=$(ps -o uid=,user=,comm= -p "$pid")"
+    if [ "$pid" != "0" ]; then
+      echo "process=$(ps -o uid=,gid=,user=,comm= -p "$pid")"
+      echo "process_status=$(grep -E '^(Uid|Gid|NoNewPrivs|CapEff|Seccomp):' "/proc/$pid/status" | tr -s '\t ' ' ' | tr '\n' ' ')"
+    fi
     systemctl kill --signal=SIGKILL blackglass-selftest-hold
     for _ in $(seq 1 30); do systemctl is-active -q blackglass-selftest-hold || break; sleep 1; done
     echo "active_after_kill=$(systemctl is-active blackglass-selftest-hold)"
-    journalctl "_SYSTEMD_INVOCATION_ID=$inv" -o cat --no-pager | grep -E '^\[(Server|Selftest)\]'
+    report_run "$token"
     files "$id2"
     ;;
   resume)
