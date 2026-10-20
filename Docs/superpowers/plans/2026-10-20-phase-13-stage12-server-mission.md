@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-20):** **plan revision 2, for the owner's review. Not authorized for implementation.** On `phase13-stage12-plan`, after Stage 11's merge (`075fcd4`). Revision 2 applies the owner's Stage 12 rulings of 2026-10-20: a C launcher versioned with the agent's trusted components, UDP denied, SCTP, MPTCP and io_uring closed, the unbound `listen()` mediated or B24 kept blocked, every prohibited operation against a positive control, and an off-host reachability procedure (`2026-10-20-phase-13-stage12-reachability-procedure.md`, prepared, not executed). Revision 1.1 applied the first independent review. Nothing here has run on either VM. Each VM phase needs the owner's approval of its own host manifest first; the outbox self-test's is `2026-10-20-phase-13-stage12-outbox-selftest-manifest.md`.
+**Status (2026-10-20):** **plan revision 2.1, for the owner's review. Not authorized for implementation.** Revision 2.1 applies security review 2 (0 Critical, 5 Important, 15 Minor; "Security review 2" at the end). On `phase13-stage12-plan`, after Stage 11's merge (`075fcd4`). Revision 2 applies the owner's Stage 12 rulings of 2026-10-20: a C launcher versioned with the agent's trusted components, UDP denied, SCTP, MPTCP and io_uring closed, the unbound `listen()` mediated or B24 kept blocked, every prohibited operation against a positive control, and an off-host reachability procedure (`2026-10-20-phase-13-stage12-reachability-procedure.md`, prepared, not executed). Revision 1.1 applied the first independent review. Nothing here has run on either VM. Each VM phase needs the owner's approval of its own host manifest first; the outbox self-test's is `2026-10-20-phase-13-stage12-outbox-selftest-manifest.md`.
 
 **Goal:** the Unity Linux dedicated server can run one authoritative solo attempt from a backend admission snapshot: the backend's operatives, inventory and picks; a deterministic mission whose loot containers keep one entry per rolled item (B25); a ready report the real backend accepts; abilities and combat resolved on the server; item events feeding Stage 11's ledger; the outcome frozen at the first terminal event, with a format-v1 manifest built from it. On the mission VM, a mission unit can bind and listen only on its own slot's TCP port (B24), demonstrated there before any real Unity mission workload runs.
 
@@ -94,7 +94,7 @@
 - `ServerOptions`: `-outboxSelftest <publish|hold|resume>`, `-selftestParent` (default `/var/lib/blackglass-selftest`), `-selftestId`.
 - `ServerBootstrap`: `Start` calls `Begin(args)`; with `-outboxSelftest`, `Begin` creates the self-test and returns before the director, the generation and `-net`; `Update` calls `Tick(now)`, which steps the self-test and exits 0 or `SelftestFailed = 3`. The directory opener refuses any parent naming `blackglass-outbox` (`production_outbox`), then uses `OutboxDirectories.OpenForServer($STATE_DIRECTORY, parent, id)`.
 - `Blackglass.asmdef` now references `Blackglass.Backend.Core` (the first runtime reference; Stage 12 needs it anyway).
-- `OutboxSelftestTests` (20, EditMode, over the portable directory): the vector pin, publish (7 checks, the `.ready` never replaced), hold then resume, resume without a held result, root refused before any file operation, a native-library exception and a failing uid read never passing, a long frame, a refused location, unknown and missing phases, the options, a self-test option without a phase never running a mission, the production-outbox refusal, the uid reader local to the diagnostic and linux-only, and the bootstrap running the self-test with no director and `-net` ignored (exit 0) or failing it (exit 3). EditMode 1863/1863 and PlayMode 1434/1434 at `88c0e39`; later commits change only `Tools/`.
+- `OutboxSelftestTests` (20, EditMode, over the portable directory): the vector pin, publish (7 checks, the `.ready` never replaced), hold then resume, resume without a held result, root refused before any file operation, a native-library exception and a failing uid read never passing, a long frame, a refused location, unknown and missing phases, the options, a self-test option without a phase never running a mission, the production-outbox refusal, the uid reader local to the diagnostic and linux-only, and the bootstrap running the self-test with no director and `-net` ignored (exit 0) or failing it (exit 3). EditMode 1863/1863 and PlayMode 1434/1434 at `88c0e39` (in the owner's working tree, with its two modified settings files). At the final self-test revision `91d5185`, in the clean worktree: EditMode 1864/1864. **PlayMode there was stopped by Claude Code for critically low system memory, so it isn't verified at that revision; it must be rerun.**
 - **The root check's uid reader** is `OutboxSelftest.EffectiveUserId()` (its own `geteuid` import, linux-x64 only); the core assembly is byte-identical to `main`.
 - **Build provenance** (`88c0e39`, `7d7fbf7`): `Tools/build-server.sh` captures the commit, source tree and cleanliness (porcelain status with untracked files) before Unity starts (`Tools/build-provenance.sh`). Unity only stamps them (`ServerBuildInfo.SourceLines`: anything invalid stamps `unknown`, never clean). After Unity exits, the source and HEAD must be exactly as captured, or the build fails and nothing is packaged. The embedded stamp must equal the capture. `binarySha256`, `provenance=verified` and `files.sha256` (every shipped file: the executable is Unity's generic player, the game code is in `*_Data/Managed`) are then recorded. Tests: `Tools/tests/build-server-provenance-test.sh` (clean source with Unity's temporary settings change; tracked and untracked changes before the build; a change that survives the build; HEAD moving) 5/5, and `ServerBuildInfoTests`.
 - **`Tools/LinuxServer/outbox-selftest/selftest-vm.sh`:** the VM side the manifest runs. Each run is token-tagged in the journal so its `_UID`/`_GID` are confirmed independently.
@@ -206,66 +206,68 @@ Plus Review Focus 1 and 2: `A_roll_over_max_stack_fails_generation_with_its_code
 
 - [ ] Steps: failing tests → RED → implement → regenerate the scene through the builder → GREEN → full EditMode and PlayMode → commit (the diff stat shows no client-scene file).
 
-## B24 security design (revision 2, owner rulings of 2026-10-20 §4)
+## B24 security design (revision 2.1, owner rulings of 2026-10-20 §4; security review 2 applied)
 
-**Status: a design to be implemented and proven; nothing here is enforced or demonstrated yet.** B24 stays blocking until every line of "Proof" below holds on `bg-dev-mission01`. The installed Stage 10 templates are not changed by this plan; the Stage 12 template is a repository file, installed only under a later owner-approved manifest.
+**Status: a design to be implemented and proven; nothing here is enforced or demonstrated yet.** B24 stays blocking until every line of "Proof" below holds on `bg-dev-mission01`. The installed Stage 10 templates aren't changed by this plan. The Stage 12 template is a repository file, installed only under a later owner-approved manifest.
 
 ### Components
 
-- **`bg-mission-launch`, a small C launcher.**
-  - **Install:** root-owned 0755, versioned with the agent's trusted security components, at `/opt/blackglass/agent/releases/<rev>/bg-mission-launch` beside `slot-guard` and `record-exit`, reached through `/opt/blackglass/agent/current`. It is never part of the swappable mission release it constrains.
-  - **Build:** statically linked, in a digest-pinned GCC container on the existing `bg-dev-services01` test runner (a new `vm-test.sh --launcher` mode, with no Docker daemon, network or firewall change). Its SHA-256 is recorded in the agent release's manifest.
-- **The mission still runs as its slot's dynamic user** (`DynamicUser=yes`, `User=blackglass-mNN`), unchanged. The launcher is that unit's `ExecStart`: it runs as that non-root user under `NoNewPrivileges=yes`, applies the restrictions, then `execve`s `run-mission`.
-- **systemd's IP address filter** (`IPAddressDeny=any`, `IPAddressAllow=localhost`) for the address half, with a root pre-start check that the filter is attached (below).
+- **`bg-mission-launch`, a small C launcher**, root-owned 0755. It is versioned with the agent's trusted security components at `/opt/blackglass/agent/releases/<rev>/bg-mission-launch`, beside `slot-guard` and `record-exit`, and reached through `/opt/blackglass/agent/current`. It is never part of the swappable mission release it constrains.
+  - It is built statically in a digest-pinned GCC container on the existing `bg-dev-services01` test runner: a new `vm-test.sh --launcher` mode, with no Docker daemon, network or firewall change.
+  - Its SHA-256 is recorded in the agent release's manifest.
+- **The mission still runs as its slot's dynamic user** (`DynamicUser=yes`, `User=blackglass-mNN`), unchanged. The launcher is that unit's `ExecStart`: it runs as that non-root user under `NoNewPrivileges=yes`.
+- **systemd's IP address filter** (`IPAddressDeny=any`, `IPAddressAllow=localhost`) covers the address half, with a root pre-start check that the filter is attached (below).
 
 ### The launcher's sequence: fail closed
 
 Every step that fails prints a bounded reason to stderr and exits 78 without `execve`.
 
 1. **Arguments:** `--tcp-bind <port>` (1024–65535, rendered per slot), `--tcp-connect 5081`, then `--` and the program. Anything else is refused.
-2. **No inherited descriptors:** `close_range(3, ~0U, 0)`, then a scan of `/proc/self/fd` that must show only 0, 1 and 2. Those are stdin (`/dev/null`) and stdout/stderr (systemd's journal stream, a connected `AF_UNIX` socket, never listening). A preopened or inherited listening socket therefore can't reach Unity.
-3. **No new privileges:** `prctl(PR_GET_NO_NEW_PRIVS)` must already be 1 (from the unit), else the launcher sets it and fails if it can't.
-4. **Landlock:**
-   - the ABI query must be ≥ 4;
-   - a ruleset handling `LANDLOCK_ACCESS_NET_BIND_TCP` and `LANDLOCK_ACCESS_NET_CONNECT_TCP`, with exactly two rules: bind on the slot port, connect on 5081;
-   - then `landlock_restrict_self`.
+2. **Preconditions:**
+   - `prctl(PR_GET_NO_NEW_PRIVS)` must already be 1 (the unit's `NoNewPrivileges=yes`);
+   - `/proc/sys/kernel/yama/ptrace_scope` must be at least 1;
+   - the Landlock ABI query must return at least 4.
+3. **Fork first.** The parent becomes the listen supervisor. It is never Landlock-restricted and never seccomp-filtered, so the child's Landlock domain can't `ptrace` or `pidfd_getfd` it (Landlock's own ptrace scoping, independent of Yama). It calls `prctl(PR_SET_DUMPABLE, 0)`, so even a same-uid process outside any domain would need `CAP_SYS_PTRACE`.
+4. **In the child only, in this order:**
+   1. **No inherited descriptors:** `close_range(3, ~0U, 0)` (keeping only the socketpair end to the supervisor). Then a scan of `/proc/self/fd`, which must show only 0, 1, 2 and that end. Each of 0–2 is checked with `fstat` and, if it is a socket, `getsockopt(SO_DOMAIN)` must be `AF_UNIX` and `SO_ACCEPTCONN` 0. Stdin is `/dev/null`; stdout and stderr are systemd's journal stream (a connected `AF_UNIX` socket).
+   2. **Landlock:** a ruleset handling `LANDLOCK_ACCESS_NET_BIND_TCP` and `LANDLOCK_ACCESS_NET_CONNECT_TCP`, with exactly two rules: bind on the slot port, connect on 5081. Then `landlock_restrict_self`. The restriction applies to IPv4 and IPv6 TCP by port, and is inherited across `execve` and by every descendant. The address half is the IP filter's.
+   3. **The seccomp filter** (classic BPF; every scalar argument is judged on its low 32 bits, since the kernel truncates `int` arguments):
+      - **Architecture:** must be `AUDIT_ARCH_X86_64`; x32 syscall numbers (bit 30) are killed.
+      - **`socket`:** for `AF_INET`/`AF_INET6`, allowed only when `type & ~(SOCK_NONBLOCK|SOCK_CLOEXEC) == SOCK_STREAM` and `protocol ∈ {0, IPPROTO_TCP}`. Every other combination returns `EACCES`: UDP, SCTP over `SOCK_STREAM` or `SOCK_SEQPACKET` (`IPPROTO_SCTP` 132), MPTCP (`IPPROTO_MPTCP` 262), raw. `AF_UNIX` is allowed; every other family returns `EAFNOSUPPORT`.
+      - **`socketpair`:** `AF_UNIX` only.
+      - **TCP Fast Open:** `sendto` (flags, argument 3), `sendmsg` (argument 2) and `sendmmsg` (argument 3) with `MSG_FASTOPEN` (0x20000000) return `EACCES`. On kernel 6.8, `sendmsg` with `MSG_FASTOPEN` on an unconnected TCP socket connects through `tcp_sendmsg_fastopen`, which never reaches Landlock's connect hook; the connect rule alone would be bypassed. (`TCP_FASTOPEN_CONNECT` followed by `connect()` does go through the hook.)
+      - **`io_uring_setup`, `io_uring_enter`, `io_uring_register`:** `EPERM`. `IORING_OP_SOCKET` and io_uring's own send operations bypass the rules above. The unit also gets `SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register`.
+      - **`listen`:** `SECCOMP_RET_USER_NOTIF`, installed with `SECCOMP_FILTER_FLAG_NEW_LISTENER`. The notification descriptor goes to the supervisor over the socketpair (`SCM_RIGHTS`), and the child closes its copy.
+   4. **A last descriptor scan** immediately before `execve` (only 0–2 may remain), then **`execve`** of the program. A failure exits 78.
+5. **The supervisor** (owner decision S12-D9).
+   - **Why it exists:** Landlock ABI 4 mediates `bind()`, but `listen()` on an unbound socket autobinds an ephemeral port without a `bind()`. **A classic seccomp filter can't tell, from `listen()`'s arguments (a descriptor number and a backlog), whether or where the socket was bound;** a filter alone can only allow or refuse every `listen()`.
+   - **What it does on each `listen` notification:**
+     1. maps the notifying thread's id to its thread-group id (`/proc/<tid>/status`, `Tgid`; on 6.8 `pidfd_open` needs a thread-group leader);
+     2. calls `pidfd_open`, then `SECCOMP_IOCTL_NOTIF_ID_VALID`, then `pidfd_getfd` for `args[0]`, then `SECCOMP_IOCTL_NOTIF_ID_VALID` again;
+     3. inspects the socket it now holds: `SO_TYPE` must be `SOCK_STREAM`, `SO_PROTOCOL` must be `IPPROTO_TCP`, and `getsockname()` must be `AF_INET`/`AF_INET6` with the slot port. An unbound socket reports port 0 and is refused.
+   - **The reply:** if the socket passes, the supervisor calls `listen(dup, args[1])` itself, on the same socket, and replies success; otherwise it replies `EACCES`. It never uses `SECCOMP_USER_NOTIF_FLAG_CONTINUE`, which the kernel documents as unsafe for security decisions. The action is taken on the socket that was inspected, so a racing `dup2` in another thread changes nothing.
+   - **Exit:** it waits for the child and exits with its status. For a signal, it re-raises the same signal on itself, so systemd and `record-exit` see the mission's own result.
+   - **If the supervisor dies:** its notification descriptor closes and every later `listen()` fails: fail closed. The child can kill it (same uid), which only fails closed.
 
-   The restriction is inherited across `execve` and by every descendant, and nothing can lift it. It applies to IPv4 and IPv6 TCP alike, by port; the address half is the IP filter's.
-5. **A seccomp filter** (classic BPF, installed by the launcher):
-   - **Architecture:** must be `AUDIT_ARCH_X86_64`; x32 syscall numbers (bit 30) are killed.
-   - **`socket`:**
-     - for `AF_INET`/`AF_INET6`, allowed only when `type & ~(SOCK_NONBLOCK|SOCK_CLOEXEC) == SOCK_STREAM` and `protocol ∈ {0, IPPROTO_TCP}`;
-     - every other combination returns `EACCES`: UDP, `SOCK_SEQPACKET`/`SOCK_STREAM` SCTP (`IPPROTO_SCTP` 132), MPTCP (`IPPROTO_MPTCP` 262), raw;
-     - `AF_UNIX` is allowed; every other family returns `EAFNOSUPPORT` (the unit's `RestrictAddressFamilies` already refuses them).
-   - **`socketpair`:** `AF_UNIX` only.
-   - **`io_uring_setup`, `io_uring_enter`, `io_uring_register`:** `EPERM`. `IORING_OP_SOCKET` creates sockets without `socket()`, so io_uring would bypass the rule above. The unit also gets `SystemCallFilter=~io_uring_setup`, as defense in depth.
-   - **`listen`:** `SECCOMP_RET_USER_NOTIF` to the supervisor (step 6).
-6. **The listen supervisor** (owner decision S12-D9).
-   - **Why it's needed:** Landlock ABI 4 mediates `bind()`, but `listen()` on an unbound socket autobinds an ephemeral port without a `bind()`, and a classic seccomp filter **can't** tell from `listen()`'s arguments (a descriptor number and a backlog) whether or where the socket was bound. A filter alone can only allow or refuse every `listen()`.
-   - **What the supervisor does:**
-     1. Before installing the filter, the launcher forks. The child installs the filter with `SECCOMP_FILTER_FLAG_NEW_LISTENER`, sends the notification descriptor to the parent over a socketpair (`SCM_RIGHTS`), closes its copy and `execve`s.
-     2. The parent stays as the supervisor, the same dynamic user. For each `listen` notification it takes the target's descriptor with `pidfd_getfd`, checks the notification is still valid (`SECCOMP_IOCTL_NOTIF_ID_VALID`), and inspects the socket itself:
-        - `getsockopt(SO_TYPE) == SOCK_STREAM`;
-        - `SO_PROTOCOL == IPPROTO_TCP`;
-        - `getsockname()` is `AF_INET`/`AF_INET6` with the slot port (an unbound socket reports port 0 and is refused).
-     3. If the socket passes, the supervisor calls `listen()` on its own duplicate (the same socket) and replies success. Otherwise it replies `EACCES`. It never replies `SECCOMP_USER_NOTIF_FLAG_CONTINUE`, which the kernel documents as unsafe for security decisions.
-   - **Why racing is harmless:** the action is taken on the very socket that was inspected, so a racing `dup2` in another thread changes nothing.
-   - **Exit:** the supervisor waits for the child and exits with its status. On a signal it re-raises the same signal, so systemd and `record-exit` see the mission's own result.
-   - **If the supervisor dies:** the notification descriptor closes and every later `listen()` fails (`ENOSYS`): fail closed.
-   - **The mission can't touch the supervisor:** under Yama `ptrace_scope` 1, the child can't `ptrace` or `pidfd_getfd` its parent. It can kill it (same uid), which only fails closed.
-7. **`execve`** of the program; a failure exits 78.
-
-**IP filter pre-check.** The unit can't fail closed on its own if the kernel can't attach systemd's filter: systemd logs it and starts anyway. So a root `ExecStartPre=+/opt/blackglass/agent/current/bg-mission-launch --verify-ip-filter` queries the unit's cgroup (`BPF_PROG_QUERY` for `BPF_CGROUP_INET_INGRESS` and `_EGRESS`) and refuses to continue unless both have a program attached. Whether systemd 255 built `-BPF_FRAMEWORK` attaches its in-tree IP firewall at all is exactly what the VM must show (§"What still needs VM proof").
+**IP filter pre-check.** systemd starts a unit even when the kernel can't attach its IP filter, so the unit can't fail closed on it alone. A root `ExecStartPre=+/opt/blackglass/agent/current/bg-mission-launch --verify-ip-filter` therefore queries the unit's cgroup (`BPF_PROG_QUERY` for `BPF_CGROUP_INET_INGRESS` and `_EGRESS`). It refuses to continue unless both carry exactly the expected programs. IP accounting uses the same attach types, so the expected count and type are pinned per systemd version from the VM run, and a program being attached isn't taken as proof that it denies. The deciding evidence is behavioral (the reachability procedure).
 
 ### The Stage 12 slot template (repository only)
 
-- **Removed:** `SystemCallFilter=~listen` (replaced by the mediated `listen`) and the inert `SocketBindAllow=udp:@PORT@` and `SocketBindDeny=any`.
+- **Removed:** `SystemCallFilter=~listen` (replaced by the mediated `listen`), and the inert `SocketBindAllow=udp:@PORT@` and `SocketBindDeny=any`.
 - **Added:**
   - `ExecStartPre=+…/bg-mission-launch --verify-ip-filter`;
   - `ExecStart=/opt/blackglass/agent/current/bg-mission-launch --tcp-bind @PORT@ --tcp-connect 5081 -- /opt/blackglass/mission/current/run-mission %i`;
-  - `IPAddressDeny=any`, `IPAddressAllow=localhost`;
+  - `IPAddressDeny=any` and `IPAddressAllow=localhost`;
   - `SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register`.
-- **Unchanged:** everything else in the template (identity, filesystem, credentials, resources).
+- **Unchanged:** everything else (identity, filesystem, credentials, resources).
+
+### Mechanisms evaluated and not chosen
+
+- **systemd's `SocketBindAllow=`:** unenforced on this systemd (`-BPF_FRAMEWORK`, Stage 10's on-VM note). It would need a non-stock systemd.
+- **Socket activation:** a root `.socket` with `ListenStream=127.0.0.1:<port>`, the unit keeping `SystemCallFilter=~bind listen`. It would close the unbound-listen and UDP cases too.
+  - It fails on Unity Transport 2.7.4: its WebSocket interface creates its own Baselib socket, and it can't adopt an inherited descriptor without a custom `INetworkInterface`.
+  - Rejected for Stage 12; revisit if the transport gains that.
+- **nftables:** filters packets; it never shows that a process can't bind or listen. Not proof by the spec's rule.
 
 ### Each case, and how it is handled
 
@@ -273,60 +275,66 @@ Every step that fails prints a bounded reason to stderr and exits 78 without `ex
 |---|---|---|
 | Bind any TCP port but the slot's (5081, another slot's, IPv4 or IPv6, any address) | Landlock bind rule (`EACCES`) | none expected |
 | Bind port 0 | Landlock (port 0 has no rule: `EACCES`) | none expected |
-| `listen()` without an explicit bind (autobind) | the listen supervisor: `getsockname` shows port 0, refused (`EACCES`) | none if S12-D9 is approved; else the owner accepts an ephemeral, loopback-only listener (below) |
-| A preopened or inherited socket | `close_range` and the `/proc/self/fd` check before `execve`; the template has no `Sockets=` | none expected |
-| Outbound TCP to any destination port but 5081 | Landlock connect rule (`EACCES`) | none expected |
-| Outbound TCP to 5081 on a non-local address | the IP filter (`IPAddressAllow=localhost`) | depends on the filter's VM proof |
-| UDP (any port, IPv4 or IPv6) | seccomp `socket` rule (`EACCES`) | none (UDP is refused unless separately authorized) |
-| SCTP (`IPPROTO_SCTP` over `SOCK_STREAM` or `SOCK_SEQPACKET`) | seccomp `socket` rule | none expected |
-| MPTCP (`IPPROTO_MPTCP`, which accepts plain TCP clients through fallback) | seccomp `socket` rule | none expected |
-| Sockets created through io_uring | seccomp and `SystemCallFilter` refuse io_uring | none expected |
+| `listen()` without an explicit bind (autobind) | the supervisor: `getsockname` shows port 0, refused (`EACCES`) | none if S12-D9 is approved, else see below |
+| A preopened or inherited socket | `close_range`, the `/proc/self/fd` scans and the 0–2 socket checks; the template has no `Sockets=` | none expected |
+| Outbound TCP to any port but 5081 (`connect`) | Landlock connect rule (`EACCES`) | none expected |
+| Outbound TCP through TCP Fast Open (`sendto`/`sendmsg`/`sendmmsg` with `MSG_FASTOPEN`) | seccomp flag rule (`EACCES`) | none expected |
+| Outbound TCP to 5081 on a non-local address | the IP filter | depends on the filter's VM proof |
+| UDP (any port, IPv4 or IPv6) | seccomp `socket` rule (`EACCES`) | none (refused unless separately authorized) |
+| SCTP and MPTCP | seccomp `socket` allow-list (`protocol ∈ {0, 6}`) | none expected |
+| Sockets or sends through io_uring | seccomp and `SystemCallFilter` | none expected |
+| The mission reaching the supervisor (`ptrace`, `pidfd_getfd`, `/proc/<ppid>/mem`) | Landlock's ptrace scoping (the child is in a domain, the supervisor isn't), the non-dumpable supervisor, Yama checked at start | none expected |
 | Off-host reachability of the slot port | the IP filter | depends on the filter's VM proof |
-| Abstract `AF_UNIX` sockets (out of B24's TCP scope) | not restricted on 6.8 (Landlock scoping arrives in ABI 6) | recorded for the owner |
+| Abstract `AF_UNIX` sockets (outside B24's TCP scope) | not restricted on 6.8 (Landlock scoping arrives with ABI 6) | recorded for the owner |
 
 **If S12-D9 isn't approved** (no supervisor), B24's "listen only on its slot's port" can't be fully enforced on kernel 6.8. The smallest credible alternative is then the owner's written acceptance of one residual:
 - an autobound listener on an ephemeral port (32768–60999), never 5081 or a slot port;
 - reachable only from the host itself under the IP filter;
-- unable to receive anything from the agent or the tunnel, which connect only to fixed ports.
+- receiving nothing from the agent or the tunnel, which connect only to fixed ports.
 
 Without either, B24 stays blocked.
 
 ### Proof: every prohibited operation against a positive control
 
 The same probe binary runs twice in the same unit shape:
-- **once under the launcher**, where each prohibited operation must fail with its expected error (`EACCES`, `EAFNOSUPPORT`, `EPERM`), and anything else fails the line;
-- **once without it** (a control unit whose `ExecStart` runs the probe directly), where the same operation must succeed, showing the probe could otherwise do it.
+- **once under the launcher:** each prohibited operation must fail with its expected error (`EACCES`, `EAFNOSUPPORT`, `EPERM`), and anything else fails the line;
+- **once without it,** as a control unit whose `ExecStart` runs the probe directly: the same operation must succeed, showing the probe could otherwise do it.
+
+**No control may change the host's kernel state.** No SCTP socket is created anywhere: an unprivileged SCTP `socket()` makes the kernel autoload `sctp.ko` through its root modprobe helper, and `ProtectKernelModules=yes` doesn't prevent that. The allow-list is proven with protocols that need no module. Every VM manifest records `/proc/modules` and `kernel.modules_disabled` before and after.
 
 | Operation | Control (no launcher) | Under the launcher |
 |---|---|---|
 | bind+listen 127.0.0.1, 0.0.0.0, [::1], [::] on the slot port | succeeds | succeeds |
-| bind 127.0.0.1:7804, [::]:7804 (another slot) | succeeds | `EACCES` |
-| bind 127.0.0.1:5081 | `EADDRINUSE` while the tunnel listens, so the control uses a free stand-in port (7899) that succeeds; 5081 itself is checked to give `EACCES`, not `EADDRINUSE` | `EACCES` |
+| bind 127.0.0.1:7804 and [::]:7804 (another slot) | succeeds | `EACCES` |
+| bind 127.0.0.1:5081 | `EADDRINUSE` while the tunnel listens, so the control uses a free stand-in (7899) that succeeds | `EACCES` (not `EADDRINUSE`) |
 | bind port 0 (IPv4 and IPv6) | succeeds | `EACCES` |
 | `listen()` on an unbound socket | succeeds (an ephemeral port) | `EACCES` |
 | connect 127.0.0.1:22 (sshd) | succeeds | `EACCES` |
+| TFO `sendto(MSG_FASTOPEN)` to 127.0.0.1:22 (`net.ipv4.tcp_fastopen` read first; the client bit must be set) | connects | `EACCES` |
 | connect 127.0.0.1:5081 (the tunnel) | succeeds | succeeds |
 | UDP socket and bind (IPv4, IPv6) | succeeds | `EACCES` at `socket()` |
-| MPTCP socket (`net.mptcp.enabled=1`) | succeeds | `EACCES` |
-| SCTP socket | succeeds only if the module is loaded; `ProtectKernelModules=yes` can't load it. If the control can't create one, the line records "SCTP unavailable in this unit shape" and the rule is proven in the container | `EACCES` |
-| io_uring `IORING_OP_SOCKET` | succeeds (`kernel.io_uring_disabled` read first) | `EPERM` at `io_uring_setup` |
+| MPTCP socket (`IPPROTO_MPTCP`; `net.mptcp.enabled=1` read first) | succeeds | `EACCES` |
+| `socket(AF_INET, SOCK_STREAM, IPPROTO_UDP)` (the allow-list on a protocol with no module) | `EPROTONOSUPPORT` | `EACCES` (the filter answers first) |
+| io_uring `IORING_OP_SOCKET` (`kernel.io_uring_disabled` read first) | succeeds | `EPERM` at `io_uring_setup` |
 | a listening socket inherited as descriptor 3 (a test wrapper opens it) | visible to the probe | absent (`/proc/self/fd` = 0, 1, 2) |
-| killing the supervisor, then `listen()` | (n/a) | fails |
-| the IP filter: listener on 0.0.0.0/[::] reached from `bg-dev-services01` and through the VM's own address | reachable (the reachability procedure) | times out |
+| from the child: `ptrace(PTRACE_ATTACH, parent)` and `pidfd_getfd(parent, n)` | the same calls in the permitted direction (parent to child, as the supervisor uses them) succeed. The reverse can't have a true positive control on this host: Yama scope 1 refuses it by itself, and lowering the sysctl would be a host change. The line proves the layered refusal, not each layer alone | fail (`EPERM`) |
+| the supervisor killed, then `listen()` | (n/a) | fails |
+| the IP filter: a listener on 0.0.0.0/[::] reached from `bg-dev-services01` and through the VM's own addresses | reachable (the reachability procedure) | times out |
 
-The container on the test runner proves the logic first, but its kernel (the services VM's Debian kernel) isn't the mission VM's. `pidfd_getfd` and `seccomp` notification may need the test container to run with `--cap-add SYS_PTRACE` (a flag on that one container, not a daemon change). That is a runner change needing the owner's authorization (S12-D10); without it the supervisor is proven on the VM only.
+The container on the test runner proves the logic first, but its kernel (the services VM's Debian kernel) isn't the mission VM's. `pidfd_getfd` and the seccomp notification may need `--cap-add SYS_PTRACE` on that one test container: a flag, not a daemon change, but a runner change that needs the owner's authorization (S12-D10). Without it the supervisor is proven on the VM only. No container control creates an SCTP socket either; the services VM runs PostgreSQL on the same kernel.
 
 ### What still needs VM proof (assumptions, not facts)
 
-- That systemd 255.4 (`-BPF_FRAMEWORK`) attaches its in-tree IP firewall (`BPF_CGROUP_INET_INGRESS`/`EGRESS` programs) to a mission unit's cgroup. To my knowledge it uses systemd's own BPF assembler rather than libbpf, so `BPF_FRAMEWORK` shouldn't matter; but nothing counts until:
-  - the pre-check sees the programs;
-  - the journal has no "BPF firewalling not supported" line;
+- **The IP filter attaches** on systemd 255.4 (`-BPF_FRAMEWORK`): its in-tree firewall (`BPF_CGROUP_INET_INGRESS`/`EGRESS` programs) on a mission unit's cgroup. To my knowledge it uses systemd's own BPF assembler, not libbpf, so `BPF_FRAMEWORK` shouldn't matter. But nothing counts until:
+  - the pre-check sees the expected programs;
+  - `journalctl -b -g firewalling` has no "BPF firewalling not supported" line since boot (systemd prints it once per boot, for the first unit that uses the filter);
   - the reachability comparison shows the filtered listener unreachable where the unfiltered one was reachable.
-- That `IPAddressAllow=localhost` admits IPv4-mapped loopback (`::ffff:127.0.0.1`) and nothing broader, and that the filter applies to both IPv4 and IPv6 sockets of the unit.
-- That kernel 6.8's Landlock ABI 4 refuses port 0 and both families as described (the VM's ABI query returned 4 on 2026-10-18).
-- That Yama `ptrace_scope` is 1 on the VM (it was in the LSM list as `yama`; the value is read at execution).
-- That Unity Transport's WebSocket server binds its port explicitly before `listen()` (so the supervisor allows it) and needs no UDP (Task 11 records every socket the player opens).
-- The VM's current firewall state: `ufw` inactive and nftables empty on 2026-10-18 (Stage 10 records), re-read at execution.
+- **The filter's scope:** `IPAddressAllow=localhost` admits IPv4-mapped loopback (`::ffff:127.0.0.1`) and nothing broader, and applies to both families of the unit's sockets.
+- **Landlock on 6.8:** ABI 4 refuses port 0 and both families as described (the VM's ABI query returned 4 on 2026-10-18).
+- **TCP Fast Open:** the bypass exists on 6.8 (the control proves it can connect), and the seccomp flag rule stops it.
+- **Yama:** `ptrace_scope` is at least 1 on the VM (`yama` was in the LSM list; the value is read at execution, and the launcher refuses below 1).
+- **Unity Transport:** its WebSocket server binds its port explicitly before `listen()` (so the supervisor allows it) and needs no UDP or TFO (Task 11 records every socket the player opens).
+- **The VM's firewall state:** `ufw` inactive and nftables empty on 2026-10-18 (Stage 10 records), re-read at execution. The VM refused SSH on port 22 when this plan was written (2026-10-20); nothing about the host was read since.
 
 ## Task 9: B24, the repository side (test-first, nothing installed)
 
@@ -336,7 +344,8 @@ The container on the test runner proves the logic first, but its kernel (the ser
 - the template renders the pre-check, the launcher line with the slot's port for all 8 slots, the IP lines and the io_uring filter, and no `~listen`;
 - the full probe table above under the launcher and in its control, in the container;
 - every fail-closed path: ABI below 4 (simulated), `landlock_restrict_self` failing, the seccomp install failing, an extra descriptor that can't be closed, a bad argument, `execve` failing. Each exits 78 and never runs the program;
-- the supervisor: a bound slot-port listen allowed, an unbound one refused, a racing `dup2` that can't change the outcome, the supervisor killed so that `listen()` fails, the child's exit status and signal propagated.
+- the supervisor: a bound slot-port listen allowed with the notified backlog; an unbound one refused; a racing `dup2` that can't change the outcome; the TID-to-TGID mapping for a listen from a non-main thread; the supervisor killed, after which `listen()` fails; the child's exit status and signal propagated; the child unable to `ptrace` or `pidfd_getfd` the supervisor;
+- the TCP Fast Open rule (`sendto`, `sendmsg` and `sendmmsg` with `MSG_FASTOPEN`) against its control; no SCTP socket in any test (the allow-list is proven with MPTCP and `IPPROTO_UDP` over `SOCK_STREAM`); `/proc/modules` equal before and after the container run.
 
 - [ ] Steps: the tests → RED → implement → GREEN (`vm-test.sh --launcher` and `--agent`) → commit. Nothing is copied to `bg-dev-mission01`.
 
@@ -346,8 +355,9 @@ Not executed without the owner's approval of its host manifest (written at the s
 
 - **No installed file changes:** the launcher and the probe come as a disposable probe release `/opt/blackglass-b24probe/<rev>/` (root-owned; removed at cleanup). Every probe runs in a **transient** unit (`systemd-run`) carrying the Stage 12 slot template's properties verbatim (rendered from the repository template for slot 03, port 7803, with a dynamic user of its own), never through the installed `blackglass-mission-NN@` templates, `/opt/blackglass/mission/current` or the agent release. The agent stays disabled and the tunnel up. Before and after: the same whole-tree integrity baseline and tunnel continuity checks as the self-test manifest.
 - **Template prerequisites in transient form:** `LoadCredential` and `slot-guard` are left out (no credential exists; the probe needs none). Every other property is rendered as installed, and a test pins that the transient unit's properties equal the rendered template's apart from those two lines, so the demonstration matches the real unit's sandbox.
-- **Probes from inside a mission unit** (slot 03, port 7803). Every refusal must show `EACCES`; `EADDRINUSE` (the tunnel holds 5081) or a timeout proves nothing and fails the line. Allowed: bind+listen 127.0.0.1:7803, 0.0.0.0:7803 and [::1]:7803. Refused: 127.0.0.1:5081, 0.0.0.0:5081, [::1]:5081, 127.0.0.1:7804, [::]:7804, port 0. Recorded for S12-D3: `listen()` on an unbound socket (and the port it got), MPTCP and SCTP binds on 5081, 7804 and 0, UDP binds 127.0.0.1:7803 and :0; TCP connect to 5081 allowed and to 22 refused under S12-D2.
-- **Control run without the launcher** (same unit shape, the launcher replaced by a direct exec): port 0, 7804 and a free test port (7899) succeed, and 5081 fails only with `EADDRINUSE`. That shows the refusals above are Landlock's.
+- **Probes from inside a mission unit** (slot 03, port 7803): the whole proof table of "B24 security design", every row a must-refuse (or must-allow) line, each against its control. `EADDRINUSE` (the tunnel holds 5081) or a timeout proves nothing and fails the line. Nothing is merely recorded. A row that can't be refused (the unbound `listen()` without S12-D9) keeps B24 blocked.
+- **Kernel state:** `/proc/modules` and `kernel.modules_disabled` recorded before and after; no probe creates an SCTP socket.
+- **Control run without the launcher** (same transient unit shape, the probe executed directly): every prohibited operation of the table succeeds, or gives its documented native error, which shows the refusals above are the launcher's.
 - **Address half:** by the reachability procedure (`2026-10-20-phase-13-stage12-reachability-procedure.md`): the same listener unfiltered (reachable from `bg-dev-services01` and through the VM's own address, over IPv4 and IPv6) and filtered (unreachable there, loopback still open), plus the pre-check's attached programs and the journal's BPF lines.
 - **Evidence:** the probe transcript, `systemctl show` of the unit's effective properties, `verify.sh`'s TCP section, the residuals for the owner. B24 is satisfied only if every "refused" line holds.
 
@@ -408,4 +418,17 @@ Full EditMode, PlayMode, backend domain, agent, integration, `--unity-core`; the
   - the unbound `listen()` is S12-D9: B24 stays blocked unless the supervisor is approved and proven, or the owner accepts the residual;
   - the installed Stage 10 templates are not modified.
 - **The reachability experiment:** prepared in its own procedure; nothing is exposed until the owner approves it.
+
+## Security review 2 (2026-10-20, independent reviewer, revision 2, the self-test at `310e9aa` and the manifest revision 3)
+
+0 Critical. The earlier C1 and I1–I7 were all confirmed resolved. Five new Important findings, all applied:
+
+| Finding | Resolution |
+|---|---|
+| I-N1 provenance: ignored files Unity imports and index flags were invisible to `git status` | `build-provenance.sh` counts ignored files under `Assets`, `Packages` and `ProjectSettings` as changes, refuses assume-unchanged, skip-worktree and sparse checkouts, refreshes the index, and compares a content hash of every change (also M1); tests 8/8 (`91d5185`) |
+| I-N2 manifest: the journal identity would include PID 1's `_UID=0` lines and overstated its independence | `_TRANSPORT=stdout` only, described as systemd's connect-time credentials; the independent evidence is an automatic owner check (files owned by the reported euid) and `/proc` for the held run; manifest revision 4 |
+| I-N3 TCP Fast Open bypasses Landlock's connect hook on 6.8 | a seccomp flag rule on `sendto`, `sendmsg` and `sendmmsg`; a proof row with its control; listed for VM proof |
+| I-N4 the supervisor's protection rested on an unchecked Yama setting | fork first, Landlock and seccomp in the child only, a non-dumpable supervisor, the launcher refuses `ptrace_scope` below 1, proof rows |
+| I-N5 an SCTP control would autoload `sctp.ko` on the host | no SCTP socket anywhere; the allow-list is proven with protocols that need no module; `/proc/modules` before and after every VM manifest |
+| Minors | M2 pipefail and checked tar; M4 internal uid reader; M5 the option-seen rule; M6 key=value output; M7 no link-following in the state listing; M8 a wider baseline; M9 tests rerun in the clean worktree; M10 IPv6 redaction; M11 Task 10's must-refuse wording; M12 socket activation restored; M13 the supervisor's details; M14 the filter's evidence; M15 the reachability procedure |
 
