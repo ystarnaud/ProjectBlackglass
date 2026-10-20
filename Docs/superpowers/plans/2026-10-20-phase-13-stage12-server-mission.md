@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-20):** **plan revision 1.1, for the owner's review. Not authorized for implementation.** Written on the plan branch `phase13-stage12-plan` after Stage 11's merge (`075fcd4`). Revision 1.1 applies an independent review of revision 1, the self-test and its manifest (1 Critical, 7 Important, 23 Minor; "Plan review" at the end). Nothing here has run on either VM. Each VM phase (the outbox self-test, the B24 demonstration, Unity under B24) needs the owner's approval of its own host manifest first; the outbox self-test's is `2026-10-20-phase-13-stage12-outbox-selftest-manifest.md`. "Decisions for the owner" lists what this plan can't settle alone.
+**Status (2026-10-20):** **plan revision 2, for the owner's review. Not authorized for implementation.** On `phase13-stage12-plan`, after Stage 11's merge (`075fcd4`). Revision 2 applies the owner's Stage 12 rulings of 2026-10-20: a C launcher versioned with the agent's trusted components, UDP denied, SCTP, MPTCP and io_uring closed, the unbound `listen()` mediated or B24 kept blocked, every prohibited operation against a positive control, and an off-host reachability procedure (`2026-10-20-phase-13-stage12-reachability-procedure.md`, prepared, not executed). Revision 1.1 applied the first independent review. Nothing here has run on either VM. Each VM phase needs the owner's approval of its own host manifest first; the outbox self-test's is `2026-10-20-phase-13-stage12-outbox-selftest-manifest.md`.
 
 **Goal:** the Unity Linux dedicated server can run one authoritative solo attempt from a backend admission snapshot: the backend's operatives, inventory and picks; a deterministic mission whose loot containers keep one entry per rolled item (B25); a ready report the real backend accepts; abilities and combat resolved on the server; item events feeding Stage 11's ledger; the outcome frozen at the first terminal event, with a format-v1 manifest built from it. On the mission VM, a mission unit can bind and listen only on its own slot's TCP port (B24), demonstrated there before any real Unity mission workload runs.
 
-**Architecture:** a pure, library-free attempt model in `Blackglass.Backend.Core` (`AttemptStart` from the session response, `AttemptLoot` for the non-merging fill, `ReadyReportBuilder`), consumed by a thin Unity layer: `MissionDirector.GenerateForAttempt`, `LootContainer.InitializeForAttempt`, `SquadRoster.InitializeFromSnapshot`, `SquadInventory.InitializeFromSnapshot`, and one server component, `AttemptSession`, which owns the `MissionItemLedger` and turns `UnitItems` detail events into ledger events. The attempt arrives through an `IAttemptSource` seam: Stage 12 has only a fixture source (Editor and fixture builds); Stage 13 adds the HTTP source. B24 is a root-owned Landlock launcher in the mission release plus systemd's IP address filter, proven test-first in a container and then on `bg-dev-mission01`.
+**Architecture:** a pure, library-free attempt model in `Blackglass.Backend.Core` (`AttemptStart` from the session response, `AttemptLoot` for the non-merging fill, `ReadyReportBuilder`), consumed by a thin Unity layer: `MissionDirector.GenerateForAttempt`, `LootContainer.InitializeForAttempt`, `SquadRoster.InitializeFromSnapshot`, `SquadInventory.InitializeFromSnapshot`, and one server component, `AttemptSession`, which owns the `MissionItemLedger` and turns `UnitItems` detail events into ledger events. The attempt arrives through an `IAttemptSource` seam: Stage 12 has only a fixture source (Editor and fixture builds); Stage 13 adds the HTTP source. B24 is a small root-owned C launcher versioned with the agent (Landlock ABI 4 bind and connect rules, a seccomp socket policy, a mediated `listen()`), plus systemd's IP address filter with a root pre-check that it is attached; proven test-first in a container and then on `bg-dev-mission01` against positive controls ("B24 security design").
 
-**Tech stack:** Unity 6000.3.25f1 (Mono, Linux Dedicated Server subtarget), NUnit EditMode/PlayMode, .NET 10 / xUnit for the backend cross-checks, Linux Landlock ABI 4 (kernel 6.8 on the mission VM), systemd 255 (`-BPF_FRAMEWORK`), Python 3 (the VM's system interpreter, already used by the Stage 10 stub) for the launcher if the owner picks option L1.
+**Tech stack:** Unity 6000.3.25f1 (Mono, Linux Dedicated Server subtarget), NUnit EditMode/PlayMode, .NET 10 / xUnit for the backend cross-checks, C (static, built in a digest-pinned GCC container on the existing test runner) for the launcher, Linux Landlock ABI 4, seccomp with user notification and `pidfd_getfd` (kernel 6.8 on the mission VM), systemd 255 (`-BPF_FRAMEWORK`).
 
 **Spec:** `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` (revision 2.14: §14.2–§14.5, §16.3, §18.2 B24 and B25, §0.14). Staged outline: `Docs/superpowers/plans/2026-10-14-phase-13-backend.md`, Stage 12. Stage 11's plan (`2026-10-19-phase-13-stage11-unity-backend-core.md`, "Final owner rulings") holds B25's invariants and its nine required tests verbatim.
 
@@ -36,14 +36,17 @@
 
 | # | Question | Options | Recommendation |
 |---|---|---|---|
-| S12-D1 | **The B24 launcher's form.** Landlock is applied by the process itself or by a launcher it execs from. | **L1:** a root-owned Python 3 launcher (`landlock-exec`, about 120 lines, `ctypes` syscalls 444–446, then `os.execv`) using the VM's existing system interpreter: no new package, no compiler. **L2:** a small static C launcher built in a digest-pinned GCC container on the services VM's test runner: a new toolchain image. **L3:** Unity applies Landlock to itself at startup through `syscall()`: no launcher, but the engine's own initialization runs unrestricted first, and the control lives inside the code it constrains. | **L1.** It needs nothing installed, it's reviewable in one file, and the restriction exists before Unity's first instruction. L2 if the owner prefers not to depend on the system Python. |
-| S12-D2 | **Also restrict TCP connects** (Landlock `CONNECT_TCP`, one rule: 5081, the backend tunnel). | Yes: a compromised mission can connect to nothing else on TCP. No: only binds are restricted (B24's literal scope). | **Yes, if the transport check (Task 11) shows Unity opens no other TCP connection.** It costs one rule. |
-| S12-D3 | **What Landlock ABI 4 can't close** (each measured in Task 10, never assumed): (a) `listen()` on an unbound socket autobinds an ephemeral port (32768–60999 per `ip_local_port_range`; never 5081 or a slot port; unreachable off-host under the IP filter); (b) UDP binds; (c) other stream protocols: MPTCP (`IPPROTO_MPTCP` 262, enabled by default on Ubuntu 24.04, and an MPTCP listener accepts plain TCP clients) and SCTP, if 6.8's Landlock TCP hooks don't mediate them. | (a): accept, recorded (no upstream kernel offers a Landlock listen right as far as is known; verify). (b): **U1:** the launcher's seccomp filter refuses `socket(AF_INET/AF_INET6, SOCK_DGRAM)` (masking `SOCK_NONBLOCK`/`SOCK_CLOEXEC`, checking the arch and the x32 bit), if Unity needs no UDP; **U2:** accept, recorded. (c): if not refused with `EACCES`, the same seccomp filter refuses `IPPROTO_MPTCP` and `IPPROTO_SCTP` sockets, or `net.mptcp.enabled=0` (a host setting: owner decision). | (a) accept, recorded; (b) U1 if Unity needs no UDP; (c) the seccomp rule. With U1 or (c), the launcher is L2 (C) rather than Python: a hand-assembled BPF filter is too much for `ctypes`. |
+| S12-D1 | **The launcher's form.** | **Ruled (2026-10-20):** a small C launcher, root-owned and versioned with the agent's trusted security components. | Resolved. |
+| S12-D2 | **Outbound TCP.** | **Ruled:** 5081 is the only expected future backend destination; the launcher's Landlock connect rule allows only it, the IP filter only on loopback. | Resolved; Task 11 records any other connection Unity attempts, which would then fail. |
+| S12-D3 | **What Landlock ABI 4 can't close.** | **Ruled:** UDP denied unless separately authorized; SCTP, MPTCP and io_uring closed by the launcher's seccomp policy; the unbound `listen()` is S12-D9. | Resolved, except S12-D9. |
 | S12-D4 | **The attempt's fixture source** in Stage 12 (no backend yet). | Editor and fixture builds only (`BLACKGLASS_NET_FIXTURE`), never a release build, so a release server can't start a fake attempt. | As stated. |
 | S12-D5 | **Order of the VM phases.** | Outbox self-test (manifest attached) → B24 probe demonstration (Task 10, its own manifest) → Unity under B24 (Task 11: the transport check and the fixture attempt, its own manifest). Each runs only after the owner approves its manifest. | As stated. |
-| S12-D6 | **Where the launcher lives.** | In the swappable mission release (`/opt/blackglass/mission/current`), or at a fixed root-owned path beside `slot-guard` (`/opt/blackglass/agent/current/landlock-exec`), so the control is never swapped with the workload it constrains. | Beside `slot-guard`. |
-| S12-D7 | **The self-test prepared ahead** (Task 1) on `phase13-outbox-selftest`: it brings forward the gameplay assembly's first reference to `Blackglass.Backend.Core` (Stage 11 reserved it for Stage 12) and adds `OutboxDirectories.EffectiveUserId()` to the core. | Keep it separate until the VM run, then merge it into Stage 12's branch; or treat it as Stage 12's first task. | Keep it separate. |
+| S12-D6 | **Where the launcher lives.** | **Ruled:** with the agent's trusted components, `/opt/blackglass/agent/releases/<rev>/bg-mission-launch`, beside `slot-guard`. | Resolved. |
+| S12-D7 | **The self-test kept separate** on `phase13-outbox-selftest`. | **Ruled (2026-10-20):** separate from Stage 12 for now; the gameplay assembly's reference to the core is approved (it's needed to compile the diagnostic and changes no gameplay); the root check's uid reader is local to the diagnostic. Not merged or pushed. | Resolved. |
 | S12-D8 | **B24's off-host positive control** (Task 10): a probe listener on 0.0.0.0:7803 in a unit **without** the IP filter, reached from `bg-dev-services01`, to show the network path exists before the filtered run shows it closed. It briefly exposes one probe port on the development network. | Approve it in Task 10's manifest, or accept the weaker evidence (the VM's own-address test only). | Approve it, bounded to the probe's lifetime. |
+| S12-D9 | **The unbound `listen()`** (an autobound ephemeral listener; a classic seccomp filter can't tell from `listen()`'s arguments whether the socket was bound). | **(a)** the launcher's listen supervisor (seccomp user notification, `pidfd_getfd`, `getsockname` on the very socket, which it then listens on itself; never `CONTINUE`): about 400 lines of C, enforcing B24's rule fully. **(b)** the owner's written acceptance of one residual: an ephemeral, loopback-only listener that can never be 5081 or a slot port. **(c)** neither: B24 stays blocked. | **(a).** |
+| S12-D10 | **The launcher's container tests** on the runner may need `--cap-add SYS_PTRACE` on that one test container (for `pidfd_getfd`), a flag, not a Docker daemon change. | Authorize the flag for the launcher mode only; or prove the supervisor on the VM only. | Authorize the flag. |
+| S12-D11 | **The IP filter's fail-closed pre-check:** `ExecStartPre=+bg-mission-launch --verify-ip-filter` (root, `BPF_PROG_QUERY` on the unit's cgroup), because systemd starts a unit even when it can't attach the filter. | Add it, or rely on the VM proof alone. | Add it. |
 
 ---
 
@@ -75,7 +78,7 @@
 **Created (backend):**
 - `Backend/contracts/attempt-v1/`: generated attempt fixtures (snapshot, pool, objectives, the expected manifest), written by a Unity export and pinned by a staleness test, like the catalogue export.
 - `Backend/tests/Accounts.Domain.Tests/Settlement/AttemptFixtureTests.cs`: the real `LootPoolValidator` and `ManifestValidator` over every fixture.
-- `Backend/deploy/mission/landlock-exec` (L1) and its tests; `blackglass-mission-slot.service.in` and `verify.sh` changes (rendered, never installed by this plan's code tasks).
+- `Backend/deploy/mission/launcher/` (`bg-mission-launch.c`, `probe.c`, tests) and the `vm-test.sh --launcher` mode; `blackglass-mission-slot.service.in`, `verify.sh` and `publish-agent.sh` changes (rendered, never installed by this plan's code tasks).
 - `Backend/tests/MissionHost.Agent.Tests/Deploy/LandlockLauncherTests.cs` (template rendering) and `Backend/tests/UnityCore.Linux.Tests/LandlockProbeTests.cs` (the launcher in a container, `vm-test.sh --unity-core`).
 
 **Tests (Unity):** `AttemptStartTests`, `AttemptLootTests`, `OnlineContainerFillTests`, `ReadyReportBuilderTests`, `SnapshotRosterTests`, `SnapshotInventoryTests`, `AttemptSessionTests` (EditMode); `AttemptMissionPlayTests`, `AttemptAbilitiesPlayTests` (PlayMode); `AttemptFixtureExportTests` (staleness). `OutboxSelftestTests` is already on the self-test branch.
@@ -91,8 +94,10 @@
 - `ServerOptions`: `-outboxSelftest <publish|hold|resume>`, `-selftestParent` (default `/var/lib/blackglass-selftest`), `-selftestId`.
 - `ServerBootstrap`: `Start` calls `Begin(args)`; with `-outboxSelftest`, `Begin` creates the self-test and returns before the director, the generation and `-net`; `Update` calls `Tick(now)`, which steps the self-test and exits 0 or `SelftestFailed = 3`. The directory opener refuses any parent naming `blackglass-outbox` (`production_outbox`), then uses `OutboxDirectories.OpenForServer($STATE_DIRECTORY, parent, id)`.
 - `Blackglass.asmdef` now references `Blackglass.Backend.Core` (the first runtime reference; Stage 12 needs it anyway).
-- `OutboxSelftestTests` (19, EditMode; EditMode 1854/1854 at `cc053b5`, PlayMode 1434/1434 at `d3ab09d`, not re-run at `cc053b5`; over the portable directory): the vector pin, publish (7 checks, the `.ready` never replaced), hold then resume, resume without a held result, root refused before any file operation, a native-library exception and a failing uid read never passing, a long frame, a refused location, unknown and missing phases, the options, a self-test option without a phase never running a mission, the production-outbox refusal, and the bootstrap running the self-test with no director and `-net` ignored (exit 0) or failing it (exit 3).
-- `OutboxDirectories.EffectiveUserId()` (core, public, linux-x64 only): `geteuid` for the root refusal. **Drafted, not yet applied or tested** (the session's Unity runs were stopped for low system memory): `ServerBuildInfo.ProvenanceLines` and `ServerBuild`, so `build-info.txt` records `dirty` from the source before the build, with `dirtyPaths` and `changedByBuild`. A clean worktree build of `d3ab09d` still stamped `dirty=true` because `dirty` is read after `BuildPlayer`, which rewrites settings it switches and restores (the worktree was clean before and after). Until this lands, the manifest's binary can't satisfy `dirty=false`. `Tools/LinuxServer/outbox-selftest/selftest-vm.sh`: the VM side the manifest runs.
+- `OutboxSelftestTests` (20, EditMode, over the portable directory): the vector pin, publish (7 checks, the `.ready` never replaced), hold then resume, resume without a held result, root refused before any file operation, a native-library exception and a failing uid read never passing, a long frame, a refused location, unknown and missing phases, the options, a self-test option without a phase never running a mission, the production-outbox refusal, the uid reader local to the diagnostic and linux-only, and the bootstrap running the self-test with no director and `-net` ignored (exit 0) or failing it (exit 3). EditMode 1863/1863 and PlayMode 1434/1434 at `88c0e39`; later commits change only `Tools/`.
+- **The root check's uid reader** is `OutboxSelftest.EffectiveUserId()` (its own `geteuid` import, linux-x64 only); the core assembly is byte-identical to `main`.
+- **Build provenance** (`88c0e39`, `7d7fbf7`): `Tools/build-server.sh` captures the commit, source tree and cleanliness (porcelain status with untracked files) before Unity starts (`Tools/build-provenance.sh`). Unity only stamps them (`ServerBuildInfo.SourceLines`: anything invalid stamps `unknown`, never clean). After Unity exits, the source and HEAD must be exactly as captured, or the build fails and nothing is packaged. The embedded stamp must equal the capture. `binarySha256`, `provenance=verified` and `files.sha256` (every shipped file: the executable is Unity's generic player, the game code is in `*_Data/Managed`) are then recorded. Tests: `Tools/tests/build-server-provenance-test.sh` (clean source with Unity's temporary settings change; tracked and untracked changes before the build; a change that survives the build; HEAD moving) 5/5, and `ServerBuildInfoTests`.
+- **`Tools/LinuxServer/outbox-selftest/selftest-vm.sh`:** the VM side the manifest runs. Each run is token-tagged in the journal so its `_UID`/`_GID` are confirmed independently.
 - `CoreSourceAuditTests`: Stage 11's "the gameplay assembly does not reference core yet" becomes "only the gameplay assembly references core, never the reverse" (S12-D7).
 
 ## Task 2: `AttemptStart`, the validated attempt (core)
@@ -201,42 +206,154 @@ Plus Review Focus 1 and 2: `A_roll_over_max_stack_fails_generation_with_its_code
 
 - [ ] Steps: failing tests → RED → implement → regenerate the scene through the builder → GREEN → full EditMode and PlayMode → commit (the diff stat shows no client-scene file).
 
+## B24 security design (revision 2, owner rulings of 2026-10-20 §4)
+
+**Status: a design to be implemented and proven; nothing here is enforced or demonstrated yet.** B24 stays blocking until every line of "Proof" below holds on `bg-dev-mission01`. The installed Stage 10 templates are not changed by this plan; the Stage 12 template is a repository file, installed only under a later owner-approved manifest.
+
+### Components
+
+- **`bg-mission-launch`, a small C launcher.**
+  - **Install:** root-owned 0755, versioned with the agent's trusted security components, at `/opt/blackglass/agent/releases/<rev>/bg-mission-launch` beside `slot-guard` and `record-exit`, reached through `/opt/blackglass/agent/current`. It is never part of the swappable mission release it constrains.
+  - **Build:** statically linked, in a digest-pinned GCC container on the existing `bg-dev-services01` test runner (a new `vm-test.sh --launcher` mode, with no Docker daemon, network or firewall change). Its SHA-256 is recorded in the agent release's manifest.
+- **The mission still runs as its slot's dynamic user** (`DynamicUser=yes`, `User=blackglass-mNN`), unchanged. The launcher is that unit's `ExecStart`: it runs as that non-root user under `NoNewPrivileges=yes`, applies the restrictions, then `execve`s `run-mission`.
+- **systemd's IP address filter** (`IPAddressDeny=any`, `IPAddressAllow=localhost`) for the address half, with a root pre-start check that the filter is attached (below).
+
+### The launcher's sequence: fail closed
+
+Every step that fails prints a bounded reason to stderr and exits 78 without `execve`.
+
+1. **Arguments:** `--tcp-bind <port>` (1024–65535, rendered per slot), `--tcp-connect 5081`, then `--` and the program. Anything else is refused.
+2. **No inherited descriptors:** `close_range(3, ~0U, 0)`, then a scan of `/proc/self/fd` that must show only 0, 1 and 2. Those are stdin (`/dev/null`) and stdout/stderr (systemd's journal stream, a connected `AF_UNIX` socket, never listening). A preopened or inherited listening socket therefore can't reach Unity.
+3. **No new privileges:** `prctl(PR_GET_NO_NEW_PRIVS)` must already be 1 (from the unit), else the launcher sets it and fails if it can't.
+4. **Landlock:**
+   - the ABI query must be ≥ 4;
+   - a ruleset handling `LANDLOCK_ACCESS_NET_BIND_TCP` and `LANDLOCK_ACCESS_NET_CONNECT_TCP`, with exactly two rules: bind on the slot port, connect on 5081;
+   - then `landlock_restrict_self`.
+
+   The restriction is inherited across `execve` and by every descendant, and nothing can lift it. It applies to IPv4 and IPv6 TCP alike, by port; the address half is the IP filter's.
+5. **A seccomp filter** (classic BPF, installed by the launcher):
+   - **Architecture:** must be `AUDIT_ARCH_X86_64`; x32 syscall numbers (bit 30) are killed.
+   - **`socket`:**
+     - for `AF_INET`/`AF_INET6`, allowed only when `type & ~(SOCK_NONBLOCK|SOCK_CLOEXEC) == SOCK_STREAM` and `protocol ∈ {0, IPPROTO_TCP}`;
+     - every other combination returns `EACCES`: UDP, `SOCK_SEQPACKET`/`SOCK_STREAM` SCTP (`IPPROTO_SCTP` 132), MPTCP (`IPPROTO_MPTCP` 262), raw;
+     - `AF_UNIX` is allowed; every other family returns `EAFNOSUPPORT` (the unit's `RestrictAddressFamilies` already refuses them).
+   - **`socketpair`:** `AF_UNIX` only.
+   - **`io_uring_setup`, `io_uring_enter`, `io_uring_register`:** `EPERM`. `IORING_OP_SOCKET` creates sockets without `socket()`, so io_uring would bypass the rule above. The unit also gets `SystemCallFilter=~io_uring_setup`, as defense in depth.
+   - **`listen`:** `SECCOMP_RET_USER_NOTIF` to the supervisor (step 6).
+6. **The listen supervisor** (owner decision S12-D9).
+   - **Why it's needed:** Landlock ABI 4 mediates `bind()`, but `listen()` on an unbound socket autobinds an ephemeral port without a `bind()`, and a classic seccomp filter **can't** tell from `listen()`'s arguments (a descriptor number and a backlog) whether or where the socket was bound. A filter alone can only allow or refuse every `listen()`.
+   - **What the supervisor does:**
+     1. Before installing the filter, the launcher forks. The child installs the filter with `SECCOMP_FILTER_FLAG_NEW_LISTENER`, sends the notification descriptor to the parent over a socketpair (`SCM_RIGHTS`), closes its copy and `execve`s.
+     2. The parent stays as the supervisor, the same dynamic user. For each `listen` notification it takes the target's descriptor with `pidfd_getfd`, checks the notification is still valid (`SECCOMP_IOCTL_NOTIF_ID_VALID`), and inspects the socket itself:
+        - `getsockopt(SO_TYPE) == SOCK_STREAM`;
+        - `SO_PROTOCOL == IPPROTO_TCP`;
+        - `getsockname()` is `AF_INET`/`AF_INET6` with the slot port (an unbound socket reports port 0 and is refused).
+     3. If the socket passes, the supervisor calls `listen()` on its own duplicate (the same socket) and replies success. Otherwise it replies `EACCES`. It never replies `SECCOMP_USER_NOTIF_FLAG_CONTINUE`, which the kernel documents as unsafe for security decisions.
+   - **Why racing is harmless:** the action is taken on the very socket that was inspected, so a racing `dup2` in another thread changes nothing.
+   - **Exit:** the supervisor waits for the child and exits with its status. On a signal it re-raises the same signal, so systemd and `record-exit` see the mission's own result.
+   - **If the supervisor dies:** the notification descriptor closes and every later `listen()` fails (`ENOSYS`): fail closed.
+   - **The mission can't touch the supervisor:** under Yama `ptrace_scope` 1, the child can't `ptrace` or `pidfd_getfd` its parent. It can kill it (same uid), which only fails closed.
+7. **`execve`** of the program; a failure exits 78.
+
+**IP filter pre-check.** The unit can't fail closed on its own if the kernel can't attach systemd's filter: systemd logs it and starts anyway. So a root `ExecStartPre=+/opt/blackglass/agent/current/bg-mission-launch --verify-ip-filter` queries the unit's cgroup (`BPF_PROG_QUERY` for `BPF_CGROUP_INET_INGRESS` and `_EGRESS`) and refuses to continue unless both have a program attached. Whether systemd 255 built `-BPF_FRAMEWORK` attaches its in-tree IP firewall at all is exactly what the VM must show (§"What still needs VM proof").
+
+### The Stage 12 slot template (repository only)
+
+- **Removed:** `SystemCallFilter=~listen` (replaced by the mediated `listen`) and the inert `SocketBindAllow=udp:@PORT@` and `SocketBindDeny=any`.
+- **Added:**
+  - `ExecStartPre=+…/bg-mission-launch --verify-ip-filter`;
+  - `ExecStart=/opt/blackglass/agent/current/bg-mission-launch --tcp-bind @PORT@ --tcp-connect 5081 -- /opt/blackglass/mission/current/run-mission %i`;
+  - `IPAddressDeny=any`, `IPAddressAllow=localhost`;
+  - `SystemCallFilter=~io_uring_setup io_uring_enter io_uring_register`.
+- **Unchanged:** everything else in the template (identity, filesystem, credentials, resources).
+
+### Each case, and how it is handled
+
+| Case | Handled by | Residual |
+|---|---|---|
+| Bind any TCP port but the slot's (5081, another slot's, IPv4 or IPv6, any address) | Landlock bind rule (`EACCES`) | none expected |
+| Bind port 0 | Landlock (port 0 has no rule: `EACCES`) | none expected |
+| `listen()` without an explicit bind (autobind) | the listen supervisor: `getsockname` shows port 0, refused (`EACCES`) | none if S12-D9 is approved; else the owner accepts an ephemeral, loopback-only listener (below) |
+| A preopened or inherited socket | `close_range` and the `/proc/self/fd` check before `execve`; the template has no `Sockets=` | none expected |
+| Outbound TCP to any destination port but 5081 | Landlock connect rule (`EACCES`) | none expected |
+| Outbound TCP to 5081 on a non-local address | the IP filter (`IPAddressAllow=localhost`) | depends on the filter's VM proof |
+| UDP (any port, IPv4 or IPv6) | seccomp `socket` rule (`EACCES`) | none (UDP is refused unless separately authorized) |
+| SCTP (`IPPROTO_SCTP` over `SOCK_STREAM` or `SOCK_SEQPACKET`) | seccomp `socket` rule | none expected |
+| MPTCP (`IPPROTO_MPTCP`, which accepts plain TCP clients through fallback) | seccomp `socket` rule | none expected |
+| Sockets created through io_uring | seccomp and `SystemCallFilter` refuse io_uring | none expected |
+| Off-host reachability of the slot port | the IP filter | depends on the filter's VM proof |
+| Abstract `AF_UNIX` sockets (out of B24's TCP scope) | not restricted on 6.8 (Landlock scoping arrives in ABI 6) | recorded for the owner |
+
+**If S12-D9 isn't approved** (no supervisor), B24's "listen only on its slot's port" can't be fully enforced on kernel 6.8. The smallest credible alternative is then the owner's written acceptance of one residual:
+- an autobound listener on an ephemeral port (32768–60999), never 5081 or a slot port;
+- reachable only from the host itself under the IP filter;
+- unable to receive anything from the agent or the tunnel, which connect only to fixed ports.
+
+Without either, B24 stays blocked.
+
+### Proof: every prohibited operation against a positive control
+
+The same probe binary runs twice in the same unit shape:
+- **once under the launcher**, where each prohibited operation must fail with its expected error (`EACCES`, `EAFNOSUPPORT`, `EPERM`), and anything else fails the line;
+- **once without it** (a control unit whose `ExecStart` runs the probe directly), where the same operation must succeed, showing the probe could otherwise do it.
+
+| Operation | Control (no launcher) | Under the launcher |
+|---|---|---|
+| bind+listen 127.0.0.1, 0.0.0.0, [::1], [::] on the slot port | succeeds | succeeds |
+| bind 127.0.0.1:7804, [::]:7804 (another slot) | succeeds | `EACCES` |
+| bind 127.0.0.1:5081 | `EADDRINUSE` while the tunnel listens, so the control uses a free stand-in port (7899) that succeeds; 5081 itself is checked to give `EACCES`, not `EADDRINUSE` | `EACCES` |
+| bind port 0 (IPv4 and IPv6) | succeeds | `EACCES` |
+| `listen()` on an unbound socket | succeeds (an ephemeral port) | `EACCES` |
+| connect 127.0.0.1:22 (sshd) | succeeds | `EACCES` |
+| connect 127.0.0.1:5081 (the tunnel) | succeeds | succeeds |
+| UDP socket and bind (IPv4, IPv6) | succeeds | `EACCES` at `socket()` |
+| MPTCP socket (`net.mptcp.enabled=1`) | succeeds | `EACCES` |
+| SCTP socket | succeeds only if the module is loaded; `ProtectKernelModules=yes` can't load it. If the control can't create one, the line records "SCTP unavailable in this unit shape" and the rule is proven in the container | `EACCES` |
+| io_uring `IORING_OP_SOCKET` | succeeds (`kernel.io_uring_disabled` read first) | `EPERM` at `io_uring_setup` |
+| a listening socket inherited as descriptor 3 (a test wrapper opens it) | visible to the probe | absent (`/proc/self/fd` = 0, 1, 2) |
+| killing the supervisor, then `listen()` | (n/a) | fails |
+| the IP filter: listener on 0.0.0.0/[::] reached from `bg-dev-services01` and through the VM's own address | reachable (the reachability procedure) | times out |
+
+The container on the test runner proves the logic first, but its kernel (the services VM's Debian kernel) isn't the mission VM's. `pidfd_getfd` and `seccomp` notification may need the test container to run with `--cap-add SYS_PTRACE` (a flag on that one container, not a daemon change). That is a runner change needing the owner's authorization (S12-D10); without it the supervisor is proven on the VM only.
+
+### What still needs VM proof (assumptions, not facts)
+
+- That systemd 255.4 (`-BPF_FRAMEWORK`) attaches its in-tree IP firewall (`BPF_CGROUP_INET_INGRESS`/`EGRESS` programs) to a mission unit's cgroup. To my knowledge it uses systemd's own BPF assembler rather than libbpf, so `BPF_FRAMEWORK` shouldn't matter; but nothing counts until:
+  - the pre-check sees the programs;
+  - the journal has no "BPF firewalling not supported" line;
+  - the reachability comparison shows the filtered listener unreachable where the unfiltered one was reachable.
+- That `IPAddressAllow=localhost` admits IPv4-mapped loopback (`::ffff:127.0.0.1`) and nothing broader, and that the filter applies to both IPv4 and IPv6 sockets of the unit.
+- That kernel 6.8's Landlock ABI 4 refuses port 0 and both families as described (the VM's ABI query returned 4 on 2026-10-18).
+- That Yama `ptrace_scope` is 1 on the VM (it was in the LSM list as `yama`; the value is read at execution).
+- That Unity Transport's WebSocket server binds its port explicitly before `listen()` (so the supervisor allows it) and needs no UDP (Task 11 records every socket the player opens).
+- The VM's current firewall state: `ufw` inactive and nftables empty on 2026-10-18 (Stage 10 records), re-read at execution.
+
 ## Task 9: B24, the repository side (test-first, nothing installed)
 
-**Files:** create `Backend/deploy/mission/landlock-exec` (L1; root-owned 0755 when installed); modify `blackglass-mission-slot.service.in`, `render-slot-units.sh`, `verify.sh`, `README.md`; tests `Backend/tests/MissionHost.Agent.Tests/Deploy/SlotTemplateTests.cs` (rendering), `Backend/tests/UnityCore.Linux.Tests/LandlockProbeTests.cs`.
+**Files:** create `Backend/deploy/mission/launcher/bg-mission-launch.c`, its `Makefile` and a static build through a new `vm-test.sh --launcher` mode (digest-pinned GCC image; build networked without secrets, tests with `--network none`, as `--unity-core` does); `Backend/deploy/mission/launcher/probe.c` (the probe binary of the table above); modify `blackglass-mission-slot.service.in`, `render-slot-units.sh`, `verify.sh` (TCP probes, the IP filter's boot-time check, `ip_local_port_range`, `kernel.yama.ptrace_scope`, `kernel.io_uring_disabled`), `publish-agent.sh` (ships the launcher with the agent release and records its SHA-256), `README.md`; tests `Backend/tests/MissionHost.Agent.Tests/Deploy/SlotTemplateTests.cs` (rendering) and `Backend/deploy/mission/launcher/tests/run.sh` (in the container).
 
-**The launcher (L1, or L2 under S12-D3's seccomp rules; at the S12-D6 path):** `landlock-exec --tcp-bind <port> [--tcp-connect <port>] -- <program> <args...>`:
-1. refuses to run unless `prctl(PR_GET_NO_NEW_PRIVS)` is 1 (the unit's `NoNewPrivileges=yes`);
-2. `landlock_create_ruleset(NULL, 0, LANDLOCK_CREATE_RULESET_VERSION)` must return ≥ 4, else exit 78 (`landlock_unavailable`): fail closed, the mission never starts unrestricted;
-3. a ruleset handling `LANDLOCK_ACCESS_NET_BIND_TCP` (and `CONNECT_TCP` under S12-D2), one `LANDLOCK_RULE_NET_PORT` rule per allowed port;
-4. `landlock_restrict_self`, then `os.execv`. Every descendant inherits the domain; nothing can lift it.
+**Tests (RED first, each prohibited operation beside its positive control):**
+- the template renders the pre-check, the launcher line with the slot's port for all 8 slots, the IP lines and the io_uring filter, and no `~listen`;
+- the full probe table above under the launcher and in its control, in the container;
+- every fail-closed path: ABI below 4 (simulated), `landlock_restrict_self` failing, the seccomp install failing, an extra descriptor that can't be closed, a bad argument, `execve` failing. Each exits 78 and never runs the program;
+- the supervisor: a bound slot-port listen allowed, an unbound one refused, a racing `dup2` that can't change the outcome, the supervisor killed so that `listen()` fails, the child's exit status and signal propagated.
 
-**The template at Stage 12:**
-- `ExecStart=/opt/blackglass/mission/current/landlock-exec --tcp-bind @PORT@ [--tcp-connect 5081] -- /opt/blackglass/mission/current/run-mission %i`;
-- `SystemCallFilter=~listen` removed (a TCP server must listen); `SocketBindAllow=`/`SocketBindDeny=` removed (inert here, and misleading);
-- `IPAddressDeny=any` and `IPAddressAllow=localhost` (the address half; counted only once Task 10 shows it enforced);
-- under S12-D3 U1: the launcher also installs the UDP seccomp filter.
-
-**Tests:** template rendering (the launcher line with the slot's port for all 8 slots; no `~listen`; the IP lines). In a container on the test runner (shared kernel, not the mission VM's): own port bind+listen allowed; 5081, another slot's port and port 0 refused with exactly `EACCES` (anything else is a failure to prove); the same over IPv6 (`[::1]`, `[::]`); MPTCP (protocol 262) and SCTP binds recorded; a restricted process's child inherits; an ABI below 4 (simulated by an option) refuses to start. **First** check that the runner's default Docker seccomp profile allows the `landlock_*` syscalls without `--privileged` or `seccomp=unconfined`; if it doesn't, the container test is a runner change that needs the owner's authorization, and the logic is proven on the VM only. The container proves the logic; only Task 10 proves the VM.
-
-**Mechanisms not chosen** (recorded for B24's evaluation order): systemd's `SocketBindAllow` is unenforced on this systemd (`-BPF_FRAMEWORK`, Stage 10's on-VM note) and would need a non-stock systemd. Socket activation (a root `.socket` with `ListenStream=127.0.0.1:<port>`, the unit keeping `SystemCallFilter=~bind listen`) would close residuals (a) and (b) too, but Unity Transport 2.7.4's WebSocket interface creates its own Baselib socket and can't adopt an inherited descriptor without a custom `INetworkInterface`: rejected for Stage 12, revisit if the transport gains that.
-
-- [ ] Steps: failing tests → RED → implement → GREEN (`vm-test.sh --unity-core` and `--agent`) → commit. Nothing is copied to `bg-dev-mission01`.
+- [ ] Steps: the tests → RED → implement → GREEN (`vm-test.sh --launcher` and `--agent`) → commit. Nothing is copied to `bg-dev-mission01`.
 
 ## Task 10: B24 demonstration on `bg-dev-mission01` (owner-approved manifest first)
 
 Not executed without the owner's approval of its host manifest (written at the start of this task, in the format of the outbox self-test's manifest). Only trusted probe code runs; no Unity binary.
 
-- A probe release `/opt/blackglass/mission/releases/<rev>-b24probe/` (`landlock-exec` plus a probe `run-mission` that runs the probes below and exits); `/opt/blackglass/mission/current` relinked to it for the run and back afterwards; one slot template re-rendered to the Stage 12 shape **only under the approved manifest**, restored afterwards; the agent stays disabled, the tunnel up.
-- **The slot template's prerequisites:** a dummy, non-secret credential file at `/run/blackglass/credentials/<id>/process` (`LoadCredential` fails without one); a canonical UUIDv7 attempt id (`slot-guard` refuses others); cleanup removes `/var/lib/private/blackglass-outbox/<id>`, `/var/lib/blackglass/exits/<id>.exit` and the credential directory, which the template's asserts and `record-exit` leave behind.
+- **No installed file changes:** the launcher and the probe come as a disposable probe release `/opt/blackglass-b24probe/<rev>/` (root-owned; removed at cleanup). Every probe runs in a **transient** unit (`systemd-run`) carrying the Stage 12 slot template's properties verbatim (rendered from the repository template for slot 03, port 7803, with a dynamic user of its own), never through the installed `blackglass-mission-NN@` templates, `/opt/blackglass/mission/current` or the agent release. The agent stays disabled and the tunnel up. Before and after: the same whole-tree integrity baseline and tunnel continuity checks as the self-test manifest.
+- **Template prerequisites in transient form:** `LoadCredential` and `slot-guard` are left out (no credential exists; the probe needs none). Every other property is rendered as installed, and a test pins that the transient unit's properties equal the rendered template's apart from those two lines, so the demonstration matches the real unit's sandbox.
 - **Probes from inside a mission unit** (slot 03, port 7803). Every refusal must show `EACCES`; `EADDRINUSE` (the tunnel holds 5081) or a timeout proves nothing and fails the line. Allowed: bind+listen 127.0.0.1:7803, 0.0.0.0:7803 and [::1]:7803. Refused: 127.0.0.1:5081, 0.0.0.0:5081, [::1]:5081, 127.0.0.1:7804, [::]:7804, port 0. Recorded for S12-D3: `listen()` on an unbound socket (and the port it got), MPTCP and SCTP binds on 5081, 7804 and 0, UDP binds 127.0.0.1:7803 and :0; TCP connect to 5081 allowed and to 22 refused under S12-D2.
 - **Control run without the launcher** (same unit shape, the launcher replaced by a direct exec): port 0, 7804 and a free test port (7899) succeed, and 5081 fails only with `EADDRINUSE`. That shows the refusals above are Landlock's.
-- **Address half** (every connect with an explicit timeout: dropped packets time out, they aren't reset): with the probe listening on 0.0.0.0:7803 under `IPAddressDeny=any`/`IPAddressAllow=localhost`, a root shell on the VM connects to the VM's own non-loopback address and port 7803 (must time out) and to 127.0.0.1:7803 (must succeed); from `bg-dev-services01`, a plain TCP connect to the mission VM's port 7803 must time out. **Positive control (S12-D8):** the same listener in a unit without the IP filter is reachable from both places, so the filtered failures are the filter's, not the hypervisor's or `ufw`'s (whose state is recorded too). The journal is checked for systemd's "BPF firewalling not supported" message (systemd starts the unit anyway if the kernel can't attach the filter, so the unit can't fail closed on it), and `verify.sh` gains a boot-time probe of the filter and a check of `ip_local_port_range` (residual (a) depends on it).
+- **Address half:** by the reachability procedure (`2026-10-20-phase-13-stage12-reachability-procedure.md`): the same listener unfiltered (reachable from `bg-dev-services01` and through the VM's own address, over IPv4 and IPv6) and filtered (unreachable there, loopback still open), plus the pre-check's attached programs and the journal's BPF lines.
 - **Evidence:** the probe transcript, `systemctl show` of the unit's effective properties, `verify.sh`'s TCP section, the residuals for the owner. B24 is satisfied only if every "refused" line holds.
 
 ## Task 11: Unity on Linux under B24 (owner-approved manifest first; after Task 10)
 
-Two runs in a Stage 12-shaped mission unit (the launcher, the IP filter), each bounded by `RuntimeMaxSec`, with no backend, no real credential (a dummy file) and no client:
+Two runs in transient units carrying the Stage 12 slot template's properties (the launcher, the IP filter; as in Task 10, never the installed templates), each bounded by `RuntimeMaxSec`, with no backend, no credential and no client:
 
 1. **The transport:** the release build with a new diagnostic, `-netBindCheck` (a code task here: `ServerOptions`, `ServerBootstrap`, a test; it starts FishNet's WebSocket transport on the slot port, logs the bind, then **holds** until the operator has captured `ss -tanup`/`ss -uanp` and `/proc/<pid>/net` from root, then exits). Shows the transport works under Landlock and the filter, and lists every socket the player opened (settles S12-D2 and U1).
 2. **The attempt path on Linux Mono (review I7):** a fixture build runs `-attemptFixture` with an attempt-v1 fixture for a bounded time: generation from the snapshot, the roster and inventory, the B25 fill, `AttemptSession`, a scripted end (the fixture's own terminal event), the freeze and `ManifestBuilder`. It logs the ready report and the manifest bytes (hashes and the bytes to the journal). They must equal the Editor-generated fixture's, byte for byte: a difference (JSON, culture, floating-point layout generation) fails Stage 12. Sockets are captured here too.
@@ -272,10 +389,23 @@ Full EditMode, PlayMode, backend domain, agent, integration, `--unity-core`; the
 | C1 manifest: nested quotes left `$PROPS` unset, so every phase would have run the player as root without the sandbox | the VM side is one script (`Tools/LinuxServer/outbox-selftest/selftest-vm.sh`) sent over `ssh … bash -s`, with `set -u` and a bash array for the properties; the self-test refuses euid 0 (`uid FAIL running_as_root`) and logs its uid; the hold step prints the unit's user and the process's uid |
 | I1 self-test: an exception from the native layer gave `result=pass` | `Step` catches every exception (`exception FAIL <type>`); a phase passes only when it ran to its end with exactly its checks (publish 7, resume 5) |
 | I2 manifest: `set -e` stopped at `is-enabled` | no `set -e`; every probe prints its value |
-| I3 manifest: a dirty build | the build comes from a clean worktree, and the install step requires `dirty=false`. **Open:** a clean worktree build still stamps `dirty=true` (read after `BuildPlayer`); the fix (read the status before the build, record `dirtyPaths` and `changedByBuild`) is drafted, not yet applied or tested |
+| I3 manifest: a dirty build | resolved in revision 2: the provenance correction (`88c0e39`, `7d7fbf7`), a clean worktree build at `310e9aa` stamped `dirty=false` and `provenance=verified`, every shipped file hashed; the install step verifies all of it |
 | I4 Task 10: refusals not attributable; no positive controls | `EACCES` only; a control run without the launcher; an off-host positive control (S12-D8); explicit timeouts |
 | I5 MPTCP, SCTP, IPv6 unprobed | probed in Tasks 9 and 10; S12-D3 (c) closes them with seccomp if Landlock doesn't |
 | I6 test 9 skipped `ReadyReport.Parse` and `ObjectiveList.Validate` | Task 7 runs the backend's whole ready path over the exact bytes, preferably through an extracted `ReadyValidation` |
 | I7 the attempt path never ran on Linux Mono | Task 11 run 2: the fixture attempt on the VM, compared byte for byte with the Editor |
 | Minors | M1 a `main_thread` bound on time inside `Step`; M2 a self-test option without a phase fails, never a mission; M3 a native `RENAME_NOREPLACE` check (`noreplace`, errno 17); M4 a comment; M5–M9 the manifest (invocation-scoped journal, exact expected lines, a whole-tree baseline with the tunnel's PID and restart count, cleanup, `bash -s`); M10 socket activation evaluated; M11 wording; M12 the filter's journal and boot-time checks; M13 test 4 by sequence; M14 a static table test; M15 Review Focus 2 restated; M16 `-netBindCheck` is a code task and holds for capture; M17 S12-D6 and the seccomp details; M18 the template prerequisites; M19 combat coverage; M20 an injectable gate; M21 the stale ledger comment; M22 the runner's seccomp profile; M23 the `NativeLibc` comment |
+
+## Owner rulings (2026-10-20, Stage 12 planning) and revision 2
+
+- **Build provenance:** fixed on the self-test branch (`88c0e39`). The source state is captured before Unity starts, Unity only stamps it, and a change that survives the build fails it. The binary's SHA-256 is recorded.
+- **The self-test stays separate:** the core reference is kept (it is needed to compile the diagnostic); the root check's uid reader is local to the diagnostic, and the core is byte-identical to `main`.
+- **B24:**
+  - a C launcher versioned with the agent's trusted components;
+  - the mission keeps its non-root dynamic user;
+  - every step fails closed;
+  - the evaluation is in "B24 security design", with each case's handling and each prohibited operation against a positive control;
+  - the unbound `listen()` is S12-D9: B24 stays blocked unless the supervisor is approved and proven, or the owner accepts the residual;
+  - the installed Stage 10 templates are not modified.
+- **The reachability experiment:** prepared in its own procedure; nothing is exposed until the owner approves it.
 
