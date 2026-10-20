@@ -1,9 +1,10 @@
 # B24 Address Half — Off-Host Reachability Procedure for `bg-dev-mission01`
 
-**Status (2026-10-20): revision 2, prepared, not executed. It exposes a port only after the owner explicitly approves this procedure.**
+**Status (2026-10-20): revision 2.1, prepared, not executed. It exposes a port only after the owner explicitly approves this procedure.**
 - It changes no firewall, systemd unit file, SSH or Docker configuration on either VM.
 - It is part of the Stage 12 plan (`2026-10-20-phase-13-stage12-server-mission.md`, "B24 security design", Task 10; decision S12-D8).
-- Revision 2 applies security review 2 (M15): an allow-listed probe source, A–B–A ordering, own-address IPv6 and IPv4-mapped cases, exit codes that tell a timeout from a refusal, the driver verbatim, and `iptables-legacy-save` in the records.
+- Revision 2.1 applies re-reviews 3 and 4: a step-based driver (one non-interactive SSH call per step), per-run journal tokens matched with the unit and its stdout stream, validated run names and single-address probe sources, and the module list recorded first.
+- Revision 2 applied security review 2 (M15): an allow-listed probe source, A–B–A ordering, own-address IPv6 and IPv4-mapped cases, exit codes that tell a timeout from a refusal, the driver verbatim, and `iptables-legacy-save` in the records.
 
 ## Question
 
@@ -64,8 +65,10 @@ while time.time() < end:
 common=(-p DynamicUser=yes -p NoNewPrivileges=yes -p CapabilityBoundingSet= -p ProtectSystem=strict -p ProtectHome=yes
   -p PrivateTmp=yes -p PrivateDevices=yes -p "RestrictAddressFamilies=AF_INET AF_INET6" -p MemoryMax=64M -p TasksMax=8
   -p RuntimeMaxSec=120 -p "InaccessiblePaths=-/opt/blackglass -/etc/blackglass -/var/lib/blackglass -/run/blackglass")
-unit_of() { case "$1" in A1|A2) echo blackglass-reach-allowed ;; B) echo blackglass-reach-filtered ;; *) echo "STOP: run $1" >&2; exit 64 ;; esac; }
+check_run() { case "$1" in A1|B|A2) ;; *) echo "STOP: unknown run '$1' (A1, B or A2)"; exit 64 ;; esac; }
+unit_of() { case "$1" in A1|A2) echo blackglass-reach-allowed ;; B) echo blackglass-reach-filtered ;; esac; }
 records() {
+  echo "modules: $(awk '{print $1}' /proc/modules | LC_ALL=C sort | sha256sum | cut -d' ' -f1)"   # first: the tools below may load some
   echo "ufw: $(ufw status verbose 2>&1 | tr '\n' ' ')"
   echo "nft: $(nft list ruleset 2>/dev/null | sha256sum | cut -d' ' -f1)"
   echo "iptables: $(iptables-save 2>/dev/null | grep -v '^#' | sha256sum | cut -d' ' -f1)"
@@ -76,7 +79,8 @@ records() {
   echo "listening-7898-7899: $(ss -tlnH '( sport = :7899 or sport = :7898 )' | wc -l)"
   echo "tunnel: $(systemctl show blackglass-tunnel -p MainPID -p NRestarts | LC_ALL=C sort | tr '\n' ' ')"
   echo "ptrace_scope: $(sysctl -n kernel.yama.ptrace_scope)"
-  echo "modules: $(awk '{print $1}' /proc/modules | LC_ALL=C sort | sha256sum | cut -d' ' -f1)"
+  echo "addresses: $(ip -br addr | awk '{$2=""; print}' | tr '\n' ';')"   # redacted by the workstation's sed
+  echo "modules-after-tools: $(awk '{print $1}' /proc/modules | LC_ALL=C sort | sha256sum | cut -d' ' -f1)"
 }
 local_probe() { # local_probe <label> <host> <port>: exit 0 open, 1 refused, 124 timeout; skipped without an address
   if [ -z "$2" ]; then echo "local $1 skipped (no global address of that family)"; return; fi
@@ -86,24 +90,28 @@ token_file() { echo "/root/reach-$1.token"; }
 case "$step" in
   before) records | tee "$record" ;;
   start)
-    run="${2:?run}"; src4="${3:?services VM IPv4}"; src6="${4:?services VM IPv6}"; unit="$(unit_of "$run")"
+    run="${2:?run}"; src4="${3:?services VM IPv4}"; src6="${4:?services VM IPv6}"; check_run "$run"; unit="$(unit_of "$run")"
+    # m2: exactly one host address each, never a prefix or a keyword that would widen the allow-list
+    [[ "$src4" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || { echo "STOP: the services VM IPv4 must be one address"; exit 64; }
+    [[ "$src6" =~ ^[0-9a-fA-F:]+$ && "$src6" == *:* ]] || { echo "STOP: the services VM IPv6 must be one address"; exit 64; }
     allow="localhost"; [ "$run" = B ] || allow="localhost $src4 $src6"
     systemctl is-active -q "${units[0]}" "${units[1]}" && { echo "STOP: a reach unit is already running"; exit 1; }
     token="$(cat /proc/sys/kernel/random/uuid)"; echo "$token" > "$(token_file "$run")"
     # each run's journal lines carry its own token, so A2 never reads A1's lines (same unit name)
     systemd-run --quiet --collect --unit="$unit" "${common[@]}" -p IPAddressDeny=any -p "IPAddressAllow=$allow" \
       -p "LogExtraFields=BLACKGLASS_REACH=$token" python3 -c "$LISTENER" || { echo "STOP: $unit did not start"; exit 1; }
-    for _ in $(seq 1 20); do journalctl "BLACKGLASS_REACH=$token" -o cat --no-pager | grep -qx listening && { echo "== $run ready"; exit 0; }; sleep 0.5; done
+    for _ in $(seq 1 20); do journalctl "BLACKGLASS_REACH=$token" "_SYSTEMD_UNIT=$unit.service" _TRANSPORT=stdout -o cat --no-pager | grep -qx listening && { echo "== $run ready"; exit 0; }; sleep 0.5; done
     systemctl stop "$unit"; echo "STOP: $unit did not listen"; exit 1 ;;
   finish)
-    run="${2:?run}"; unit="$(unit_of "$run")"
+    run="${2:?run}"; check_run "$run"; unit="$(unit_of "$run")"
     own4="$(ip -4 -o addr show dev eth0 scope global | awk '{print $4}' | cut -d/ -f1 | head -1)"
     own6="$(ip -6 -o addr show dev eth0 scope global | awk '{print $4}' | cut -d/ -f1 | head -1)"
     local_probe own-ipv4 "$own4" 7899; local_probe own-ipv6 "$own6" 7899; local_probe own-mapped "$own4" 7898
     local_probe loopback-ipv4 127.0.0.1 7899; local_probe loopback-ipv6 ::1 7899
     systemctl stop "$unit" 2>/dev/null
     token="$(cat "$(token_file "$run")" 2>/dev/null)"; [ -n "$token" ] || { echo "STOP: no token for $run"; exit 1; }
-    echo "== $run accepted: $(journalctl "BLACKGLASS_REACH=$token" -o cat --no-pager | grep -c '^accepted ') ($(journalctl "BLACKGLASS_REACH=$token" -o cat --no-pager | grep '^accepted ' | sort | uniq -c | tr -s ' ' | tr '\n' ';'))"
+    lines="$(journalctl "BLACKGLASS_REACH=$token" "_SYSTEMD_UNIT=$unit.service" _TRANSPORT=stdout -o cat --no-pager | grep '^accepted ')"
+    echo "== $run accepted: $(printf '%s' "$lines" | grep -c '^accepted ') ($(printf '%s\n' "$lines" | sort | uniq -c | tr -s ' ' | tr '\n' ';'))"
     echo "== $run listening-after-stop: $(ss -tlnH '( sport = :7899 or sport = :7898 )' | wc -l)" ;;
   after)
     records > /root/reach-after.txt
@@ -157,7 +165,8 @@ Each record is saved, and "after" must equal "before":
 The address half of B24 counts as proven only if every cell holds and the firewalling journal shows 0 lines. Any of these makes the result non-informative, and the address half stays unproven:
 - A1 or A2 closed from the services VM (the network blocks it anyway);
 - B open from the services VM (the filter isn't enforced);
-- a `firewalling` warning since boot.
+- a `firewalling` warning since boot;
+- a `skipped` own-address probe (the VM has no global address of that family), which leaves that cell unproven.
 
 `exit=1` (refused) anywhere in B means something answered with a reset rather than a drop, and is investigated before any conclusion.
 
