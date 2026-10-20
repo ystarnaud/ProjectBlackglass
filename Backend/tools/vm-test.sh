@@ -5,6 +5,10 @@
 #   vm-test.sh --filter <xunit filter>   Integration tests matching the filter (e.g. "FullyQualifiedName~ClaimTests")
 #   vm-test.sh --full                    Domain, the mission host agent's tests, then every integration test
 #   vm-test.sh --agent [<xunit filter>]  The mission host agent's own tests (no database), optionally filtered
+#   vm-test.sh --unity-core              Stage 11's UnityCore.Linux.Tests: Unity's outbox sources on Linux with the real libc,
+#                                        read back by the agent. Snapshots Backend/ and Assets/_Project/Scripts/Backend/Core;
+#                                        builds in the networked container without database secrets, then tests in a second
+#                                        container with --network none.
 #   --evidence <dir>                     where the trx files and summary land (default .claude/scratchpad/vm-test/<tree>)
 # The working tree's Backend/ (tracked plus untracked, .gitignore respected) is snapshotted into a git tree id, so
 # uncommitted test-first work runs too and every summary names exactly the tree it tested.
@@ -19,8 +23,9 @@ while [[ $# -gt 0 ]]; do
     --filter) mode=filter; filter="${2:?--filter needs an expression}"; shift 2 ;;
     --full) mode=full; shift ;;
     --agent) mode=agent; if [[ $# -gt 1 && "$2" != --* ]]; then filter="$2"; shift; fi; shift ;;
+    --unity-core) mode=unity-core; shift ;;
     --evidence) evidence="${2:?--evidence needs a directory}"; shift 2 ;;
-    *) echo "usage: vm-test.sh --filter <expr> | --full [--evidence <dir>]" >&2; exit 64 ;;
+    *) echo "usage: vm-test.sh --filter <expr> | --full | --agent [<expr>] | --unity-core [--evidence <dir>]" >&2; exit 64 ;;
   esac
 done
 [[ -n "$mode" ]] || { echo "usage: vm-test.sh --filter <expr> | --full [--evidence <dir>]" >&2; exit 64; }
@@ -29,9 +34,12 @@ done
 repo="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 index="$(mktemp)"; trap 'rm -f "$index"' EXIT
 cp "$(git -C "$repo" rev-parse --path-format=absolute --git-path index)" "$index"
-GIT_INDEX_FILE="$index" git -C "$repo" add -A -- Backend
-tree="$(GIT_INDEX_FILE="$index" git -C "$repo" write-tree)"
-tree="$(git -C "$repo" rev-parse "$tree:Backend")"   # the Backend/ subtree: identical content gives the identical id
+core=Assets/_Project/Scripts/Backend/Core
+if [[ "$mode" == unity-core ]]; then GIT_INDEX_FILE="$index" git -C "$repo" add -A -- Backend "$core"; else GIT_INDEX_FILE="$index" git -C "$repo" add -A -- Backend; fi
+full="$(GIT_INDEX_FILE="$index" git -C "$repo" write-tree)"
+tree="$(git -C "$repo" rev-parse "$full:Backend")"   # the Backend/ subtree: identical content gives the identical id
+coretree=""
+[[ "$mode" == unity-core ]] && coretree=" core=$(git -C "$repo" rev-parse "$full:$core")"
 head="$(git -C "$repo" rev-parse --short HEAD)"
 evidence="${evidence:-$repo/.claude/scratchpad/vm-test/${tree:0:12}-$(date +%H%M%S)}"
 mkdir -p "$evidence"
@@ -39,10 +47,14 @@ mkdir -p "$evidence"
 vm=/opt/blackglass/backend
 # The sync, the run and the copy-back each hold the VM-side lock, so a second invocation never replaces a running test's
 # sources or results (it waits for the lock instead).
-git -C "$repo" -c core.autocrlf=false -c core.eol=lf archive --format=tar --prefix=Backend/ "$tree" | ssh "$alias" "sudo -n flock -w 3600 /run/lock/bg-test-runner.lock sh -c 'set -e
+archive() {
+  if [[ "$mode" == unity-core ]]; then git -C "$repo" -c core.autocrlf=false -c core.eol=lf archive --format=tar "$full" Backend "$core"
+  else git -C "$repo" -c core.autocrlf=false -c core.eol=lf archive --format=tar --prefix=Backend/ "$tree"; fi
+}
+archive | ssh "$alias" "sudo -n flock -w 3600 /run/lock/bg-test-runner.lock sh -c 'set -e
   rm -rf $vm/test-src.new && mkdir -p $vm/test-src.new && chmod 755 $vm/test-src.new
   tar -x -C $vm/test-src.new
-  echo \"tree=$tree head=$head\" > $vm/test-src.new/Backend/TREE
+  echo \"tree=$tree$coretree head=$head\" > $vm/test-src.new/Backend/TREE
   rm -rf $vm/test-src && mv $vm/test-src.new $vm/test-src'"
 
 set +e
@@ -66,6 +78,22 @@ rm -rf "$vm/test-out" && install -d -o 999 -g 999 -m 755 "$vm/test-out"
 cat "$vm/test-src/Backend/TREE"
 start=$(date +%s)
 set +e
+if [[ "$mode" == unity-core ]]; then
+  # Stage 11 D8: no database secrets or settings in either container. The build needs the package feed (the existing network
+  # namespace, as every other mode); the tests then run with no network at all, from that build.
+  limits=(--user 999:999 --cpus 2 --memory 3g --memory-swap 3g --pids-limit 1024 --cap-drop ALL --security-opt no-new-privileges)
+  envs=(-e HOME=/work/home -e DOTNET_CLI_HOME=/work/home -e NUGET_PACKAGES=/nuget -e DOTNET_CLI_TELEMETRY_OPTOUT=1 -e DOTNET_NOLOGO=1
+    -e DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 -e BLACKGLASS_TEST_TMP=/work/tmp-unity-core)
+  mounts=(-v "$vm/test-src:/src:ro" -v bg-test-nuget:/nuget -v bg-test-work:/work -v "$vm/test-out:/out")
+  docker run --rm --name bg-test-runner "${limits[@]}" --network "container:$pg" "${envs[@]}" "${mounts[@]}" \
+    "$image" timeout 3600 bash /src/Backend/tools/run-tests-in-container.sh unity-core-build ""
+  code=$?
+  if [[ $code == 0 ]]; then
+    docker run --rm --name bg-test-runner "${limits[@]}" --network none "${envs[@]}" "${mounts[@]}" \
+      "$image" timeout 3600 bash /src/Backend/tools/run-tests-in-container.sh unity-core-test ""
+    code=$?
+  fi
+else
 docker run --rm --name bg-test-runner \
   --user 999:999 --cpus 2 --memory 3g --memory-swap 3g --pids-limit 1024 \
   --cap-drop ALL --security-opt no-new-privileges \
@@ -80,6 +108,7 @@ docker run --rm --name bg-test-runner \
   -v bg-test-nuget:/nuget -v bg-test-work:/work -v "$vm/test-out:/out" \
   "$image" timeout 3600 bash /src/Backend/tools/run-tests-in-container.sh "$mode" "$filter"
 code=$?
+fi
 set -e
 echo "container exit $code after $(( $(date +%s) - start )) s"
 left="$(psql "select count(*) from pg_database where datname like 'bg\_t\_%'")"

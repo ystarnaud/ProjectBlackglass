@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Stage 11 (owner ruling D8): Unity's backend-core outbox sources compiled by link and run on Linux with the real libc, read
+    back through the mission host agent's own reader. Run by Backend/tools/vm-test.sh unity-core mode. Not in Backend.sln: it
+    links files outside Backend/. Passing here proves CoreCLR on Linux, not Unity's Mono player (a Stage 12 check).
+  -->
+  <PropertyGroup>
+    <RootNamespace>Blackglass.UnityCore.Linux.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- As Unity compiles the core: no nullable context, no implicit usings. -->
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <UnityCoreRoot Condition="'$(UnityCoreRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\Assets\_Project\Scripts\Backend\Core</UnityCoreRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(UnityCoreRoot)\Outbox\*.cs" Link="core\Outbox\%(Filename)%(Extension)" />
+    <Compile Include="$(UnityCoreRoot)\Ids\*.cs" Link="core\Ids\%(Filename)%(Extension)" />
+    <!-- StrictJsonReader.Utf8ByteCount and HasLoneSurrogate, used by OutboxLocation. -->
+    <Compile Include="$(UnityCoreRoot)\Json\StrictJsonReader.cs" Link="core\Json\StrictJsonReader.cs" />
+    <Compile Include="$(UnityCoreRoot)\Json\JsonNode.cs" Link="core\Json\JsonNode.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\MissionHost.Agent\MissionHost.Agent.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- A golden format-v1 manifest for attempt 0192f1a4-... and account JG (the agent identifies results by their content). -->
+    <None Include="..\..\contracts\manifest-v1\valid\01-minimal.canonical.json" Link="vectors\minimal.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\contracts\manifest-v1\valid\13-ledger-mismatch.canonical.json" Link="vectors\mismatch.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

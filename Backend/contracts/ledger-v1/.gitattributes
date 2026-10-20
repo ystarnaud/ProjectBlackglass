@@ -1,0 +1,2 @@
+# Ledger scenarios are exact bytes: never convert line endings.
+* -text

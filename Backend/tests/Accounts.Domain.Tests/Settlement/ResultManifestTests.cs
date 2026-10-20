@@ -81,6 +81,21 @@ public class ResultManifestTests
         Assert.Equal((null, null), (Assert.IsType<ParseResult.Malformed>(Parse("nope")).ClaimedAttemptId, Assert.IsType<ParseResult.Malformed>(Parse("nope")).ClaimedAccountId));
     }
 
+    /// <summary>
+    /// Stage 11 final review M1: a root member name holding a lone surrogate escape, long enough (9 raw bytes or more) that
+    /// NameEquals has to unescape it, is NotJson like every other lone surrogate the parser reads, not an exception. Such a
+    /// name is neither claim member, so the claims stay what the short name (no unescaping) already gave: the body's ids.
+    /// </summary>
+    [Theory]
+    [InlineData("\\ud800")]
+    [InlineData("\\udc00xyz")]
+    [InlineData("attemptI\\ud800")]
+    public void A_lone_surrogate_in_a_member_name_is_NotJson_with_the_bodys_claims(string name)
+    {
+        var bad = Assert.IsType<ParseResult.Malformed>(Parse(Canonical().Replace("{\"accountId\"", "{\"" + name + "\":1,\"accountId\"", StringComparison.Ordinal)));
+        Assert.Equal(("NotJson", (Guid?)Attempt, (long?)Account), (bad.Code, bad.ClaimedAttemptId, bad.ClaimedAccountId));
+    }
+
     [Fact]
     public void The_seed_has_no_member_in_the_format()
     {

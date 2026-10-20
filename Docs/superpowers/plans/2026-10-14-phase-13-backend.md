@@ -367,6 +367,8 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 11: Unity backend core (library-free)
 
+**Status (2026-10-20):** accepted by the owner, merged into `main` and pushed after the final validation, per the detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md` (revision 2.1, "As built" and "Final owner rulings"). Final-review I1 is assigned to Stage 12 (B25, below), not implemented in the current runtime; M1 is fixed. The Linux Unity self-test of the outbox worker stays a Stage 12 obligation. Where the detailed plan differs from this outline, it wins.
+
 **Touches:**
 - `Assets/_Project/Scripts/Backend/Core/` (new);
 - new EditMode test files;
@@ -402,6 +404,11 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 **No changes** to client scenes, prefabs, HUD or input.
 
+**Blocking acceptance gates:**
+- **B24:** an enforced per-slot TCP bind restriction, demonstrated on `bg-dev-mission01` before any real Unity mission workload runs there.
+- **B25 (§18.2; Stage 11 final review I1, owner ruling 2026-10-20): attempt containers filled one entry per rolled item, so each registered pool line is one roll and the real `LootPoolValidator` accepts the ready report.** A dedicated online container-initialization path (the offline `LootContainer.Initialize` unchanged); a roll that can't be one entry fails generation explicitly; the nine tests of the Stage 11 plan's "Final owner rulings", with forced duplicate-roll fixtures.
+- **The Linux Unity outbox self-test:** run on the mission VM only after the owner approves its host manifest.
+
 **Work:**
 - the catalogue, loot table, roster and inventory in snapshot mode on the server;
 - the spawner path then adds `UnitAbilities`, `UnitIdentity` and `UnitItems`;
@@ -431,7 +438,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - register (process credential), configure, generate, ready;
 - the start hold (`NotStarted`) with idempotent start retries;
 - the heartbeat;
-- the outcome freeze → outbox → `NetResultRecordedMessage` → status poll → `NetResultConfirmedMessage` → exit.
+- the outcome freeze → the durable outbox write (`.written`, on Stage 11's I/O worker) → the bounded `recorded` notice (any answer or the time bound ends it) → publication (`.ready`) → `NetResultRecordedMessage` (saved, pending) → exit. **The process never polls settlement** (S9-B6, which supersedes this outline's earlier "status poll → `NetResultConfirmedMessage`"): the authenticated player client polls its own receipt (`GET /v1/attempts/{id}/receipt`), and durable publication never waits for the backend.
 
 **Tests:**
 - EditMode with an HTTP seam: retries, a lost start response, 409 handling;

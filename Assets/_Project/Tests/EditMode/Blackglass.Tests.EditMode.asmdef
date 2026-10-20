@@ -9,7 +9,8 @@
         "Unity.InputSystem",
         "Unity.InputSystem.TestFramework",
         "Blackglass.AssetPipeline.Editor",
-        "Blackglass.Backend.Editor"
+        "Blackglass.Backend.Editor",
+        "Blackglass.Backend.Core"
     ],
     "includePlatforms": [
         "Editor"

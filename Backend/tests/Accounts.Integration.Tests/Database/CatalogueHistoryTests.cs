@@ -125,4 +125,34 @@ public class CatalogueHistoryTests : IAsyncLifetime
         await using var conn = await db.AsSuperuser().OpenConnectionAsync();
         return (await conn.QueryAsync<string>(sql)).ToArray();
     }
+
+    // ---- Stage 11, owner ruling D7: a registration rule that never makes a stored version unreadable ----
+
+    /// <summary>The embedded catalogue plus one consumable that doesn't stack: valid under format 2's reading rules.</summary>
+    static GameCatalogue WithNonStackableConsumable(string id) => Variant(d => d with
+    {
+        Items = [.. d.Items.Append(new CatalogueItem(id, ItemCategory.Consumable, ItemSlot.None, false, 1, 5)).OrderBy(i => i.Id, StringComparer.Ordinal)],
+    });
+
+    [Fact]
+    public async Task A_stored_catalogue_that_breaks_the_registration_rule_stays_readable()
+    {
+        var historical = WithNonStackableConsumable("item.old-tonic");
+        // As an older registration would have left it: the canonical bytes under their version, inserted directly.
+        await ExecuteAsSuperuserAsync(db, "insert into catalogue_versions (version, bytes) values (@Version, @Bytes)",
+            new { historical.Version, Bytes = CanonicalCatalogueJson.ToBytes(historical.Document) });
+        var found = Assert.IsType<CatalogueLookup.Found>(await new CatalogueHistoryStore(db.AsApp()).LookupAsync(historical.Version, default));
+        Assert.Equal(historical.Version, found.Catalogue.Version);
+        Assert.False(found.Catalogue.FindItem("item.old-tonic")!.Stackable);
+        Assert.False(await history.RegisterAsync(historical, null, default)); // already stored: re-registering it changes nothing
+    }
+
+    [Fact]
+    public async Task A_new_catalogue_that_breaks_the_rule_is_not_registered()
+    {
+        var fresh = WithNonStackableConsumable("item.fresh-tonic"); // a new id, so the identity-kind check can't be what refuses it
+        var e = await Assert.ThrowsAsync<CatalogueRegistrationException>(() => history.RegisterAsync(fresh, null, default));
+        Assert.Contains("a consumable must be stackable", e.Message);
+        Assert.Equal(0L, await ScalarAsSuperuserAsync<long>(db, "select count(*) from catalogue_versions where version = @Version", new { fresh.Version }));
+    }
 }

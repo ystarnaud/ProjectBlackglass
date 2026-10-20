@@ -161,18 +161,26 @@ public sealed partial record ResultManifest(Guid AttemptId, long AccountId, Guid
         int attempts = 0, accounts = 0;
         foreach (var p in root.EnumerateObject())
         {
-            if (p.NameEquals("attemptId"))
+            if (NameIs(p, "attemptId"))
             {
                 attempts++;
                 attempt = p.Value.ValueKind == JsonValueKind.String && IsAttemptId(SafeString(p.Value), out var a) ? a : null;
             }
-            else if (p.NameEquals("accountId"))
+            else if (NameIs(p, "accountId"))
             {
                 accounts++;
                 account = p.Value.ValueKind == JsonValueKind.String && Base58Id.TryParse(SafeString(p.Value), out var b) ? b : null;
             }
         }
         return (attempts == 1 ? attempt : null, accounts == 1 ? account : null);
+    }
+
+    // A name holding a lone surrogate escape can't be unescaped (NameEquals throws once the name is long enough to need it),
+    // and it is neither ASCII claim name; ReadRoot then refuses the body as NotJson (Stage 11 final review M1).
+    static bool NameIs(JsonProperty p, string name)
+    {
+        try { return p.NameEquals(name); }
+        catch (InvalidOperationException) { return false; }
     }
 
     static string? SafeString(JsonElement e)

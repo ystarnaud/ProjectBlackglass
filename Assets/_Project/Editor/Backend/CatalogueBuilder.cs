@@ -87,6 +87,9 @@ namespace Blackglass.BackendTools
                 if (!item.IsValid(out var problem)) { errors.Add($"malformed: item asset {item.name}: {problem}"); continue; }
                 // IsValid checks only a consumable's healing; the backend refuses a negative amount on any item.
                 if (item.HealAmount < 0) { errors.Add($"malformed: item asset {item.name}: the heal amount is negative"); continue; }
+                // Stage 11 (D7): format-v1 manifests report consumption per definition, so a new export needs every consumable to stack
+                // (the backend refuses to register one that does not; stored catalogues stay readable).
+                if (item.Category == ItemCategory.Consumable && !item.IsStackable) { errors.Add($"incompatible: item asset {item.name}: a consumable must be stackable (its maximum stack must be above 1)"); continue; }
                 if (!CanonicalCatalogueWriter.IsWellFormedId(item.Id)) { errors.Add($"malformed: item asset {item.name}: id '{item.Id}' {IdRule}"); continue; }
                 if (byId.TryGetValue(item.Id, out var other))
                 {
