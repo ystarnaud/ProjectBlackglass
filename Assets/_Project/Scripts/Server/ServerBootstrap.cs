@@ -56,6 +56,8 @@ namespace Blackglass
         internal Action<int> Exit = code => Application.Quit(code);
         /// <summary>Opens the self-test's outbox directory from $STATE_DIRECTORY; tests replace it with a portable directory.</summary>
         internal Func<ServerOptions, IOutboxDirectory> OpenOutbox = o => OpenSelftestOutbox(o, Environment.GetEnvironmentVariable("STATE_DIRECTORY"));
+        /// <summary>The effective uid the self-test checks (it refuses root); tests replace it.</summary>
+        internal Func<long> EffectiveUserId = OutboxDirectories.EffectiveUserId;
         internal ServerOptions Options => options;
         internal bool HasExited { get; private set; }
         internal int ExitCode { get; private set; } = -1;
@@ -90,7 +92,7 @@ namespace Blackglass
             {
                 // The self-test needs no mission and no network: nothing below runs, -net is never read.
                 Debug.Log(Prefix + "outbox self-test phase=" + options.OutboxSelftest);
-                selftest = new OutboxSelftest(options.OutboxSelftest, () => OpenOutbox(options), line => Debug.Log(line));
+                selftest = new OutboxSelftest(options.OutboxSelftest, () => OpenOutbox(options), EffectiveUserId, line => Debug.Log(line));
                 return;
             }
             if (director == null || pause == null)
@@ -233,6 +235,8 @@ namespace Blackglass
         /// <summary>
         /// The self-test's directory: never under the real outbox's parent (the agent relays from there), then exactly
         /// <c>parent/id</c> as OutboxLocation checks, opened and checked as the server's outbox is.
+        /// A symbolic-link parent pointing at the real outbox isn't caught by the name check; OutboxLocation's exact-path rule
+        /// and the directory's owner check (the unit's dynamic user, never the agent's) still refuse it.
         /// </summary>
         internal static IOutboxDirectory OpenSelftestOutbox(ServerOptions o, string stateDirectory)
         {

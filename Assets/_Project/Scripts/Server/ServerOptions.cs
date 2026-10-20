@@ -37,7 +37,8 @@ namespace Blackglass
         public bool NetQuiet { get; private set; }
         /// <summary>-netFixture: the development fixture drives visibility (Editor and fixture builds only; needs -netQuiet).</summary>
         public bool NetFixture { get; private set; }
-        /// <summary>-outboxSelftest publish|hold|resume: run only the Stage 11 outbox self-test (no mission, no network); null otherwise.</summary>
+        /// <summary>-outboxSelftest publish|hold|resume: run only the Stage 11 outbox self-test (no mission, no network); null
+        /// otherwise. Empty when the self-test was asked for without a phase (it then fails with exit 3).</summary>
         public string OutboxSelftest { get; private set; }
         public string SelftestParent { get; private set; } = DefaultSelftestParent;
         /// <summary>The canonical UUIDv7 naming the self-test's state directory ($STATE_DIRECTORY must be exactly parent/id).</summary>
@@ -92,8 +93,8 @@ namespace Blackglass
                             options.NetTokensPath = tokens;
                         break;
                     case "-outboxSelftest":
-                        if (TryText(args, ref i, warnings, out var phase))
-                            options.OutboxSelftest = phase;
+                        // A missing phase still selects the self-test, which then fails: never a mission by accident.
+                        options.OutboxSelftest = TryText(args, ref i, warnings, out var phase) ? phase : string.Empty;
                         break;
                     case "-selftestParent":
                         if (TryText(args, ref i, warnings, out var parent))
@@ -114,6 +115,9 @@ namespace Blackglass
                         break;
                 }
             }
+            // A self-test option without -outboxSelftest is a mistyped self-test run: it fails, it never generates a mission.
+            if (options.OutboxSelftest == null && (options.SelftestId != null || options.SelftestParent != DefaultSelftestParent))
+                options.OutboxSelftest = string.Empty;
             return options;
         }
 
