@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-20):** **conditionally accepted by the owner** ("Final owner rulings" at the end): I1 is resolved by assignment to Stage 12 as a hard acceptance gate (B25), **not implemented in the current runtime**; the M1 parser hardening is done; merging into `main` is authorized once the final validation passes. Implemented on `phase13-stage11` ("As built": all suites green; final review 0 Critical, 1 Important (I1), 7 Minor). Plan revision 2.1 (revision 2 plus its review). The owner approved the architecture and ruled on D1–D8 ("Owner rulings" near the end). This revision applies the rulings' corrections: D2 (format versus settlement validation, the truthful `ledgerMismatch` fallback, fail-closed builds), D6 (every file operation on a dedicated I/O worker, the checked `$STATE_DIRECTORY`, a no-replace rename, the libc set the requirements need) and D7 (consumables must stack for new registrations and exports, with stored catalogues still readable). It also corrects the staged plan's Stage 13 settlement poll. Implementation is authorized on `phase13-stage11` once an independent review of this revision leaves no Critical or Important finding. No merge, push or deployment without the owner. Revision 1.1 (`2777623`) applied the first plan review (0 Critical, 5 Important, 14 Minor).
+**Status (2026-10-20):** **accepted by the owner, merged into `main` and pushed** after the final validation ("Final validation" at the end) ("Final owner rulings" at the end): I1 is resolved by assignment to Stage 12 as a hard acceptance gate (B25), **not implemented in the current runtime**; the M1 parser hardening is done. Implemented on `phase13-stage11` ("As built": all suites green; final review 0 Critical, 1 Important (I1), 7 Minor). Plan revision 2.1 (revision 2 plus its review). The owner approved the architecture and ruled on D1–D8 ("Owner rulings" near the end). This revision applies the rulings' corrections: D2 (format versus settlement validation, the truthful `ledgerMismatch` fallback, fail-closed builds), D6 (every file operation on a dedicated I/O worker, the checked `$STATE_DIRECTORY`, a no-replace rename, the libc set the requirements need) and D7 (consumables must stack for new registrations and exports, with stored catalogues still readable). It also corrects the staged plan's Stage 13 settlement poll. Implementation is authorized on `phase13-stage11` once an independent review of this revision leaves no Critical or Important finding. No merge, push or deployment without the owner. Revision 1.1 (`2777623`) applied the first plan review (0 Critical, 5 Important, 14 Minor).
 
 **Goal:** a plain C# core inside the Unity project that later stages (12, 13, 14, 16) build on:
 - the backend DTOs;
@@ -1231,3 +1231,21 @@ The owner conditionally accepted Stage 11 and ruled:
 - **M1: a narrowly scoped, test-first backend fix, authorized and done** (see the final review list above).
 - **Merge:** authorized once the full validation passes on the final tree, the diff is clean and no new Critical or Important finding appears. Preserved, never committed: the owner's `Assets/Settings/Mobile_RPAsset.asset`, `ProjectSettings/URPProjectSettings.asset` and `.claude/` scratch content.
 - **Stage 12 gates carried forward:** B24 (the per-slot TCP bind restriction, demonstrated on `bg-dev-mission01`), B25 (I1), and the Linux Unity self-test of the outbox worker (owner approval of its host manifest before it runs). No real Unity mission workload before B24.
+
+## Final validation (2026-10-20)
+
+Run on the final implementation tree (`4ba9633`; the later commits change docs only, and the VM runs name the Backend tree `a576e48`):
+
+| Suite | Result |
+|---|---|
+| Unity EditMode | **1835 / 1835** |
+| Unity PlayMode | **1434 / 1434** |
+| Backend domain (local and VM) | **790 / 790** (787 + M1's 3), including I1's `A_merged_container_line_is_refused_by_the_ready_report_rule`, unchanged |
+| Mission host agent (VM) | **254 / 254** |
+| Integration (VM) | **1773 / 1773** |
+| Linux native outbox (`--unity-core`) | **8 / 8** |
+| manifest-v1 vectors | byte-identical (file set and hashes pinned in Unity; backend golden tests green) |
+| ledger-v1 scenarios | 8 / 8 on both sides |
+
+Independent focused review of the post-review changes (`ce8694a..4ba9633`): 0 Critical, 0 Important, 5 Minor (doc wording; fixed in `ef5c9ed` and this commit). Zero unexplained failures.
+
