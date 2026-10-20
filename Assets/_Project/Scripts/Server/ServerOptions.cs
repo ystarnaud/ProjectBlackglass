@@ -49,6 +49,7 @@ namespace Blackglass
         public static ServerOptions Parse(IReadOnlyList<string> args, out List<string> warnings)
         {
             var options = new ServerOptions();
+            var selftestOptionSeen = false;
             warnings = new List<string>();
             if (args == null)
                 return options;
@@ -97,10 +98,12 @@ namespace Blackglass
                         options.OutboxSelftest = TryText(args, ref i, warnings, out var phase) ? phase : string.Empty;
                         break;
                     case "-selftestParent":
+                        selftestOptionSeen = true;
                         if (TryText(args, ref i, warnings, out var parent))
                             options.SelftestParent = parent;
                         break;
                     case "-selftestId":
+                        selftestOptionSeen = true;
                         if (TryText(args, ref i, warnings, out var selftestId))
                             options.SelftestId = selftestId;
                         break;
@@ -116,7 +119,7 @@ namespace Blackglass
                 }
             }
             // A self-test option without -outboxSelftest is a mistyped self-test run: it fails, it never generates a mission.
-            if (options.OutboxSelftest == null && (options.SelftestId != null || options.SelftestParent != DefaultSelftestParent))
+            if (options.OutboxSelftest == null && selftestOptionSeen)
                 options.OutboxSelftest = string.Empty;
             return options;
         }

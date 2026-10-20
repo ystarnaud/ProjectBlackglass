@@ -218,6 +218,7 @@ namespace Blackglass.Tests
         [TestCase("-outboxSelftest", "-net")]
         [TestCase("-selftestId", "019a0000-0000-7000-8000-00000000a001")]
         [TestCase("-selftestParent", "/var/lib/x")]
+        [TestCase("-selftestParent", "/var/lib/blackglass-selftest")]   // the default value, given explicitly
         public void A_selftest_request_without_a_phase_selects_a_failing_selftest_never_a_mission(params string[] args)
         {
             var o = ServerOptions.Parse(args, out _);

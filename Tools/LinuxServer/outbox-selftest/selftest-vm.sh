@@ -45,37 +45,61 @@ binary() {
 baseline() { # the integrity record: hashes stay on the VM, only counts and the tunnel's identity are printed
   {
     find /opt/blackglass/server /opt/blackglass/agent /opt/blackglass/mission /etc/blackglass -type f -print0 2>/dev/null | sort -z | xargs -0 -r sha256sum
-    find /etc/systemd/system -maxdepth 1 -name 'blackglass-*' -type f -print0 | sort -z | xargs -0 -r sha256sum
+    # every blackglass unit file and drop-in, and every link to one (.wants)
+    find /etc/systemd/system -path '*blackglass-*' -type f -print0 | sort -z | xargs -0 -r sha256sum
+    find /etc/systemd/system -path '*blackglass-*' -type l -printf '%p -> %l\n' | LC_ALL=C sort
     readlink /opt/blackglass/agent/current /opt/blackglass/mission/current
+    find /etc/ssh -maxdepth 2 -name 'sshd_config*' -type f -print0 | sort -z | xargs -0 -r sha256sum
+    # the kernel's loaded modules (names) and module loading: nothing here may load one
+    awk '{print "module", $1}' /proc/modules | LC_ALL=C sort
+    echo "modules_disabled=$(sysctl -n kernel.modules_disabled)"
   }
 }
 
-tunnel_identity() { systemctl show blackglass-tunnel -p MainPID -p ActiveEnterTimestamp -p NRestarts | tr '\n' ' '; echo; }
+tunnel_identity() { systemctl show blackglass-tunnel -p MainPID -p ActiveEnterTimestamp -p NRestarts | LC_ALL=C sort | tr '\n' ' '; echo; }
 
-files() { # files <id>: the state directory's entries as root sees them, with their hashes
+# files <id>: the state directory as root sees it, never following a link: every entry's type, mode, owner uid, size and name,
+# then the SHA-256 of the regular files only (a planted link or FIFO is listed, never opened).
+files() {
   local d="$state_private/$1"
-  ls -ln "$d" | tail -n +2 | awk '{print $1, $3, $5, $9}'
-  (cd "$d" && sha256sum -- * 2>/dev/null)
+  find "$d" -mindepth 1 -maxdepth 1 -printf 'entry type=%y mode=%m uid=%U size=%s name=%f\n' | LC_ALL=C sort
+  find "$d" -mindepth 1 -maxdepth 1 -type f -printf '%f\0' | (cd "$d" && LC_ALL=C sort -z | xargs -0 -r sha256sum --)
+}
+
+# owner_check <id> <token>: the uid that owns what the process wrote (the kernel's record, independent of the process's
+# own output) must equal the euid the self-test reported in that run.
+owner_check() {
+  local euid owners
+  euid="$(journalctl "BLACKGLASS_SELFTEST=$2" -o cat --no-pager | sed -n 's/^\[Selftest\] uid ok euid=\([0-9]*\)$/\1/p' | head -1)"
+  owners="$(find "$state_private/$1" -mindepth 1 -maxdepth 1 -printf '%U\n' | LC_ALL=C sort -u | tr '\n' ' ')"
+  if [ -n "$euid" ] && [ "$euid" != 0 ] && [ "$owners" = "$euid " ]; then
+    echo "owner_matches_euid=yes uid=$euid"
+  else
+    echo "owner_matches_euid=NO euid=${euid:-none} owners=${owners:-none}"
+  fi
 }
 
 new_token() { cat /proc/sys/kernel/random/uuid; }
 
-# The run's journal lines and the identity journald recorded for them: _UID and _GID come from the kernel (the stream's
-# SCM_CREDENTIALS), independent of anything the self-test itself prints. Every line of a run carries BLACKGLASS_SELFTEST=<token>.
-report_run() { # report_run <token>
+# report_run <token>: the run's journal lines (every line of a run carries BLACKGLASS_SELFTEST=<token>), then the credentials
+# journald holds for the unit's stdout stream (_TRANSPORT=stdout only, so PID 1's own lines about the unit, which carry
+# _UID=0, are excluded). Those are the credentials systemd connected the stream with, after switching to the unit's user and
+# before exec: corroboration that the unit ran under its dynamic user, not proof of the running process's uid. That proof is
+# the owner of the files it wrote (owner_check) and, for the held run, /proc.
+report_run() {
   journalctl --sync 2>/dev/null
   journalctl "BLACKGLASS_SELFTEST=$1" -o cat --no-pager | grep -E '^\[(Server|Selftest)\]'
-  echo "journal_identity=$(journalctl "BLACKGLASS_SELFTEST=$1" -o export --no-pager | grep -aE '^_(UID|GID)=' | sort -u | tr '\n' ' ')"
+  echo "stdout_stream_identity=$(journalctl "BLACKGLASS_SELFTEST=$1" _TRANSPORT=stdout -o export --no-pager | grep -aE '^_(UID|GID)=' | LC_ALL=C sort -u | tr '\n' ' ')"
 }
 
 run_phase() { # run_phase <unit> <state id> <phase> <selftest id>: in the foreground; the exit status, then the journal report
-  local bin token code
+  local bin code
   bin="$(binary)" || exit 1
-  token="$(new_token)"
-  systemd-run --quiet --unit="blackglass-selftest-$1" --wait --collect "${props[@]}" -p "LogExtraFields=BLACKGLASS_SELFTEST=$token" \
+  last_token="$(new_token)"
+  systemd-run --quiet --unit="blackglass-selftest-$1" --wait --collect "${props[@]}" -p "LogExtraFields=BLACKGLASS_SELFTEST=$last_token" \
     -p "StateDirectory=blackglass-selftest/$2" "$bin" -batchmode -nographics -logFile - -outboxSelftest "$3" -selftestId "$4"
   code=$?
-  report_run "$token"
+  report_run "$last_token"
   echo "exit=$code"
 }
 
@@ -124,37 +148,47 @@ case "$step" in
   publish)
     run_phase publish "$id1" publish "$id1"
     files "$id1"
+    owner_check "$id1" "$last_token"
     ;;
   hold)
     bin="$(binary)" || exit 1
     token="$(new_token)"
-    systemd-run --quiet --unit=blackglass-selftest-hold --collect "${props[@]}" -p "LogExtraFields=BLACKGLASS_SELFTEST=$token"       -p "StateDirectory=blackglass-selftest/$id2" "$bin" -batchmode -nographics -logFile - -outboxSelftest hold -selftestId "$id2"
+    systemd-run --quiet --unit=blackglass-selftest-hold --collect "${props[@]}" -p "LogExtraFields=BLACKGLASS_SELFTEST=$token" \
+      -p "StateDirectory=blackglass-selftest/$id2" "$bin" -batchmode -nographics -logFile - -outboxSelftest hold -selftestId "$id2"
     held=no
     for _ in $(seq 1 120); do
-      if journalctl "BLACKGLASS_SELFTEST=$token" -o cat --no-pager | grep -q '^\[Selftest\] held'; then held=yes; break; fi
+      if journalctl "BLACKGLASS_SELFTEST=$token" -o cat --no-pager | grep -q '^\[Selftest\] held$'; then held=yes; break; fi
       systemctl is-active -q blackglass-selftest-hold || break
       sleep 1
     done
     echo "held=$held"
-    echo "unit=$(systemctl show blackglass-selftest-hold -p User -p DynamicUser -p PrivateNetwork -p NoNewPrivileges | tr '\n' ' ')"
+    for prop in User DynamicUser PrivateNetwork NoNewPrivileges; do
+      echo "unit_$prop=$(systemctl show -p "$prop" --value blackglass-selftest-hold)"
+    done
     pid="$(systemctl show -p MainPID --value blackglass-selftest-hold)"
     if [ "$pid" != "0" ]; then
-      echo "process=$(ps -o uid=,gid=,user=,comm= -p "$pid")"
-      echo "process_status=$(grep -E '^(Uid|Gid|NoNewPrivs|CapEff|Seccomp):' "/proc/$pid/status" | tr -s '\t ' ' ' | tr '\n' ' ')"
+      echo "process_uid=$(ps -o uid= -p "$pid" | tr -d ' ')"
+      echo "process_gid=$(ps -o gid= -p "$pid" | tr -d ' ')"
+      echo "process_user=$(ps -o user:32= -p "$pid" | tr -d ' ')"
+      for key in Uid Gid NoNewPrivs CapEff Seccomp; do
+        echo "proc_$key=$(awk -v k="$key:" '$1 == k { $1 = ""; sub(/^ /, ""); print }' "/proc/$pid/status")"
+      done
     fi
     systemctl kill --signal=SIGKILL blackglass-selftest-hold
     for _ in $(seq 1 30); do systemctl is-active -q blackglass-selftest-hold || break; sleep 1; done
     echo "active_after_kill=$(systemctl is-active blackglass-selftest-hold)"
     report_run "$token"
     files "$id2"
+    owner_check "$id2" "$token"
     ;;
   resume)
     run_phase resume "$id2" resume "$id2"
     files "$id2"
+    owner_check "$id2" "$last_token"
     ;;
   location)
     run_phase location "$id3" publish "$id1"
-    echo "entries=$(ls -A "$state_private/$id3" | wc -l)"
+    echo "entries=$(find "$state_private/$id3" -mindepth 1 -maxdepth 1 | wc -l)"
     ;;
   after)
     [ -e "$before" ] || fail "no baseline"

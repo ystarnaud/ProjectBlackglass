@@ -72,7 +72,7 @@ namespace Blackglass
         /// The process's effective uid, for the root refusal: geteuid through libc, local to this diagnostic (no production API).
         /// linux-x64 players only; anywhere else it throws, so the self-test fails rather than guesses.
         /// </summary>
-        public static long EffectiveUserId()
+        internal static long EffectiveUserId()
         {
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) || RuntimeInformation.ProcessArchitecture != Architecture.X64)
                 throw new PlatformNotSupportedException("The effective uid is read on linux-x64 only.");

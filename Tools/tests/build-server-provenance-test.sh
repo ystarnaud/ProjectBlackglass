@@ -109,6 +109,39 @@ elif [ "$(info "$repo" dirty)" != true ]; then fail dirty-untracked "dirty=$(inf
 elif ! grep -qx 'status=?? Assets/C.cs' "$repo/Builds/LinuxServer/source-provenance.txt"; then fail dirty-untracked "the untracked path is not recorded"
 else pass "an untracked source file before the build: dirty=true"; fi
 
+# 2c. An ignored file Unity would import (review 2, I-N1): git status can't see it, the capture must.
+repo="$(new_repo dirty-ignored)"
+printf 'Builds/\nLogs/\nTestResults/\n' > "$repo/.gitignore"
+git -C "$repo" add .gitignore
+git -C "$repo" -c user.email=t@t -c user.name=t commit -q -m ignore
+mkdir -p "$repo/Assets/X/TestResults"
+echo "class Evil {}" > "$repo/Assets/X/TestResults/Evil.cs"
+build "$repo" restore
+if [ "$code" -ne 0 ]; then fail dirty-ignored "exit $code: $out"
+elif [ "$(info "$repo" dirty)" != true ]; then fail dirty-ignored "dirty=$(info "$repo" dirty)"
+elif ! grep -qx 'status=!! Assets/X/TestResults/Evil.cs' "$repo/Builds/LinuxServer/source-provenance.txt"; then fail dirty-ignored "the ignored path is not recorded"
+else pass "an ignored file under Assets before the build: dirty=true, recorded"; fi
+
+# 2d. An index entry marked skip-worktree (or assume-unchanged) hides edits from git status: refused before Unity starts.
+repo="$(new_repo flagged)"
+git -C "$repo" update-index --skip-worktree Assets/A.cs
+echo "class Hidden {}" >> "$repo/Assets/A.cs"
+build "$repo" restore
+if [ "$code" -eq 0 ]; then fail flagged "exit 0"
+elif ! printf '%s' "$out" | grep -q 'BUILD FAILED: the source state could not be captured'; then fail flagged "no refusal: $out"
+elif ! printf '%s' "$out" | grep -q 'Assets/A.cs'; then fail flagged "the flagged path is not named"
+elif ls "$repo"/Builds/*.tar.gz >/dev/null 2>&1; then fail flagged "an archive was written"
+else pass "a skip-worktree entry: refused before Unity, named, nothing built"; fi
+
+# 2e. A dirty file Unity rewrites again during the build (review 2, M1): same status line, different content: refused.
+repo="$(new_repo dirty-rewritten)"
+echo "productName: Owner" > "$repo/ProjectSettings/ProjectSettings.asset"
+build "$repo" leave
+if [ "$code" -eq 0 ]; then fail dirty-rewritten "exit 0"
+elif ! printf '%s' "$out" | grep -q 'BUILD FAILED: the build left persistent changes'; then fail dirty-rewritten "no refusal: $out"
+elif [ "$(head -1 "$repo/ProjectSettings/ProjectSettings.asset")" != "productName: Owner" ]; then fail dirty-rewritten "the owner's change was lost"
+else pass "a dirty file rewritten during the build: refused, the owner's change kept"; fi
+
 # 3. Unity leaves a modification behind: the build fails and nothing is packaged.
 repo="$(new_repo leave)"
 build "$repo" leave
