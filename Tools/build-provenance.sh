@@ -13,6 +13,8 @@
 # (assume-unchanged, skip-worktree) and a sparse checkout are refused outright: the state can't be known.
 set -u
 set -o pipefail
+# Replace objects could make git show content other than the commit's (re-review 3, N-m1).
+export GIT_NO_REPLACE_OBJECTS=1
 
 source_dirs=(Assets Packages ProjectSettings)
 
@@ -22,6 +24,7 @@ refuse() { echo "provenance: $*" >&2; exit 1; }
 check_trustworthy() {
   local repo="$1" flagged
   [ "$(git -C "$repo" config --bool core.sparseCheckout 2>/dev/null)" = true ] && refuse "a sparse checkout"
+  [ -n "$(git -C "$repo" config core.fsmonitor 2>/dev/null)" ] && refuse "an fsmonitor (core.fsmonitor) can hide changes from status"
   flagged="$(git -C "$repo" ls-files -v | awk 'substr($0, 1, 1) ~ /[a-zS]/ { print substr($0, 3) }')" || refuse "git ls-files failed"
   [ -z "$flagged" ] || refuse "index flags (assume-unchanged or skip-worktree) hide changes to: $(echo $flagged)"
 }
@@ -40,7 +43,8 @@ changes_of() {
 content_of() {
   local repo="$1"
   {
-    git -C "$repo" diff --binary HEAD || return 1
+    # raw bytes: no textconv and no external diff driver may stand in for the content
+    git -C "$repo" diff --binary --no-textconv --no-ext-diff HEAD || return 1
     { git -C "$repo" ls-files -z --others --exclude-standard
       git -C "$repo" ls-files -z --others --ignored --exclude-standard -- "${source_dirs[@]}"; } \
       | (cd "$repo" && LC_ALL=C sort -z | xargs -0 -r sha256sum --) || return 1

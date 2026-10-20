@@ -49,7 +49,8 @@ baseline() { # the integrity record: hashes stay on the VM, only counts and the 
     find /etc/systemd/system -path '*blackglass-*' -type f -print0 | sort -z | xargs -0 -r sha256sum
     find /etc/systemd/system -path '*blackglass-*' -type l -printf '%p -> %l\n' | LC_ALL=C sort
     readlink /opt/blackglass/agent/current /opt/blackglass/mission/current
-    find /etc/ssh -maxdepth 2 -name 'sshd_config*' -type f -print0 | sort -z | xargs -0 -r sha256sum
+    # the SSH daemon's configuration: the main file and every drop-in (e.g. sshd_config.d/50-cloud-init.conf)
+    find /etc/ssh/sshd_config /etc/ssh/sshd_config.d -type f -print0 2>/dev/null | sort -z | xargs -0 -r sha256sum
     # the kernel's loaded modules (names) and module loading: nothing here may load one
     awk '{print "module", $1}' /proc/modules | LC_ALL=C sort
     echo "modules_disabled=$(sysctl -n kernel.modules_disabled)"

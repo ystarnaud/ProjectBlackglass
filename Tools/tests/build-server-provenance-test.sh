@@ -142,6 +142,25 @@ elif ! printf '%s' "$out" | grep -q 'BUILD FAILED: the build left persistent cha
 elif [ "$(head -1 "$repo/ProjectSettings/ProjectSettings.asset")" != "productName: Owner" ]; then fail dirty-rewritten "the owner's change was lost"
 else pass "a dirty file rewritten during the build: refused, the owner's change kept"; fi
 
+# 2f. A local diff driver or textconv can't hide a rewrite of an already-dirty file (re-review 3, N-m1).
+repo="$(new_repo dirty-extdiff)"
+git -C "$repo" config diff.external true
+printf '*.asset diff=quiet\n' > "$repo/.git/info/attributes"
+git -C "$repo" config diff.quiet.textconv true
+echo "productName: Owner" > "$repo/ProjectSettings/ProjectSettings.asset"
+build "$repo" leave
+if [ "$code" -eq 0 ]; then fail dirty-extdiff "exit 0"
+elif ! printf '%s' "$out" | grep -q 'BUILD FAILED: the build left persistent changes'; then fail dirty-extdiff "no refusal: $out"
+else pass "an external diff driver or textconv hiding a rewrite: refused"; fi
+
+# 2g. An fsmonitor (which can hide changes from status) is refused before Unity starts.
+repo="$(new_repo fsmonitor)"
+git -C "$repo" config core.fsmonitor true
+build "$repo" restore
+if [ "$code" -eq 0 ]; then fail fsmonitor "exit 0"
+elif ! printf '%s' "$out" | grep -q 'fsmonitor'; then fail fsmonitor "not named: $out"
+else pass "an fsmonitor: refused before Unity"; fi
+
 # 3. Unity leaves a modification behind: the build fails and nothing is packaged.
 repo="$(new_repo leave)"
 build "$repo" leave
