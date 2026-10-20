@@ -28,7 +28,9 @@ case "${FAKE_MODE:-restore}" in
   leave) echo "upgradedByUnity: 1" >> "$settings" ;;                                              # ...or rewritten for good
   commit) git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "moved during the build" ;;
 esac
-mkdir -p Builds/LinuxServer/BlackglassServer_Data
+mkdir -p Builds/LinuxServer/BlackglassServer_Data/Managed Builds/LinuxServer/BlackglassServer_BurstDebugInformation_DoNotShip
+head -c 2048 /dev/urandom > Builds/LinuxServer/BlackglassServer_Data/Managed/Blackglass.dll
+echo debug > Builds/LinuxServer/BlackglassServer_BurstDebugInformation_DoNotShip/x.txt
 head -c 4096 /dev/urandom > Builds/LinuxServer/BlackglassServer.x86_64
 {
   echo "product=ProjectBlackglass"
@@ -78,8 +80,13 @@ elif [ "$(info "$repo" provenance)" != verified ]; then fail clean "provenance=$
 elif [ "$(info "$repo" binarySha256)" != "$(sha256sum "$repo/Builds/LinuxServer/BlackglassServer.x86_64" | cut -d' ' -f1)" ]; then fail clean "binarySha256"
 elif [ ! -f "$repo/Builds/blackglass-server-linux-${rev:0:7}.tar.gz" ]; then fail clean "no clean archive"
 elif ! tar -tzf "$repo/Builds/blackglass-server-linux-${rev:0:7}.tar.gz" | grep -qx 'LinuxServer/source-provenance.txt'; then fail clean "archive lacks source-provenance.txt"
+elif [ ! -f "$repo/Builds/LinuxServer/files.sha256" ]; then fail clean "no files.sha256"
+elif ! (cd "$repo/Builds/LinuxServer" && sha256sum -c --quiet files.sha256 >/dev/null 2>&1); then fail clean "files.sha256 does not verify"
+elif ! grep -q ' \./BlackglassServer_Data/Managed/Blackglass\.dll$' "$repo/Builds/LinuxServer/files.sha256" || ! grep -q ' \./build-info\.txt$' "$repo/Builds/LinuxServer/files.sha256"; then fail clean "files.sha256 misses the game code or build-info.txt"
+elif grep -q 'DoNotShip\|files\.sha256$' "$repo/Builds/LinuxServer/files.sha256"; then fail clean "files.sha256 lists an unshipped file or itself"
+elif ! printf '%s' "$out" | grep -q "^files.sha256 sha256=$(sha256sum "$repo/Builds/LinuxServer/files.sha256" | cut -d' ' -f1)$"; then fail clean "the file list's hash is not printed"
 elif [ -n "$(git -C "$repo" status --porcelain --untracked-files=all)" ]; then fail clean "the source is not clean after the build"
-else pass "clean source, temporary settings change: dirty=false, provenance=verified, binary hashed"; fi
+else pass "clean source, temporary settings change: dirty=false, provenance=verified, executable and every shipped file hashed"; fi
 
 # 2a. A tracked change before the build: stamped dirty, its path recorded, the archive named -dirty.
 repo="$(new_repo dirty-tracked)"

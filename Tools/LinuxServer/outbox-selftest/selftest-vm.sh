@@ -3,7 +3,7 @@
 # Docs/superpowers/plans/2026-10-20-phase-13-stage12-outbox-selftest-manifest.md). Run only under that approved manifest, from
 # the workstation, one step at a time, as root through the existing alias:
 #   ssh bg-dev-mission01 'bash -s' -- <step> [args] < Tools/LinuxServer/outbox-selftest/selftest-vm.sh | sed -E '<address redaction>'
-# Steps: preflight | install <rev40> <archive-sha256> <binary-sha256> | publish | hold | resume | location | after | cleanup
+# Steps: preflight | install <rev40> <archive-sha256> <files-sha256> | publish | hold | resume | location | after | cleanup
 # Every phase is a transient unit (systemd-run): a dynamic user, no network, a read-only system, the installed Blackglass files
 # invisible, a disposable state directory under /var/lib/private/blackglass-selftest, five minutes at most. Nothing persistent is
 # installed; cleanup removes every path this script creates. It never touches /opt/blackglass, the installed units, the agent,
@@ -83,7 +83,7 @@ case "$step" in
     echo "preflight-done"
     ;;
   install)
-    rev="${2:?rev}"; archive_sha="${3:?archive sha256}"; binary_sha="${4:?binary sha256}"
+    rev="${2:?rev}"; archive_sha="${3:?archive sha256}"; files_sha="${4:?files.sha256 sha256}"
     [[ "$rev" =~ ^[0-9a-f]{40}$ ]] || fail "the revision must be 40 hex characters"
     archive="/root/blackglass-selftest-${rev:0:7}.tar.gz"
     dir="$base_root/${rev:0:7}"
@@ -96,7 +96,12 @@ case "$step" in
     chown -R root:root "$base_root"
     chmod -R u=rwX,go=rX "$base_root"
     chmod 0755 "$dir/BlackglassServer.x86_64"
-    echo "$binary_sha  $dir/BlackglassServer.x86_64" | sha256sum -c - || fail "binary hash"
+    # every shipped file against the package's own list, and the list against the manifest's hash
+    echo "$files_sha  $dir/files.sha256" | sha256sum -c - || fail "files.sha256 hash"
+    (cd "$dir" && sha256sum -c --quiet files.sha256) || fail "a shipped file differs from files.sha256"
+    echo "files_verified=$(wc -l < "$dir/files.sha256")"
+    [ "$(find "$dir" -type f ! -name files.sha256 | wc -l)" = "$(wc -l < "$dir/files.sha256")" ] || fail "files outside the list"
+    grep -qx "provenance=verified" "$dir/build-info.txt" || fail "build-info provenance"
     grep -qx "revision=$rev" "$dir/build-info.txt" || fail "build-info revision"
     grep -qx "dirty=false" "$dir/build-info.txt" || fail "build-info dirty"
     grep -qx "variant=release" "$dir/build-info.txt" || fail "build-info variant"
@@ -156,7 +161,7 @@ case "$step" in
     echo "tunnel=$(systemctl is-active blackglass-tunnel)"
     ;;
   *)
-    echo "usage: selftest-vm.sh preflight | install <rev40> <archive-sha256> <binary-sha256> | publish | hold | resume | location | after | cleanup"
+    echo "usage: selftest-vm.sh preflight | install <rev40> <archive-sha256> <files-sha256> | publish | hold | resume | location | after | cleanup"
     exit 64
     ;;
 esac

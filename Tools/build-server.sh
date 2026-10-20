@@ -78,6 +78,13 @@ for script in "$root_unix"/Tools/LinuxServer/*.sh; do
   tr -d '\r' < "$script" > "$out/$(basename "$script")"
 done
 
+# Every shipped file's SHA-256: the executable is Unity's generic player (the same across builds); the game code is in
+# *_Data/Managed. The list travels in the package (sha256sum -c on the VM) and its own hash is printed for the host manifest.
+# Two-space separators (Git for Windows marks binary mode with '*'), sorted bytewise, the unshipped *_DoNotShip excluded.
+(cd "$out" && find . -type f ! -path './*_DoNotShip/*' ! -name files.sha256 -print0 | LC_ALL=C sort -z | xargs -0 sha256sum) \
+  | sed 's/ \*\./  ./' > "$root_unix/Builds/files.sha256.tmp" && mv "$root_unix/Builds/files.sha256.tmp" "$out/files.sha256"
+echo "files.sha256 sha256=$(sha256sum "$out/files.sha256" | cut -d' ' -f1)"
+
 rev=$(awk -F= '$1=="revision"{print substr($2,1,7)}' "$out/build-info.txt")
 dirty=$(awk -F= '$1=="dirty"{print $2}' "$out/build-info.txt")
 suffix=""
