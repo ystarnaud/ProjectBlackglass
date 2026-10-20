@@ -367,7 +367,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 11: Unity backend core (library-free)
 
-**Status (2026-10-19):** implemented on `phase13-stage11` per the detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md` (revision 2.1, "As built"), not merged or pushed, awaiting the owner's review. EditMode 1835/1835, PlayMode 1434/1434, backend green (VM full suite and the Linux outbox tests). Open before Stage 12: final-review I1 (fill attempt containers one entry per plan item, or another owner ruling) and the Mono `-outbox-selftest`. Where the detailed plan differs from this outline, it wins.
+**Status (2026-10-20):** accepted by the owner per the detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md` (revision 2.1, "As built" and "Final owner rulings"); merging into `main` authorized after the final validation. Final-review I1 is assigned to Stage 12 (B25, below), not implemented in the current runtime; M1 is fixed. The Linux Unity self-test of the outbox worker stays a Stage 12 obligation. Where the detailed plan differs from this outline, it wins.
 
 **Touches:**
 - `Assets/_Project/Scripts/Backend/Core/` (new);
@@ -403,6 +403,11 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 - new tests.
 
 **No changes** to client scenes, prefabs, HUD or input.
+
+**Blocking acceptance gates:**
+- **B24:** an enforced per-slot TCP bind restriction, demonstrated on `bg-dev-mission01` before any real Unity mission workload runs there.
+- **B25 (§18.2; Stage 11 final review I1, owner ruling 2026-10-20): attempt containers filled one entry per rolled item, so each registered pool line is one roll and the real `LootPoolValidator` accepts the ready report.** A dedicated online container-initialization path (the offline `LootContainer.Initialize` unchanged); a roll that can't be one entry fails generation explicitly; the nine tests of the Stage 11 plan's "Final owner rulings", with forced duplicate-roll fixtures.
+- **The Linux Unity outbox self-test:** run on the mission VM only after the owner approves its host manifest.
 
 **Work:**
 - the catalogue, loot table, roster and inventory in snapshot mode on the server;

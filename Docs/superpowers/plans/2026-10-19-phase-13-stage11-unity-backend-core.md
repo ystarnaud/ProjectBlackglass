@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task by task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-19):** **implemented on `phase13-stage11`, not merged or pushed; stopped for the owner's review** ("As built" at the end: all suites green; final review 0 Critical, 1 Important (I1, the container fill against the ready-report rule, needs an owner ruling before Stage 12), 7 Minor). Plan revision 2.1 (revision 2 plus its review). The owner approved the architecture and ruled on D1–D8 ("Owner rulings" near the end). This revision applies the rulings' corrections: D2 (format versus settlement validation, the truthful `ledgerMismatch` fallback, fail-closed builds), D6 (every file operation on a dedicated I/O worker, the checked `$STATE_DIRECTORY`, a no-replace rename, the libc set the requirements need) and D7 (consumables must stack for new registrations and exports, with stored catalogues still readable). It also corrects the staged plan's Stage 13 settlement poll. Implementation is authorized on `phase13-stage11` once an independent review of this revision leaves no Critical or Important finding. No merge, push or deployment without the owner. Revision 1.1 (`2777623`) applied the first plan review (0 Critical, 5 Important, 14 Minor).
+**Status (2026-10-20):** **accepted by the owner** ("Final owner rulings" at the end): I1 is resolved by assignment to Stage 12 as a hard acceptance gate (B25), **not implemented in the current runtime**; the M1 parser hardening is done; merging into `main` is authorized once the final validation passes. Implemented on `phase13-stage11` ("As built": all suites green; final review 0 Critical, 1 Important (I1), 7 Minor). Plan revision 2.1 (revision 2 plus its review). The owner approved the architecture and ruled on D1–D8 ("Owner rulings" near the end). This revision applies the rulings' corrections: D2 (format versus settlement validation, the truthful `ledgerMismatch` fallback, fail-closed builds), D6 (every file operation on a dedicated I/O worker, the checked `$STATE_DIRECTORY`, a no-replace rename, the libc set the requirements need) and D7 (consumables must stack for new registrations and exports, with stored catalogues still readable). It also corrects the staged plan's Stage 13 settlement poll. Implementation is authorized on `phase13-stage11` once an independent review of this revision leaves no Critical or Important finding. No merge, push or deployment without the owner. Revision 1.1 (`2777623`) applied the first plan review (0 Critical, 5 Important, 14 Minor).
 
 **Goal:** a plain C# core inside the Unity project that later stages (12, 13, 14, 16) build on:
 - the backend DTOs;
@@ -1179,7 +1179,7 @@ It confirmed:
 - the outbox's filesystem and path safety;
 - D7's historical compatibility, the scope, and the runner change.
 
-- **I1, open, needs an owner ruling before Stage 12:**
+- **I1, an accepted cross-stage dependency (owner ruling of 2026-10-20, option (a)); a hard Stage 12 acceptance gate (B25), not implemented or resolved in the current runtime:**
   - The problem: `LootContainer.Initialize` fills with `ItemInventory.Add`, which merges same-definition plan items, and the ledger takes pool lines from the entries after the fill. Two medkit plan items in one container (1 + 2) become one line of 3. The backend's ready-report rule (`LootPoolValidator`: each line's quantity inside a loot-table entry's range, 1..2 for the medkit) then refuses the pool, and the attempt is cancelled (`InvalidPool`). With the live catalogue this is plausible in a noticeable share of missions.
   - Why the tests missed it: the ledger-v1 scenarios avoided merged pools on purpose, and nothing ran the ready-report rule on a merged pool.
   - Now pinned by `LedgerScenarioTests.A_merged_container_line_is_refused_by_the_ready_report_rule`.
@@ -1188,7 +1188,7 @@ It confirmed:
     - **(b)** The backend judges a container's per-definition totals instead of per-line quantities. This changes the ready-report contract.
     - **(c)** The ledger keeps plan lines and attributes merged entries to them by a fixed rule. This adds complexity to every collect.
 - **Minor, deferred** (not fixed; for the owner):
-  - **M1 (pre-existing, backend):** `ResultManifest.Parse` calls `Claims()` outside its `try`. A root member name of at least 9 raw bytes holding a lone surrogate escape may make `NameEquals` throw instead of returning `NotJson`. Unity returns `NotJson`. The agent's `OutboxScanner.Identifies` parses mission-written files, so a one-line backend fix and test is advisable. Not verified.
+  - **M1 (pre-existing, backend): fixed after the owner's authorization (`c32d462`).** `ResultManifest.Parse` called `Claims()` outside its `try`, and a root member name of at least 9 raw bytes holding a lone surrogate escape made `NameEquals` throw. Reproduced first (2 of 3 test names threw `InvalidOperationException`; the 6-byte name didn't, because `NameEquals` skips unescaping it). Now a failed comparison counts as "not this claim name" (such a name can't equal an ASCII one), so the claims are unchanged and `ReadRoot` refuses the body `NotJson`, as for the short name. `ResultManifestTests.A_lone_surrogate_in_a_member_name_is_NotJson_with_the_bodys_claims`.
   - **M2:** `BuildForPublication` lets a caller error escape as an `ArgumentException` instead of returning `Failed`: a header/facts account mismatch, or a dead id that isn't the participant's. It still writes no bytes; Stage 12 must catch it.
   - **M3:** the `.tmp` write open lacks `O_NONBLOCK`. A FIFO planted between the probe and the open, possible only by the same uid, would block the worker.
   - **M4:** the `--unity-core` build container shares the test cluster's network namespace, as every other mode does (no secrets are mounted). Only its test container has no network.
@@ -1198,8 +1198,36 @@ It confirmed:
 
 **Known runtime limitations and Stage 12 obligations:**
 - **Mono:** the outbox's libc calls and its worker thread are proven on CoreCLR on Linux only. Stage 12 must run them in Unity's Linux Mono server player on the mission VM (`-outbox-selftest`, with the owner's go-ahead) before any real result depends on them.
-- **The fill (I1):** containers must be filled so that each pool line satisfies the ready-report rule, per the owner's ruling on I1.
+- **The fill (I1, B25):** per the owner's ruling below; Stage 12 can't be accepted without it.
 - **The outbox directory:** open it with `OutboxDirectories.OpenForServer($STATE_DIRECTORY, "/var/lib/blackglass-outbox", attemptId)` at start, before the loop, and refuse to run without it. Read handles only from the main thread.
 - **`BuildForPublication`:** a `Failed` outcome writes nothing and is reported. Catch an `ArgumentException` from it (M2).
 - **Stage 13:** send `recorded` only once a handle is `Written`, then call `AllowPublication()` whatever the answer. The process never polls settlement.
 - **B24:** remains blocking. No real Unity mission workload ran, and none may until the per-slot TCP bind restriction is demonstrated.
+
+## Final owner rulings (2026-10-20) and the Stage 12 handoff
+
+The owner conditionally accepted Stage 11 and ruled:
+
+- **I1: option (a), assigned to Stage 12 as a mandatory, blocking integration requirement (spec §18.2 B25, recorded beside B24).** The Stage 11 ledger architecture is unchanged; the backend's `LootPoolValidator` contract is unchanged; the ledger never splits merged entries into artificial lines; offline stacking and the offline `LootContainer.Initialize` are unchanged. **I1 is not implemented in the current runtime:** today's only fill merges.
+  - Stage 12 adds a dedicated online mission-container initialization path, `ItemInventory.TryAddEntry` or an equivalent non-merging operation.
+  - **Invariants:**
+    - one successful `LootItemPlan` roll is exactly one `ItemEntry`, and one entry exactly one registered `PoolLine`;
+    - line indices are consecutive from 0 within each container;
+    - the mapping from source entry identity to line is established before gameplay and never changes when another entry is collected or removed;
+    - each line's definition and quantity are its roll's;
+    - the ready-report pool and its hash are computed from those entries, and the real backend `LootPoolValidator` accepts the pool.
+  - **Every roll must fit one entry:** a stackable roll's quantity is 1..`maxStack`; a non-stackable roll is exactly 1 item. Otherwise generation fails closed with an explicit error. Never merge, split, truncate or drop items to manufacture a valid ready report; never alter a registered catalogue version or weaken backend validation.
+  - **The nine required Stage 12 tests**, with forced duplicate-roll fixtures, not only randomized ones:
+    1. two medkit rolls (1 and 2) give two entries and two valid backend pool lines;
+    2. a partial collect from one line and a complete collect from another keep their separate provenance;
+    3. destination inventory merging doesn't change source-line accounting;
+    4. loot-first, oldest-first consumption stays correct across those lines;
+    5. invalid quantities are refused before ready;
+    6. pool lines are stable after source inventory mutations;
+    7. the registered SHA-256 loot hash equals the backend's;
+    8. offline generation, loot presentation and deterministic hashes are unchanged;
+    9. the real backend ready and settlement validators accept valid generated cases.
+  - `LedgerScenarioTests.A_merged_container_line_is_refused_by_the_ready_report_rule` keeps asserting that the old merged representation is refused; its expectation never changes to make a suite green.
+- **M1: a narrowly scoped, test-first backend fix, authorized and done** (see the final review list above).
+- **Merge:** authorized once the full validation passes on the final tree, the diff is clean and no new Critical or Important finding appears. Preserved, never committed: the owner's `Assets/Settings/Mobile_RPAsset.asset`, `ProjectSettings/URPProjectSettings.asset` and `.claude/` scratch content.
+- **Stage 12 gates carried forward:** B24 (the per-slot TCP bind restriction, demonstrated on `bg-dev-mission01`), B25 (I1), and the Linux Unity self-test of the outbox worker (owner approval of its host manifest before it runs). No real Unity mission workload before B24.
