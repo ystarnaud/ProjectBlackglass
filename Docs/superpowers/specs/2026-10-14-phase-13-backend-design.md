@@ -389,8 +389,8 @@ The owner authorized corrections for the independent review's C1 (one shared mis
 
 ### 0.14 Revision 2.14 (Stage 11 final owner rulings, 2026-10-20)
 
-- **The container fill (Stage 11 final review I1):** the offline `LootContainer.Initialize` merges same-definition rolls (`ItemInventory.Add`), so a pool line can exceed its loot-table range and the backend refuses the ready report (`InvalidPool`). Resolved by assignment to Stage 12: authoritative online missions keep each successful roll as its own container entry and its own pool line. `LootPoolValidator`, registered catalogues and the Stage 11 ledger are unchanged. A blocking Stage 12 acceptance requirement, §18.2 B25, beside B24.
-- **Parser hardening (M1):** `ResultManifest.Parse` refuses a lone surrogate in a long member name as `NotJson` instead of throwing; refusal precedence, claims and the golden vectors are unchanged.
+- **The container fill (Stage 11 final review I1):** the offline `LootContainer.Initialize` merges same-definition rolls (`ItemInventory.Add`), so a pool line can exceed its loot-table range and the backend refuses the ready report (`InvalidPool`). Resolved by assignment to Stage 12, **not implemented in the current runtime**: authoritative online missions keep each successful roll as its own container entry and its own pool line. `LootPoolValidator`, registered catalogues and the Stage 11 ledger are unchanged. A blocking Stage 12 acceptance requirement, §18.2 B25, beside B24.
+- **Parser hardening (M1):** `ResultManifest.Parse` refuses a lone surrogate in a long member name as `NotJson` instead of throwing; the claims are those the short name already gave; refusal precedence and the golden vectors are unchanged.
 
 ## 1. Goal, scope and starting point
 

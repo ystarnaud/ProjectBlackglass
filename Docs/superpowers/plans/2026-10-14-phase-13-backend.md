@@ -367,7 +367,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 11: Unity backend core (library-free)
 
-**Status (2026-10-20):** accepted by the owner per the detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md` (revision 2.1, "As built" and "Final owner rulings"); merging into `main` authorized after the final validation. Final-review I1 is assigned to Stage 12 (B25, below), not implemented in the current runtime; M1 is fixed. The Linux Unity self-test of the outbox worker stays a Stage 12 obligation. Where the detailed plan differs from this outline, it wins.
+**Status (2026-10-20):** conditionally accepted by the owner per the detailed plan `2026-10-19-phase-13-stage11-unity-backend-core.md` (revision 2.1, "As built" and "Final owner rulings"); merging into `main` authorized after the final validation. Final-review I1 is assigned to Stage 12 (B25, below), not implemented in the current runtime; M1 is fixed. The Linux Unity self-test of the outbox worker stays a Stage 12 obligation. Where the detailed plan differs from this outline, it wins.
 
 **Touches:**
 - `Assets/_Project/Scripts/Backend/Core/` (new);
