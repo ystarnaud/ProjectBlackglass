@@ -28,7 +28,7 @@
 2. **A deposit into a loot container:** no gameplay path deposits into one today (`UnitItems.TryCollect` is the only container mutation), but `LootContainer.Contents.Add` stays public. Attempt-mode containers record their registration, and any later addition is caught by the ledger's `VerifyContainer` at the freeze (a `ledgerMismatch`, never `ok`). Task 3 pins it with a forced bypass.
 3. **A snapshot operative whose `definitionId` is unknown to this build, or a participant count other than one:** the attempt is refused with an explicit code (`unknown_operative_definition`, `unsupported_participants`), the mission never generates. Task 2.
 4. **Events after the freeze** (an ability kill or a collect in the same frame as extraction): they change no facts; the manifest is the freeze's. Task 6.
-5. **Landlock's listen autobind:** `listen()` on an unbound TCP socket picks an ephemeral port without a `bind()`, which ABI 4 doesn't mediate. The VM probe measures it; if it succeeds, the residual goes to the owner (Decision S12-D3). Task 10.
+5. **Landlock's listen autobind:** `listen()` on an unbound TCP socket picks an ephemeral port without a `bind()`, which ABI 4 doesn't mediate. It is a must-refuse line under the listen supervisor (S12-D9); without the supervisor, B24 stays blocked unless the owner accepts the residual in writing. Tasks 9 and 10.
 
 ---
 
@@ -43,7 +43,7 @@
 | S12-D5 | **Order of the VM phases.** | Outbox self-test (manifest attached) → B24 probe demonstration (Task 10, its own manifest) → Unity under B24 (Task 11: the transport check and the fixture attempt, its own manifest). Each runs only after the owner approves its manifest. | As stated. |
 | S12-D6 | **Where the launcher lives.** | **Ruled:** with the agent's trusted components, `/opt/blackglass/agent/releases/<rev>/bg-mission-launch`, beside `slot-guard`. | Resolved. |
 | S12-D7 | **The self-test kept separate** on `phase13-outbox-selftest`. | **Ruled (2026-10-20):** separate from Stage 12 for now; the gameplay assembly's reference to the core is approved (it's needed to compile the diagnostic and changes no gameplay); the root check's uid reader is local to the diagnostic. Not merged or pushed. | Resolved. |
-| S12-D8 | **B24's off-host positive control** (Task 10): a probe listener on 0.0.0.0:7803 in a unit **without** the IP filter, reached from `bg-dev-services01`, to show the network path exists before the filtered run shows it closed. It briefly exposes one probe port on the development network. | Approve it in Task 10's manifest, or accept the weaker evidence (the VM's own-address test only). | Approve it, bounded to the probe's lifetime. |
+| S12-D8 | **B24's off-host positive control** (Task 10): the reachability procedure's allow-listed runs A1 and A2 (TCP 7899 and 7898, the filter allowing only localhost and the services VM) before and after the filtered run B, reached from `bg-dev-services01`. They expose two probe ports for at most 120 s each: to the services VM only if the filter is enforced, to the whole development network if it isn't. | Approve it with A1 (allow-listed) or A0 (fully unfiltered), or accept the weaker evidence (the VM's own-address test only). | Approve it with A1. |
 | S12-D9 | **The unbound `listen()`** (an autobound ephemeral listener; a classic seccomp filter can't tell from `listen()`'s arguments whether the socket was bound). | **(a)** the launcher's listen supervisor (seccomp user notification, `pidfd_getfd`, `getsockname` on the very socket, which it then listens on itself; never `CONTINUE`): about 400 lines of C, enforcing B24's rule fully. **(b)** the owner's written acceptance of one residual: an ephemeral, loopback-only listener that can never be 5081 or a slot port. **(c)** neither: B24 stays blocked. | **(a).** |
 | S12-D10 | **The launcher's container tests** on the runner may need `--cap-add SYS_PTRACE` on that one test container (for `pidfd_getfd`), a flag, not a Docker daemon change. | Authorize the flag for the launcher mode only; or prove the supervisor on the VM only. | Authorize the flag. |
 | S12-D11 | **The IP filter's fail-closed pre-check:** `ExecStartPre=+bg-mission-launch --verify-ip-filter` (root, `BPF_PROG_QUERY` on the unit's cgroup), because systemd starts a unit even when it can't attach the filter. | Add it, or rely on the VM proof alone. | Add it. |
@@ -96,8 +96,8 @@
 - `Blackglass.asmdef` now references `Blackglass.Backend.Core` (the first runtime reference; Stage 12 needs it anyway).
 - `OutboxSelftestTests` (20, EditMode, over the portable directory): the vector pin, publish (7 checks, the `.ready` never replaced), hold then resume, resume without a held result, root refused before any file operation, a native-library exception and a failing uid read never passing, a long frame, a refused location, unknown and missing phases, the options, a self-test option without a phase never running a mission, the production-outbox refusal, the uid reader local to the diagnostic and linux-only, and the bootstrap running the self-test with no director and `-net` ignored (exit 0) or failing it (exit 3). EditMode 1863/1863 and PlayMode 1434/1434 at `88c0e39` (in the owner's working tree, with its two modified settings files). At the final self-test revision `91d5185`, in the clean worktree: EditMode 1864/1864. **PlayMode there was stopped by Claude Code for critically low system memory, so it isn't verified at that revision; it must be rerun.**
 - **The root check's uid reader** is `OutboxSelftest.EffectiveUserId()` (its own `geteuid` import, linux-x64 only); the core assembly is byte-identical to `main`.
-- **Build provenance** (`88c0e39`, `7d7fbf7`): `Tools/build-server.sh` captures the commit, source tree and cleanliness (porcelain status with untracked files) before Unity starts (`Tools/build-provenance.sh`). Unity only stamps them (`ServerBuildInfo.SourceLines`: anything invalid stamps `unknown`, never clean). After Unity exits, the source and HEAD must be exactly as captured, or the build fails and nothing is packaged. The embedded stamp must equal the capture. `binarySha256`, `provenance=verified` and `files.sha256` (every shipped file: the executable is Unity's generic player, the game code is in `*_Data/Managed`) are then recorded. Tests: `Tools/tests/build-server-provenance-test.sh` (clean source with Unity's temporary settings change; tracked and untracked changes before the build; a change that survives the build; HEAD moving) 5/5, and `ServerBuildInfoTests`.
-- **`Tools/LinuxServer/outbox-selftest/selftest-vm.sh`:** the VM side the manifest runs. Each run is token-tagged in the journal so its `_UID`/`_GID` are confirmed independently.
+- **Build provenance** (`88c0e39`, `7d7fbf7`, extended in `91d5185` after security review 2: ignored files under the source folders, refused index flags, sparse checkouts and fsmonitor, a content hash, diffs without textconv or external drivers, no replace objects): `Tools/build-server.sh` captures the commit, source tree and cleanliness (porcelain status with untracked files) before Unity starts (`Tools/build-provenance.sh`). Unity only stamps them (`ServerBuildInfo.SourceLines`: anything invalid stamps `unknown`, never clean). After Unity exits, the source and HEAD must be exactly as captured, or the build fails and nothing is packaged. The embedded stamp must equal the capture. `binarySha256`, `provenance=verified` and `files.sha256` (every shipped file: the executable is Unity's generic player, the game code is in `*_Data/Managed`) are then recorded. Tests: `Tools/tests/build-server-provenance-test.sh` (clean source with Unity's temporary settings change; tracked and untracked changes before the build; a change that survives the build; HEAD moving) 8/8, and `ServerBuildInfoTests`. Not covered: Unity's `Library/PackageCache` (the two git packages are resolved from `Packages/packages-lock.json`, whose content is covered, not the cached checkout).
+- **`Tools/LinuxServer/outbox-selftest/selftest-vm.sh`:** the VM side the manifest runs. Each run is token-tagged in the journal. The independent uid evidence is the owner of the files the process wrote (`owner_matches_euid`) and `/proc` for the held run; the stdout stream's journal credentials only corroborate the unit's user.
 - `CoreSourceAuditTests`: Stage 11's "the gameplay assembly does not reference core yet" becomes "only the gameplay assembly references core, never the reverse" (S12-D7).
 
 ## Task 2: `AttemptStart`, the validated attempt (core)
@@ -225,9 +225,9 @@ Every step that fails prints a bounded reason to stderr and exits 78 without `ex
 1. **Arguments:** `--tcp-bind <port>` (1024–65535, rendered per slot), `--tcp-connect 5081`, then `--` and the program. Anything else is refused.
 2. **Preconditions:**
    - `prctl(PR_GET_NO_NEW_PRIVS)` must already be 1 (the unit's `NoNewPrivileges=yes`);
-   - `/proc/sys/kernel/yama/ptrace_scope` must be at least 1;
+   - `/proc/sys/kernel/yama/ptrace_scope` must be exactly 1 (0 would weaken the supervisor's protection; 2 or 3 would make every `listen()` fail);
    - the Landlock ABI query must return at least 4.
-3. **Fork first.** The parent becomes the listen supervisor. It is never Landlock-restricted and never seccomp-filtered, so the child's Landlock domain can't `ptrace` or `pidfd_getfd` it (Landlock's own ptrace scoping, independent of Yama). It calls `prctl(PR_SET_DUMPABLE, 0)`, so even a same-uid process outside any domain would need `CAP_SYS_PTRACE`.
+3. **Fork first.** The parent becomes the listen supervisor. It is never Landlock-restricted and never filtered by the launcher's seccomp policy (the unit's own systemd filters still apply to it), so the child's Landlock domain can't `ptrace` or `pidfd_getfd` it (Landlock's own ptrace scoping, independent of Yama). It calls `prctl(PR_SET_DUMPABLE, 0)`, so even a same-uid process outside any domain would need `CAP_SYS_PTRACE`.
 4. **In the child only, in this order:**
    1. **No inherited descriptors:** `close_range(3, ~0U, 0)` (keeping only the socketpair end to the supervisor). Then a scan of `/proc/self/fd`, which must show only 0, 1, 2 and that end. Each of 0–2 is checked with `fstat` and, if it is a socket, `getsockopt(SO_DOMAIN)` must be `AF_UNIX` and `SO_ACCEPTCONN` 0. Stdin is `/dev/null`; stdout and stderr are systemd's journal stream (a connected `AF_UNIX` socket).
    2. **Landlock:** a ruleset handling `LANDLOCK_ACCESS_NET_BIND_TCP` and `LANDLOCK_ACCESS_NET_CONNECT_TCP`, with exactly two rules: bind on the slot port, connect on 5081. Then `landlock_restrict_self`. The restriction applies to IPv4 and IPv6 TCP by port, and is inherited across `execve` and by every descendant. The address half is the IP filter's.
@@ -309,8 +309,8 @@ The same probe binary runs twice in the same unit shape:
 | bind 127.0.0.1:5081 | `EADDRINUSE` while the tunnel listens, so the control uses a free stand-in (7899) that succeeds | `EACCES` (not `EADDRINUSE`) |
 | bind port 0 (IPv4 and IPv6) | succeeds | `EACCES` |
 | `listen()` on an unbound socket | succeeds (an ephemeral port) | `EACCES` |
-| connect 127.0.0.1:22 (sshd) | succeeds | `EACCES` |
-| TFO `sendto(MSG_FASTOPEN)` to 127.0.0.1:22 (`net.ipv4.tcp_fastopen` read first; the client bit must be set) | connects | `EACCES` |
+| connect to the stand-in listener 127.0.0.1:7897 (a trusted probe in its own transient unit, so neither sshd nor anything else on the host is touched) | succeeds | `EACCES` |
+| TFO `sendto(MSG_FASTOPEN)` to the stand-in listener 127.0.0.1:7897 (`net.ipv4.tcp_fastopen` read first; the client bit must be set) | connects | `EACCES` |
 | connect 127.0.0.1:5081 (the tunnel) | succeeds | succeeds |
 | UDP socket and bind (IPv4, IPv6) | succeeds | `EACCES` at `socket()` |
 | MPTCP socket (`IPPROTO_MPTCP`; `net.mptcp.enabled=1` read first) | succeeds | `EACCES` |
@@ -332,7 +332,8 @@ The container on the test runner proves the logic first, but its kernel (the ser
 - **The filter's scope:** `IPAddressAllow=localhost` admits IPv4-mapped loopback (`::ffff:127.0.0.1`) and nothing broader, and applies to both families of the unit's sockets.
 - **Landlock on 6.8:** ABI 4 refuses port 0 and both families as described (the VM's ABI query returned 4 on 2026-10-18).
 - **TCP Fast Open:** the bypass exists on 6.8 (the control proves it can connect), and the seccomp flag rule stops it.
-- **Yama:** `ptrace_scope` is at least 1 on the VM (`yama` was in the LSM list; the value is read at execution, and the launcher refuses below 1).
+- **Yama:** `ptrace_scope` must be exactly 1 on the VM (`yama` was in the LSM list; the value is read at execution). Below 1 the launcher refuses to start; at 2 or 3 the supervisor's `pidfd_getfd` needs `CAP_SYS_PTRACE`, so every `listen()` would fail (fail closed, but the mission can't serve), and the launcher refuses those too.
+- **Fail-closed preconditions of the supervisor:** the mission process must stay dumpable, or `pidfd_getfd` fails and every `listen()` is refused. Every `AF_UNIX` `listen()` is refused too, because the check accepts only a TCP socket on the slot port. If Unity needs an `AF_UNIX` listener, that is an explicit policy decision, not a silent allowance.
 - **Unity Transport:** its WebSocket server binds its port explicitly before `listen()` (so the supervisor allows it) and needs no UDP or TFO (Task 11 records every socket the player opens).
 - **The VM's firewall state:** `ufw` inactive and nftables empty on 2026-10-18 (Stage 10 records), re-read at execution. The VM refused SSH on port 22 when this plan was written (2026-10-20); nothing about the host was read since.
 
@@ -431,4 +432,19 @@ Full EditMode, PlayMode, backend domain, agent, integration, `--unity-core`; the
 | I-N4 the supervisor's protection rested on an unchecked Yama setting | fork first, Landlock and seccomp in the child only, a non-dumpable supervisor, the launcher refuses `ptrace_scope` below 1, proof rows |
 | I-N5 an SCTP control would autoload `sctp.ko` on the host | no SCTP socket anywhere; the allow-list is proven with protocols that need no module; `/proc/modules` before and after every VM manifest |
 | Minors | M2 pipefail and checked tar; M4 internal uid reader; M5 the option-seen rule; M6 key=value output; M7 no link-following in the state listing; M8 a wider baseline; M9 tests rerun in the clean worktree; M10 IPv6 redaction; M11 Task 10's must-refuse wording; M12 socket activation restored; M13 the supervisor's details; M14 the filter's evidence; M15 the reachability procedure |
+
+## Re-review 3 (2026-10-20, independent reviewer: the review 2 fixes)
+
+0 Critical. I-N1 to I-N5 were confirmed resolved, with the reviewer's own fake-Unity probes of the provenance script. One new Important finding, and minors:
+
+| Finding | Resolution |
+|---|---|
+| I-R1 the reachability driver waited on `read` while its stdin was the script, so run B was skipped | the driver is step-based (`before`, `start <run>`, `finish <run>`, `after`, `cleanup`), one non-interactive SSH call per step, with a per-run journal token. A local run with stubbed system tools shows each step returning on its own, three distinct tokens, and the correct allow-lists for A1, B and A2 |
+| N-m1 textconv, external diff drivers, replace objects, fsmonitor | refused or neutralized in `build-provenance.sh`; tests 10/10 (`5551a00`) |
+| N-m3 resume's owner check isn't independent | stated in the manifest (§5.4) |
+| N-m4 sshd drop-ins | hashed in the baseline |
+| N-m5 the driver's run isolation, trap and empty addresses | tokens; no trap needed (no interactive session); an empty address is reported as skipped |
+| N-m6 the sshd-based controls and the supervisor's preconditions | a stand-in listener (7897) as the connect and TFO target; Yama exactly 1, a dumpable mission and the `AF_UNIX` listen policy listed |
+| N-m7 stale statements | corrected (Review Focus 5, S12-D8, Task 1, launcher step 3) |
+| M3 PackageCache | noted as not covered |
 

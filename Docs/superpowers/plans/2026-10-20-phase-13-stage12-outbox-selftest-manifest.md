@@ -23,16 +23,16 @@ History:
 
 | Item | Value |
 |---|---|
-| Source revision | `91d51850d404ba814971aa1f7e0828c0726c3097` on branch `phase13-outbox-selftest`: the self-test, the provenance correction and the review fixes, on top of `main` `075fcd4`. Not merged, not pushed |
+| Source revision | `5551a0095150320a87cf0117467d4cc1b7900f38` on branch `phase13-outbox-selftest`: the self-test, the provenance correction and the review fixes, on top of `main` `075fcd4`. Not merged, not pushed |
 | Source tree | `PENDING (the build at this revision was not run: the session stopped for low memory)`, `dirty=false`, content hash `PENDING (the build at this revision was not run: the session stopped for low memory)`, as captured before Unity started (`source-provenance.txt` in the package) |
 | Build | `Tools/build-server.sh` (release variant) in the dedicated clean worktree `.claude/scratchpad/sb`, detached at that revision. The owner's working project and its two modified settings files were never involved. Unity 6000.3.25f1, Linux Dedicated Server, Mono. The build at this revision is PENDING. The provenance check requires 0 status lines and no ignored file under `Assets`, `Packages` or `ProjectSettings` before it, and the same afterwards. The worktree currently holds the interrupted PlayMode run's ignored `Assets/InitTestScene…` files, which must be removed first |
-| Package | `blackglass-server-linux-91d5185.tar.gz`, SHA-256 `PENDING (the build at this revision was not run: the session stopped for low memory)` |
+| Package | `blackglass-server-linux-5551a00.tar.gz`, SHA-256 `PENDING (the build at this revision was not run: the session stopped for low memory)` |
 | `files.sha256` (every shipped file, in the package) | PENDING files, SHA-256 of the list `PENDING (the build at this revision was not run: the session stopped for low memory)` (Appendix A) |
-| `build-info.txt` | `revision=91d51850d404ba814971aa1f7e0828c0726c3097`, `sourceTree=PENDING (the build at this revision was not run: the session stopped for low memory)`, `dirty=false`, `variant=release`, `backend=Mono`, `binarySha256=PENDING (the build at this revision was not run: the session stopped for low memory)`, `provenance=verified` |
+| `build-info.txt` | `revision=5551a0095150320a87cf0117467d4cc1b7900f38`, `sourceTree=PENDING (the build at this revision was not run: the session stopped for low memory)`, `dirty=false`, `variant=release`, `backend=Mono`, `binarySha256=PENDING (the build at this revision was not run: the session stopped for low memory)`, `provenance=verified` |
 | Game code | `BlackglassServer_Data/Managed/Blackglass.dll` `PENDING (the build at this revision was not run: the session stopped for low memory)`; `Blackglass.Backend.Core.dll` `PENDING (the build at this revision was not run: the session stopped for low memory)` |
 | Player executable | `BlackglassServer.x86_64` `PENDING (the build at this revision was not run: the session stopped for low memory)`. This is Unity's generic player, identical across builds, so the game is identified by the list, not by this hash |
-| VM-side script | `Tools/LinuxServer/outbox-selftest/selftest-vm.sh` at the same revision, SHA-256 `ccf01c86619ede465bf329c612aa8b811aac2d539adf467592f7cc944a341b69` as sent (LF) |
-| Tests at the source revision | Run in the same clean worktree at `91d51850d404ba814971aa1f7e0828c0726c3097`, the Editor closed: EditMode **1864/1864**, PlayMode **not verified: the run was stopped by Claude Code for critically low system memory (2026-10-20 17:43); it must be rerun**. Build provenance tests (`Tools/tests/build-server-provenance-test.sh`): 8/8 |
+| VM-side script | `Tools/LinuxServer/outbox-selftest/selftest-vm.sh` at the same revision, SHA-256 `16326faf0f73889c0095918faf29f0519132b1b517ab771f9476fa56da844c8f` as sent (LF) |
+| Tests at the source revision | The Unity source (`Assets`, `Packages`, `ProjectSettings`) at `5551a00` is identical to `91d5185`'s; every later commit changes only `Tools/`. At `91d5185`, in the clean worktree, the Editor closed: EditMode **1864/1864**. **PlayMode: not verified.** The run was stopped by Claude Code for critically low system memory (2026-10-20 17:43) and must be rerun before approval. Build provenance tests (`Tools/tests/build-server-provenance-test.sh`): 10/10 |
 
 **Local verification at the build (PENDING):**
 - The source is captured before Unity starts.
@@ -42,7 +42,7 @@ History:
 
 ## 2. How every step is run
 
-From the workstation, at the repository root on revision `91d5185`:
+From the workstation, at the repository root on revision `5551a00`:
 
 ```sh
 step() { tr -d '\r' < Tools/LinuxServer/outbox-selftest/selftest-vm.sh | ssh bg-dev-mission01 bash -s -- "$@" 2>&1 \
@@ -52,7 +52,7 @@ step() { tr -d '\r' < Tools/LinuxServer/outbox-selftest/selftest-vm.sh | ssh bg-
 ```
 
 - The two IPv6 expressions redact full and `::`-compressed addresses, while timestamps (three groups, no `::`) are left intact.
-- Before each step, `tr -d '\r' < Tools/LinuxServer/outbox-selftest/selftest-vm.sh | sha256sum` must print `ccf01c86619ede465bf329c612aa8b811aac2d539adf467592f7cc944a341b69`.
+- Before each step, `tr -d '\r' < Tools/LinuxServer/outbox-selftest/selftest-vm.sh | sha256sum` must print `16326faf0f73889c0095918faf29f0519132b1b517ab771f9476fa56da844c8f`.
 - The transcript stays local and is never committed.
 - The script runs as root over the existing alias with `set -u` (no `set -e`; every probe prints its value). The unit properties are one bash array.
 
@@ -69,7 +69,7 @@ Each phase is a **transient** service started by `systemd-run --quiet --unit=bla
 | Resources | `LimitCORE=0`, `MemoryMax=2G`, `CPUQuota=200%`, `TasksMax=256`, `RuntimeMaxSec=300` |
 | Evidence | `LogExtraFields=BLACKGLASS_SELFTEST=<a fresh random UUID per run>` |
 
-The command line is `/opt/blackglass-selftest/91d5185/BlackglassServer.x86_64 -batchmode -nographics -logFile - -outboxSelftest <phase> -selftestId <id>`. stdout goes to the journal.
+The command line is `/opt/blackglass-selftest/5551a00/BlackglassServer.x86_64 -batchmode -nographics -logFile - -outboxSelftest <phase> -selftestId <id>`. stdout goes to the journal.
 
 The fixed UUIDv7 ids:
 - `ID1=019a0000-0000-7000-8000-00000000a001`
@@ -90,8 +90,8 @@ The `location` phase writes nothing, so it has (1) and (4), and the identical un
 |---|---|---|
 | `/root/selftest-before.txt` | root 0644. The integrity baseline: SHA-256 of every file under `/opt/blackglass/{server,agent,mission}` and `/etc/blackglass`; every blackglass unit file, drop-in and `.wants` link under `/etc/systemd/system`; the targets of both `current` links; every `sshd_config*` under `/etc/ssh`; the names of the loaded kernel modules; `kernel.modules_disabled`. Hashes stay on the VM; only the line count is printed | removed at cleanup |
 | `/root/selftest-rev` | root 0644, the installed revision | removed at cleanup |
-| `/root/blackglass-selftest-91d5185.tar.gz` | root 0600 (the upload) | removed after extraction |
-| `/opt/blackglass-selftest/91d5185/` | root:root, dirs 0755, files 0644, the player 0755 | removed at cleanup |
+| `/root/blackglass-selftest-5551a00.tar.gz` | root 0600 (the upload) | removed after extraction |
+| `/opt/blackglass-selftest/5551a00/` | root:root, dirs 0755, files 0644, the player 0755 | removed at cleanup |
 | `/var/lib/private/blackglass-selftest/` and its `<id>/` directories | the run's dynamic user, 0755 (systemd) | removed at cleanup |
 | `/var/lib/blackglass-selftest/` and its `<id>` links into `private/` | root (systemd) | removed at cleanup |
 
@@ -120,8 +120,8 @@ The self-test refuses:
 **Stop** on any other value.
 
 **5.1 Upload and install.**
-1. Upload: `scp .claude/scratchpad/sb/Builds/blackglass-server-linux-91d5185.tar.gz bg-dev-mission01:/root/blackglass-selftest-91d5185.tar.gz`
-2. Install: `step install 91d51850d404ba814971aa1f7e0828c0726c3097 PENDING (the build at this revision was not run: the session stopped for low memory) PENDING (the build at this revision was not run: the session stopped for low memory)`
+1. Upload: `scp .claude/scratchpad/sb/Builds/blackglass-server-linux-5551a00.tar.gz bg-dev-mission01:/root/blackglass-selftest-5551a00.tar.gz`
+2. Install: `step install 5551a0095150320a87cf0117467d4cc1b7900f38 PENDING (the build at this revision was not run: the session stopped for low memory) PENDING (the build at this revision was not run: the session stopped for low memory)`
 
 The install step checks, in order:
 - the archive hash;
@@ -130,7 +130,7 @@ The install step checks, in order:
 - that no file exists outside the list;
 - `provenance=verified`, `revision=`, `dirty=false` and `variant=release` in `build-info.txt`.
 
-Expected: two `: OK` lines, `files_verified=PENDING`, `installed=/opt/blackglass-selftest/91d5185`. Any `STOP:` line means stop, then cleanup.
+Expected: two `: OK` lines, `files_verified=PENDING`, `installed=/opt/blackglass-selftest/5551a00`. Any `STOP:` line means stop, then cleanup.
 
 **5.2 `step publish`** (fresh directory ID1). Expected, in order:
 - `[Server] … outbox self-test phase=publish`
@@ -169,7 +169,7 @@ Expected: two `: OK` lines, `files_verified=PENDING`, `installed=/opt/blackglass
 - `stdout_stream_identity=` (non-zero);
 - `exit=0`;
 - exactly one entry, `name=JG.manifest.ready`, SHA-256 `0c661505…d122`, with no `.written` left;
-- `owner_matches_euid=yes uid=<m>`.
+- `owner_matches_euid=yes uid=<m>`. This line is weaker than in `publish` and `hold`: systemd re-owns the state directory for each run's user at start, so it shows the directory's re-owning, not the resume process writing as `<m>`. For `resume`, the uid evidence is (1) and (4) plus the identical unit shape; `/proc` for the same unit shape comes from the held run.
 
 **5.5 `step location`** (directory ID3, told ID1). Expected:
 - `uid ok`;

@@ -37,15 +37,18 @@ Only that pair is causal evidence that the filter is enforced. A failure that wo
 
 Python 3 is the VM's system interpreter (nothing is installed). The listener accepts each connection and closes it at once, sending nothing and reading nothing. It writes one journal line per accepted connection with its socket's family only, never the peer address, and exits at 110 s.
 
-## The driver (verbatim; run as root on the mission VM over `ssh … bash -s -- <src4> <src6>`)
+## The driver (verbatim; one step per SSH call, as root on the mission VM)
+
+Each step is a separate, non-interactive call: `tr -d '\r' < reach-vm.sh | ssh bg-dev-mission01 bash -s -- <step> [args]`. The script arrives on stdin, so a step never reads stdin itself; it prints and returns. The units live between calls, each bounded by `RuntimeMaxSec=120`. The workstation runs the steps in this order: `before`, `start A1`, the services-VM probes, `finish A1`, `start B`, probes, `finish B`, `start A2`, probes, `finish A2`, `after`, and `cleanup` always, also after a stop.
 
 ```bash
 #!/usr/bin/env bash
+# reach-vm.sh: the B24 address-half reachability steps (procedure revision 2). Steps:
+#   before | start <A1|B|A2> <src4> <src6> | finish <A1|B|A2> | after | cleanup
 set -u
-src4="${1:?services VM IPv4}"; src6="${2:?services VM IPv6}"
+step="${1:-}"
 units=(blackglass-reach-allowed blackglass-reach-filtered)
-cleanup() { for u in "${units[@]}"; do systemctl stop "$u" 2>/dev/null; systemctl reset-failed "$u" 2>/dev/null; done; }
-trap cleanup EXIT INT TERM HUP
+record=/root/reach-before.txt
 LISTENER='import socket,select,time
 def tcp(fam, addr, port, v6only):
     s = socket.socket(fam, socket.SOCK_STREAM)
@@ -61,39 +64,72 @@ while time.time() < end:
 common=(-p DynamicUser=yes -p NoNewPrivileges=yes -p CapabilityBoundingSet= -p ProtectSystem=strict -p ProtectHome=yes
   -p PrivateTmp=yes -p PrivateDevices=yes -p "RestrictAddressFamilies=AF_INET AF_INET6" -p MemoryMax=64M -p TasksMax=8
   -p RuntimeMaxSec=120 -p "InaccessiblePaths=-/opt/blackglass -/etc/blackglass -/var/lib/blackglass -/run/blackglass")
-start() { # start <unit> <allow list>
-  systemd-run --quiet --collect --unit="$1" "${common[@]}" -p IPAddressDeny=any -p "IPAddressAllow=$2" python3 -c "$LISTENER"
-  for _ in $(seq 1 20); do journalctl -u "$1" --since=-30s -o cat --no-pager | grep -qx listening && return 0; sleep 0.5; done
-  echo "STOP: $1 did not start"; exit 1
+unit_of() { case "$1" in A1|A2) echo blackglass-reach-allowed ;; B) echo blackglass-reach-filtered ;; *) echo "STOP: run $1" >&2; exit 64 ;; esac; }
+records() {
+  echo "ufw: $(ufw status verbose 2>&1 | tr '\n' ' ')"
+  echo "nft: $(nft list ruleset 2>/dev/null | sha256sum | cut -d' ' -f1)"
+  echo "iptables: $(iptables-save 2>/dev/null | grep -v '^#' | sha256sum | cut -d' ' -f1)"
+  echo "iptables-legacy: $( (iptables-legacy-save 2>/dev/null || true) | grep -v '^#' | sha256sum | cut -d' ' -f1)"
+  echo "ip6tables: $(ip6tables-save 2>/dev/null | grep -v '^#' | sha256sum | cut -d' ' -f1)"
+  echo "links: $(ip -br link | awk '{print $1, $2}' | tr '\n' ' ')"
+  echo "eth0-global-ipv6: $(ip -6 -o addr show dev eth0 scope global | wc -l)"
+  echo "listening-7898-7899: $(ss -tlnH '( sport = :7899 or sport = :7898 )' | wc -l)"
+  echo "tunnel: $(systemctl show blackglass-tunnel -p MainPID -p NRestarts | LC_ALL=C sort | tr '\n' ' ')"
+  echo "ptrace_scope: $(sysctl -n kernel.yama.ptrace_scope)"
+  echo "modules: $(awk '{print $1}' /proc/modules | LC_ALL=C sort | sha256sum | cut -d' ' -f1)"
 }
-local_probe() { # local_probe <label> <host> <port>: 0 open, 1 refused, 124 timeout
+local_probe() { # local_probe <label> <host> <port>: exit 0 open, 1 refused, 124 timeout; skipped without an address
+  if [ -z "$2" ]; then echo "local $1 skipped (no global address of that family)"; return; fi
   timeout 5 bash -c "exec 3<>/dev/tcp/$2/$3" 2>/dev/null; echo "local $1 exit=$?"
 }
-own4="$(ip -4 -o addr show dev eth0 scope global | awk '{print $4}' | cut -d/ -f1 | head -1)"
-own6="$(ip -6 -o addr show dev eth0 scope global | awk '{print $4}' | cut -d/ -f1 | head -1)"
-observe() { # observe <run label> <unit> <allow list>
-  start "$2" "$3"
-  echo "== $1 ready"   # the workstation then runs the services-VM probes (below) and answers with a line on stdin
-  read -r _
-  local_probe own-ipv4 "$own4" 7899; local_probe own-ipv6 "$own6" 7899; local_probe own-mapped "$own4" 7898
-  local_probe loopback-ipv4 127.0.0.1 7899; local_probe loopback-ipv6 ::1 7899
-  systemctl stop "$2"
-  echo "== $1 accepted: $(journalctl -u "$2" --since=-150s -o cat --no-pager | grep -c '^accepted')"
-  echo "== $1 listening-after-stop: $(ss -tlnH '( sport = :7899 or sport = :7898 )' | wc -l)"
-}
-observe A1 blackglass-reach-allowed "localhost $src4 $src6"
-observe B  blackglass-reach-filtered "localhost"
-observe A2 blackglass-reach-allowed "localhost $src4 $src6"
-echo "== firewalling journal since boot: $(journalctl -b -g 'firewalling' -o cat --no-pager | wc -l) line(s)"
+token_file() { echo "/root/reach-$1.token"; }
+case "$step" in
+  before) records | tee "$record" ;;
+  start)
+    run="${2:?run}"; src4="${3:?services VM IPv4}"; src6="${4:?services VM IPv6}"; unit="$(unit_of "$run")"
+    allow="localhost"; [ "$run" = B ] || allow="localhost $src4 $src6"
+    systemctl is-active -q "${units[0]}" "${units[1]}" && { echo "STOP: a reach unit is already running"; exit 1; }
+    token="$(cat /proc/sys/kernel/random/uuid)"; echo "$token" > "$(token_file "$run")"
+    # each run's journal lines carry its own token, so A2 never reads A1's lines (same unit name)
+    systemd-run --quiet --collect --unit="$unit" "${common[@]}" -p IPAddressDeny=any -p "IPAddressAllow=$allow" \
+      -p "LogExtraFields=BLACKGLASS_REACH=$token" python3 -c "$LISTENER" || { echo "STOP: $unit did not start"; exit 1; }
+    for _ in $(seq 1 20); do journalctl "BLACKGLASS_REACH=$token" -o cat --no-pager | grep -qx listening && { echo "== $run ready"; exit 0; }; sleep 0.5; done
+    systemctl stop "$unit"; echo "STOP: $unit did not listen"; exit 1 ;;
+  finish)
+    run="${2:?run}"; unit="$(unit_of "$run")"
+    own4="$(ip -4 -o addr show dev eth0 scope global | awk '{print $4}' | cut -d/ -f1 | head -1)"
+    own6="$(ip -6 -o addr show dev eth0 scope global | awk '{print $4}' | cut -d/ -f1 | head -1)"
+    local_probe own-ipv4 "$own4" 7899; local_probe own-ipv6 "$own6" 7899; local_probe own-mapped "$own4" 7898
+    local_probe loopback-ipv4 127.0.0.1 7899; local_probe loopback-ipv6 ::1 7899
+    systemctl stop "$unit" 2>/dev/null
+    token="$(cat "$(token_file "$run")" 2>/dev/null)"; [ -n "$token" ] || { echo "STOP: no token for $run"; exit 1; }
+    echo "== $run accepted: $(journalctl "BLACKGLASS_REACH=$token" -o cat --no-pager | grep -c '^accepted ') ($(journalctl "BLACKGLASS_REACH=$token" -o cat --no-pager | grep '^accepted ' | sort | uniq -c | tr -s ' ' | tr '\n' ';'))"
+    echo "== $run listening-after-stop: $(ss -tlnH '( sport = :7899 or sport = :7898 )' | wc -l)" ;;
+  after)
+    records > /root/reach-after.txt
+    if cmp -s "$record" /root/reach-after.txt; then echo "records=unchanged"; else echo "records=CHANGED"; diff "$record" /root/reach-after.txt; fi
+    echo "firewalling journal since boot: $(journalctl -b -g 'firewalling' -o cat --no-pager | wc -l) line(s)" ;;
+  cleanup)
+    for u in "${units[@]}"; do systemctl stop "$u" 2>/dev/null; systemctl reset-failed "$u" 2>/dev/null; done
+    rm -f "$record" /root/reach-after.txt /root/reach-A1.token /root/reach-B.token /root/reach-A2.token
+    echo "listening-7898-7899: $(ss -tlnH '( sport = :7899 or sport = :7898 )' | wc -l)" ;;
+  *) echo "usage: reach-vm.sh before | start <A1|B|A2> <src4> <src6> | finish <A1|B|A2> | after | cleanup"; exit 64 ;;
+esac
 ```
 
-- **The services-VM probes** (read-only there), run by the workstation whenever the driver prints `== <run> ready`:
-  - `timeout 5 bash -c 'exec 3<>/dev/tcp/<mission v4>/7899'`
-  - the same for `<mission v6>` on 7899
-  - the same for `<mission v4>` on 7898 (the mapped case)
+**Interruption and disconnect.**
+- A unit outlives a dropped SSH session by at most its `RuntimeMaxSec=120`.
+- `start` refuses to run while either reach unit is active.
+- `cleanup` (always run last, also after any stop) stops both units and confirms nothing listens on 7898 or 7899.
 
-  Each prints `exit=0` (open), `1` (refused) or `124` (timeout).
-- **The workstation's orchestration** reads the addresses, opens both SSH sessions and pipes everything through the IPv4 and IPv6 address-redaction `sed`. It is written into the Task 10 manifest verbatim, with the exact `sed` expressions.
+**The services-VM probes** (read-only there) run between `start <run>` and `finish <run>`, through its admin alias:
+- `timeout 5 bash -c 'exec 3<>/dev/tcp/<mission v4>/7899'`
+- the same for `<mission v6>` on 7899
+- the same for `<mission v4>` on 7898 (the mapped case)
+
+Each prints `exit=0` (open), `1` (refused) or `124` (timeout).
+
+**The workstation** reads both VMs' addresses at run time. Its own addresses are passed only as arguments and never stored in the repository. All output goes through the IPv4 and IPv6 address-redaction `sed` of the self-test manifest §2. The exact orchestration commands go into the Task 10 manifest.
 
 ## Records before and after (read-only)
 
@@ -127,7 +163,7 @@ The address half of B24 counts as proven only if every cell holds and the firewa
 
 ## Rollback
 
-The driver's `trap` stops and resets both units on exit, interrupt, hang-up or termination, and `RuntimeMaxSec=120` ends each unit even if the SSH session drops before the trap runs. By hand:
+`reach-vm.sh cleanup` stops and resets both units and checks the ports; `RuntimeMaxSec=120` ends each unit even if every SSH session drops. By hand:
 
 ```sh
 systemctl stop blackglass-reach-allowed blackglass-reach-filtered 2>/dev/null
