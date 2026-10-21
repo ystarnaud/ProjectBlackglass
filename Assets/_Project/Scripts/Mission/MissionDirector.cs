@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Blackglass
@@ -83,8 +84,24 @@ namespace Blackglass
         public MissionRuntime Runtime { get; private set; }
         public MissionPhase Phase => Runtime != null ? Runtime.Phase : MissionPhase.Inactive;
 
-        /// <summary>A new id for every generation (also a repeat of the same seed); the inventory settles against it exactly once.</summary>
+        /// <summary>A new id for every generation (also a repeat of the same seed); the inventory settles against it exactly once.
+        /// For an online attempt it is the backend's attempt id.</summary>
         public string InstanceId { get; private set; } = string.Empty;
+
+        /// <summary>The validated attempt this mission is generated for (GenerateForAttempt), or null for an offline mission.</summary>
+        public Backend.Core.AttemptStart Attempt { get; private set; }
+
+        /// <summary>
+        /// An attempt's filled containers once Ready: each container's plan index and its entries as the fill left them, in roll
+        /// order (line i is roll i), captured before gameplay. Empty for an offline mission or before Ready.
+        /// </summary>
+        public IReadOnlyList<(int Index, IReadOnlyList<ItemEntry> EntriesInRollOrder)> AttemptContainers => attemptContainers;
+
+        /// <summary>The loot table version an attempt's containers were rolled from (0 when none).</summary>
+        public int AttemptLootTableVersion { get; private set; }
+
+        readonly List<(int Index, IReadOnlyList<ItemEntry> EntriesInRollOrder)> attemptContainers = new List<(int, IReadOnlyList<ItemEntry>)>();
+        bool stopAttempts;
         public MissionSettings Settings => settings;
         internal bool NewSeedAtStart => newSeedAtStart;
         /// <summary>Where a new seed comes from; the clock by default, replaceable by tests.</summary>
@@ -144,6 +161,27 @@ namespace Blackglass
                 return false;
             }
             settings.seed = seed;
+            Attempt = null;
+            running = StartCoroutine(Run());
+            return true;
+        }
+
+        /// <summary>
+        /// Generates the mission of a validated online attempt (Stage 12): the backend's attempt id becomes InstanceId, the seed
+        /// is the attempt's, and every loot container is filled one entry per roll (gate B25). A roll that can't be one entry, or
+        /// a missing loot table, fails the whole generation (no other attempt rerolls it). Refused while a generation runs.
+        /// </summary>
+        public bool GenerateForAttempt(Backend.Core.AttemptStart attempt)
+        {
+            if (attempt == null)
+                throw new ArgumentNullException(nameof(attempt));
+            if (State == MissionState.Generating)
+            {
+                Debug.LogWarning($"{name}: a mission is already being generated; the attempt was ignored.", this);
+                return false;
+            }
+            settings.seed = attempt.Seed;
+            Attempt = attempt;
             running = StartCoroutine(Run());
             return true;
         }
@@ -180,13 +218,16 @@ namespace Blackglass
             SetState(MissionState.Generating);
             var request = settings.Validated();
             if (systems.roster != null && systems.roster.Count > 0)
-                request.friendlyCount = Mathf.Clamp(systems.roster.Count, 1, 6);
+                request.friendlyCount = Mathf.Clamp(systems.roster.Count, 1, MissionConstants.MaxFriendlies);
             else if (friendlySlots.Length > 0)
-                request.friendlyCount = Mathf.Clamp(friendlySlots.Length, 1, 6);
+                request.friendlyCount = Mathf.Clamp(friendlySlots.Length, 1, MissionConstants.MaxFriendlies);
             Report = new MissionReport { Seed = request.seed, MaxAttempts = request.maxAttempts };
             Teardown();
             yield return null;   // let Destroy finish so the old NavMesh and colliders are really gone
-            InstanceId = Guid.NewGuid().ToString("N");
+            InstanceId = Attempt != null ? Attempt.AttemptId : Guid.NewGuid().ToString("N");
+            attemptContainers.Clear();
+            AttemptLootTableVersion = 0;
+            stopAttempts = false;
             if (systems.inventory != null)
                 systems.inventory.BeginMission(InstanceId);
             activeLoot = null;
@@ -197,8 +238,14 @@ namespace Blackglass
                 else
                     Debug.LogError($"{name}: the loot table '{lootTable.name}' is invalid ({lootProblem}); this mission has no loot.", this);
             }
+            // An attempt's pool is registered with the backend: it never runs without its loot (fail closed).
+            if (Attempt != null && (activeLoot == null || systems.inventory == null || systems.inventory.Catalogue == null))
+            {
+                Report.Failures.Add("attempt: loot: no valid loot table or item catalogue");
+                stopAttempts = true;
+            }
 
-            for (var attempt = 1; attempt <= request.maxAttempts; attempt++)
+            for (var attempt = 1; attempt <= request.maxAttempts && !stopAttempts; attempt++)
             {
                 Report.AttemptsMade = attempt;
                 if (TryAttemptSafely(request, attempt))
@@ -209,7 +256,8 @@ namespace Blackglass
                 }
             }
 
-            var failureText = $"Mission generation failed. {request.Describe()}\n  " + string.Join("\n  ", Report.Failures);
+            // An attempt's seed is the backend's generator input: never logged.
+            var failureText = $"Mission generation failed. {(Attempt != null ? "attempt " + Attempt.AttemptId : request.Describe())}\n  " + string.Join("\n  ", Report.Failures);
             Report.Failure = failureText;
             Debug.LogError(failureText, this);
             running = null;
@@ -230,7 +278,11 @@ namespace Blackglass
             catch (Exception exception)
             {
                 Report.Failures.Add($"attempt {attempt}: exception: {exception.GetType().Name}: {exception.Message}");
+                // An online attempt never retries after an exception: another layout attempt would roll new loot (gate B25).
+                if (Attempt != null)
+                    stopAttempts = true;
                 DetachRuntime();
+                attemptContainers.Clear();
                 friendlies.Clear();
                 hostiles.Clear();
                 Current = null;
@@ -267,6 +319,7 @@ namespace Blackglass
             if (activeLoot != null && systems.inventory != null && systems.inventory.Catalogue != null)
                 loot = LootPlacer.Place(layout, plan, security, activeLoot);
             List<LootContainer> containers = null;
+            string fillError = null;
             if (request.hackTerminal || security.HasTerminal || loot.Placed > 0)
             {
                 addContent = geometry =>
@@ -276,10 +329,19 @@ namespace Blackglass
                     if (security.HasTerminal)
                         cameraTerminal = MissionContent.AddCameraTerminal(geometry, security, layout, request, obstacleMaterial, environmentTheme);
                     if (loot.Placed > 0)
-                        containers = MissionContent.AddLootContainers(geometry, loot, layout, systems.inventory.Catalogue, obstacleMaterial);
+                        containers = MissionContent.AddLootContainers(geometry, loot, layout, systems.inventory.Catalogue, obstacleMaterial,
+                            Attempt != null, out fillError);
                 };
             }
             mission = MissionBuilder.Build(layout, groundMaterial, obstacleMaterial, addContent, environmentTheme);
+            if (fillError != null)
+            {
+                // Gate B25: never merged, truncated, dropped or rerolled by another attempt to make a valid ready report.
+                Report.Failures.Add($"attempt {attempt}: attempt: loot: {fillError}");
+                stopAttempts = true;
+                DestroyMission(mission, true);
+                return false;
+            }
             if (!MissionNavigation.Validate(layout, out reason, out var navigation))
             {
                 Report.Failures.Add($"attempt {attempt}: navigation: {reason}");
@@ -323,6 +385,13 @@ namespace Blackglass
             mission.CameraTerminal = cameraTerminal;
             mission.Loot = loot;
             mission.LootContainers = containers ?? new List<LootContainer>();
+            if (Attempt != null)
+            {
+                // Captured now, before any gameplay can touch a container: line i of container c is roll i.
+                for (var i = 0; i < mission.LootContainers.Count; i++)
+                    attemptContainers.Add((i, mission.LootContainers[i].Contents.Entries.Select(e => e.Clone()).ToList().AsReadOnly()));
+                AttemptLootTableVersion = activeLoot.Version;
+            }
             mission.Network = security.HasTerminal
                 ? MissionContent.CreateCameras(security, layout, request.intelligence, mission.Root.transform, obstacleMaterial)
                 : null;
@@ -373,7 +442,7 @@ namespace Blackglass
             Report.LootPlaced = loot.Placed;
             Report.LootHash = loot.Hash;
             if (loot.Shortfall.Length > 0)
-                Debug.LogWarning($"{name}: seed {request.seed}: {loot.Shortfall}.", this);
+                Debug.LogWarning($"{name}: {(Attempt != null ? "attempt " + Attempt.AttemptId : "seed " + request.seed)}: {loot.Shortfall}.", this);   // an attempt's seed is never logged
             FrameCamera(layout);
             return true;
         }
@@ -403,6 +472,7 @@ namespace Blackglass
         void Teardown()
         {
             DetachRuntime();
+            attemptContainers.Clear();
             if (systems.inventory != null)
                 systems.inventory.AbortMission();   // an unsettled mission (restart, clear) keeps nothing
             ResetSystems();

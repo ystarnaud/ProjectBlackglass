@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Blackglass.Backend.Core;
 using UnityEngine;
 
 namespace Blackglass
@@ -46,6 +47,7 @@ namespace Blackglass
 
         internal void Initialize(IEnumerable<LootItemPlan> plan, ItemCatalogue catalogue, float searchSeconds = SearchSeconds)
         {
+            RefuseIfAttempt();
             contents = new ItemInventory(0);
             foreach (var item in plan)
             {
@@ -60,9 +62,62 @@ namespace Blackglass
             Arm(searchSeconds);
         }
 
+        /// <summary>
+        /// The online attempt's fill (Stage 12 gate B25): one container entry per roll, in roll order, never merged, split,
+        /// truncated or dropped (the internal TryAddEntry, not Add). Each roll must fit one entry (AttemptLoot.CheckRoll); the
+        /// first that doesn't leaves the container empty and returns false with its code and index, so generation fails before
+        /// any ready report. The entries returned are the container's own, in roll order: line i is roll i.
+        /// After the fill the contents are removal-only (owner ruling on deposits): any addition is refused before anything
+        /// changes; only collection removes. The ledger still catches an unexpected change at the freeze.
+        /// </summary>
+        internal bool InitializeForAttempt(IReadOnlyList<LootItemPlan> rolls, ItemCatalogue catalogue, out IReadOnlyList<ItemEntry> entries,
+            out string error, out int failedRoll, float searchSeconds = SearchSeconds)
+        {
+            AttemptMode = true;
+            contents = new ItemInventory(0);
+            var filled = new List<ItemEntry>();
+            entries = filled;
+            error = null;
+            failedRoll = -1;
+            for (var i = 0; i < (rolls != null ? rolls.Count : 0); i++)
+            {
+                var roll = rolls[i];
+                var definition = catalogue != null ? catalogue.Find(roll.DefinitionId) : null;
+                var code = AttemptLoot.CheckRoll(new LootRoll(roll.DefinitionId, roll.Quantity),
+                    definition != null ? ItemLedgerMapping.Definition(definition) : null, definition != null ? definition.MaxStack : 0);
+                var entry = code == null ? new ItemEntry(roll.DefinitionId, roll.Quantity) : null;
+                if (code == null && !contents.TryAddEntry(entry))
+                    code = AttemptLoot.NotAdded;
+                if (code != null)
+                {
+                    contents = new ItemInventory(0);
+                    entries = new List<ItemEntry>();
+                    error = code;
+                    failedRoll = i;
+                    Arm(searchSeconds);
+                    return false;
+                }
+                filled.Add(entry);
+            }
+            contents.LockAdditions();   // registered loot sources are removal-only: a deposit is refused before any change
+            Arm(searchSeconds);
+            return true;
+        }
+
+        // An attempt container's contents are a registered loot source: never replaced by an unlocked inventory (owner ruling).
+        void RefuseIfAttempt()
+        {
+            if (AttemptMode)
+                throw new InvalidOperationException(name + ": an online attempt's container is a registered loot source and cannot be re-initialized.");
+        }
+
+        /// <summary>True once filled by InitializeForAttempt (an online attempt's container); false for the offline fill.</summary>
+        public bool AttemptMode { get; private set; }
+
         /// <summary>Test and tool entry: use these contents as they are, optionally already searched.</summary>
         internal void InitializeWith(ItemInventory ready, bool searched)
         {
+            RefuseIfAttempt();
             contents = ready;
             // Arm re-initialises the interactable as an unsearched container (search label and duration, available).
             Arm(SearchSeconds);

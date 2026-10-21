@@ -2,7 +2,8 @@
     "name": "Blackglass.Backend.Editor",
     "rootNamespace": "Blackglass.BackendTools",
     "references": [
-        "Blackglass"
+        "Blackglass",
+        "Blackglass.Backend.Core"
     ],
     "includePlatforms": [
         "Editor"

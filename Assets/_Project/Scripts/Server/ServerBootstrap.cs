@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using Blackglass.Backend.Core;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using Debug = UnityEngine.Debug;
@@ -14,6 +16,8 @@ namespace Blackglass
         public const int DiagnosticFailed = 1;
         /// <summary>The mission never became ready: generation failed, the startup deadline passed, or the scene is unwired.</summary>
         public const int StartupFailed = 2;
+        /// <summary>-outboxSelftest: a check failed (Stage 12 plan, Task 1).</summary>
+        public const int SelftestFailed = 3;
     }
 
     /// <summary>
@@ -35,6 +39,22 @@ namespace Blackglass
 
         [SerializeField] MissionDirector director;
         [SerializeField] TacticalPause pause;
+        // The attempt's data (Stage 12): set by ServerSceneBuilder. The loot table is given to the director only for an attempt,
+        // so the fixture mission (-diagnostic, -net) is generated exactly as before.
+        [SerializeField] ItemCatalogue itemCatalogue;
+        [SerializeField] LootTable lootTable;
+        [SerializeField] SquadRoster roster;
+        [SerializeField] SquadInventory inventory;
+        [SerializeField] ProgressionTrack progression;
+        [SerializeField] OperativeDefinition[] operatives = new OperativeDefinition[0];
+        [SerializeField] string catalogueVersion = string.Empty;
+
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+        const bool FixtureBuild = true;
+#else
+        const bool FixtureBuild = false;
+#endif
+        AttemptStart attempt;
 
         ServerOptions options = ServerOptions.Default;
         Stopwatch generation;
@@ -42,6 +62,7 @@ namespace Blackglass
         bool started;
         bool ready;
         ServerDiagnostic diagnostic;
+        OutboxSelftest selftest;
         double heartbeatStart;
         double nextHeartbeat;
         int heartbeatFrames;
@@ -49,12 +70,24 @@ namespace Blackglass
 
         /// <summary>How the process ends. Application.Quit does nothing in the Editor; tests replace this.</summary>
         internal Action<int> Exit = code => Application.Quit(code);
+        /// <summary>Opens the self-test's outbox directory from $STATE_DIRECTORY; tests replace it with a portable directory.</summary>
+        internal Func<ServerOptions, IOutboxDirectory> OpenOutbox = o => OpenSelftestOutbox(o, Environment.GetEnvironmentVariable("STATE_DIRECTORY"));
+        /// <summary>The effective uid the self-test checks (it refuses root); tests replace it.</summary>
+        internal Func<long> EffectiveUserId = OutboxSelftest.EffectiveUserId;
         internal ServerOptions Options => options;
         internal bool HasExited { get; private set; }
         internal int ExitCode { get; private set; } = -1;
         internal string ExitReason { get; private set; }
         internal int UnitViewsDisabled { get; private set; }
         internal int UnitViewsActive { get; private set; }
+        /// <summary>Whether -attemptFixture may run: Editor and fixture builds only (S12-D4). Tests replace it, as an Editor
+        /// compile can't observe a release build's define.</summary>
+        internal Func<bool> AttemptFixtureAllowed = () => FixtureBuild;
+        /// <summary>Where -attemptFixture's attempt comes from (the fixture source); tests replace it to vary the register answer.</summary>
+        internal Func<string, IAttemptSource> AttemptSourceFactory = CreateFixtureSource;
+        /// <summary>The running attempt's session (Stage 12), once its mission is ready; null otherwise.</summary>
+        public AttemptSession Session { get; private set; }
+        internal SquadInventory Inventory => inventory;
 
         internal void Initialize(MissionDirector missionDirector, TacticalPause tacticalPause)
         {
@@ -62,30 +95,60 @@ namespace Blackglass
             pause = tacticalPause;
         }
 
+        /// <summary>The attempt's data (ServerSceneBuilder): catalogue, loot table, the snapshot-mode roster and inventory, this
+        /// build's operative definitions and progression, and the build's catalogue version.</summary>
+        internal void InitializeAttempt(ItemCatalogue items, LootTable loot, SquadRoster squad, SquadInventory squadInventory, ProgressionTrack track,
+            OperativeDefinition[] definitions, string buildCatalogueVersion)
+        {
+            itemCatalogue = items;
+            lootTable = loot;
+            roster = squad;
+            inventory = squadInventory;
+            progression = track;
+            operatives = definitions ?? new OperativeDefinition[0];
+            catalogueVersion = buildCatalogueVersion ?? string.Empty;
+        }
+
         static double Now => Time.realtimeSinceStartupAsDouble;
 
-        void Start()
+        void Start() => Begin(Environment.GetCommandLineArgs());
+
+        /// <summary>Start's work, from the command line (tests pass their own arguments).</summary>
+        internal void Begin(IReadOnlyList<string> args)
         {
 #if !UNITY_EDITOR
             // One line per log call in the player's stdout; warnings and errors keep their stack traces.
             Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
 #endif
-            options = ServerOptions.Parse(Environment.GetCommandLineArgs(), out var warnings);
+            options = ServerOptions.Parse(args, out var warnings);
             foreach (var warning in warnings)
                 Debug.LogWarning(Prefix + "option ignored: " + warning);
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = options.FrameRate;
             Debug.Log(Prefix + IdentityLine());
+            if (options.OutboxSelftest != null)
+            {
+                // The self-test needs no mission and no network: nothing below runs, -net is never read.
+                Debug.Log(Prefix + "outbox self-test phase=" + options.OutboxSelftest);
+                selftest = new OutboxSelftest(options.OutboxSelftest, () => OpenOutbox(options), EffectiveUserId, line => Debug.Log(line));
+                return;
+            }
             if (director == null || pause == null)
             {
                 Finish(ServerExitCodes.StartupFailed, "the scene's ServerBootstrap is not wired to a MissionDirector and a TacticalPause");
                 return;
             }
             Debug.Log(Prefix + "options " + options.Describe(director.Settings.seed));
+            director.StateChanged -= OnStateChanged;
             director.StateChanged += OnStateChanged;
             started = true;
             startupDeadline = Now + options.StartupTimeoutSeconds;
             generation = Stopwatch.StartNew();
+            if (options.AttemptFixture != null)
+            {
+                BeginAttempt(options.AttemptFixture);
+                return;
+            }
             var seed = options.Seed ?? director.Settings.seed;
             if (!director.Generate(seed))
             {
@@ -95,10 +158,124 @@ namespace Blackglass
             Debug.Log(Prefix + "generating " + director.Settings.Describe());
         }
 
+        /// <summary>
+        /// The fixture attempt (Stage 12 Task 8): refused outside Editor and fixture builds; then the source, AttemptStart, the
+        /// snapshot squad (roster and inventory), the loot table, and GenerateForAttempt. Any refusal ends startup (exit 2)
+        /// with its code; the seed is never logged.
+        /// </summary>
+        void BeginAttempt(string fixture)
+        {
+            Session?.Unbind();
+            Session = null;
+            attempt = null;
+            ready = false;
+            if (!AttemptFixtureAllowed())
+            {
+                Finish(ServerExitCodes.StartupFailed, "-attemptFixture is not available in a release build");
+                return;
+            }
+            if (fixture.Length == 0)
+            {
+                Finish(ServerExitCodes.StartupFailed, "-attemptFixture needs the path of an attempt fixture");
+                return;
+            }
+            var source = AttemptSourceFactory(fixture);
+            if (source == null)
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: no fixture source in this build");
+                return;
+            }
+            if (!source.TryLoad(out var attemptId, out var response, out var problem))
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + problem);
+                return;
+            }
+            if (itemCatalogue == null || lootTable == null || roster == null || inventory == null || progression == null)
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: the scene's ServerBootstrap is not wired for attempts (rebuild the server scene)");
+                return;
+            }
+            if (!AttemptStart.TryCreate(attemptId, response, catalogueVersion, id => AttemptSquad.Find(operatives, id) != null,
+                    ItemLedgerMapping.Catalogue(itemCatalogue), out var start, out var refusal))
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
+                return;
+            }
+            if (!AttemptSquad.TryMembers(start, operatives, progression, out var members, out refusal))
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
+                return;
+            }
+            roster.InitializeFromSnapshot(members, progression);
+            if (!inventory.InitializeFromSnapshot(itemCatalogue, roster, inventory.Core.BagCapacity, start.Snapshot, out refusal))
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
+                return;
+            }
+            director.SetLootTable(lootTable);
+            attempt = start;
+            if (!director.GenerateForAttempt(start))
+            {
+                Finish(ServerExitCodes.StartupFailed, "the director refused to generate");
+                return;
+            }
+            Debug.Log(Prefix + $"generating attempt {start.AttemptId} operatives={start.Snapshot.Count} template={start.TemplateId}/{start.TemplateVersion}");
+        }
+
+        static IAttemptSource CreateFixtureSource(string path)
+        {
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+            return new FixtureAttemptSource(path);
+#else
+            return null;
+#endif
+        }
+
+        /// <summary>The build's revision for the manifest: the stamped revision when it is well formed, else "editor".</summary>
+        static string BuildRevision()
+        {
+#if UNITY_EDITOR
+            return "editor";
+#else
+            var info = ServerBuildInfo.ReadBesideExecutable();
+            return info != null && info.TryGetValue("revision", out var revision) && CanonicalIds.IsBuildRevision(revision) ? revision : "unknown";
+#endif
+        }
+
+        // The attempt's session starts on the ready mission; a refusal ends startup.
+        bool BeginSession()
+        {
+            Session = AttemptSession.Begin(attempt, director, inventory, ItemLedgerMapping.Catalogue(itemCatalogue), new ServerClock(), BuildRevision(), out var refusal);
+            if (Session == null)
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
+                return false;
+            }
+            var report = Session.ReadyReport;
+            Debug.Log(Prefix + $"ATTEMPT READY attempt={attempt.AttemptId} lines={report.lootPool.Length} lootHash={report.lootHash} layoutHash={report.layoutHash}");
+            Debug.Log(Prefix + "attempt ready report " + JsonUtility.ToJson(report));
+            director.MissionFinished += OnAttemptFinished;
+            return true;
+        }
+
+        void OnAttemptFinished(MissionPhase phase)
+        {
+            director.MissionFinished -= OnAttemptFinished;
+            if (Session == null || Session.Outcome == null)
+                return;
+            var outcome = Session.Outcome;
+            Debug.Log(Prefix + $"ATTEMPT FROZEN outcome={(Session.Result != null ? Session.Result.Outcome.ToString() : "none")} build={outcome.Kind} integrity={Session.Facts.Integrity} " +
+                $"manifestHash={(outcome.Manifest != null ? outcome.Manifest.ManifestHash : "none")} diagnostics={string.Join(",", outcome.Diagnostics)}");
+        }
+
         void OnDestroy()
         {
             if (director != null)
+            {
                 director.StateChanged -= OnStateChanged;
+                director.MissionFinished -= OnAttemptFinished;
+            }
+            Session?.Unbind();
         }
 
         void OnApplicationQuit() => Debug.Log(Prefix + "quitting");
@@ -115,6 +292,8 @@ namespace Blackglass
             ready = true;
             generation?.Stop();
             DisableUnitViews();
+            if (attempt != null && !BeginSession())
+                return;
             LogReady();
             LogSelfCheck();
             StartHeartbeat(Now);
@@ -160,11 +339,22 @@ namespace Blackglass
                 Finish(ServerExitCodes.StartupFailed, "net: " + failure);
         }
 
-        void Update()
+        void Update() => Tick(Now);
+
+        /// <summary>One frame at <paramref name="now"/> (unscaled seconds); Update passes the real clock, tests their own.</summary>
+        internal void Tick(double now)
         {
-            if (HasExited || !started)
+            if (HasExited)
                 return;
-            var now = Now;
+            if (selftest != null)
+            {
+                selftest.Step(now);
+                if (selftest.IsFinished)
+                    Finish(selftest.Passed ? ServerExitCodes.Success : ServerExitCodes.SelftestFailed, selftest.Summary);
+                return;
+            }
+            if (!started)
+                return;
             if (!ready)
             {
                 if (now > startupDeadline)
@@ -200,6 +390,21 @@ namespace Blackglass
             else
                 Debug.LogWarning(line);
             Exit(code);
+        }
+
+        /// <summary>
+        /// The self-test's directory: never under the real outbox's parent (the agent relays from there), then exactly
+        /// <c>parent/id</c> as OutboxLocation checks, opened and checked as the server's outbox is.
+        /// A symbolic-link parent pointing at the real outbox isn't caught by the name check; OutboxLocation's exact-path rule
+        /// and the directory's owner check (the unit's dynamic user, never the agent's) still refuse it.
+        /// </summary>
+        internal static IOutboxDirectory OpenSelftestOutbox(ServerOptions o, string stateDirectory)
+        {
+            const string production = "/var/lib/blackglass-outbox";
+            var parent = (o.SelftestParent ?? string.Empty).TrimEnd('/');
+            if (parent == production || parent.StartsWith(production + "/", StringComparison.Ordinal) || parent.Contains("blackglass-outbox"))
+                throw new OutboxIOException("production_outbox", 0);
+            return OutboxDirectories.OpenForServer(stateDirectory, o.SelftestParent, o.SelftestId);
         }
 
         /// <summary>Per-unit components that only show something (decision 014 debug views, the selection ring, the hit flash).</summary>
@@ -254,7 +459,7 @@ namespace Blackglass
             var r = director.Report;
             var generationMs = generation != null ? generation.Elapsed.TotalMilliseconds : 0d;
             Debug.Log(Prefix +
-                FormattableString.Invariant($"MISSION READY instance={director.InstanceId} seed={r.Seed} attempt={r.Attempt}/{r.MaxAttempts} rooms={r.Rooms} navArea={r.NavArea:0} ") +
+                FormattableString.Invariant($"MISSION READY instance={director.InstanceId} seed={(director.Attempt != null ? "attempt" : r.Seed.ToString(System.Globalization.CultureInfo.InvariantCulture))} attempt={r.Attempt}/{r.MaxAttempts} rooms={r.Rooms} navArea={r.NavArea:0} ") +
                 FormattableString.Invariant($"paths={r.PathsChecked} cover={r.CoverTotal}(low {r.CoverLow}, tall {r.CoverTall}) friendlies={director.Friendlies.Count} ") +
                 FormattableString.Invariant($"hostiles={director.Hostiles.Count} layoutHash={r.LayoutHash:x16} generationMs={generationMs:0} ") +
                 FormattableString.Invariant($"navMeshBakeMs={r.NavMeshBakeMs:0.0} sinceStartupS={Now:0.0}"));

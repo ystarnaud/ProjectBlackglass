@@ -392,6 +392,8 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 12: server mission from a snapshot, with abilities (D-24)
 
+**Status (2026-10-21): Track L complete and accepted, merged into `main`; Stage 12 overall remains incomplete pending B24 and Track N** (Tasks 9–11; see `2026-10-21-phase-13-stage12-local-scope.md`, "As built" and "Final rulings"). B25 is validated in the local authoritative mission runtime. The outbox self-test is complete and accepted. Earlier: **Status (2026-10-20):** planning only. The detailed plan is `2026-10-20-phase-13-stage12-server-mission.md` (revision 2.2, on `phase13-stage12-plan`), with the outbox self-test prepared on `phase13-outbox-selftest` (`5551a00`) and its host manifest `2026-10-20-phase-13-stage12-outbox-selftest-manifest.md` (revision 5). The self-test was run once on `bg-dev-mission01` (2026-10-21 UTC) and accepted by the owner with one documented module-baseline exception (the manifest's §9). Not authorized for implementation; nothing else has run on either VM. Where the detailed plan differs from this outline, it wins.
+
 **Touches:**
 - `MissionDirector` (`GenerateForAttempt`, the pool read);
 - `SquadRoster` (`InitializeFromSnapshot`);
@@ -407,7 +409,7 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 **Blocking acceptance gates:**
 - **B24:** an enforced per-slot TCP bind restriction, demonstrated on `bg-dev-mission01` before any real Unity mission workload runs there.
 - **B25 (§18.2; Stage 11 final review I1, owner ruling 2026-10-20): attempt containers filled one entry per rolled item, so each registered pool line is one roll and the real `LootPoolValidator` accepts the ready report.** A dedicated online container-initialization path (the offline `LootContainer.Initialize` unchanged); a roll that can't be one entry fails generation explicitly; the nine tests of the Stage 11 plan's "Final owner rulings", with forced duplicate-roll fixtures.
-- **The Linux Unity outbox self-test:** run on the mission VM only after the owner approves its host manifest.
+- **The Linux Unity outbox self-test:** **complete** (Stage 11's requirement). It ran once on the mission VM under the approved manifest revision 5 at `5551a00` and was accepted by the owner on 2026-10-21 with the documented `inet_diag`/`tcp_diag` baseline exception. Not to be rerun. B24 and B25 remain open.
 
 **Work:**
 - the catalogue, loot table, roster and inventory in snapshot mode on the server;

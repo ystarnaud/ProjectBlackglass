@@ -26,6 +26,7 @@ namespace Blackglass
         readonly HashSet<string> seededOperatives = new HashSet<string>();
         readonly Dictionary<string, Dictionary<string, int>> startCounts = new Dictionary<string, Dictionary<string, int>>();
         bool stashSeeded;
+        bool fromSnapshot;
 
         public InventorySession(ItemCatalogue catalogue, int bagCapacity)
         {
@@ -34,6 +35,62 @@ namespace Blackglass
             this.catalogue = catalogue;
             this.bagCapacity = bagCapacity;
             Session = new InventoryState();
+        }
+
+        /// <summary>
+        /// The server's session for an attempt (Stage 12, spec §14.4): every snapshot operative's bag and equipment exactly as
+        /// admitted, no stash, and no starter grant ever (SeedStarter does nothing). Owned non-stackables keep the backend item
+        /// id as their instance id; a stack is split by maxStack into entries with local ids; equipment is set by item id. Null
+        /// with one code: unknown_item, bag_overflow (an entry the bag refused: kept so a failure is never silent; a bag admitted over
+        /// capacity gets the admitted entries as its capacity), bad_equipment.
+        /// </summary>
+        public static InventorySession FromSnapshot(ItemCatalogue catalogue, int bagCapacity, IReadOnlyList<Backend.Core.OperativeSnapshot> snapshot,
+            out string problem)
+        {
+            if (snapshot == null)
+                throw new ArgumentNullException(nameof(snapshot));
+            var session = new InventorySession(catalogue, bagCapacity) { stashSeeded = true, fromSnapshot = true };
+            foreach (var operative in snapshot)
+            {
+                session.seededOperatives.Add(operative.OperativeId);
+                // The backend lets an admitted bag stay over capacity (S5-D7; V11 bounds it by max(capacity, admitted)): the bag
+                // holds what was admitted and never grows past it.
+                var admitted = operative.Items.Count;
+                foreach (var stack in operative.Stacks)
+                {
+                    var stackDefinition = catalogue != null ? catalogue.Find(stack.DefinitionId) : null;
+                    if (stackDefinition != null && stack.Quantity > 0)
+                        admitted += (stack.Quantity + stackDefinition.MaxStack - 1) / stackDefinition.MaxStack;
+                }
+                var loadout = session.Session.EnsureLoadout(operative.OperativeId, Math.Max(bagCapacity, admitted));
+                foreach (var item in operative.Items)
+                {
+                    var definition = catalogue != null ? catalogue.Find(item.DefinitionId) : null;
+                    if (definition == null || definition.IsStackable)
+                        return Refuse("unknown_item", out problem);
+                    if (!loadout.Bag.TryAddEntry(new ItemEntry(item.ItemId, item.DefinitionId, 1)))
+                        return Refuse("bag_overflow", out problem);
+                }
+                foreach (var stack in operative.Stacks)
+                {
+                    var definition = catalogue != null ? catalogue.Find(stack.DefinitionId) : null;
+                    if (definition == null || !definition.IsStackable || stack.Quantity < 1)
+                        return Refuse("unknown_item", out problem);
+                    if (loadout.Bag.Add(definition, stack.Quantity) > 0)
+                        return Refuse("bag_overflow", out problem);
+                }
+                foreach (var (slot, itemId) in new[] { (ItemSlot.Weapon, operative.WeaponItemId), (ItemSlot.Armor, operative.ArmorItemId), (ItemSlot.Utility, operative.UtilityItemId) })
+                    if (itemId != null && (!loadout.Equipment.TryEquip(loadout.Bag, catalogue, itemId).Ok || loadout.Equipment.InstanceIdIn(slot) != itemId))
+                        return Refuse("bad_equipment", out problem);
+            }
+            problem = null;
+            return session;
+        }
+
+        static InventorySession Refuse(string code, out string problem)
+        {
+            problem = code;
+            return null;
         }
 
         public ItemCatalogue Catalogue => catalogue;
@@ -254,7 +311,7 @@ namespace Blackglass
         /// </summary>
         public void SeedStarter(StarterLoadout starter, IEnumerable<string> operativeIds, List<string> problems)
         {
-            if (starter == null)
+            if (starter == null || fromSnapshot)
                 return;
             foreach (var id in operativeIds)
             {

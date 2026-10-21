@@ -149,7 +149,13 @@ namespace Blackglass.Tests
                     .Where(m => m.Name.IndexOf("seed", StringComparison.OrdinalIgnoreCase) >= 0 || m.Name.IndexOf("salt", StringComparison.OrdinalIgnoreCase) >= 0)
                     .Select(m => t.FullName + "." + m.Name))
                 .ToList();
-            Assert.That(offenders, Is.EqualTo(new[] { typeof(SessionRegisterResponse).FullName + ".seed" }));
+            // Stage 12 Task 2: the validated attempt keeps the seed as the generator's input (no ToString prints it). Nothing else may.
+            var attempt = typeof(AttemptStart).FullName;
+            Assert.That(offenders, Is.EquivalentTo(new[]
+            {
+                typeof(SessionRegisterResponse).FullName + ".seed",
+                attempt + ".Seed", attempt + ".get_Seed", attempt + ".set_Seed", attempt + ".<Seed>k__BackingField",
+            }));
         }
 
         [Test]

@@ -34,8 +34,11 @@ namespace Blackglass
 
         readonly List<RosterMember> members = new List<RosterMember>();
         bool subscribed;
+        bool snapshotMode;
 
         public IReadOnlyList<RosterMember> Members => members;
+        /// <summary>True for the server's attempt roster (InitializeFromSnapshot): the backend's operatives, never awarded XP here.</summary>
+        public bool SnapshotMode => snapshotMode;
         public int Count => members.Count;
         public ProgressionTrack Track => track;
 
@@ -47,12 +50,30 @@ namespace Blackglass
         internal void Initialize(OperativeDefinition[] squad, ProgressionTrack progression, MissionDirector missionDirector = null)
         {
             Unsubscribe();
+            snapshotMode = false;
             startingSquad = squad;
             track = progression;
             director = missionDirector;
             Build();
             if (isActiveAndEnabled)
                 Subscribe();
+        }
+
+        /// <summary>
+        /// The server's attempt roster (Stage 12, spec §14.3): the snapshot's operatives in slot order with this build's
+        /// definitions and the backend's ids, XP and picks (AttemptSquad.TryMembers). It never subscribes to MissionFinished and
+        /// never awards completion XP: the backend does, dead operatives included.
+        /// </summary>
+        internal void InitializeFromSnapshot(IReadOnlyList<(OperativeDefinition Definition, PersistentOperativeState State)> squad, ProgressionTrack progression)
+        {
+            Unsubscribe();
+            director = null;
+            startingSquad = new OperativeDefinition[0];
+            track = progression;
+            snapshotMode = true;
+            members.Clear();
+            foreach (var (definition, state) in squad)
+                members.Add(new RosterMember(definition, state));
         }
 
         void OnEnable() => Subscribe();
@@ -78,6 +99,8 @@ namespace Blackglass
 
         void Build()
         {
+            if (snapshotMode)
+                return;   // the attempt's operatives are the backend's; a late Awake must not replace them
             members.Clear();
             if (startingSquad == null || startingSquad.Length == 0)
                 return;
@@ -161,6 +184,8 @@ namespace Blackglass
         /// <summary>The track's mission-completion XP to every member, dead or alive (assumption recorded in decision 036).</summary>
         public void AwardMissionCompletion()
         {
+            if (snapshotMode)
+                return;
             foreach (var member in members)
             {
                 member.State.AddExperience(track.MissionCompletionXp);
@@ -189,7 +214,7 @@ namespace Blackglass
 
         internal void HandleMissionFinished(MissionPhase phase)
         {
-            if (phase == MissionPhase.Success)
+            if (phase == MissionPhase.Success && !snapshotMode)
                 AwardMissionCompletion();
         }
     }

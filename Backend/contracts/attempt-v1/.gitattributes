@@ -1,0 +1,2 @@
+# Attempt fixtures are exact bytes (the ready reports as JsonUtility writes them): never convert line endings.
+* -text

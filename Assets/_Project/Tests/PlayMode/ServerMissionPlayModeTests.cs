@@ -20,6 +20,7 @@ namespace Blackglass.Tests
         {
             typeof(ServerBootstrap), typeof(TacticalPause), typeof(Encounter), typeof(UnitSelection), typeof(ActiveCharacter),
             typeof(CoverRegistry), typeof(CoverDiscovery), typeof(InteractableRegistry), typeof(MissionDirector), typeof(NetServer), typeof(IntelligenceService),
+            typeof(SquadRoster), typeof(SquadInventory), // Stage 12: the attempt's squad in snapshot mode (spec 14.5)
         };
 
         Scene scene;

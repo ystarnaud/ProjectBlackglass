@@ -1098,3 +1098,41 @@ Design: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` (revision
 
 - **Implications:**
   - Phase 14 adds checkpoints, corrected-manifest resubmission, reconciliation of late results, outbox cleanup, replay verification and per-host reward limits.
+
+## 051. Stage 12 Track L: outcomeSequence, supported templates and removal-only online containers (2026-10-21)
+
+- **Decided (owner rulings, Stage 12 Track L final rulings):**
+  - **outcomeSequence** is the sequence number of the first committed terminal gameplay event of the authoritative attempt
+    session (`OutcomeSequence`, `AttemptSession`).
+    - The counter starts at zero and counts each committed authoritative state change once:
+      - a health change (damage, healing, death);
+      - a resolved basic-attack miss (a hit counts as its damage);
+      - an accepted ability use;
+      - an item event the ledger applied (a collect per container entry moved, a use, an equip);
+      - an interaction's first completion (a container's search or a terminal; a re-open of a searched container changes nothing and isn't counted);
+      - an objective transition.
+    - Refused, malformed, duplicate, unauthorized and no-effect requests never count.
+    - The terminal event takes the next number, and the freeze keeps it with the result. Nothing afterwards changes the number, the result, the bytes or the hash.
+    - An overflow fails closed (no bytes): it never wraps or clamps.
+    - Connection anti-replay sequences are separate.
+  - **Supported templates:** exactly `procedural-standard:1`, with 1 to 3 operatives (the backend's row). `AttemptStart` refuses
+    `unsupported_template` (an unknown id or version; no fallback) and `unsupported_squad_size` before any generation. Stage 13
+    maps the refusal onto the process-failure lifecycle. The backend's allowlist is unchanged.
+  - **Online containers** are filled at generation, registered as immutable loot-pool sources, and removal-only from then on:
+    - `ItemInventory.LockAdditions` refuses every addition before anything changes;
+    - collection still removes;
+    - an attempt container can't be re-initialized;
+    - offline inventories never lock;
+    - the ledger stays the backstop for an unexpected change.
+- **Why:**
+  - A defined, deterministic outcome ordinal.
+  - A build runs only the missions it was made for.
+  - The registered pool can never grow under the backend's loot accounting.
+- **Rejected:**
+  - Counting refused events.
+  - A fallback template.
+  - A deposit feature.
+  - A broad inventory refactor (a removal-only flag was enough).
+- **Implications:**
+  - A new template or a change of capacity means updating `MissionTemplates.Supported` together with the backend's row.
+  - A future deposit feature needs its own owner decision.

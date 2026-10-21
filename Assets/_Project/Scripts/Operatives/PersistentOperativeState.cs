@@ -53,6 +53,28 @@ namespace Blackglass
             return true;
         }
 
+        /// <summary>
+        /// An operative's state as the backend holds it (Stage 12, the attempt's snapshot): its id, XP and picks exactly. Null
+        /// with "bad_progression" for negative XP, a choice the track doesn't know, or more picks than the rank allows.
+        /// </summary>
+        internal static PersistentOperativeState Restore(string id, int experience, IReadOnlyList<string> choices, ProgressionTrack track, out string problem)
+        {
+            problem = "bad_progression";
+            if (string.IsNullOrWhiteSpace(id) || track == null || experience < 0 || choices == null)
+                return null;
+            if (choices.Count > Math.Max(0, track.RankFor(experience) - 1))
+                return null;
+            var state = new PersistentOperativeState(id) { experience = experience };
+            foreach (var choice in choices)
+            {
+                if (track.FindChoice(choice) == null)
+                    return null;
+                state.choiceIds.Add(choice);
+            }
+            problem = null;
+            return state;
+        }
+
         /// <summary>Back to rank 1: no XP, no picks. The id stays.</summary>
         public void ResetProgression()
         {

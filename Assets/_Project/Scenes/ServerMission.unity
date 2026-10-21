@@ -119,7 +119,7 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
---- !u!1 &629758757
+--- !u!1 &49432081
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -127,15 +127,89 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 629758766}
-  - component: {fileID: 629758760}
-  - component: {fileID: 629758765}
-  - component: {fileID: 629758764}
-  - component: {fileID: 629758763}
-  - component: {fileID: 629758762}
-  - component: {fileID: 629758761}
-  - component: {fileID: 629758759}
-  - component: {fileID: 629758758}
+  - component: {fileID: 49432084}
+  - component: {fileID: 49432083}
+  - component: {fileID: 49432082}
+  m_Layer: 0
+  m_Name: Server
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &49432082
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 49432081}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5fc393e15ea6252478f0fbd7e0e19850, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.NetServer
+  avatarPrefab: {fileID: 2289379598466218246, guid: a9a3fee26fe2bef41b977e4dfaf55bf1, type: 3}
+  spawnablePrefabs: {fileID: 11400000, guid: 4f17b9e6468558348aca27140f4f108a, type: 2}
+  intelligence: {fileID: 743606270}
+--- !u!114 &49432083
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 49432081}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 51237cb17b75d2947912afa4c9091caf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.ServerBootstrap
+  director: {fileID: 2135105763}
+  pause: {fileID: 743606273}
+  itemCatalogue: {fileID: 11400000, guid: 3a50201df96c94c449b0d2cb7ab20889, type: 2}
+  lootTable: {fileID: 11400000, guid: 63fff2c4a82c61049bc1db3822c31e13, type: 2}
+  roster: {fileID: 743606271}
+  inventory: {fileID: 743606269}
+  progression: {fileID: 11400000, guid: 5ff06ada83b17e44d8c780d225941a8f, type: 2}
+  operatives:
+  - {fileID: 11400000, guid: 48ed67ca66c926e48bdded3e42e3b005, type: 2}
+  - {fileID: 11400000, guid: e123a3e9bd5510344ba0c6fc4a607f3d, type: 2}
+  - {fileID: 11400000, guid: 6f5b4e0c79342d04cbe0a8d34e73ff03, type: 2}
+  catalogueVersion: sha256:e83352b1c9d8764a92281551a25bea42621da2b592bc30d35986a5f0a86c496b
+--- !u!4 &49432084
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 49432081}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &743606268
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 743606279}
+  - component: {fileID: 743606273}
+  - component: {fileID: 743606278}
+  - component: {fileID: 743606277}
+  - component: {fileID: 743606276}
+  - component: {fileID: 743606275}
+  - component: {fileID: 743606274}
+  - component: {fileID: 743606272}
+  - component: {fileID: 743606270}
+  - component: {fileID: 743606271}
+  - component: {fileID: 743606269}
   m_Layer: 0
   m_Name: Systems
   m_TagString: Untagged
@@ -143,13 +217,31 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &629758758
+--- !u!114 &743606269
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 629758757}
+  m_GameObject: {fileID: 743606268}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 57ee0d4f65d54744c8e1882f72774d4c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.SquadInventory
+  catalogue: {fileID: 11400000, guid: 3a50201df96c94c449b0d2cb7ab20889, type: 2}
+  starter: {fileID: 0}
+  roster: {fileID: 743606271}
+  director: {fileID: 0}
+  bagCapacity: 8
+  startInLoadout: 1
+--- !u!114 &743606270
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 743606268}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b95c051049375c74d93942fc7a32fc81, type: 3}
@@ -160,43 +252,58 @@ MonoBehaviour:
     m_Bits: 4294967295
   passInterval: 0.2
   markerMaterial: {fileID: 0}
---- !u!114 &629758759
+--- !u!114 &743606271
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 629758757}
+  m_GameObject: {fileID: 743606268}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e11c9b36320f1374e887658c03ff4022, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Blackglass::Blackglass.SquadRoster
+  startingSquad: []
+  track: {fileID: 11400000, guid: 5ff06ada83b17e44d8c780d225941a8f, type: 2}
+  director: {fileID: 0}
+--- !u!114 &743606272
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 743606268}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: fa0879808b197b74da58ca14c6fa949e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.InteractableRegistry
---- !u!114 &629758760
+--- !u!114 &743606273
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 629758757}
+  m_GameObject: {fileID: 743606268}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 50b9aa0734f3c3c40b1aebf963dfdfdf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.TacticalPause
---- !u!114 &629758761
+--- !u!114 &743606274
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 629758757}
+  m_GameObject: {fileID: 743606268}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 930889caf623c5d49a0ae8da5a3a66a0, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.CoverDiscovery
-  registry: {fileID: 629758762}
+  registry: {fileID: 743606275}
   settings:
     standOffset: 0.75
     spacing: 1
@@ -210,53 +317,53 @@ MonoBehaviour:
     hitChance: 0.5
     walkableTolerance: 0.25
   discoverOnStart: 0
---- !u!114 &629758762
+--- !u!114 &743606275
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 629758757}
+  m_GameObject: {fileID: 743606268}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 4223b18790f34b2438b11a03579b77a9, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.CoverRegistry
---- !u!114 &629758763
+--- !u!114 &743606276
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 629758757}
+  m_GameObject: {fileID: 743606268}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d6a8c373101e1ab49a8ee58548ca5079, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.ActiveCharacter
   unit: {fileID: 0}
-  tacticalPause: {fileID: 629758760}
-  selection: {fileID: 629758764}
---- !u!114 &629758764
+  tacticalPause: {fileID: 743606273}
+  selection: {fileID: 743606277}
+--- !u!114 &743606277
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 629758757}
+  m_GameObject: {fileID: 743606268}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 85119a1265222e648bfe393a732026ea, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Blackglass::Blackglass.UnitSelection
   roster: []
---- !u!114 &629758765
+--- !u!114 &743606278
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 629758757}
+  m_GameObject: {fileID: 743606268}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 562c72dcdffc20841b4a50f12763c1f6, type: 3}
@@ -264,13 +371,13 @@ MonoBehaviour:
   m_EditorClassIdentifier: Blackglass::Blackglass.Encounter
   friendlies: []
   hostiles: []
---- !u!4 &629758766
+--- !u!4 &743606279
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 629758757}
+  m_GameObject: {fileID: 743606268}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -279,7 +386,7 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &957317113
+--- !u!1 &2135105762
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -287,70 +394,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 957317116}
-  - component: {fileID: 957317115}
-  - component: {fileID: 957317114}
-  m_Layer: 0
-  m_Name: Server
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &957317114
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 957317113}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 5fc393e15ea6252478f0fbd7e0e19850, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.NetServer
-  avatarPrefab: {fileID: 2289379598466218246, guid: a9a3fee26fe2bef41b977e4dfaf55bf1, type: 3}
-  spawnablePrefabs: {fileID: 11400000, guid: 4f17b9e6468558348aca27140f4f108a, type: 2}
-  intelligence: {fileID: 629758758}
---- !u!114 &957317115
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 957317113}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 51237cb17b75d2947912afa4c9091caf, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Blackglass::Blackglass.ServerBootstrap
-  director: {fileID: 1093777531}
-  pause: {fileID: 629758760}
---- !u!4 &957317116
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 957317113}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1093777530
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1093777532}
-  - component: {fileID: 1093777531}
+  - component: {fileID: 2135105764}
+  - component: {fileID: 2135105763}
   m_Layer: 0
   m_Name: Mission
   m_TagString: Untagged
@@ -358,13 +403,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1093777531
+--- !u!114 &2135105763
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1093777530}
+  m_GameObject: {fileID: 2135105762}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6169981eb357d994782e8681a0030375, type: 3}
@@ -412,18 +457,18 @@ MonoBehaviour:
   - prefab: {fileID: 8744270717196842595, guid: b08e52db2bae1e1428921679d69ff95d, type: 3}
     archetype: {fileID: 0}
   systems:
-    encounter: {fileID: 629758765}
-    selection: {fileID: 629758764}
-    activeCharacter: {fileID: 629758763}
-    coverRegistry: {fileID: 629758762}
-    coverDiscovery: {fileID: 629758761}
-    pause: {fileID: 629758760}
+    encounter: {fileID: 743606278}
+    selection: {fileID: 743606277}
+    activeCharacter: {fileID: 743606276}
+    coverRegistry: {fileID: 743606275}
+    coverDiscovery: {fileID: 743606274}
+    pause: {fileID: 743606273}
     camera: {fileID: 0}
     abilityTargeting: {fileID: 0}
-    interactables: {fileID: 629758759}
-    roster: {fileID: 0}
-    intelligence: {fileID: 629758758}
-    inventory: {fileID: 0}
+    interactables: {fileID: 743606272}
+    roster: {fileID: 743606271}
+    intelligence: {fileID: 743606270}
+    inventory: {fileID: 743606269}
     presentation: {fileID: 0}
   groundMaterial: {fileID: 2100000, guid: a4af9315f320cdd47bb677d6b9585c8e, type: 2}
   obstacleMaterial: {fileID: 2100000, guid: 4269a282e4a76984985539bb4c7df2ea, type: 2}
@@ -432,13 +477,13 @@ MonoBehaviour:
   newSeedAtStart: 0
   cameraMargin: 2
   lootTable: {fileID: 0}
---- !u!4 &1093777532
+--- !u!4 &2135105764
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1093777530}
+  m_GameObject: {fileID: 2135105762}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -451,6 +496,6 @@ Transform:
 SceneRoots:
   m_ObjectHideFlags: 0
   m_Roots:
-  - {fileID: 957317116}
-  - {fileID: 629758766}
-  - {fileID: 1093777532}
+  - {fileID: 49432084}
+  - {fileID: 743606279}
+  - {fileID: 2135105764}

@@ -9,7 +9,8 @@
         "FishNet.Runtime",
         "GameKit.Dependencies",
         "FishyUnityTransport",
-        "Unity.Networking.Transport"
+        "Unity.Networking.Transport",
+        "Blackglass.Backend.Core"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

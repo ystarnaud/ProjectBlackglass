@@ -6,6 +6,8 @@ namespace Blackglass
     /// <summary>Fixed numbers of the mission generator that are deliberately not exposed as settings.</summary>
     public static class MissionConstants
     {
+        /// <summary>The most friendly units a mission spawns (the generator's spawn search and the director's clamp).</summary>
+        public const int MaxFriendlies = 6;
         public const float WallHeight = 3f;
         public const float LowHeight = 1f;
         public const float FloorThickness = 0.2f;
@@ -72,7 +74,7 @@ namespace Blackglass
             copy.extraLoops = Mathf.Clamp(extraLoops, 0, 4);
             copy.bafflesPerRoom = Mathf.Clamp(bafflesPerRoom, 0, 3);
             copy.lowCoverDensity = Mathf.Clamp(lowCoverDensity, 0f, 10f);
-            copy.friendlyCount = Mathf.Clamp(friendlyCount, 1, 6);
+            copy.friendlyCount = Mathf.Clamp(friendlyCount, 1, MissionConstants.MaxFriendlies);
             copy.hostileCount = Mathf.Clamp(hostileCount, 1, 8);
             copy.minTeamSeparation = Mathf.Clamp(minTeamSeparation, 0f, 60f);
             copy.maxAttempts = Mathf.Clamp(maxAttempts, 1, 100);

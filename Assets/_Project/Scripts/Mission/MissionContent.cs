@@ -52,8 +52,18 @@ namespace Blackglass
         /// a collider-free placeholder visual. Not a CoverSurface: it offers no cover.
         /// </summary>
         public static List<LootContainer> AddLootContainers(Transform geometry, LootPlan plan, MissionLayout layout,
-            ItemCatalogue catalogue, Material material)
+            ItemCatalogue catalogue, Material material) =>
+            AddLootContainers(geometry, plan, layout, catalogue, material, false, out _);
+
+        /// <summary>
+        /// The same containers; in attempt mode each is filled one entry per roll (LootContainer.InitializeForAttempt, gate B25)
+        /// and the first roll that can't be one entry stops the build with "&lt;code&gt; container &lt;i&gt; roll &lt;j&gt;" in
+        /// fillError (the containers built so far are returned so the caller destroys them with the mission).
+        /// </summary>
+        public static List<LootContainer> AddLootContainers(Transform geometry, LootPlan plan, MissionLayout layout,
+            ItemCatalogue catalogue, Material material, bool attemptMode, out string fillError)
         {
+            fillError = null;
             var containers = new List<LootContainer>();
             for (var i = 0; i < plan.Containers.Count; i++)
             {
@@ -68,7 +78,14 @@ namespace Blackglass
                 modifier.overrideArea = true;
                 modifier.area = NotWalkableArea;
                 var container = crate.AddComponent<LootContainer>();
-                container.Initialize(planned.Items, catalogue);
+                if (!attemptMode)
+                    container.Initialize(planned.Items, catalogue);
+                else if (!container.InitializeForAttempt(planned.Items, catalogue, out _, out var code, out var roll))
+                {
+                    fillError = $"{code} container {i} roll {roll}";
+                    containers.Add(container);
+                    return containers;
+                }
 
                 var visual = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 visual.name = "Visual";

@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using System.Linq;
 using FishNet.Managing.Object;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -15,8 +16,8 @@ namespace Blackglass.EditorTools
     public static class ServerSceneBuilder
     {
         public const string ScenePath = "Assets/_Project/Scenes/ServerMission.unity";
-        /// <summary>The fixture seed: the lowest seed in 1..1000 that generates on attempt 1 and passes the Editor diagnostic.</summary>
-        public const int FixtureSeed = 1;
+        /// <summary>The fixture seed (ServerFixture.Seed).</summary>
+        public const int FixtureSeed = ServerFixture.Seed;
         const string Root = "Assets/_Project/";
 
         [MenuItem("Blackglass/Server/Build Server Scene")]
@@ -25,38 +26,8 @@ namespace Blackglass.EditorTools
         /// <summary>Unity -batchmode -executeMethod entry.</summary>
         public static void BuildFromCommandLine() => Build();
 
-        /// <summary>The small fixture mission: 2x2 grid, 3 rooms, two friendlies, one hostile, no terminal, no guards.</summary>
-        public static MissionSettings FixtureSettings() => new MissionSettings
-        {
-            seed = FixtureSeed,
-            gridColumns = 2,
-            gridRows = 2,
-            cellSize = 14,
-            roomCount = 3,
-            corridorWidth = 3,
-            extraLoops = 0,
-            bafflesPerRoom = 1,
-            lowCoverDensity = 3f,
-            friendlyCount = 2,
-            hostileCount = 1,
-            minTeamSeparation = 16f,
-            maxAttempts = 20,
-            guardCount = 0,
-            interactionSeconds = 2f,
-            extractionUnits = 1,
-            eliminateHostiles = true,
-            hackTerminal = false,
-            // Fog on: the networked server runs the real knowledge model and visibility fails closed without it (decision 047).
-            // Map and objectives stay known; no briefing markers and no cameras, so only sight and exposure reveal a hostile.
-            intelligence = new IntelligenceSettings
-            {
-                fogEnabled = true,
-                map = MapKnowledge.Full,
-                objectives = ObjectiveKnowledge.All,
-                enemyMarkersAtStart = 0,
-                cameraCount = 0,
-            },
-        };
+        /// <summary>The small fixture mission (ServerFixture.Settings).</summary>
+        public static MissionSettings FixtureSettings() => ServerFixture.Settings();
 
         public static void Build()
         {
@@ -76,6 +47,12 @@ namespace Blackglass.EditorTools
             var intelligence = systems.AddComponent<IntelligenceService>();
             active.Initialize(null, pause, selection);
             discovery.Initialize(registry, discoverAtStart: false);
+            // Stage 12: an attempt's squad. Empty until -attemptFixture fills them in snapshot mode; the fixture mission keeps its slots.
+            var sources = Blackglass.BackendTools.CatalogueSources.LoadProject();
+            var roster = systems.AddComponent<SquadRoster>();
+            roster.Initialize(new OperativeDefinition[0], sources.Progression);
+            var inventory = systems.AddComponent<SquadInventory>();
+            inventory.Initialize(sources.Items, null, roster, sources.InventoryRules.BagCapacity, null);
 
             var director = mission.AddComponent<MissionDirector>();
             director.Initialize(FixtureSettings(), FriendlySlots(), HostileSlots(), new MissionSystems
@@ -88,11 +65,20 @@ namespace Blackglass.EditorTools
                     pause = pause,
                     interactables = interactables,
                     intelligence = intelligence,
+                    roster = roster,
+                    inventory = inventory,
                 },
                 Load<Material>("Materials/Ground.mat"), Load<Material>("Materials/Obstacle.mat"),
                 generateAtStart: false, randomSeedAtStart: false, theme: null);
 
-            server.AddComponent<ServerBootstrap>().Initialize(director, pause);
+            var bootstrap = server.AddComponent<ServerBootstrap>();
+            bootstrap.Initialize(director, pause);
+            var errors = new System.Collections.Generic.List<string>();
+            var catalogueBytes = Blackglass.BackendTools.CatalogueExporter.Export(sources, errors);
+            if (catalogueBytes == null)
+                throw new InvalidOperationException("The catalogue export is refused, so the server scene can't hold its version:\n" + string.Join("\n", errors));
+            bootstrap.InitializeAttempt(sources.Items, sources.LootTable, roster, inventory, sources.Progression,
+                sources.Operatives.OrderBy(o => o.Id, StringComparer.Ordinal).ToArray(), Blackglass.BackendTools.CanonicalCatalogueWriter.VersionOf(catalogueBytes));
             // The networking adapter is in the scene but inert: it builds FishNet's manager only when -net is given.
             server.AddComponent<NetServer>().Initialize(
                 Load<GameObject>("Prefabs/Net/NetUnitAvatar.prefab"),

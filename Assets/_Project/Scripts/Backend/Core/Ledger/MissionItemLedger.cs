@@ -152,7 +152,10 @@ namespace Blackglass.Backend.Core
 
         static ArgumentException Bad(string why) => new ArgumentException("Malformed snapshot: " + why + ".");
 
-        /// <summary>A container's entries right after its fill (after ItemInventory.Add merged same-definition stacks).</summary>
+        /// <summary>
+        /// A container's entries right after its fill, in roll order: an online attempt fills one entry per successful roll
+        /// (LootContainer.InitializeForAttempt, gate B25), so line i is roll i. Never registered from a merged fill.
+        /// </summary>
         public void RegisterContainer(int containerIndex, IReadOnlyList<ContainerEntry> entriesAfterFill)
         {
             if (containerIndex < 0 || containerIndex > ResultManifestV1.MaxContainerOrLine) throw new ArgumentException("The container index is outside 0..65535.", nameof(containerIndex));
