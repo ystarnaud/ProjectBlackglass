@@ -1,6 +1,6 @@
 # Stage 12 — Revised Scope: Local Unity Work First
 
-**Status (2026-10-21): for the owner's review; not authorized for implementation.** It reorders `2026-10-20-phase-13-stage12-server-mission.md` (revision 2.2). It changes no task's content, and none of its acceptance criteria. Where the two differ on order, this document wins; on content, the plan wins.
+**Status (2026-10-21): Track L authorized by the owner and implemented on `phase13-stage12` (L1–L7 plus the review fixes; see §5 "As built"); stopped for the owner. Not merged, not pushed. Track N blocked on B24.** It reorders `2026-10-20-phase-13-stage12-server-mission.md` (revision 2.2). It changes no task's content, and none of its acceptance criteria. Where the two differ on order, this document wins; on content, the plan wins.
 
 **B24:** mandatory and unsatisfied. The custom listen supervisor is paused by the owner's ruling of 2026-10-21, and the prototype branch stays empty. The architecture comparison the owner asked for is not part of this document (see "Not covered").
 
@@ -73,3 +73,94 @@ Unchanged: Stage 12 is accepted only with B24 (Track N) **and** B25 (Track L) ev
 ## 4. Not covered
 
 The B24 architecture reassessment (the comparison of options A–D, the recommendation, the residuals, the Stage 10 changes and the proofs needed on `bg-dev-mission01`) is not in this document. Its preparation in this session was stopped by a safety classifier and was not retried. It needs another route chosen by the owner.
+
+## 5. As built (2026-10-21, branch `phase13-stage12`; stopped after L7 for the owner)
+
+The owner authorized Track L on 2026-10-21. Not merged, not pushed. Track N (B24) untouched: no VM operation, no tunnel, agent,
+slot template, firewall or systemd change, no real Unity workload on `bg-dev-mission01`, no live backend. The paused supervisor
+branch is unused.
+
+**Branch (L-D1, L-D2):** `phase13-stage12` from `main` `075fcd4`, with the plan branch merged (`2c0fb4b`) and the accepted outbox
+self-test branch merged (`5f0e36e`, S12-D7's core reference). The two branches share no file. The self-test runs only on
+`-outboxSelftest` or one of its options, and no asset, setting or package changed.
+
+| Step | Commit | What |
+|---|---|---|
+| L1 (Task 2) | `aae5d87` | `AttemptStart`: the validated attempt; refusal codes in order |
+| L2 (Task 3, B25) | `21ccf41` | `LootContainer.InitializeForAttempt` (one entry per roll, fail closed), `AttemptLoot`, `ItemLedgerMapping` |
+| L3 (Task 4) | `17fa613` | `MissionDirector.GenerateForAttempt`, `ReadyReportBuilder`, `AttemptReady`, `ServerFixture` |
+| L4 (Task 5) | `1841dfc` | snapshot roster and inventory (`Restore`, `AttemptSquad`, `FromSnapshot`, snapshot modes) |
+| L5 (Task 6) | `3aa4e59` | `AttemptSession` (ledger wiring, freeze, manifest), `ServerClock`, `UnitItems` detail events |
+| L6 (Task 7) | `e1cd9f1` | `Backend/contracts/attempt-v1` from Unity's generation; backend `AttemptFixtureTests` |
+| L7 (Task 8) | `62b8608` | `-attemptFixture`, `IAttemptSource`, server scene with the snapshot squad; abilities, combat, loopback |
+| Review fixes | (this commit) | the independent review's two Important findings and the minors listed below |
+
+**Counts.**
+- Baseline on the combined tree: EditMode 1864, PlayMode 1434.
+- Final: see "Final validation" below.
+- Backend domain: 803/803 (790 plus 13 `AttemptFixtureTests`).
+- Not run: the agent and integration suites. No backend source changed, and the integration suite needs the services VM.
+- Unchanged from `main`: manifest-v1, ledger-v1, the catalogue and `Backend/src`, byte for byte. `LedgerScenarioTests.A_merged_container_line_is_refused_by_the_ready_report_rule` is unchanged.
+
+**B25 evidence (the owner's nine tests).**
+- **Tests 1–8:** `OnlineContainerFillTests` and `AttemptLootTests`.
+  - Forced duplicate medkits (×1 and ×2) in one container.
+  - Partial and complete collects.
+  - Destination merging.
+  - Loot first, oldest first by collection sequence.
+  - Invalid quantities refused before ready.
+  - Lines stable after source mutations.
+  - The loot hash against an independent SHA-256 of the backend's text.
+  - Offline layout and loot hashes and merged contents, pinned at `aae5d87` before any loot change.
+- **Test 9:** the backend's real ready path and `ManifestValidator` judge 7 generated fixtures and 4 deliberately invalid ones.
+  - Every valid fixture passes.
+  - Every invalid fixture gets exactly its expected refusal.
+  - `AttemptFixturePlayTests` shows each seeded fixture's ready report is byte for byte what `GenerateForAttempt` produces.
+- **The server fixture mission (seed 1)** holds the I1 case naturally: container 1 has medkit ×1 and medkit ×2, now two valid lines.
+- **Generation fails closed:** a bad roll, a missing loot table, or an exception after the fill stops it. No other layout attempt rerolls.
+
+**What plays in the Editor.** `-attemptFixture` (Editor and fixture builds only) runs the server half of an online attempt end to end:
+- the fixture's register answer and the validated start;
+- the snapshot roster and inventory;
+- generation with the B25 fill and the ready report (logged);
+- authoritative abilities (Recon Scan, Aimed Shot, cooldowns) and combat (hostile AI, basic attacks, deaths);
+- items feeding the ledger;
+- the freeze at the first end, and the manifest (logged hash; nothing written or sent).
+
+The existing network client on loopback is welcomed with the snapshot squad and steers it. A full mission played from start to
+finish through the network client was not tested: the tests end the mission by scripted elimination and extraction.
+
+**Rulings** (the full list with costs is in the session ledger and the commit messages):
+- `AttemptStart` adds `bad_response` (no answer or a negative seed) and `bad_template`, and runs the ledger's snapshot rules on a throwaway ledger.
+- `ReadyReportBuilder` takes `ReadyObjective(id, required)`.
+- The roster also refuses a stated rank that isn't the track's (`bad_progression`), and more operatives than a mission spawns (`unsupported_squad_size`). The session refuses an unspawned operative (`squad_not_spawned`).
+- An admitted bag over capacity keeps its admitted entries as capacity (S5-D7).
+- The fixtures use the shipped catalogue and table.
+- `ReadyValidation` was not extracted from `ProcessStore.ReadyAsync`. That would change `Accounts.Persistence`, and only the services VM can verify it. The test runs the endpoint's three checks in its order instead.
+- The loot table goes to the director only for an attempt, so the `-diagnostic` and `-net` fixture mission is unchanged.
+- An attempt's seed is never logged.
+
+**For the owner to rule:**
+- `outcomeSequence` is provisionally the terminal event's ordinal in the session's events, refused events included.
+- Unknown templates aren't refused yet. The fixture source and export now use `procedural-standard`.
+- There is no deposit refusal in attempt mode: a bypassing addition is a `ledgerMismatch` at the freeze.
+
+**Independent review (2026-10-21):** 0 Critical, 2 Important, 9 Minor.
+- **Fixed, each with a test that failed first or a mutation check:**
+  - I1, a bag admitted over capacity refused;
+  - I2, operatives beyond the spawn limit;
+  - Minor 1, regraded Important: a reroll after an exception;
+  - Minor 4, regraded Important: the release guard pinned in source;
+  - Minors 2, 5 and 6;
+  - Minor 3 in part: the template id;
+  - Minor 8: the gap tests.
+- **Deferred:** the template refusal, the `outcomeSequence` definition, the deposit refusal, and a director-level test of every roll code.
+
+**Track N and B24:** unchanged and blocked. B24 remains mandatory and unsatisfied, and Stage 12 is accepted only with B24 and B25.
+Track L's code doesn't depend on any isolation mechanism.
+
+**Final validation (2026-10-21, on the review-fix tree):**
+- EditMode 1961/1961 and PlayMode 1454/1454, run one after the other.
+- Backend domain 803/803.
+- The Checkpoint A diagnostic passes (`ServerMissionPlayModeTests`).
+- The changed paths were audited: no offline scene, prefab, HUD, input, package or project setting changed. The only scene change is the regenerated `ServerMission.unity`.

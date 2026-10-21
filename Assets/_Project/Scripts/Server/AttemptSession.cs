@@ -71,6 +71,20 @@ namespace Blackglass
                 refusal = "not_ready";
                 return null;
             }
+            // Every snapshot operative is exactly one spawned friendly with its item component, or the manifest would report an
+            // operative that never entered the mission as alive with its whole loadout.
+            foreach (var operative in attempt.Snapshot)
+            {
+                var units = 0;
+                foreach (var unit in director.Friendlies)
+                    if (unit != null && unit.TryGetComponent<UnitItems>(out var items) && items.OperativeId == operative.OperativeId)
+                        units++;
+                if (units != 1)
+                {
+                    refusal = "squad_not_spawned";
+                    return null;
+                }
+            }
             var session = new AttemptSession(attempt, catalogue, buildRevision, director.Report.LayoutHash, director.AttemptLootTableVersion,
                 director.AttemptContainers, id => AttemptRuntime.OperativeState(inventory, id),
                 () => director.Current != null

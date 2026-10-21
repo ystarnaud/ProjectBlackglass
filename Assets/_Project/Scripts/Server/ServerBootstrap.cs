@@ -172,6 +172,11 @@ namespace Blackglass
                 Finish(ServerExitCodes.StartupFailed, "-attemptFixture is not available in a release build");
                 return;
             }
+            if (fixture.Length == 0)
+            {
+                Finish(ServerExitCodes.StartupFailed, "-attemptFixture needs the path of an attempt fixture");
+                return;
+            }
             var source = CreateFixtureSource(fixture);
             if (source == null)
             {

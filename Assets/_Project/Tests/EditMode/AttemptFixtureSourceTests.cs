@@ -22,7 +22,7 @@ namespace Blackglass.Tests
             Assert.That(attemptId, Is.EqualTo("0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e03"));
             Assert.That(response.processSessionId, Is.EqualTo("0192f1a5-0000-7000-8000-000000000003"));
             Assert.That(response.seed, Is.EqualTo(1));
-            Assert.That(response.missionTemplate.id, Is.EqualTo("mission.standard"));
+            Assert.That(response.missionTemplate.id, Is.EqualTo("procedural-standard"));
             Assert.That(response.participants, Has.Length.EqualTo(1));
             var snapshot = response.participants[0].loadout;
             Assert.That(response.participants[0].accountId, Is.EqualTo("JG"));
@@ -59,8 +59,33 @@ namespace Blackglass.Tests
             Assert.That(options.AttemptFixture, Is.EqualTo("a/b.json"));
             Assert.That(warnings, Is.Empty);
             Assert.That(ServerOptions.Parse(new string[0], out _).AttemptFixture, Is.Null);
-            Assert.That(ServerOptions.Parse(new[] { "-attemptFixture" }, out warnings).AttemptFixture, Is.Null);
+            // A missing path still selects the attempt, which then fails startup: never the plain mission by accident.
+            Assert.That(ServerOptions.Parse(new[] { "-attemptFixture" }, out warnings).AttemptFixture, Is.EqualTo(string.Empty));
             Assert.That(warnings, Has.Count.EqualTo(1));
+            Assert.That(ServerOptions.Parse(new[] { "-attemptFixture", "-net" }, out _).AttemptFixture, Is.EqualTo(string.Empty));
+        }
+
+        [Test]
+        public void A_forced_fixture_is_refused_because_it_has_no_seed_to_generate()
+        {
+            Assert.That(new FixtureAttemptSource(Fixture("01-forced-duplicate-medkits.json")).TryLoad(out _, out _, out var problem), Is.False);
+            StringAssert.Contains("no seed", problem);
+        }
+
+        // The release guard of S12-D4, pinned in source: a release build has no fixture source and the gate is closed.
+        [Test]
+        public void The_fixture_attempt_is_compiled_only_into_Editor_and_fixture_builds()
+        {
+            var server = Path.Combine(ContractVectors.ProjectRoot, "Assets", "_Project", "Scripts", "Server");
+            var source = File.ReadAllText(Path.Combine(server, "FixtureAttemptSource.cs"));
+            StringAssert.StartsWith("#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE", source.TrimStart('﻿'));
+            StringAssert.EndsWith("#endif", source.TrimEnd());
+            Assert.That(Regex.Matches(source, @"#if|#else|#elif|#endif").Count, Is.EqualTo(2), "one guard around the whole file");
+            var bootstrap = File.ReadAllText(Path.Combine(server, "ServerBootstrap.cs")).Replace("\r\n", "\n");
+            StringAssert.Contains("#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE\n        const bool FixtureBuild = true;\n#else\n        const bool FixtureBuild = false;\n#endif", bootstrap);
+            StringAssert.Contains("#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE\n            return new FixtureAttemptSource(path);\n#else\n            return null;\n#endif", bootstrap);
+            Assert.That(Regex.Matches(bootstrap, @"new FixtureAttemptSource\(").Count, Is.EqualTo(1), "the only construction is the guarded one");
+            StringAssert.Contains("internal Func<bool> AttemptFixtureAllowed = () => FixtureBuild;", bootstrap);
         }
 
         [Test]

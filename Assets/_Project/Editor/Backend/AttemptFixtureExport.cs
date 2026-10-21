@@ -287,7 +287,7 @@ namespace Blackglass.BackendTools
             var dto = Snapshot(catalogueVersion);
             var response = new SessionRegisterResponse
             {
-                processSessionId = SessionId(index), seed = spec.Seed, missionTemplate = new MissionTemplateDto { id = "mission.standard", version = 1 },
+                processSessionId = SessionId(index), seed = spec.Seed, missionTemplate = new MissionTemplateDto { id = "procedural-standard", version = 1 },
                 catalogueVersion = catalogueVersion, participants = new[] { new RegisterParticipantDto { accountId = AccountId, loadout = dto } },
                 deadlines = new LaunchDeadlineDto { launch = "2026-10-21T12:00:00Z" },
             };

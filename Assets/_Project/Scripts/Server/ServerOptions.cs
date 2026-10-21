@@ -110,8 +110,8 @@ namespace Blackglass
                             options.SelftestId = selftestId;
                         break;
                     case "-attemptFixture":
-                        if (TryText(args, ref i, warnings, out var fixture))
-                            options.AttemptFixture = fixture;
+                        // A missing path still selects the attempt, which then fails startup: never the plain mission by accident.
+                        options.AttemptFixture = TryText(args, ref i, warnings, out var fixture) ? fixture : string.Empty;
                         break;
                     case "-heartbeat":
                         if (TryValue(args, ref i, 0, 3600, warnings, out var heartbeat))

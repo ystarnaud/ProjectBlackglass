@@ -231,6 +231,28 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void A_collect_from_a_container_outside_the_mission_is_never_ok()
+        {
+            var h = Begin(OneOperative(), TwoMedkits);
+            h.Session.Start();
+            Assert.That(h.Session.OnCollected("C", -1, "anything", 1), Is.EqualTo(LedgerEventResult.Refused), "what OnCollectedDetail sends for an unknown container");
+            h.Session.Finish(ManifestOutcome.Success, Done, new string[0]);
+            Assert.That(h.Session.Outcome.Manifest.Manifest.Integrity, Is.EqualTo(ManifestIntegrity.LedgerMismatch));
+            Assert.That(h.Session.Outcome.Diagnostics, Has.Member("unknown_container_entry"));
+        }
+
+        [Test]
+        public void A_missing_operative_state_at_the_freeze_is_never_ok()
+        {
+            var h = Begin(OneOperative(), TwoMedkits);
+            h.Session.Start();
+            h.Inventory.AbortMission(); // the working state is gone when the end comes
+            h.Session.Finish(ManifestOutcome.Success, Done, new string[0]);
+            Assert.That(h.Session.Outcome.Manifest.Manifest.Integrity, Is.EqualTo(ManifestIntegrity.LedgerMismatch));
+            Assert.That(h.Session.Outcome.Diagnostics, Has.Member("operative_state_missing"));
+        }
+
+        [Test]
         public void A_pool_the_ledger_refuses_is_bad_pool()
         {
             var h = Begin(OneOperative(), TwoMedkits);

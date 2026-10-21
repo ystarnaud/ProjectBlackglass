@@ -218,9 +218,9 @@ namespace Blackglass
             SetState(MissionState.Generating);
             var request = settings.Validated();
             if (systems.roster != null && systems.roster.Count > 0)
-                request.friendlyCount = Mathf.Clamp(systems.roster.Count, 1, 6);
+                request.friendlyCount = Mathf.Clamp(systems.roster.Count, 1, MissionConstants.MaxFriendlies);
             else if (friendlySlots.Length > 0)
-                request.friendlyCount = Mathf.Clamp(friendlySlots.Length, 1, 6);
+                request.friendlyCount = Mathf.Clamp(friendlySlots.Length, 1, MissionConstants.MaxFriendlies);
             Report = new MissionReport { Seed = request.seed, MaxAttempts = request.maxAttempts };
             Teardown();
             yield return null;   // let Destroy finish so the old NavMesh and colliders are really gone
@@ -278,6 +278,9 @@ namespace Blackglass
             catch (Exception exception)
             {
                 Report.Failures.Add($"attempt {attempt}: exception: {exception.GetType().Name}: {exception.Message}");
+                // An online attempt never retries after an exception: another layout attempt would roll new loot (gate B25).
+                if (Attempt != null)
+                    stopAttempts = true;
                 DetachRuntime();
                 attemptContainers.Clear();
                 friendlies.Clear();

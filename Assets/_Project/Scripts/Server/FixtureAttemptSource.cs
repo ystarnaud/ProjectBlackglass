@@ -1,6 +1,7 @@
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using Blackglass.Backend.Core;
 using UnityEngine;
 
@@ -13,7 +14,7 @@ namespace Blackglass
     /// </summary>
     public sealed class FixtureAttemptSource : IAttemptSource
     {
-        public const string TemplateId = "mission.standard";
+        public const string TemplateId = "procedural-standard";
 
         [Serializable]
         sealed class Fixture
@@ -39,7 +40,8 @@ namespace Blackglass
                 return false;
             }
             Fixture fixture;
-            try { fixture = JsonUtility.FromJson<Fixture>(File.ReadAllText(path)); }
+            string text;
+            try { text = File.ReadAllText(path); fixture = JsonUtility.FromJson<Fixture>(text); }
             catch (Exception e) when (e is ArgumentException || e is IOException || e is UnauthorizedAccessException)
             {
                 problem = "the attempt fixture is unreadable: " + e.GetType().Name;
@@ -48,6 +50,12 @@ namespace Blackglass
             if (fixture == null || fixture.snapshot == null || string.IsNullOrEmpty(fixture.snapshot.accountId))
             {
                 problem = "the attempt fixture has no snapshot";
+                return false;
+            }
+            // A forced fixture (its containers replaced, "seed": null) can't be generated: JsonUtility would read the null as seed 0.
+            if (Regex.IsMatch(text, @"""seed""\s*:\s*null"))
+            {
+                problem = "the attempt fixture has no seed to generate (a forced fixture)";
                 return false;
             }
             attemptId = fixture.attemptId;

@@ -7,7 +7,7 @@ namespace Blackglass
     /// The attempt's squad (Stage 12 Task 5): each snapshot operative, in slot order, paired with this build's definition and
     /// its restored persistent state (the backend's id, XP and picks). Refused with one code: unknown_operative_definition,
     /// bad_operative_definition (the asset is invalid), bad_progression (picks the track doesn't allow, or a stated rank that
-    /// isn't the track's rank for the XP).
+    /// isn't the track's rank for the XP), unsupported_squad_size (more operatives than a mission spawns).
     /// </summary>
     public static class AttemptSquad
     {
@@ -16,6 +16,12 @@ namespace Blackglass
         {
             members = new List<(OperativeDefinition, PersistentOperativeState)>();
             problem = null;
+            // The core accepts up to 8 operatives (the format's bound); a mission spawns at most MissionConstants.MaxFriendlies.
+            if (start.Snapshot.Count > MissionConstants.MaxFriendlies)
+            {
+                problem = "unsupported_squad_size";
+                return false;
+            }
             for (var i = 0; i < start.Snapshot.Count; i++)
             {
                 var definition = Find(definitions, start.OperativeDefinitionIds[i]);

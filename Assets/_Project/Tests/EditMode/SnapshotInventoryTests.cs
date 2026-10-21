@@ -72,13 +72,29 @@ namespace Blackglass.Tests
             Assert.That(stacks.Any(e => e.InstanceId == "2k" || e.InstanceId == "2n"), Is.False);
         }
 
+        // The backend lets an admitted bag stay over capacity (S5-D7; ManifestValidator V11 bounds it by max(capacity, admitted)):
+        // the server holds it exactly, and the bag never grows past what was admitted.
         [Test]
-        public void A_snapshot_that_does_not_fit_the_bag_is_bag_overflow()
+        public void A_bag_admitted_over_capacity_is_held_and_grows_no_further()
         {
-            Assert.That(InventorySession.FromSnapshot(catalogue, 2, new[] { Operative("C", 0, 1) }, out var problem), Is.Null);
-            Assert.That(problem, Is.EqualTo("bag_overflow"));
-            Assert.That(InventorySession.FromSnapshot(catalogue, 3, new[] { Operative("C", 0, 4) }, out problem), Is.Null, "4 medkits need two entries");
-            Assert.That(problem, Is.EqualTo("bag_overflow"));
+            var session = InventorySession.FromSnapshot(catalogue, 2, new[] { Operative("C", 0, 1) }, out var problem);
+            Assert.That(problem, Is.Null);
+            var bag = session.Session.Loadout("C").Bag;
+            Assert.That(bag.Count, Is.EqualTo(3), "rifle, vest and the medkit stack");
+            Assert.That(bag.Capacity, Is.EqualTo(3), "the admitted entries, above the catalogue's 2");
+            Assert.That(bag.TryAddEntry(new ItemEntry("x", "item.light-vest", 1)), Is.False, "full at the admitted bound");
+
+            session = InventorySession.FromSnapshot(catalogue, 3, new[] { Operative("C", 0, 4) }, out problem);
+            Assert.That(problem, Is.Null);
+            Assert.That(session.Session.Loadout("C").Bag.Capacity, Is.EqualTo(4), "4 medkits are two entries, plus the rifle and the vest");
+            Assert.That(session.Session.Loadout("C").Bag.CountOf("item.medkit"), Is.EqualTo(4));
+        }
+
+        [Test]
+        public void A_bag_within_capacity_keeps_the_catalogues_capacity()
+        {
+            var session = InventorySession.FromSnapshot(catalogue, 8, new[] { Operative("C", 0, 1) }, out _);
+            Assert.That(session.Session.Loadout("C").Bag.Capacity, Is.EqualTo(8));
         }
 
         [Test]

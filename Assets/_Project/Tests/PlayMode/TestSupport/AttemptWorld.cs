@@ -29,7 +29,8 @@ namespace Blackglass.Tests
         public TacticalPause Pause { get; }
         public SquadRoster Roster { get; }
 
-        public AttemptWorld()
+        /// <param name="breakAfterFill">No cover discovery system: the director then throws right after the containers are filled (a fault test).</param>
+        public AttemptWorld(bool breakAfterFill = false)
         {
             Catalogue = Load<ItemCatalogue>("Data/Items/ItemCatalogue.asset");
             LootTable = Load<LootTable>("Data/Items/LootTable.asset");
@@ -61,7 +62,7 @@ namespace Blackglass.Tests
                 new[] { new HostileSlot { prefab = Load<GameObject>("Prefabs/HostileUnit.prefab") } },
                 new MissionSystems
                 {
-                    encounter = encounter, selection = selection, activeCharacter = active, coverRegistry = registry, coverDiscovery = discovery,
+                    encounter = encounter, selection = selection, activeCharacter = active, coverRegistry = registry, coverDiscovery = breakAfterFill ? null : discovery,
                     pause = Pause, interactables = interactables, intelligence = intelligence, inventory = Inventory, roster = Roster,
                 },
                 Load<Material>("Materials/Ground.mat"), Load<Material>("Materials/Obstacle.mat"), generateAtStart: false);
@@ -128,9 +129,9 @@ namespace Blackglass.Tests
         public static ProgressionTrack Progression() => Load<ProgressionTrack>("Data/Operatives/Progression.asset");
 
         /// <summary>The server's snapshot mode: the roster and the inventory are the attempt's (no starter, no settlement, no XP).</summary>
-        public void UseSnapshot(AttemptStart start)
+        public void UseSnapshot(AttemptStart start, OperativeDefinition[] definitions = null)
         {
-            NUnit.Framework.Assert.That(AttemptSquad.TryMembers(start, Definitions(), Progression(), out var members, out var problem), NUnit.Framework.Is.True, problem);
+            NUnit.Framework.Assert.That(AttemptSquad.TryMembers(start, definitions ?? Definitions(), Progression(), out var members, out var problem), NUnit.Framework.Is.True, problem);
             Roster.InitializeFromSnapshot(members, Progression());
             NUnit.Framework.Assert.That(Inventory.InitializeFromSnapshot(Catalogue, Roster, 8, start.Snapshot, out problem), NUnit.Framework.Is.True, problem);
         }

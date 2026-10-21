@@ -153,6 +153,34 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator An_exception_after_the_fill_stops_generation_instead_of_rerolling()
+        {
+            // The director throws after the containers are filled; another layout attempt would roll new loot.
+            world.Dispose();
+            world = new AttemptWorld(breakAfterFill: true);
+            var attempt = world.Start(Seed);
+            world.UseSnapshot(attempt);
+            LogAssert.Expect(LogType.Error, new Regex("^Mission generation failed"));
+            yield return Generate(attempt);
+            Assert.That(world.Director.State, Is.EqualTo(MissionState.Failed));
+            StringAssert.Contains("exception", world.Director.Report.Failure);
+            Assert.That(world.Director.Report.AttemptsMade, Is.EqualTo(1), "an attempt never retries after its loot was rolled and filled");
+        }
+
+        [UnityTest]
+        public IEnumerator A_snapshot_operative_without_a_unit_is_refused_by_the_session()
+        {
+            var attempt = world.Start(Seed);
+            world.UseSnapshot(attempt);
+            yield return Generate(attempt);
+            Assert.That(world.Director.State, Is.EqualTo(MissionState.Ready));
+            Object.DestroyImmediate(world.Director.Friendlies[1].GetComponent<UnitItems>());
+            var session = AttemptSession.Begin(attempt, world.Director, world.Inventory, ItemLedgerMapping.Catalogue(world.Catalogue), new ServerClock(), "editor", out var refusal);
+            Assert.That(session, Is.Null);
+            Assert.That(refusal, Is.EqualTo("squad_not_spawned"));
+        }
+
+        [UnityTest]
         public IEnumerator An_attempt_without_a_loot_table_fails_closed()
         {
             world.Director.SetLootTable(null);

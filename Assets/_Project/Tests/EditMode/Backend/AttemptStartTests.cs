@@ -75,6 +75,16 @@ namespace Blackglass.Tests
         [Test]
         public void A_missing_response_is_bad_response() => Assert.That(Refusal(AttemptId, null), Is.EqualTo("bad_response"));
 
+        [Test]
+        public void A_negative_seed_is_bad_response()
+        {
+            var response = Response(LedgerSnapshot("01-owned-swap-and-use.json"));
+            response.seed = -1; // the backend stores check (seed >= 0)
+            Assert.That(Refusal(AttemptId, response), Is.EqualTo("bad_response"));
+            response.seed = 0;
+            Assert.That(Refusal(AttemptId, response), Is.Null);
+        }
+
         [TestCase(null)]
         [TestCase("0192f1a5-0000-7000-8000-00000000000")]
         [TestCase("0192F1A5-0000-7000-8000-000000000001")]

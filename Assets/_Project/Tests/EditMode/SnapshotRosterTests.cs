@@ -114,6 +114,24 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void More_operatives_than_the_mission_spawns_is_unsupported_squad_size()
+        {
+            var snapshot = AttemptTestData.LedgerSnapshot("01-owned-swap-and-use.json");
+            var template = snapshot.operatives[0];
+            snapshot.operatives = Enumerable.Range(0, MissionConstants.MaxFriendlies + 1).Select(i => new SnapshotOperativeDto
+            {
+                slot = i, operativeId = Base58Id.Format(100 + i), definitionId = "def-recon", experience = 0, rank = 1, choices = new string[0],
+                bag = new SnapshotBagDto { instances = new SnapshotInstanceDto[0], stacks = new SnapshotStackDto[0] }, equipment = new EquipmentSlotsDto(),
+            }).ToArray();
+            Assert.That(template, Is.Not.Null);
+            Assert.That(AttemptStart.TryCreate(AttemptTestData.AttemptId, AttemptTestData.Response(snapshot), AttemptTestData.GoldenCatalogueVersion,
+                id => id == "def-recon", AttemptTestData.GoldenLedgerCatalogue(), out var start, out var refusal), Is.True, refusal + ": 7 is a valid snapshot for the core");
+            Assert.That(AttemptSquad.TryMembers(start, new[] { recon, assault }, track, out var members, out var problem), Is.False);
+            Assert.That(problem, Is.EqualTo("unsupported_squad_size"));
+            Assert.That(members, Is.Empty);
+        }
+
+        [Test]
         public void A_snapshot_roster_never_awards_experience()
         {
             AttemptSquad.TryMembers(Start(), new[] { assault, recon }, track, out var members, out _);

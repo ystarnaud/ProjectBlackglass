@@ -9,7 +9,7 @@ namespace Blackglass.Backend.Core
     /// The validated attempt (Stage 12 Task 2): what the mission process may start from, built from the backend's register
     /// answer and checked before any gameplay exists. Refused, with one code, when the answer is malformed, incomplete or
     /// inconsistent with this build. The first failure in this order wins:
-    /// bad_attempt_id (not a canonical UUIDv7), bad_response (no answer), bad_session_id, bad_template, catalogue_mismatch
+    /// bad_attempt_id (not a canonical UUIDv7), bad_response (no answer, or a negative seed), bad_session_id, bad_template, catalogue_mismatch
     /// (the answer's or the snapshot's catalogue is not the build's), unsupported_participants (not exactly one),
     /// bad_snapshot (the DTO boundary refuses it, another account, negative experience, a rank below 1, a blank choice),
     /// unknown_operative_definition, bad_slots (not 0..n-1 distinct with n 1..8), then bad_snapshot again when the item
@@ -55,7 +55,7 @@ namespace Blackglass.Backend.Core
         {
             start = null;
             if (!CanonicalIds.IsAttemptId(attemptId)) return "bad_attempt_id";
-            if (response == null) return "bad_response";
+            if (response == null || response.seed < 0) return "bad_response"; // the backend stores check (seed >= 0)
             if (!CanonicalIds.IsUuid(response.processSessionId)) return "bad_session_id";
             var template = response.missionTemplate;
             if (template == null || !CanonicalIds.IsDefinitionId(template.id) || template.version < 1) return "bad_template";

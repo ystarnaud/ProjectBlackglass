@@ -183,6 +183,23 @@ namespace Blackglass.Tests
             Assert.That(dead.HeldItems, Is.EqualTo(new[] { Base58Id.TryParse("2m", out var rifle) ? rifle : 0 }), "D's rifle, as frozen");
             Assert.That(dead.HeldStacks.Single().Quantity, Is.EqualTo(1));
             Assert.That(manifest.Operatives.Single(o => o.Slot == 0).Alive, Is.True);
+
+            // A kill after the end changes nothing: C dies after the freeze, the manifest still has C alive.
+            var bytes = session.Outcome.Manifest.CanonicalBytes;
+            c.GetComponent<Health>().TakeDamage(100000);
+            yield return null;
+            Assert.That(session.Outcome.Manifest.CanonicalBytes, Is.EqualTo(bytes));
+            Assert.That(session.Outcome.Manifest.Manifest.Operatives.Single(o => o.Slot == 0).Alive, Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator An_attempt_fixture_option_without_a_path_ends_startup()
+        {
+            bootstrap.Begin(new[] { "-attemptFixture" });
+            yield return null;
+            Assert.That(bootstrap.HasExited, Is.True, "never the plain mission by accident");
+            Assert.That(exitCode, Is.EqualTo(ServerExitCodes.StartupFailed));
+            StringAssert.Contains("-attemptFixture", bootstrap.ExitReason);
         }
 
         [UnityTest]
