@@ -8,3 +8,6 @@ using System.Runtime.CompilerServices;
 // InventorySceneBuilder) compiles into Assembly-CSharp-Editor. This grant exposes every internal of the game assembly
 // to all editor scripts, so the builders can use the same internal Initialize methods the tests use.
 [assembly: InternalsVisibleTo("Assembly-CSharp-Editor")]
+
+// The backend editor tools (the attempt fixture export, Stage 12 Task 7) run the same internal fill and session the server runs.
+[assembly: InternalsVisibleTo("Blackglass.Backend.Editor")]

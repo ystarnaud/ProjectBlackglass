@@ -78,7 +78,7 @@ namespace Blackglass.Tests
         static T Load<T>(string path) where T : Object => AssetDatabase.LoadAssetAtPath<T>(Root + path);
 
         /// <summary>A register answer for one account with two operatives (recon at slot 0, assault at slot 1) and starter-like gear.</summary>
-        public static SessionRegisterResponse Response(int seed)
+        public static SessionRegisterResponse Response(int seed, string sessionId = SessionId)
         {
             SnapshotOperativeDto Operative(int slot, string id, string definition, string rifleId, string rifle) => new SnapshotOperativeDto
             {
@@ -101,16 +101,16 @@ namespace Blackglass.Tests
             };
             return new SessionRegisterResponse
             {
-                processSessionId = SessionId, seed = seed, missionTemplate = new MissionTemplateDto { id = "mission.standard", version = 1 },
+                processSessionId = sessionId, seed = seed, missionTemplate = new MissionTemplateDto { id = "mission.standard", version = 1 },
                 catalogueVersion = CatalogueVersion,
                 participants = new[] { new RegisterParticipantDto { accountId = "JG", loadout = snapshot } },
                 deadlines = new LaunchDeadlineDto { launch = "2026-10-21T12:00:00Z" },
             };
         }
 
-        public AttemptStart Start(int seed)
+        public AttemptStart Start(int seed, string sessionId = SessionId)
         {
-            var ok = AttemptStart.TryCreate(AttemptId, Response(seed), CatalogueVersion, id => id == ReconDefinition || id == AssaultDefinition,
+            var ok = AttemptStart.TryCreate(AttemptId, Response(seed, sessionId), CatalogueVersion, id => id == ReconDefinition || id == AssaultDefinition,
                 ItemLedgerMapping.Catalogue(Catalogue), out var start, out var refusal);
             NUnit.Framework.Assert.That(ok, NUnit.Framework.Is.True, refusal);
             return start;
