@@ -1,6 +1,6 @@
 # Unity Linux Outbox Self-Test — Host Manifest for `bg-dev-mission01`
 
-**Status (2026-10-20): revision 5, complete, for the owner's review; not executed.** Every binary, revision and hash row is filled from the verified clean build at `5551a00`, with EditMode and PlayMode green on that exact source tree. Execution needs the owner's explicit approval of this exact text; any change needs a new approval.
+**Status: revision 5, executed once on 2026-10-21 03:36–03:39 UTC under the owner's approval, and accepted by the owner with one documented environmental baseline exception (§9).** Not to be rerun. Every binary, revision and hash row is filled from the verified clean build at `5551a00`, with EditMode and PlayMode green on that exact source tree. Sections 1–8 are the approved text, unchanged; §9 records the run.
 
 History:
 - **Revision 1** was withdrawn (review 1, C1: the player would have run as root, outside the sandbox).
@@ -11,6 +11,7 @@ History:
   - M6–M10: key=value output, no link-following, a wider baseline, tests rerun in the clean worktree, IPv6 redaction.
 - **Revision 4** had every binary row PENDING: PlayMode and the build had been stopped for low system memory.
 - **Revision 5** fills them from the clean build at the same revision (review 5: 0 Critical, 0 Important). It also names the checkout the steps run from and states the installed file modes as they are. Dates are local time (UTC−4) unless marked UTC.
+- **Execution (2026-10-21 UTC)** of revision 5 exactly as written, then the owner's acceptance; recorded in §9, no change to sections 1–8.
 
 **What it is:** a non-networked diagnostic of Stage 11's native outbox inside Unity's **Linux Mono** dedicated-server player. It covers:
 - the libc calls through `NativeLibc` and the `blackglass-outbox` worker thread;
@@ -214,6 +215,50 @@ Nothing persistent is installed: no unit file, package, permanent user, configur
 **Doesn't prove:**
 - errno values other than 17 and `ENOENT`;
 - any mission, networking, B24 or Stage 13 behavior.
+
+## 9. Execution record and owner acceptance (2026-10-21 UTC)
+
+**Owner decision (2026-10-21): accepted, not to be rerun,** with one documented environmental baseline exception (below). This completes Stage 11's Unity Linux runtime outbox self-test requirement. B24 and B25 remain separate, mandatory Stage 12 acceptance gates.
+
+**Before the run:**
+- The mission VM had refused SSH (port 22) earlier on 2026-10-20 and was reachable again after it booted at 03:34:49 UTC. The host key was verified.
+- Ubuntu 24.04.5, kernel `6.8.0-147-generic`, systemd `255 (255.4-1ubuntu8.18)`; 7.5 GB memory available, 71 GB disk free.
+- Workstation checks, all passed: the worktree at `5551a00`, clean; the script hash; the archive hash; a fresh extraction with all 176 files OK, none unlisted, the list equal to Appendix A; `build-info.txt`. The review-5 corrections change text only, plus the reviewed §2 path and revision guard.
+
+**Timeline (UTC) and results:**
+
+| Time | Step | Result |
+|---|---|---|
+| 03:36:18 | preflight | all expected: `tunnel=active`, `agent_enabled=disabled`, `agent_active=inactive`, `mission_units=0`, `selftest_units=0`, no `present=`, tunnel `MainPID=742 NRestarts=0` (active since 03:34:57), `disk=71G`, `baseline_lines=250` |
+| 03:36:36 | (the operator's extra read-only check, outside §5) | tunnel health with filtered `ss` (`sport = :5081`, `state established`); no player process. **The kernel loaded `inet_diag` and `tcp_diag` at this moment** (`/sys/module` ctimes 03:36:36.012 and .014) |
+| 03:36:51 | upload, install | two `: OK` lines, `files_verified=176`, `installed=/opt/blackglass-selftest/5551a00` |
+| 03:37:18 | publish | `result=pass phase=publish checks=7` (`maxStepMs=1`, `maxFrameMs=26`); `euid=65255`; `.ready` `0c661505…d122`; `exit=0`; `owner_matches_euid=yes uid=65255` |
+| 03:37:30 | hold | `held=yes`; `/proc`: `Uid` and `Gid` `65255` ×4, `NoNewPrivs=1`, `CapEff=0000000000000000`, `Seccomp=2`; `process_user=blackglass-selftest`; journal: SIGKILL sent to the main process, `code=killed, status=9/KILL`; one complete `.written`, `0c661505…d122`; owner match |
+| 03:37:58 | resume | `result=pass phase=resume checks=5`; exactly one `.ready`, the same bytes, no `.written`; `exit=0` |
+| 03:38:08 | location | `exception FAIL OutboxIOException code=wrong_attempt`, `exit=3`, `entries=0` |
+| 03:38:19 | after | **`integrity=CHANGED`**; `tunnel=active`, the identical `tunnel_identity` (`MainPID=742 NRestarts=0`); `agent_enabled=disabled`; `selftest_units=0` |
+| 03:39 | cleanup | `cleaned`, `tunnel=active`; then read-only: no player process, self-test unit, transient unit file, self-test path or dynamic user left; the agent disabled and inactive; 0 mission units |
+
+**The integrity result stays `CHANGED`.** The difference is exactly two lines of the baseline: `module inet_diag` and `module tcp_diag`, loaded at 03:36:36. That was after the preflight baseline, before the upload and before any self-test unit started (the first at 03:37:18). The strongly supported cause is the extra filtered-`ss` check: `ss` filters make the kernel auto-load these socket-diagnostic modules. The self-test units couldn't load a module (`ProtectKernelModules=yes`, an empty capability set). Every other baseline line was unchanged: the installed files, units, drop-ins, links and SSH configuration. The tunnel kept its process with zero restarts. Following the owner's ruling, the modules were not unloaded and the VM was not rebooted.
+
+**Accepted evidence:**
+- All 176 shipped files verified.
+- The Linux Mono player ran as dynamic uid 65255, without effective capabilities, under seccomp.
+- Publication passed.
+- A complete `.written` survived SIGKILL.
+- Recovery produced exactly one `.ready` with identical bytes.
+- The wrong-attempt publication was refused.
+- Cleanup left no test unit, process, dynamic user or test path.
+- No unexpected Blackglass infrastructure change.
+
+**Unexpected output, both understood:**
+- The server's own `[Server] identity …` and `[Server] quitting` lines appear around each run's listed lines; they are its normal logging and match the build.
+- **Minor diagnostic finding:** in `hold`, `systemctl kill --signal=SIGKILL` printed `Failed to send signal SIGKILL to auxiliary processes: Invalid argument`. The journal confirms the main process was killed by SIGKILL, so the crash test stands.
+  - **Follow-up:** reword the `hold` step's expected output (or pass `--kill-whom=main`) so the next manifest of this shape names that message, or avoids it. It is not a reason to rerun this test.
+
+**Requirement for every future host manifest:** run every host preflight and health check, including any extra read-only diagnostic, **before** capturing the integrity baseline. Nothing runs on the host between the baseline and the first step except the manifest's own steps. Where a check can load a kernel module (e.g. filtered `ss`), run it before the baseline or not at all.
+
+**Evidence (local, not committed):** `.claude/scratchpad/phase13/selftest/runs/exec-5551a00/` (the redacted transcript, `status.txt`, the extraction check).
 
 ## Appendix A — every shipped file (`files.sha256`, 176 lines, SHA-256 of this list `4f2f79235cc55eb8abec4cfe8e426d40302448df3ff942c35ca9ee5704de2110`)
 

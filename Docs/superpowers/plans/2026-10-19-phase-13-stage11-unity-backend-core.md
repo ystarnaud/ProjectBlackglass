@@ -1197,7 +1197,7 @@ It confirmed:
   - **M7:** `Cancel` is not sticky per participant. A later `Submit` of the same bytes starts a new job; Stage 12 decides.
 
 **Known runtime limitations and Stage 12 obligations:**
-- **Mono:** the outbox's libc calls and its worker thread are proven on CoreCLR on Linux only. Stage 12 must run them in Unity's Linux Mono server player on the mission VM (`-outbox-selftest`, with the owner's go-ahead) before any real result depends on them.
+- **Mono:** the outbox's libc calls and its worker thread are proven on CoreCLR on Linux only. Stage 12 must run them in Unity's Linux Mono server player on the mission VM (`-outbox-selftest`, with the owner's go-ahead) before any real result depends on them. **Done (2026-10-21 UTC):** the self-test ran once at `5551a00` under manifest revision 5. The owner accepted it with one documented module-baseline exception (see the Stage 12 self-test manifest's §9).
 - **The fill (I1, B25):** per the owner's ruling below; Stage 12 can't be accepted without it.
 - **The outbox directory:** open it with `OutboxDirectories.OpenForServer($STATE_DIRECTORY, "/var/lib/blackglass-outbox", attemptId)` at start, before the loop, and refuse to run without it. Read handles only from the main thread.
 - **`BuildForPublication`:** a `Failed` outcome writes nothing and is reported. Catch an `ArgumentException` from it (M2).
@@ -1230,7 +1230,7 @@ The owner conditionally accepted Stage 11 and ruled:
   - `LedgerScenarioTests.A_merged_container_line_is_refused_by_the_ready_report_rule` keeps asserting that the old merged representation is refused; its expectation never changes to make a suite green.
 - **M1: a narrowly scoped, test-first backend fix, authorized and done** (see the final review list above).
 - **Merge:** authorized once the full validation passes on the final tree, the diff is clean and no new Critical or Important finding appears. Preserved, never committed: the owner's `Assets/Settings/Mobile_RPAsset.asset`, `ProjectSettings/URPProjectSettings.asset` and `.claude/` scratch content.
-- **Stage 12 gates carried forward:** B24 (the per-slot TCP bind restriction, demonstrated on `bg-dev-mission01`), B25 (I1), and the Linux Unity self-test of the outbox worker (owner approval of its host manifest before it runs). No real Unity mission workload before B24.
+- **Stage 12 gates carried forward:** B24 (the per-slot TCP bind restriction, demonstrated on `bg-dev-mission01`), B25 (I1), and the Linux Unity self-test of the outbox worker (owner approval of its host manifest before it runs). The self-test is **complete**: run and accepted on 2026-10-21. B24 and B25 remain open. No real Unity mission workload before B24.
 
 ## Final validation (2026-10-20)
 
