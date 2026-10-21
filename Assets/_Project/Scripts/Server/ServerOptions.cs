@@ -43,6 +43,8 @@ namespace Blackglass
         public string SelftestParent { get; private set; } = DefaultSelftestParent;
         /// <summary>The canonical UUIDv7 naming the self-test's state directory ($STATE_DIRECTORY must be exactly parent/id).</summary>
         public string SelftestId { get; private set; }
+        /// <summary>-attemptFixture &lt;path&gt;: start the authoritative attempt of this attempt-v1 fixture (Editor and fixture builds only; Stage 12).</summary>
+        public string AttemptFixture { get; private set; }
 
         public static ServerOptions Default => new ServerOptions();
 
@@ -106,6 +108,10 @@ namespace Blackglass
                         selftestOptionSeen = true;
                         if (TryText(args, ref i, warnings, out var selftestId))
                             options.SelftestId = selftestId;
+                        break;
+                    case "-attemptFixture":
+                        if (TryText(args, ref i, warnings, out var fixture))
+                            options.AttemptFixture = fixture;
                         break;
                     case "-heartbeat":
                         if (TryValue(args, ref i, 0, 3600, warnings, out var heartbeat))
@@ -205,6 +211,7 @@ namespace Blackglass
         public string Describe(int fixtureSeed) =>
             FormattableString.Invariant($"seed={Seed ?? fixtureSeed}({(Seed.HasValue ? "override" : "fixture")}) fps={FrameRate} diagnostic={(Diagnostic ? "yes" : "no")} ") +
             FormattableString.Invariant($"diagnosticTimeout={DiagnosticTimeoutSeconds}s startupTimeout={StartupTimeoutSeconds}s heartbeat={(HeartbeatSeconds > 0 ? HeartbeatSeconds + "s" : "off")} ") +
-            (Net ? FormattableString.Invariant($"net=yes port={NetPort} quiet={(NetQuiet ? "yes" : "no")}") + (NetFixture ? " fixture=yes" : string.Empty) : "net=no");
+            (Net ? FormattableString.Invariant($"net=yes port={NetPort} quiet={(NetQuiet ? "yes" : "no")}") + (NetFixture ? " fixture=yes" : string.Empty) : "net=no") +
+            (AttemptFixture != null ? " attempt=fixture" : string.Empty);
     }
 }

@@ -256,7 +256,8 @@ namespace Blackglass
                 }
             }
 
-            var failureText = $"Mission generation failed. {request.Describe()}\n  " + string.Join("\n  ", Report.Failures);
+            // An attempt's seed is the backend's generator input: never logged.
+            var failureText = $"Mission generation failed. {(Attempt != null ? "attempt " + Attempt.AttemptId : request.Describe())}\n  " + string.Join("\n  ", Report.Failures);
             Report.Failure = failureText;
             Debug.LogError(failureText, this);
             running = null;
@@ -438,7 +439,7 @@ namespace Blackglass
             Report.LootPlaced = loot.Placed;
             Report.LootHash = loot.Hash;
             if (loot.Shortfall.Length > 0)
-                Debug.LogWarning($"{name}: seed {request.seed}: {loot.Shortfall}.", this);
+                Debug.LogWarning($"{name}: {(Attempt != null ? "attempt " + Attempt.AttemptId : "seed " + request.seed)}: {loot.Shortfall}.", this);   // an attempt's seed is never logged
             FrameCamera(layout);
             return true;
         }

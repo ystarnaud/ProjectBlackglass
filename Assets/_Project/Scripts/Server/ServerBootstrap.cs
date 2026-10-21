@@ -39,6 +39,22 @@ namespace Blackglass
 
         [SerializeField] MissionDirector director;
         [SerializeField] TacticalPause pause;
+        // The attempt's data (Stage 12): set by ServerSceneBuilder. The loot table is given to the director only for an attempt,
+        // so the fixture mission (-diagnostic, -net) is generated exactly as before.
+        [SerializeField] ItemCatalogue itemCatalogue;
+        [SerializeField] LootTable lootTable;
+        [SerializeField] SquadRoster roster;
+        [SerializeField] SquadInventory inventory;
+        [SerializeField] ProgressionTrack progression;
+        [SerializeField] OperativeDefinition[] operatives = new OperativeDefinition[0];
+        [SerializeField] string catalogueVersion = string.Empty;
+
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+        const bool FixtureBuild = true;
+#else
+        const bool FixtureBuild = false;
+#endif
+        AttemptStart attempt;
 
         ServerOptions options = ServerOptions.Default;
         Stopwatch generation;
@@ -64,11 +80,31 @@ namespace Blackglass
         internal string ExitReason { get; private set; }
         internal int UnitViewsDisabled { get; private set; }
         internal int UnitViewsActive { get; private set; }
+        /// <summary>Whether -attemptFixture may run: Editor and fixture builds only (S12-D4). Tests replace it, as an Editor
+        /// compile can't observe a release build's define.</summary>
+        internal Func<bool> AttemptFixtureAllowed = () => FixtureBuild;
+        /// <summary>The running attempt's session (Stage 12), once its mission is ready; null otherwise.</summary>
+        public AttemptSession Session { get; private set; }
+        internal SquadInventory Inventory => inventory;
 
         internal void Initialize(MissionDirector missionDirector, TacticalPause tacticalPause)
         {
             director = missionDirector;
             pause = tacticalPause;
+        }
+
+        /// <summary>The attempt's data (ServerSceneBuilder): catalogue, loot table, the snapshot-mode roster and inventory, this
+        /// build's operative definitions and progression, and the build's catalogue version.</summary>
+        internal void InitializeAttempt(ItemCatalogue items, LootTable loot, SquadRoster squad, SquadInventory squadInventory, ProgressionTrack track,
+            OperativeDefinition[] definitions, string buildCatalogueVersion)
+        {
+            itemCatalogue = items;
+            lootTable = loot;
+            roster = squad;
+            inventory = squadInventory;
+            progression = track;
+            operatives = definitions ?? new OperativeDefinition[0];
+            catalogueVersion = buildCatalogueVersion ?? string.Empty;
         }
 
         static double Now => Time.realtimeSinceStartupAsDouble;
@@ -101,10 +137,16 @@ namespace Blackglass
                 return;
             }
             Debug.Log(Prefix + "options " + options.Describe(director.Settings.seed));
+            director.StateChanged -= OnStateChanged;
             director.StateChanged += OnStateChanged;
             started = true;
             startupDeadline = Now + options.StartupTimeoutSeconds;
             generation = Stopwatch.StartNew();
+            if (options.AttemptFixture != null)
+            {
+                BeginAttempt(options.AttemptFixture);
+                return;
+            }
             var seed = options.Seed ?? director.Settings.seed;
             if (!director.Generate(seed))
             {
@@ -114,10 +156,119 @@ namespace Blackglass
             Debug.Log(Prefix + "generating " + director.Settings.Describe());
         }
 
+        /// <summary>
+        /// The fixture attempt (Stage 12 Task 8): refused outside Editor and fixture builds; then the source, AttemptStart, the
+        /// snapshot squad (roster and inventory), the loot table, and GenerateForAttempt. Any refusal ends startup (exit 2)
+        /// with its code; the seed is never logged.
+        /// </summary>
+        void BeginAttempt(string fixture)
+        {
+            Session?.Unbind();
+            Session = null;
+            attempt = null;
+            ready = false;
+            if (!AttemptFixtureAllowed())
+            {
+                Finish(ServerExitCodes.StartupFailed, "-attemptFixture is not available in a release build");
+                return;
+            }
+            var source = CreateFixtureSource(fixture);
+            if (source == null)
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: no fixture source in this build");
+                return;
+            }
+            if (!source.TryLoad(out var attemptId, out var response, out var problem))
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + problem);
+                return;
+            }
+            if (itemCatalogue == null || lootTable == null || roster == null || inventory == null || progression == null)
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: the scene's ServerBootstrap is not wired for attempts (rebuild the server scene)");
+                return;
+            }
+            if (!AttemptStart.TryCreate(attemptId, response, catalogueVersion, id => AttemptSquad.Find(operatives, id) != null,
+                    ItemLedgerMapping.Catalogue(itemCatalogue), out var start, out var refusal))
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
+                return;
+            }
+            if (!AttemptSquad.TryMembers(start, operatives, progression, out var members, out refusal))
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
+                return;
+            }
+            roster.InitializeFromSnapshot(members, progression);
+            if (!inventory.InitializeFromSnapshot(itemCatalogue, roster, inventory.Core.BagCapacity, start.Snapshot, out refusal))
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
+                return;
+            }
+            director.SetLootTable(lootTable);
+            attempt = start;
+            if (!director.GenerateForAttempt(start))
+            {
+                Finish(ServerExitCodes.StartupFailed, "the director refused to generate");
+                return;
+            }
+            Debug.Log(Prefix + $"generating attempt {start.AttemptId} operatives={start.Snapshot.Count} template={start.TemplateId}/{start.TemplateVersion}");
+        }
+
+        static IAttemptSource CreateFixtureSource(string path)
+        {
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+            return new FixtureAttemptSource(path);
+#else
+            return null;
+#endif
+        }
+
+        /// <summary>The build's revision for the manifest: the stamped revision when it is well formed, else "editor".</summary>
+        static string BuildRevision()
+        {
+#if UNITY_EDITOR
+            return "editor";
+#else
+            var info = ServerBuildInfo.ReadBesideExecutable();
+            return info != null && info.TryGetValue("revision", out var revision) && CanonicalIds.IsBuildRevision(revision) ? revision : "unknown";
+#endif
+        }
+
+        // The attempt's session starts on the ready mission; a refusal ends startup.
+        bool BeginSession()
+        {
+            Session = AttemptSession.Begin(attempt, director, inventory, ItemLedgerMapping.Catalogue(itemCatalogue), new ServerClock(), BuildRevision(), out var refusal);
+            if (Session == null)
+            {
+                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
+                return false;
+            }
+            var report = Session.ReadyReport;
+            Debug.Log(Prefix + $"ATTEMPT READY attempt={attempt.AttemptId} lines={report.lootPool.Length} lootHash={report.lootHash} layoutHash={report.layoutHash}");
+            Debug.Log(Prefix + "attempt ready report " + JsonUtility.ToJson(report));
+            director.MissionFinished += OnAttemptFinished;
+            return true;
+        }
+
+        void OnAttemptFinished(MissionPhase phase)
+        {
+            director.MissionFinished -= OnAttemptFinished;
+            if (Session == null || Session.Outcome == null)
+                return;
+            var outcome = Session.Outcome;
+            Debug.Log(Prefix + $"ATTEMPT FROZEN outcome={Session.Result.Outcome} build={outcome.Kind} integrity={Session.Facts.Integrity} " +
+                $"manifestHash={(outcome.Manifest != null ? outcome.Manifest.ManifestHash : "none")} diagnostics={string.Join(",", outcome.Diagnostics)}");
+        }
+
         void OnDestroy()
         {
             if (director != null)
+            {
                 director.StateChanged -= OnStateChanged;
+                director.MissionFinished -= OnAttemptFinished;
+            }
+            Session?.Unbind();
         }
 
         void OnApplicationQuit() => Debug.Log(Prefix + "quitting");
@@ -134,6 +285,8 @@ namespace Blackglass
             ready = true;
             generation?.Stop();
             DisableUnitViews();
+            if (attempt != null && !BeginSession())
+                return;
             LogReady();
             LogSelfCheck();
             StartHeartbeat(Now);
@@ -299,7 +452,7 @@ namespace Blackglass
             var r = director.Report;
             var generationMs = generation != null ? generation.Elapsed.TotalMilliseconds : 0d;
             Debug.Log(Prefix +
-                FormattableString.Invariant($"MISSION READY instance={director.InstanceId} seed={r.Seed} attempt={r.Attempt}/{r.MaxAttempts} rooms={r.Rooms} navArea={r.NavArea:0} ") +
+                FormattableString.Invariant($"MISSION READY instance={director.InstanceId} seed={(director.Attempt != null ? "attempt" : r.Seed.ToString(System.Globalization.CultureInfo.InvariantCulture))} attempt={r.Attempt}/{r.MaxAttempts} rooms={r.Rooms} navArea={r.NavArea:0} ") +
                 FormattableString.Invariant($"paths={r.PathsChecked} cover={r.CoverTotal}(low {r.CoverLow}, tall {r.CoverTall}) friendlies={director.Friendlies.Count} ") +
                 FormattableString.Invariant($"hostiles={director.Hostiles.Count} layoutHash={r.LayoutHash:x16} generationMs={generationMs:0} ") +
                 FormattableString.Invariant($"navMeshBakeMs={r.NavMeshBakeMs:0.0} sinceStartupS={Now:0.0}"));

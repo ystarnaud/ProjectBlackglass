@@ -1,5 +1,6 @@
 #if UNITY_EDITOR
 using System;
+using System.Linq;
 using FishNet.Managing.Object;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -46,6 +47,12 @@ namespace Blackglass.EditorTools
             var intelligence = systems.AddComponent<IntelligenceService>();
             active.Initialize(null, pause, selection);
             discovery.Initialize(registry, discoverAtStart: false);
+            // Stage 12: an attempt's squad. Empty until -attemptFixture fills them in snapshot mode; the fixture mission keeps its slots.
+            var sources = Blackglass.BackendTools.CatalogueSources.LoadProject();
+            var roster = systems.AddComponent<SquadRoster>();
+            roster.Initialize(new OperativeDefinition[0], sources.Progression);
+            var inventory = systems.AddComponent<SquadInventory>();
+            inventory.Initialize(sources.Items, null, roster, sources.InventoryRules.BagCapacity, null);
 
             var director = mission.AddComponent<MissionDirector>();
             director.Initialize(FixtureSettings(), FriendlySlots(), HostileSlots(), new MissionSystems
@@ -58,11 +65,20 @@ namespace Blackglass.EditorTools
                     pause = pause,
                     interactables = interactables,
                     intelligence = intelligence,
+                    roster = roster,
+                    inventory = inventory,
                 },
                 Load<Material>("Materials/Ground.mat"), Load<Material>("Materials/Obstacle.mat"),
                 generateAtStart: false, randomSeedAtStart: false, theme: null);
 
-            server.AddComponent<ServerBootstrap>().Initialize(director, pause);
+            var bootstrap = server.AddComponent<ServerBootstrap>();
+            bootstrap.Initialize(director, pause);
+            var errors = new System.Collections.Generic.List<string>();
+            var catalogueBytes = Blackglass.BackendTools.CatalogueExporter.Export(sources, errors);
+            if (catalogueBytes == null)
+                throw new InvalidOperationException("The catalogue export is refused, so the server scene can't hold its version:\n" + string.Join("\n", errors));
+            bootstrap.InitializeAttempt(sources.Items, sources.LootTable, roster, inventory, sources.Progression,
+                sources.Operatives.OrderBy(o => o.Id, StringComparer.Ordinal).ToArray(), Blackglass.BackendTools.CanonicalCatalogueWriter.VersionOf(catalogueBytes));
             // The networking adapter is in the scene but inert: it builds FishNet's manager only when -net is given.
             server.AddComponent<NetServer>().Initialize(
                 Load<GameObject>("Prefabs/Net/NetUnitAvatar.prefab"),
