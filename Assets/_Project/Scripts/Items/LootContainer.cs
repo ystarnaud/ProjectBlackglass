@@ -66,7 +66,8 @@ namespace Blackglass
         /// truncated or dropped (the internal TryAddEntry, not Add). Each roll must fit one entry (AttemptLoot.CheckRoll); the
         /// first that doesn't leaves the container empty and returns false with its code and index, so generation fails before
         /// any ready report. The entries returned are the container's own, in roll order: line i is roll i.
-        /// No gameplay path adds to a container; an addition that bypasses the rules is caught by the ledger at the freeze.
+        /// After the fill the contents are removal-only (owner ruling on deposits): any addition is refused before anything
+        /// changes; only collection removes. The ledger still catches an unexpected change at the freeze.
         /// </summary>
         internal bool InitializeForAttempt(IReadOnlyList<LootItemPlan> rolls, ItemCatalogue catalogue, out IReadOnlyList<ItemEntry> entries,
             out string error, out int failedRoll, float searchSeconds = SearchSeconds)
@@ -97,6 +98,7 @@ namespace Blackglass
                 }
                 filled.Add(entry);
             }
+            contents.LockAdditions();   // registered loot sources are removal-only: a deposit is refused before any change
             Arm(searchSeconds);
             return true;
         }

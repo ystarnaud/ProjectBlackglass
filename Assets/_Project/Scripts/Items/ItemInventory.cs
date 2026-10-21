@@ -22,11 +22,20 @@ namespace Blackglass
             this.capacity = capacity;
         }
 
+        // Stage 12 (owner ruling on online container deposits): an online attempt's registered container is removal-only. Never
+        // set for any offline inventory, whose behaviour is unchanged. Not serialized and not copied by Clone.
+        [NonSerialized] bool additionsLocked;
+
         public int Capacity => capacity;
         public bool IsUncapped => capacity == 0;
         public int Count => entries.Count;
         public IReadOnlyList<ItemEntry> Entries => entries;
-        public int FreeEntries => IsUncapped ? int.MaxValue : Math.Max(0, capacity - entries.Count);
+        public int FreeEntries => additionsLocked ? 0 : IsUncapped ? int.MaxValue : Math.Max(0, capacity - entries.Count);
+        /// <summary>True once LockAdditions was called: every addition is refused before anything changes; removals still work.</summary>
+        public bool AdditionsLocked => additionsLocked;
+
+        /// <summary>Makes the inventory removal-only, for good (an online attempt's registered loot container).</summary>
+        internal void LockAdditions() => additionsLocked = true;
 
         public ItemEntry Find(string instanceId)
         {
@@ -56,6 +65,8 @@ namespace Blackglass
         {
             if (definition == null)
                 throw new ArgumentNullException(nameof(definition));
+            if (additionsLocked)
+                return 0;
             if (!definition.IsStackable)
                 return FreeEntries;
             if (IsUncapped)
@@ -76,6 +87,8 @@ namespace Blackglass
                 throw new ArgumentNullException(nameof(definition));
             if (quantity < 0)
                 throw new ArgumentOutOfRangeException(nameof(quantity), quantity, "Quantity cannot be negative.");
+            if (additionsLocked)
+                return quantity;   // removal-only: nothing is added, nothing changes
             var left = quantity;
             if (definition.IsStackable)
             {

@@ -9,10 +9,12 @@ namespace Blackglass.Backend.Core
     /// The validated attempt (Stage 12 Task 2): what the mission process may start from, built from the backend's register
     /// answer and checked before any gameplay exists. Refused, with one code, when the answer is malformed, incomplete or
     /// inconsistent with this build. The first failure in this order wins:
-    /// bad_attempt_id (not a canonical UUIDv7), bad_response (no answer, or a negative seed), bad_session_id, bad_template, catalogue_mismatch
+    /// bad_attempt_id (not a canonical UUIDv7), bad_response (no answer, or a negative seed), bad_session_id, bad_template (malformed),
+    /// unsupported_template (not one this build runs: MissionTemplates.Supported, exactly procedural-standard:1), catalogue_mismatch
     /// (the answer's or the snapshot's catalogue is not the build's), unsupported_participants (not exactly one),
     /// bad_snapshot (the DTO boundary refuses it, another account, negative experience, a rank below 1, a blank choice),
-    /// unknown_operative_definition, bad_slots (not 0..n-1 distinct with n 1..8), then bad_snapshot again when the item
+    /// unknown_operative_definition, bad_slots (not 0..n-1 distinct with n 1..8), unsupported_squad_size (outside the
+    /// template's operative capacity), then bad_snapshot again when the item
     /// ledger refuses the snapshot's items (ids, definitions, equipment). Immutable copies only: later changes to the DTO
     /// change nothing here. The seed is never printed (no ToString).
     /// </summary>
@@ -39,19 +41,26 @@ namespace Blackglass.Backend.Core
         public IReadOnlyList<IReadOnlyList<string>> Choices { get; private set; }
 
         public static bool TryCreate(string attemptId, SessionRegisterResponse response, string buildCatalogueVersion,
-            Func<string, bool> knownOperativeDefinition, LedgerCatalogue catalogue, out AttemptStart start, out string refusal)
+            Func<string, bool> knownOperativeDefinition, LedgerCatalogue catalogue, out AttemptStart start, out string refusal) =>
+            TryCreate(attemptId, response, buildCatalogueVersion, knownOperativeDefinition, catalogue, MissionTemplates.Supported, out start, out refusal);
+
+        /// <summary>The same against another list of supported templates (tests of a hypothetical template).</summary>
+        public static bool TryCreate(string attemptId, SessionRegisterResponse response, string buildCatalogueVersion,
+            Func<string, bool> knownOperativeDefinition, LedgerCatalogue catalogue, IReadOnlyList<MissionTemplateSpec> supportedTemplates,
+            out AttemptStart start, out string refusal)
         {
+            if (supportedTemplates == null) throw new ArgumentNullException(nameof(supportedTemplates));
             if (knownOperativeDefinition == null) throw new ArgumentNullException(nameof(knownOperativeDefinition));
             if (catalogue == null) throw new ArgumentNullException(nameof(catalogue));
             start = null;
-            refusal = Check(attemptId, response, buildCatalogueVersion, knownOperativeDefinition, catalogue, out var made);
+            refusal = Check(attemptId, response, buildCatalogueVersion, knownOperativeDefinition, catalogue, supportedTemplates, out var made);
             if (refusal != null) return false;
             start = made;
             return true;
         }
 
         static string Check(string attemptId, SessionRegisterResponse response, string buildCatalogueVersion,
-            Func<string, bool> knownOperativeDefinition, LedgerCatalogue catalogue, out AttemptStart start)
+            Func<string, bool> knownOperativeDefinition, LedgerCatalogue catalogue, IReadOnlyList<MissionTemplateSpec> supportedTemplates, out AttemptStart start)
         {
             start = null;
             if (!CanonicalIds.IsAttemptId(attemptId)) return "bad_attempt_id";
@@ -59,6 +68,8 @@ namespace Blackglass.Backend.Core
             if (!CanonicalIds.IsUuid(response.processSessionId)) return "bad_session_id";
             var template = response.missionTemplate;
             if (template == null || !CanonicalIds.IsDefinitionId(template.id) || template.version < 1) return "bad_template";
+            var spec = supportedTemplates.FirstOrDefault(t => t != null && t.Id == template.id && t.Version == template.version);
+            if (spec == null) return "unsupported_template"; // no fallback to another template
             if (!CanonicalIds.IsSha256(buildCatalogueVersion) || !string.Equals(response.catalogueVersion, buildCatalogueVersion, StringComparison.Ordinal))
                 return "catalogue_mismatch";
             foreach (var p in response.participants ?? new RegisterParticipantDto[0])
@@ -82,6 +93,7 @@ namespace Blackglass.Backend.Core
             if (operatives.Length < 1 || operatives.Length > MaxOperatives
                 || !operatives.Select(o => o.slot).OrderBy(s => s).SequenceEqual(Enumerable.Range(0, operatives.Length)))
                 return "bad_slots";
+            if (operatives.Length < spec.MinOperatives || operatives.Length > spec.MaxOperatives) return "unsupported_squad_size";
 
             // The item ledger's own snapshot rules (canonical ids, no repeats, known definitions, equipment in its slot), run
             // on a throwaway ledger now so a malformed snapshot is refused before the mission is generated.

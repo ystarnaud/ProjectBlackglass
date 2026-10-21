@@ -263,16 +263,73 @@ namespace Blackglass.Tests
             Assert.That(container.Contents.Entries.Select(e => e.Quantity), Is.EqualTo(new[] { 3 }), "offline stacking is unchanged");
         }
 
-        // ---- Review Focus 2 ----
+        // ---- Review Focus 2 and the owner's deposit ruling (Track L final rulings §3): registered containers are removal-only ----
+
+        static string Contents(LootContainer c) => string.Join(",", c.Contents.Entries.Select(e => e.InstanceId + ":" + e.DefinitionId + "x" + e.Quantity));
 
         [Test]
-        public void A_bypassing_deposit_is_a_ledger_mismatch_at_the_freeze()
+        public void An_attempted_deposit_leaves_the_container_unchanged()
+        {
+            var m = Fill(TwoMedkits, ownedMedkits: 2);
+            var before = Contents(m.Container);
+            Assert.That(m.Container.Contents.Add(vest, 1), Is.EqualTo(1), "Add takes nothing");
+            Assert.That(m.Container.Contents.Add(medkit, 1), Is.EqualTo(1), "not even into an open medkit stack");
+            Assert.That(m.Container.Contents.TryAddEntry(new ItemEntry("x1", "item.light-vest", 1)), Is.False);
+            Assert.That(m.Container.Contents.RoomFor(medkit), Is.EqualTo(0));
+            Assert.That(m.Container.Contents.FreeEntries, Is.EqualTo(0));
+            var kit = m.Bag.Entries.First().InstanceId;
+            var deposit = ItemTransfer.Move(m.Bag, m.Container.Contents, kit, 1, catalogue);
+            Assert.That((deposit.Moved, deposit.Failure), Is.EqualTo((0, TransferFailure.DestinationFull)), "a deposit from a bag is refused");
+            Assert.That(m.Bag.CountOf("item.medkit"), Is.EqualTo(2), "the bag keeps its medkits");
+            Assert.That(Contents(m.Container), Is.EqualTo(before));
+        }
+
+        [Test]
+        public void The_registered_pool_and_its_hash_survive_attempted_deposits()
         {
             var m = Fill(TwoMedkits);
-            m.Container.Contents.Add(vest, 1); // no gameplay path does this; a future one that bypasses the rules is caught
+            var pool = m.Ledger.PoolLines().Select(Line).ToList();
+            var hash = LootPoolHash.Compute(TableVersion, m.Ledger.PoolLines());
+            m.Container.Contents.Add(medkit, 2);
+            m.Container.Contents.TryAddEntry(new ItemEntry("x2", "item.medkit", 1));
+            Assert.That(m.Ledger.PoolLines().Select(Line), Is.EqualTo(pool));
+            Assert.That(LootPoolHash.Compute(TableVersion, m.Ledger.PoolLines()), Is.EqualTo(hash));
+            var facts = Freeze(m);
+            Assert.That(facts.Integrity, Is.EqualTo(ManifestIntegrity.Ok), string.Join(",", facts.FailureCodes));
+        }
+
+        [Test]
+        public void Collection_still_works_after_an_attempted_deposit()
+        {
+            var m = Fill(TwoMedkits);
+            m.Container.Contents.Add(vest, 1);
+            Assert.That(Collect(m, catalogue, 1, 2), Is.EqualTo(2));
+            Assert.That(Collect(m, catalogue, 0, 1), Is.EqualTo(1));
+            Assert.That(m.Container.IsEmpty, Is.True);
+            Assert.That(Freeze(m).Integrity, Is.EqualTo(ManifestIntegrity.Ok));
+        }
+
+        [Test]
+        public void An_unexpected_mutation_is_an_integrity_failure_at_the_freeze()
+        {
+            var m = Fill(TwoMedkits);
+            m.Container.Contents.Remove(m.Entries[0].InstanceId, 1); // no event reported it: the ledger is the backstop
             var facts = Freeze(m);
             Assert.That(facts.Integrity, Is.EqualTo(ManifestIntegrity.LedgerMismatch));
-            Assert.That(facts.FailureCodes, Has.Member("container_extra_entry"));
+            Assert.That(facts.FailureCodes, Has.Member("container_line_mismatch"));
+        }
+
+        [Test]
+        public void An_offline_container_still_takes_additions_and_stacks()
+        {
+            var container = NewContainer();
+            container.Initialize(new[] { new LootItemPlan("item.medkit", 1) }, catalogue);
+            Assert.That(container.Contents.Add(medkit, 1), Is.EqualTo(0), "offline stacking unchanged");
+            Assert.That(container.Contents.Entries.Single().Quantity, Is.EqualTo(2));
+            Assert.That(container.Contents.TryAddEntry(new ItemEntry("x3", "item.light-vest", 1)), Is.True);
+            var plain = new ItemInventory(0);
+            Assert.That(plain.Add(medkit, 4), Is.EqualTo(0));
+            Assert.That(plain.Entries.Select(e => e.Quantity), Is.EqualTo(new[] { 3, 1 }));
         }
 
         // ---- the shipped table ----

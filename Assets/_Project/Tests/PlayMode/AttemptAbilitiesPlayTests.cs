@@ -178,6 +178,9 @@ namespace Blackglass.Tests
             var manifest = session.Outcome.Manifest.Manifest;
             Assert.That(manifest.Outcome, Is.EqualTo(ManifestOutcome.Success));
             Assert.That(manifest.Integrity, Is.EqualTo(ManifestIntegrity.Ok), string.Join(",", session.Facts.FailureCodes));
+            Assert.That(manifest.OutcomeSequence, Is.EqualTo(session.Sequence.Committed + 1), "the terminal event follows every committed event");
+            Assert.That(session.Sequence.Committed, Is.GreaterThanOrEqualTo(4), "at least D's death, the hostile's death and two objective changes");
+            var committedAtFreeze = session.Sequence.Committed;
             var dead = manifest.Operatives.Single(o => o.Slot == 1);
             Assert.That(dead.Alive, Is.False, "D died");
             Assert.That(dead.HeldItems, Is.EqualTo(new[] { Base58Id.TryParse("2m", out var rifle) ? rifle : 0 }), "D's rifle, as frozen");
@@ -190,6 +193,68 @@ namespace Blackglass.Tests
             yield return null;
             Assert.That(session.Outcome.Manifest.CanonicalBytes, Is.EqualTo(bytes));
             Assert.That(session.Outcome.Manifest.Manifest.Operatives.Single(o => o.Slot == 0).Alive, Is.True);
+            Assert.That(session.Sequence.Committed, Is.EqualTo(committedAtFreeze), "nothing after the freeze advances the sequence");
+            Assert.That(session.Outcome.Manifest.Manifest.OutcomeSequence, Is.EqualTo(committedAtFreeze + 1));
+        }
+
+        sealed class OtherTemplateSource : IAttemptSource
+        {
+            readonly IAttemptSource inner;
+            readonly string id;
+            readonly int version;
+
+            public OtherTemplateSource(IAttemptSource inner, string id, int version)
+            {
+                this.inner = inner;
+                this.id = id;
+                this.version = version;
+            }
+
+            public bool TryLoad(out string attemptId, out SessionRegisterResponse response, out string problem)
+            {
+                var ok = inner.TryLoad(out attemptId, out response, out problem);
+                if (ok) response.missionTemplate = new MissionTemplateDto { id = id, version = version };
+                return ok;
+            }
+        }
+
+        [UnityTest]
+        public IEnumerator An_unsupported_template_is_refused_before_any_generation([Values("procedural-standard:2", "mission.other:1")] string template)
+        {
+            var parts = template.Split(':');
+            bootstrap.AttemptSourceFactory = path => new OtherTemplateSource(new FixtureAttemptSource(path), parts[0], int.Parse(parts[1]));
+            bootstrap.Begin(new[] { "-attemptFixture", fixturePath });
+            yield return null;
+            Assert.That(bootstrap.HasExited, Is.True);
+            Assert.That(exitCode, Is.EqualTo(ServerExitCodes.StartupFailed));
+            StringAssert.Contains("unsupported_template", bootstrap.ExitReason);
+            Assert.That(director.Attempt, Is.Null, "no generation");
+            Assert.That(bootstrap.Session, Is.Null, "no ready report, no gameplay start");
+        }
+
+        [UnityTest]
+        public IEnumerator Only_committed_gameplay_events_advance_the_sequence()
+        {
+            yield return StartAttempt();
+            var session = bootstrap.Session;
+            var c = Unit(director, "C");
+            var abilities = c.GetComponent<UnitAbilities>();
+            var items = c.GetComponent<UnitItems>();
+            var scan = Ability(c, "ability.recon-scan");
+
+            var before = session.Sequence.Committed;
+            var kit = bootstrap.Inventory.WorkingLoadout("C").Bag.Entries.First(e => e.DefinitionId == "item.medkit").InstanceId;
+            Assert.That(items.TryUse(kit), Is.False, "full health: no effect");
+            Assert.That(session.Sequence.Committed, Is.EqualTo(before), "a no-effect request is not an event");
+
+            Assert.That(abilities.TryUse(AbilityCommand.AtGround(scan, c.transform.position)), Is.True, abilities.LastFailure.ToString());
+            Assert.That(session.Sequence.Committed, Is.EqualTo(before + 1), "an accepted ability use is one event");
+            Assert.That(abilities.TryUse(AbilityCommand.AtGround(scan, c.transform.position)), Is.False, "on cooldown");
+            Assert.That(session.Sequence.Committed, Is.EqualTo(before + 1), "a refused request is not an event");
+
+            c.GetComponent<Health>().TakeDamage(30);
+            Assert.That(items.TryUse(kit), Is.True);
+            Assert.That(session.Sequence.Committed, Is.EqualTo(before + 2), "an accepted item use is one event");
         }
 
         [UnityTest]

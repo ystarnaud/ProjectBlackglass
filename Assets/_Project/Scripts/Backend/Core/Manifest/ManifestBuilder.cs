@@ -107,6 +107,10 @@ namespace Blackglass.Backend.Core
         /// </summary>
         public static ManifestBuildOutcome CallerError() => new ManifestBuildOutcome(ManifestBuildKind.Failed, null, new[] { "caller_error" });
 
+        /// <summary>Failed with no bytes because the terminal event's outcomeSequence could not be numbered within the bound
+        /// (OutcomeSequence overflow: fail closed, never wrap or clamp). Diagnostics: "sequence_overflow".</summary>
+        public static ManifestBuildOutcome SequenceOverflow() => new ManifestBuildOutcome(ManifestBuildKind.Failed, null, new[] { "sequence_overflow" });
+
         public ManifestBuildKind Kind { get; }
         /// <summary>Null when Failed.</summary>
         public BuiltManifest Manifest { get; }

@@ -102,7 +102,7 @@ namespace Blackglass.Tests
             };
             return new SessionRegisterResponse
             {
-                processSessionId = sessionId, seed = seed, missionTemplate = new MissionTemplateDto { id = "mission.standard", version = 1 },
+                processSessionId = sessionId, seed = seed, missionTemplate = new MissionTemplateDto { id = "procedural-standard", version = 1 },
                 catalogueVersion = CatalogueVersion,
                 participants = new[] { new RegisterParticipantDto { accountId = "JG", loadout = snapshot } },
                 deadlines = new LaunchDeadlineDto { launch = "2026-10-21T12:00:00Z" },

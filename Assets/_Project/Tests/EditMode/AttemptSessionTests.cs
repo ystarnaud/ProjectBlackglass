@@ -116,7 +116,9 @@ namespace Blackglass.Tests
             }
         }
 
-        Harness Begin(AttemptStart start, params LootItemPlan[][] containerRolls)
+        Harness Begin(AttemptStart start, params LootItemPlan[][] containerRolls) => Begin(start, (OutcomeSequence)null, containerRolls);
+
+        Harness Begin(AttemptStart start, OutcomeSequence sequence, params LootItemPlan[][] containerRolls)
         {
             var h = new Harness { Catalogue = catalogue };
             h.Inventory = InventorySession.FromSnapshot(catalogue, 8, start.Snapshot, out var problem);
@@ -131,7 +133,7 @@ namespace Blackglass.Tests
             }
             h.Session = new AttemptSession(start, ledgerCatalogue, "r1", 0xcf2e14dece9cc2a6UL, 1,
                 h.Entries.Select((e, i) => (i, (IReadOnlyList<ItemEntry>)e)).ToList(), h.State,
-                () => h.Containers.Select((c, i) => AttemptRuntime.ContainerState(i, c)).ToList(), () => h.Elapsed);
+                () => h.Containers.Select((c, i) => AttemptRuntime.ContainerState(i, c)).ToList(), () => h.Elapsed, sequence);
             return h;
         }
 
@@ -184,6 +186,71 @@ namespace Blackglass.Tests
             Assert.That(h.Session.Outcome.Manifest.Manifest.OutcomeSequence, Is.EqualTo(2));
         }
 
+        // ---- outcomeSequence (owner ruling, Track L final rulings §1) ----
+
+        [Test]
+        public void Refused_events_do_not_advance_the_sequence()
+        {
+            var h = Begin(OneOperative(), TwoMedkits);
+            h.Session.Start();
+            Assert.That(h.Session.OnUsed("C", Vest), Is.EqualTo(LedgerEventResult.Refused), "not a consumable");
+            Assert.That(h.Session.OnEquipped("C", "not-held"), Is.EqualTo(LedgerEventResult.Refused));
+            Assert.That(h.Session.OnCollected("C", -1, "nothing", 1), Is.EqualTo(LedgerEventResult.Refused));
+            Assert.That(h.Session.OnCollected("C", 0, h.Entries[0][0].InstanceId, 0), Is.EqualTo(LedgerEventResult.Refused), "a zero collect has no effect");
+            Assert.That(h.Session.Sequence.Committed, Is.EqualTo(0));
+            h.Collect("C", 0, 0, 1);
+            Assert.That(h.Session.Sequence.Committed, Is.EqualTo(1), "an accepted event counts once");
+            h.Session.Finish(ManifestOutcome.Defeat, Done, new string[0]);
+            Assert.That(h.Session.Result.OutcomeSequence, Is.EqualTo(2), "the terminal event is the next number");
+        }
+
+        [Test]
+        public void Competing_terminal_events_keep_the_first_and_its_number()
+        {
+            var h = Begin(OneOperative(), TwoMedkits);
+            h.Session.Start();
+            h.Collect("C", 0, 0, 1);
+            h.Session.Finish(ManifestOutcome.Success, Done, new string[0]);
+            var bytes = h.Session.Outcome.Manifest.CanonicalBytes;
+            var hash = h.Session.Outcome.Manifest.ManifestHash;
+            h.Session.CommitGameplayEvent();          // e.g. a death in the same frame, after the freeze
+            h.Session.Finish(ManifestOutcome.Defeat, Done, new[] { "C" });
+            h.Session.Finish(ManifestOutcome.Abandoned, Done, new string[0]);
+            Assert.That(h.Session.Result.Outcome, Is.EqualTo(ManifestOutcome.Success));
+            Assert.That(h.Session.Result.OutcomeSequence, Is.EqualTo(2));
+            Assert.That(h.Session.Outcome.Manifest.CanonicalBytes, Is.EqualTo(bytes));
+            Assert.That(h.Session.Outcome.Manifest.ManifestHash, Is.EqualTo(hash));
+        }
+
+        [Test]
+        public void Non_item_gameplay_events_count_too()
+        {
+            var h = Begin(OneOperative(), TwoMedkits);
+            h.Session.Start();
+            h.Session.CommitGameplayEvent(); // an ability use, a death or an objective change the session observed
+            h.Session.CommitGameplayEvent();
+            h.Use("C", Medkit);
+            h.Session.Finish(ManifestOutcome.Success, Done, new string[0]);
+            Assert.That(h.Session.Result.OutcomeSequence, Is.EqualTo(4));
+        }
+
+        [Test]
+        public void A_sequence_overflow_fails_closed_with_no_bytes()
+        {
+            var h = Begin(OneOperative(medkits: 3), new OutcomeSequence(maximum: 3), TwoMedkits);
+            h.Session.Start();
+            h.Collect("C", 0, 0, 1);
+            h.Collect("C", 0, 1, 2);
+            h.Use("C", Medkit); // the third event: the terminal one could no longer be numbered
+            h.Session.Finish(ManifestOutcome.Success, Done, new string[0]);
+            Assert.That(h.Session.IsFrozen, Is.True);
+            Assert.That(h.Session.Outcome.Kind, Is.EqualTo(ManifestBuildKind.Failed));
+            Assert.That(h.Session.Outcome.Manifest, Is.Null);
+            Assert.That(h.Session.Outcome.Diagnostics, Has.Member("sequence_overflow"));
+            h.Session.Finish(ManifestOutcome.Defeat, Done, new string[0]);
+            Assert.That(h.Session.Outcome.Kind, Is.EqualTo(ManifestBuildKind.Failed), "stays failed");
+        }
+
         [Test]
         public void A_ledger_mismatch_is_never_ok()
         {
@@ -198,14 +265,27 @@ namespace Blackglass.Tests
         }
 
         [Test]
-        public void A_bypassing_container_deposit_is_a_ledger_mismatch_at_the_freeze()
+        public void A_deposit_is_refused_before_any_change_and_the_outcome_stays_ok()
         {
             var h = Begin(OneOperative(), TwoMedkits);
             h.Session.Start();
-            h.Containers[0].Contents.Add(catalogue.Find(Vest), 1);
+            Assert.That(h.Containers[0].Contents.Add(catalogue.Find(Vest), 1), Is.EqualTo(1), "nothing added");
+            var kit = h.Bag("C").Entries.First(e => e.DefinitionId == Medkit).InstanceId;
+            Assert.That(ItemTransfer.Move(h.Bag("C"), h.Containers[0].Contents, kit, 1, catalogue).Moved, Is.EqualTo(0), "a deposit from a bag moves nothing");
+            h.Session.Finish(ManifestOutcome.Success, Done, new string[0]);
+            Assert.That(h.Session.Outcome.Manifest.Manifest.Integrity, Is.EqualTo(ManifestIntegrity.Ok), string.Join(",", h.Session.Outcome.Diagnostics));
+            Assert.That(h.Session.Result.OutcomeSequence, Is.EqualTo(1), "refused deposits are not gameplay events");
+        }
+
+        [Test]
+        public void An_unreported_container_change_is_still_a_ledger_mismatch_at_the_freeze()
+        {
+            var h = Begin(OneOperative(), TwoMedkits);
+            h.Session.Start();
+            h.Containers[0].Contents.Remove(h.Entries[0][1].InstanceId, 1); // a removal no event reported: the backstop
             h.Session.Finish(ManifestOutcome.Success, Done, new string[0]);
             Assert.That(h.Session.Outcome.Manifest.Manifest.Integrity, Is.EqualTo(ManifestIntegrity.LedgerMismatch));
-            Assert.That(h.Session.Outcome.Diagnostics, Has.Member("container_extra_entry"));
+            Assert.That(h.Session.Outcome.Diagnostics, Has.Member("container_line_mismatch"));
         }
 
         [Test]

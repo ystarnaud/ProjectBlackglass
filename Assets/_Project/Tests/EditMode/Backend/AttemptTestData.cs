@@ -15,7 +15,7 @@ namespace Blackglass.Tests
         public const string AttemptId = "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41";
         public const string SessionId = "0192f1a5-0000-7000-8000-000000000001";
         public const int Seed = 424242;
-        public const string TemplateId = "mission.standard";
+        public const string TemplateId = "procedural-standard";
         public const string OperativeDefinition1 = "00000000-0000-4000-8000-000000000001";
 
         public static string GoldenCatalogueVersion =>

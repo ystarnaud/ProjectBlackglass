@@ -124,8 +124,10 @@ namespace Blackglass.Tests
                 bag = new SnapshotBagDto { instances = new SnapshotInstanceDto[0], stacks = new SnapshotStackDto[0] }, equipment = new EquipmentSlotsDto(),
             }).ToArray();
             Assert.That(template, Is.Not.Null);
+            // A hypothetical template taking 8 (the core's bound): the roster still refuses what the director can't spawn.
+            var wide = new[] { new MissionTemplateSpec(AttemptTestData.TemplateId, 1, 1, 8) };
             Assert.That(AttemptStart.TryCreate(AttemptTestData.AttemptId, AttemptTestData.Response(snapshot), AttemptTestData.GoldenCatalogueVersion,
-                id => id == "def-recon", AttemptTestData.GoldenLedgerCatalogue(), out var start, out var refusal), Is.True, refusal + ": 7 is a valid snapshot for the core");
+                id => id == "def-recon", AttemptTestData.GoldenLedgerCatalogue(), wide, out var start, out var refusal), Is.True, refusal + ": 7 is valid for that template");
             Assert.That(AttemptSquad.TryMembers(start, new[] { recon, assault }, track, out var members, out var problem), Is.False);
             Assert.That(problem, Is.EqualTo("unsupported_squad_size"));
             Assert.That(members, Is.Empty);

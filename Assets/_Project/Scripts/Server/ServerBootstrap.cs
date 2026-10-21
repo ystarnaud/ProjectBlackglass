@@ -83,6 +83,8 @@ namespace Blackglass
         /// <summary>Whether -attemptFixture may run: Editor and fixture builds only (S12-D4). Tests replace it, as an Editor
         /// compile can't observe a release build's define.</summary>
         internal Func<bool> AttemptFixtureAllowed = () => FixtureBuild;
+        /// <summary>Where -attemptFixture's attempt comes from (the fixture source); tests replace it to vary the register answer.</summary>
+        internal Func<string, IAttemptSource> AttemptSourceFactory = CreateFixtureSource;
         /// <summary>The running attempt's session (Stage 12), once its mission is ready; null otherwise.</summary>
         public AttemptSession Session { get; private set; }
         internal SquadInventory Inventory => inventory;
@@ -177,7 +179,7 @@ namespace Blackglass
                 Finish(ServerExitCodes.StartupFailed, "-attemptFixture needs the path of an attempt fixture");
                 return;
             }
-            var source = CreateFixtureSource(fixture);
+            var source = AttemptSourceFactory(fixture);
             if (source == null)
             {
                 Finish(ServerExitCodes.StartupFailed, "attempt: no fixture source in this build");
@@ -262,7 +264,7 @@ namespace Blackglass
             if (Session == null || Session.Outcome == null)
                 return;
             var outcome = Session.Outcome;
-            Debug.Log(Prefix + $"ATTEMPT FROZEN outcome={Session.Result.Outcome} build={outcome.Kind} integrity={Session.Facts.Integrity} " +
+            Debug.Log(Prefix + $"ATTEMPT FROZEN outcome={(Session.Result != null ? Session.Result.Outcome.ToString() : "none")} build={outcome.Kind} integrity={Session.Facts.Integrity} " +
                 $"manifestHash={(outcome.Manifest != null ? outcome.Manifest.ManifestHash : "none")} diagnostics={string.Join(",", outcome.Diagnostics)}");
         }
 

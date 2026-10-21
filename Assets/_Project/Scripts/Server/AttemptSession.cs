@@ -26,7 +26,10 @@ namespace Blackglass
         int lootTableVersion;
         MissionDirector director;
         readonly List<UnitItems> bound = new List<UnitItems>();
-        int events;
+        readonly List<(UnitAbilities Abilities, Action<AbilityDefinition> Handler)> boundAbilities = new List<(UnitAbilities, Action<AbilityDefinition>)>();
+        readonly List<(Health Health, Action Handler)> boundDeaths = new List<(Health, Action)>();
+        MissionRuntime boundRuntime;
+        readonly OutcomeSequence sequence;
 
         /// <summary>The attempt's ledger (null before a successful start).</summary>
         public MissionItemLedger Ledger { get; private set; }
@@ -39,12 +42,20 @@ namespace Blackglass
         public string FailureMessage { get; private set; }
         public ParticipantFacts Facts { get; private set; }
         public ParticipantResult Result { get; private set; }
+        /// <summary>
+        /// The attempt's outcomeSequence counter (owner ruling, Track L final rulings §1). Committed gameplay events: an item event
+        /// the ledger applied (collect, use, equip), an accepted ability use, a unit's death, an objective's state change. Refused,
+        /// malformed, unauthorized and no-effect requests never raise these events (UnitItems and UnitAbilities raise them only on
+        /// success; a ledger-refused item event is not counted). The first terminal event (MissionFinished) takes the next number.
+        /// </summary>
+        public OutcomeSequence Sequence => sequence;
 
         /// <summary>The plain core, for tests and the fixture export: the runtime is read through the three sources.</summary>
         internal AttemptSession(AttemptStart attempt, LedgerCatalogue catalogue, string buildRevision, ulong layoutHash, int lootTableVersion,
             IReadOnlyList<(int Index, IReadOnlyList<ItemEntry> EntriesInRollOrder)> containers, Func<string, OperativeRuntimeState> operativeState,
-            Func<IReadOnlyList<ContainerRuntimeState>> containerStates, Func<int> elapsedMs)
+            Func<IReadOnlyList<ContainerRuntimeState>> containerStates, Func<int> elapsedMs, OutcomeSequence sequence = null)
         {
+            this.sequence = sequence ?? new OutcomeSequence();
             this.attempt = attempt ?? throw new ArgumentNullException(nameof(attempt));
             this.catalogue = catalogue ?? throw new ArgumentNullException(nameof(catalogue));
             this.buildRevision = buildRevision ?? throw new ArgumentNullException(nameof(buildRevision));
@@ -136,6 +147,27 @@ namespace Blackglass
                 items.EquippedDetail += HandleEquipped;
                 bound.Add(items);
             }
+            // The other committed gameplay events of the outcomeSequence: accepted ability uses, deaths, objective transitions.
+            foreach (var unit in director.Friendlies.Concat(director.Hostiles))
+            {
+                if (unit == null)
+                    continue;
+                if (unit.TryGetComponent<UnitAbilities>(out var abilities))
+                {
+                    Action<AbilityDefinition> used = _ => CommitGameplayEvent();
+                    abilities.Used += used;
+                    boundAbilities.Add((abilities, used));
+                }
+                if (unit.TryGetComponent<Health>(out var health))
+                {
+                    Action died = CommitGameplayEvent;
+                    health.Died += died;
+                    boundDeaths.Add((health, died));
+                }
+            }
+            boundRuntime = director.Runtime;
+            if (boundRuntime != null)
+                boundRuntime.ObjectiveChanged += OnObjectiveChanged;
             director.MissionFinished += OnMissionFinished;
         }
 
@@ -150,6 +182,17 @@ namespace Blackglass
                     items.EquippedDetail -= HandleEquipped;
                 }
             bound.Clear();
+            foreach (var (abilities, handler) in boundAbilities)
+                if (abilities != null)
+                    abilities.Used -= handler;
+            boundAbilities.Clear();
+            foreach (var (health, handler) in boundDeaths)
+                if (health != null)
+                    health.Died -= handler;
+            boundDeaths.Clear();
+            if (boundRuntime != null)
+                boundRuntime.ObjectiveChanged -= OnObjectiveChanged;
+            boundRuntime = null;
             if (director != null)
                 director.MissionFinished -= OnMissionFinished;
         }
@@ -179,12 +222,21 @@ namespace Blackglass
 
         void HandleEquipped(string operativeId, string entryId) => OnEquipped(operativeId, entryId);
 
+        void OnObjectiveChanged(MissionObjective objective) => CommitGameplayEvent();
 
+        // Only an item event the ledger applied is a committed gameplay event; a refused one is an integrity failure, not an event.
         LedgerEventResult Count(LedgerEventResult result)
         {
-            if (!IsFrozen)
-                events++;
+            if (result == LedgerEventResult.Applied)
+                CommitGameplayEvent();
             return result;
+        }
+
+        /// <summary>One committed gameplay event (an ability use, a death, an objective transition). Ignored after the freeze.</summary>
+        internal void CommitGameplayEvent()
+        {
+            if (!IsFrozen)
+                sequence.Commit();
         }
 
         void OnMissionFinished(MissionPhase phase)
@@ -208,8 +260,8 @@ namespace Blackglass
 
         /// <summary>
         /// The freeze at the first terminal event: the participant's runtime against the ledger (fail closed), the authoritative
-        /// result (outcomeSequence is the terminal event's ordinal in this session's event sequence), and the manifest. Only the
-        /// first call does anything.
+        /// result (outcomeSequence: the terminal event's number in the committed gameplay sequence), and the manifest. Only the
+        /// first call does anything. A sequence overflow fails closed: Failed, no bytes (sequence_overflow).
         /// </summary>
         internal void Finish(ManifestOutcome outcome, IReadOnlyList<ObjectiveResult> objectives, IReadOnlyCollection<string> deadOperativeIds)
         {
@@ -218,7 +270,12 @@ namespace Blackglass
             IsFrozen = true;
             var states = attempt.Snapshot.Select(o => operativeState(o.OperativeId)).Where(s => s != null).ToList();
             Facts = Ledger.Freeze(attempt.AccountId, states, containerStates());
-            Result = new ParticipantResult(outcome, events + 1, elapsedMs(), objectives, deadOperativeIds);
+            if (!sequence.TryFreeze(out var terminal))
+            {
+                Outcome = ManifestBuildOutcome.SequenceOverflow();
+                return;
+            }
+            Result = new ParticipantResult(outcome, terminal, elapsedMs(), objectives, deadOperativeIds);
             var pool = Ledger.PoolLines();
             try
             {

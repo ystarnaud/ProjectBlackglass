@@ -107,6 +107,47 @@ namespace Blackglass.Tests
             Assert.That(Refusal(AttemptId, response), Is.EqualTo("bad_template"));
         }
 
+        // Owner ruling (Track L final rulings §2): the only supported template is procedural-standard:1, 1 to 3 operatives.
+        [Test]
+        public void The_only_supported_template_is_procedural_standard_version_1()
+        {
+            var t = MissionTemplates.Supported.Single();
+            Assert.That((t.Id, t.Version, t.MinOperatives, t.MaxOperatives), Is.EqualTo(("procedural-standard", 1, 1, 3)));
+        }
+
+        [TestCase("mission.standard", 1)]
+        [TestCase("procedural-standard", 2)]
+        [TestCase("procedural-standard-x", 1)]
+        public void An_unsupported_template_id_or_version_is_unsupported_template(string id, int version)
+        {
+            var response = Response(LedgerSnapshot("01-owned-swap-and-use.json"));
+            response.missionTemplate = new MissionTemplateDto { id = id, version = version };
+            Assert.That(Refusal(AttemptId, response), Is.EqualTo("unsupported_template"));
+        }
+
+        [Test]
+        public void A_malformed_template_is_still_bad_template_first()
+        {
+            var response = Response(LedgerSnapshot("01-owned-swap-and-use.json"));
+            response.missionTemplate = new MissionTemplateDto { id = "Not A Template", version = 1 };
+            Assert.That(Refusal(AttemptId, response), Is.EqualTo("bad_template"));
+        }
+
+        [Test]
+        public void A_roster_outside_the_templates_capacity_is_unsupported_squad_size()
+        {
+            var response = Response(LedgerSnapshot("01-owned-swap-and-use.json"));
+            var one = response.participants[0].loadout.operatives[0];
+            response.participants[0].loadout.operatives = Enumerable.Range(0, 4).Select(i => new SnapshotOperativeDto
+            {
+                slot = i, operativeId = Base58Id.Format(100 + i), definitionId = one.definitionId, experience = 0, rank = 1, choices = new string[0],
+                bag = new SnapshotBagDto { instances = new SnapshotInstanceDto[0], stacks = new SnapshotStackDto[0] }, equipment = new EquipmentSlotsDto(),
+            }).ToArray();
+            Assert.That(Refusal(AttemptId, response), Is.EqualTo("unsupported_squad_size"), "4 operatives; the template takes 1 to 3");
+            response.participants[0].loadout.operatives = response.participants[0].loadout.operatives.Take(3).ToArray();
+            Assert.That(Refusal(AttemptId, response), Is.Null, "3 fit");
+        }
+
         [Test]
         public void Another_catalogue_in_the_response_or_the_snapshot_is_catalogue_mismatch()
         {
