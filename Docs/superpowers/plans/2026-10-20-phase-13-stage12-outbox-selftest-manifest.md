@@ -3,12 +3,14 @@
 **Status (2026-10-20): revision 5, complete, for the owner's review; not executed.** Every binary, revision and hash row is filled from the verified clean build at `5551a00`, with EditMode and PlayMode green on that exact source tree. Execution needs the owner's explicit approval of this exact text; any change needs a new approval.
 
 History:
-- **Revision 4** had every binary row PENDING: PlayMode and the build had been stopped for low system memory. Revision 5 fills them from the clean build at the same revision; nothing else changed.
 - **Revision 1** was withdrawn (review 1, C1: the player would have run as root, outside the sandbox).
+- **Revision 2** sent one script over `ssh bash -s` and ran the player in transient, unprivileged units without a network.
 - **Revision 3** was superseded by security review 2:
   - I-N1: the provenance also covers ignored files Unity imports, index flags and content;
   - I-N2: the journal identity reads only the unit's stdout stream and is described accurately, and an automatic owner check gives the independent uid evidence;
   - M6–M10: key=value output, no link-following, a wider baseline, tests rerun in the clean worktree, IPv6 redaction.
+- **Revision 4** had every binary row PENDING: PlayMode and the build had been stopped for low system memory.
+- **Revision 5** fills them from the clean build at the same revision (review 5: 0 Critical, 0 Important). It also names the checkout the steps run from and states the installed file modes as they are. Dates are local time (UTC−4) unless marked UTC.
 
 **What it is:** a non-networked diagnostic of Stage 11's native outbox inside Unity's **Linux Mono** dedicated-server player. It covers:
 - the libc calls through `NativeLibc` and the `blackglass-outbox` worker thread;
@@ -26,7 +28,7 @@ History:
 |---|---|
 | Source revision | `5551a0095150320a87cf0117467d4cc1b7900f38` on branch `phase13-outbox-selftest`: the self-test, the provenance correction and the review fixes, on top of `main` `075fcd4`. Not merged, not pushed |
 | Source tree | `8f7eab29a57b069b34ca04663b7129362c16e881` (equal to `git rev-parse 5551a00^{tree}`), `dirty=false`, content hash `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` (the hash of no change), as captured before Unity started (`source-provenance.txt` in the package) |
-| Build | `Tools/build-server.sh` (release variant) in the dedicated clean worktree `.claude/scratchpad/sb`, detached at that revision, 2026-10-21 01:03 UTC (`buildGuid=582ea8992eee426da1a19147391ff421`). The owner's working project and its two modified settings files were never involved. Unity 6000.3.25f1, Linux Dedicated Server, Mono. Before it: 0 status lines and no ignored file under `Assets`, `Packages` or `ProjectSettings`, and the same afterwards. Preparation, all in that disposable worktree: the interrupted run's ignored `Assets/InitTestScene00af4bfb-….unity` and `.meta` (Unity test-runner scenes) were removed, and the 36 renders PlayMode's presentation tests write to `.claude/scratchpad/phase125/` were moved to the run's evidence folder |
+| Build | `Tools/build-server.sh` (release variant) in the dedicated clean worktree `.claude/scratchpad/sb`, detached at that revision, 2026-10-21 01:03 UTC (`buildGuid=582ea8992eee426da1a19147391ff421`). The owner's working project and its two modified settings files were never involved. Unity 6000.3.25f1, Linux Dedicated Server, Mono. Before it: 0 status lines and no ignored file under `Assets`, `Packages` or `ProjectSettings`, and the same afterwards. Preparation, all in that disposable worktree: the interrupted run's ignored `Assets/InitTestScene00af4bfb-….unity` and `.meta` (Unity test-runner scenes) were removed, and the 36 files PlayMode's presentation tests write to `.claude/scratchpad/phase125/` (35 renders and a performance report; test output outside the source folders) were moved to the run's evidence folder |
 | Package | `blackglass-server-linux-5551a00.tar.gz`, SHA-256 `39acdc08d0cc1a8a47c3fc08a9214ef4acd720e500ac98b43b32f3eec481abe4` |
 | `files.sha256` (every shipped file, in the package) | 176 files, SHA-256 of the list `4f2f79235cc55eb8abec4cfe8e426d40302448df3ff942c35ca9ee5704de2110` (Appendix A). Rechecked from the extracted archive: every line OK, 176 files present, none unlisted, no `*_DoNotShip` folder |
 | `build-info.txt` | `revision=5551a0095150320a87cf0117467d4cc1b7900f38`, `sourceTree=8f7eab29a57b069b34ca04663b7129362c16e881`, `dirty=false`, `variant=release`, `backend=Mono`, `binarySha256=61c388a1cd661a6230c857fd66de0cec86a1ec497d5f6df1b7f1d585263be19f`, `provenance=verified` |
@@ -43,17 +45,20 @@ History:
 
 ## 2. How every step is run
 
-From the workstation, at the repository root on revision `5551a00`:
+From the workstation, in the main repository's root directory (whatever branch it has checked out). The script is read from the clean build worktree `.claude/scratchpad/sb`, which is detached at `5551a00` and also holds the package:
 
 ```sh
-step() { tr -d '\r' < Tools/LinuxServer/outbox-selftest/selftest-vm.sh | ssh bg-dev-mission01 bash -s -- "$@" 2>&1 \
+S=.claude/scratchpad/sb/Tools/LinuxServer/outbox-selftest/selftest-vm.sh
+[ "$(git -C .claude/scratchpad/sb rev-parse HEAD)" = 5551a0095150320a87cf0117467d4cc1b7900f38 ] || echo "STOP: wrong worktree revision"
+mkdir -p .claude/scratchpad/phase13/selftest/vm
+step() { tr -d '\r' < "$S" | ssh bg-dev-mission01 bash -s -- "$@" 2>&1 \
   | sed -E -e 's/[0-9]{1,3}(\.[0-9]{1,3}){3}/<addr>/g' \
            -e 's/([0-9a-fA-F]{1,4}:){4,7}[0-9a-fA-F]{1,4}/<addr6>/g' -e 's/([0-9a-fA-F]{0,4}:){1,6}:[0-9a-fA-F:]*/<addr6>/g' \
   | tee -a .claude/scratchpad/phase13/selftest/vm/transcript.txt; }
 ```
 
 - The two IPv6 expressions redact full and `::`-compressed addresses, while timestamps (three groups, no `::`) are left intact.
-- Before each step, `tr -d '\r' < Tools/LinuxServer/outbox-selftest/selftest-vm.sh | sha256sum` must print `16326faf0f73889c0095918faf29f0519132b1b517ab771f9476fa56da844c8f`.
+- Before each step, `tr -d '\r' < "$S" | sha256sum` must print `16326faf0f73889c0095918faf29f0519132b1b517ab771f9476fa56da844c8f`.
 - The transcript stays local and is never committed.
 - The script runs as root over the existing alias with `set -u` (no `set -e`; every probe prints its value). The unit properties are one bash array.
 
@@ -92,7 +97,7 @@ The `location` phase writes nothing, so it has (1) and (4), and the identical un
 | `/root/selftest-before.txt` | root 0644. The integrity baseline: SHA-256 of every file under `/opt/blackglass/{server,agent,mission}` and `/etc/blackglass`; every blackglass unit file, drop-in and `.wants` link under `/etc/systemd/system`; the targets of both `current` links; every `sshd_config*` under `/etc/ssh`; the names of the loaded kernel modules; `kernel.modules_disabled`. Hashes stay on the VM; only the line count is printed | removed at cleanup |
 | `/root/selftest-rev` | root 0644, the installed revision | removed at cleanup |
 | `/root/blackglass-selftest-5551a00.tar.gz` | root 0600 (the upload) | removed after extraction |
-| `/opt/blackglass-selftest/5551a00/` | root:root, dirs 0755, files 0644, the player 0755 | removed at cleanup |
+| `/opt/blackglass-selftest/5551a00/` | root:root, dirs 0755. After `chmod -R u=rwX,go=rX` and `chmod 0755` on the player: the player, the 4 shell scripts and the 132 managed DLLs (executable in the archive) are 0755, the other 40 files 0644. None is writable by the run's user | removed at cleanup |
 | `/var/lib/private/blackglass-selftest/` and its `<id>/` directories | the run's dynamic user, 0755 (systemd) | removed at cleanup |
 | `/var/lib/blackglass-selftest/` and its `<id>` links into `private/` | root (systemd) | removed at cleanup |
 
