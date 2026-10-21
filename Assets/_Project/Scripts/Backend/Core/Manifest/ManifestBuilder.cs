@@ -101,6 +101,12 @@ namespace Blackglass.Backend.Core
             Diagnostics = new ReadOnlyCollection<string>(new List<string>(diagnostics));
         }
 
+        /// <summary>
+        /// Failed with no bytes because the caller passed inconsistent inputs (an ArgumentException from BuildForPublication: a
+        /// header/facts account mismatch, a dead id that isn't the participant's; Stage 11 M2). Diagnostics: "caller_error".
+        /// </summary>
+        public static ManifestBuildOutcome CallerError() => new ManifestBuildOutcome(ManifestBuildKind.Failed, null, new[] { "caller_error" });
+
         public ManifestBuildKind Kind { get; }
         /// <summary>Null when Failed.</summary>
         public BuiltManifest Manifest { get; }

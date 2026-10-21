@@ -89,6 +89,15 @@ namespace Blackglass
         public event Action<ItemDefinition> Used;
         public event Action<ItemUseFailure> UseFailed;
 
+        // Stage 12 detail events for the server's item ledger (spec §14.4): additive, raised after the existing events and only
+        // for what really happened. No rule changes.
+        /// <summary>Units moved from one container entry into this operative's bag: (operative, container, entry id, units moved).</summary>
+        public event Action<string, LootContainer, string, int> CollectedDetail;
+        /// <summary>One unit of a consumable used: (operative, definition id).</summary>
+        public event Action<string, string> UsedDetail;
+        /// <summary>An entry equipped mid-mission: (operative, entry id).</summary>
+        public event Action<string, string> EquippedDetail;
+
         Health OwnHealth => health != null ? health : health = GetComponent<Health>();
 
         internal void Bind(SquadInventory items, string operative)
@@ -146,6 +155,7 @@ namespace Blackglass
             UsedCount++;
             Used?.Invoke(definition);
             inventory.Core.NotifyChanged();
+            UsedDetail?.Invoke(operativeId, definition.Id);
             return true;
         }
 
@@ -184,6 +194,7 @@ namespace Blackglass
                 return false;
             }
             EquipCount++;
+            EquippedDetail?.Invoke(operativeId, instanceId);
             return true;
         }
 
@@ -252,6 +263,7 @@ namespace Blackglass
 
             var taken = 0;
             var missing = 0;
+            var movedById = new System.Collections.Generic.List<(string Id, int Moved)>();
             foreach (var id in wanted)
             {
                 var source = container.Contents.Find(id);
@@ -260,7 +272,10 @@ namespace Blackglass
                     missing++;
                     continue;
                 }
-                taken += ItemTransfer.Move(container.Contents, bag, id, source.Quantity, inventory.Catalogue).Moved;
+                var moved = ItemTransfer.Move(container.Contents, bag, id, source.Quantity, inventory.Catalogue).Moved;
+                taken += moved;
+                if (moved > 0)
+                    movedById.Add((id, moved));
             }
             // What is still there is re-read from the container, so the figure is what really remains.
             var left = 0;
@@ -278,7 +293,10 @@ namespace Blackglass
                 container.NotifyChanged();
                 inventory.Core.NotifyChanged();
             }
-            return RecordCollect(new CollectResult(taken, left, outcome));
+            var result = RecordCollect(new CollectResult(taken, left, outcome));
+            foreach (var (id, moved) in movedById)
+                CollectedDetail?.Invoke(operativeId, container, id, moved);
+            return result;
         }
 
         internal void RecordCollect(CollectFailure failure) => RecordCollect(new CollectResult(0, 0, failure));

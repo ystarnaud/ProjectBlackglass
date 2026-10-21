@@ -73,6 +73,68 @@ namespace Blackglass.Tests
         const string PinnedReady =
             "{\"processSessionId\":\"0192f1a5-0000-7000-8000-000000000001\",\"layoutHash\":\"cf2e14dece9cc2a6\",\"lootTableVersion\":1,\"lootHash\":\"sha256:86fe2c3850ee11fbf263d93e94873577bf0d0e557148939ef30ab748ca3795c2\",\"objectives\":[{\"objectiveId\":\"eliminate\",\"required\":true},{\"objectiveId\":\"extract\",\"required\":false}],\"lootPool\":[{\"containerIndex\":0,\"line\":0,\"definitionId\":\"item.medkit\",\"quantity\":2},{\"containerIndex\":1,\"line\":0,\"definitionId\":\"item.medkit\",\"quantity\":1},{\"containerIndex\":1,\"line\":1,\"definitionId\":\"item.medkit\",\"quantity\":2},{\"containerIndex\":2,\"line\":0,\"definitionId\":\"item.servo-boots\",\"quantity\":1},{\"containerIndex\":2,\"line\":1,\"definitionId\":\"item.servo-boots\",\"quantity\":1}]}";
 
+        static void SearchNextTo(LootContainer container, CommandableUnit unit)
+        {
+            container.transform.position = unit.transform.position + Vector3.right;
+            Physics.SyncTransforms();
+            Assert.That(container.Interactable.TryBegin(unit), Is.True);
+            container.Interactable.Advance(unit, 10f);
+            Assert.That(container.IsSearched, Is.True);
+        }
+
+        [UnityTest]
+        public IEnumerator Real_units_feed_the_ledger_and_the_first_end_freezes_the_outcome()
+        {
+            var attempt = world.Start(Seed);
+            world.UseSnapshot(attempt);
+            yield return Generate(attempt);
+            var director = world.Director;
+            Assert.That(director.State, Is.EqualTo(MissionState.Ready), string.Join("\n", director.Report.Failures));
+            var session = world.Session(attempt);
+            Assert.That(JsonUtility.ToJson(session.ReadyReport), Is.EqualTo(PinnedReady), "the snapshot squad generates the same fixture mission");
+            var c = director.Friendlies[0];
+            var d = director.Friendlies[1];
+            Assert.That(c.GetComponent<UnitItems>().OperativeId, Is.EqualTo("C"));
+            Assert.That(d.GetComponent<UnitItems>().OperativeId, Is.EqualTo("D"));
+
+            // C takes both medkit lines of container 1 (x1 and x2) in one collect, then uses one medkit.
+            var twoLines = director.Current.LootContainers[1];
+            SearchNextTo(twoLines, c);
+            var items = c.GetComponent<UnitItems>();
+            Assert.That(items.TryCollect(twoLines, null).Taken, Is.EqualTo(3));
+            c.GetComponent<Health>().TakeDamage(50);
+            var kit = world.Inventory.WorkingLoadout("C").Bag.Entries.First(e => e.DefinitionId == "item.medkit").InstanceId;
+            Assert.That(items.TryUse(kit), Is.True);
+
+            // The end: the hostile eliminated, C at the extraction point.
+            foreach (var hostile in director.Hostiles)
+                hostile.GetComponent<Health>().TakeDamage(100000);
+            c.GetComponent<UnityEngine.AI.NavMeshAgent>().Warp(director.Current.ExtractionZone.position);
+            yield return TestWorld.WaitUntil(() => session.IsFrozen, 30f);
+            Assert.That(session.IsFrozen, Is.True, "the mission ended");
+            Assert.That(session.Outcome.Kind, Is.EqualTo(ManifestBuildKind.Normal), string.Join(",", session.Outcome.Diagnostics));
+            var manifest = session.Outcome.Manifest.Manifest;
+            Assert.That(manifest.Outcome, Is.EqualTo(ManifestOutcome.Success));
+            Assert.That(manifest.Integrity, Is.EqualTo(ManifestIntegrity.Ok), string.Join(",", session.Facts.FailureCodes));
+            Assert.That(manifest.AttemptId, Is.EqualTo(AttemptWorld.AttemptId));
+            Assert.That(manifest.Objectives.Select(o => (o.ObjectiveId, o.State)),
+                Is.EqualTo(new[] { ("eliminate", ObjectiveStateKind.Completed), ("extract", ObjectiveStateKind.Completed) }));
+            var factsC = session.Facts.Operatives.Single(o => o.OperativeId == "C");
+            Assert.That(factsC.Collected.Select(x => (x.ContainerIndex, x.Line, x.Quantity)), Is.EqualTo(new[] { (1, 0, 1), (1, 1, 2) }));
+            Assert.That(factsC.ConsumedLoot.Select(x => (x.ContainerIndex, x.Line, x.Quantity)), Is.EqualTo(new[] { (1, 0, 1) }), "loot first, oldest first");
+            Assert.That(manifest.Operatives.All(o => o.Alive), Is.True);
+            var bytes = session.Outcome.Manifest.CanonicalBytes;
+
+            // After the end: D takes container 0; nothing about the outcome changes, nobody gains XP, nothing settles.
+            var other = director.Current.LootContainers[0];
+            SearchNextTo(other, d);
+            Assert.That(d.GetComponent<UnitItems>().TryCollect(other, null).Taken, Is.GreaterThan(0));
+            yield return null;
+            Assert.That(session.Outcome.Manifest.CanonicalBytes, Is.EqualTo(bytes));
+            Assert.That(world.Roster.Members.All(m => m.State.Experience == 0), Is.True, "the backend awards XP, not the server");
+            Assert.That(world.Inventory.Core.Working, Is.Not.Null, "the server never settles");
+        }
+
         [UnityTest]
         public IEnumerator A_roll_over_max_stack_fails_generation_with_its_code_and_no_report()
         {

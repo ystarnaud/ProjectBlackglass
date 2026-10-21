@@ -27,6 +27,7 @@ namespace Blackglass.Tests
         public ItemCatalogue Catalogue { get; }
         public LootTable LootTable { get; }
         public TacticalPause Pause { get; }
+        public SquadRoster Roster { get; }
 
         public AttemptWorld()
         {
@@ -45,6 +46,7 @@ namespace Blackglass.Tests
             discovery.Initialize(registry, discoverAtStart: false);
             var squad = Make("Squad");
             squad.SetActive(false); // Awake after Initialize: an inventory without its catalogue logs an error
+            Roster = squad.AddComponent<SquadRoster>();
             Inventory = squad.AddComponent<SquadInventory>();
             Inventory.Initialize(Catalogue, null, null, 8, null);
             squad.SetActive(true);
@@ -60,7 +62,7 @@ namespace Blackglass.Tests
                 new MissionSystems
                 {
                     encounter = encounter, selection = selection, activeCharacter = active, coverRegistry = registry, coverDiscovery = discovery,
-                    pause = Pause, interactables = interactables, intelligence = intelligence, inventory = Inventory,
+                    pause = Pause, interactables = interactables, intelligence = intelligence, inventory = Inventory, roster = Roster,
                 },
                 Load<Material>("Materials/Ground.mat"), Load<Material>("Materials/Obstacle.mat"), generateAtStart: false);
             Director.SetLootTable(LootTable);
@@ -115,6 +117,30 @@ namespace Blackglass.Tests
         }
 
         public void Track(Object o) => made.Add(o);
+
+        public static OperativeDefinition[] Definitions() => new[]
+        {
+            Load<OperativeDefinition>("Data/Operatives/Definitions/Kestrel.asset"),
+            Load<OperativeDefinition>("Data/Operatives/Definitions/Darius.asset"),
+            Load<OperativeDefinition>("Data/Operatives/Definitions/Sable.asset"),
+        };
+
+        public static ProgressionTrack Progression() => Load<ProgressionTrack>("Data/Operatives/Progression.asset");
+
+        /// <summary>The server's snapshot mode: the roster and the inventory are the attempt's (no starter, no settlement, no XP).</summary>
+        public void UseSnapshot(AttemptStart start)
+        {
+            NUnit.Framework.Assert.That(AttemptSquad.TryMembers(start, Definitions(), Progression(), out var members, out var problem), NUnit.Framework.Is.True, problem);
+            Roster.InitializeFromSnapshot(members, Progression());
+            NUnit.Framework.Assert.That(Inventory.InitializeFromSnapshot(Catalogue, Roster, 8, start.Snapshot, out problem), NUnit.Framework.Is.True, problem);
+        }
+
+        public AttemptSession Session(AttemptStart start)
+        {
+            var session = AttemptSession.Begin(start, Director, Inventory, ItemLedgerMapping.Catalogue(Catalogue), new ServerClock(), "editor", out var refusal);
+            NUnit.Framework.Assert.That(refusal, NUnit.Framework.Is.Null);
+            return session;
+        }
 
         public void Dispose()
         {
