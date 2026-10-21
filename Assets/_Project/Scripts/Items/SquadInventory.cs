@@ -26,16 +26,21 @@ namespace Blackglass
         int seededMembers;
         Func<string> missionIdSource;
         bool subscribed;
+        bool snapshotMode;
 
         public ItemCatalogue Catalogue => catalogue;
         public bool StartInLoadout => startInLoadout;
         public SquadRoster Roster => roster;
+        /// <summary>True for the server's attempt inventory (InitializeFromSnapshot): no starter seeding, no settlement.</summary>
+        public bool SnapshotMode => snapshotMode;
 
         /// <summary>The rules and state. Built on first use; roster members that appear later are seeded on the next read.</summary>
         public InventorySession Core
         {
             get
             {
+                if (snapshotMode)
+                    return core;
                 if (core == null)
                     Build();
                 else if (roster != null && roster.Count != seededMembers)
@@ -46,6 +51,8 @@ namespace Blackglass
 
         void Awake()
         {
+            if (snapshotMode)
+                return;
             if (core == null)
                 Build();
             else if (roster != null && roster.Count != seededMembers)
@@ -60,6 +67,7 @@ namespace Blackglass
             Func<string> currentMissionId, MissionDirector missionDirector = null)
         {
             Unsubscribe();
+            snapshotMode = false;
             catalogue = itemCatalogue;
             starter = starterLoadout;
             roster = squad;
@@ -70,6 +78,27 @@ namespace Blackglass
             Build();
             if (isActiveAndEnabled)
                 Subscribe();
+        }
+
+        /// <summary>
+        /// The server's attempt inventory (Stage 12, spec §14.4): InventorySession.FromSnapshot, no StarterLoadout seeding, no
+        /// MissionFinished settlement; BeginMission(attemptId) as offline. False with the session's code when the snapshot can't
+        /// be held; the inventory then holds nothing (it never falls back to a starter loadout).
+        /// </summary>
+        internal bool InitializeFromSnapshot(ItemCatalogue itemCatalogue, SquadRoster squad, int bag, IReadOnlyList<Backend.Core.OperativeSnapshot> snapshot,
+            out string problem)
+        {
+            Unsubscribe();
+            catalogue = itemCatalogue;
+            starter = null;
+            roster = squad;
+            director = null;
+            bagCapacity = Mathf.Max(1, bag);
+            missionIdSource = null;
+            snapshotMode = true;
+            core = InventorySession.FromSnapshot(catalogue, bagCapacity, snapshot, out problem) ?? new InventorySession(catalogue, bagCapacity);
+            seededMembers = roster != null ? roster.Count : 0;
+            return problem == null;
         }
 
         void Build()
@@ -139,6 +168,8 @@ namespace Blackglass
 
         internal void HandleMissionFinished(MissionPhase phase)
         {
+            if (snapshotMode)
+                return;   // the server never settles: the backend does
             var id = missionIdSource != null ? missionIdSource() : director != null ? director.InstanceId : null;
             Core.Settle(id, phase == MissionPhase.Success);
         }
