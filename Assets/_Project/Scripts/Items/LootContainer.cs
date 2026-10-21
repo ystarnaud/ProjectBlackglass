@@ -47,6 +47,7 @@ namespace Blackglass
 
         internal void Initialize(IEnumerable<LootItemPlan> plan, ItemCatalogue catalogue, float searchSeconds = SearchSeconds)
         {
+            RefuseIfAttempt();
             contents = new ItemInventory(0);
             foreach (var item in plan)
             {
@@ -103,12 +104,20 @@ namespace Blackglass
             return true;
         }
 
+        // An attempt container's contents are a registered loot source: never replaced by an unlocked inventory (owner ruling).
+        void RefuseIfAttempt()
+        {
+            if (AttemptMode)
+                throw new InvalidOperationException(name + ": an online attempt's container is a registered loot source and cannot be re-initialized.");
+        }
+
         /// <summary>True once filled by InitializeForAttempt (an online attempt's container); false for the offline fill.</summary>
         public bool AttemptMode { get; private set; }
 
         /// <summary>Test and tool entry: use these contents as they are, optionally already searched.</summary>
         internal void InitializeWith(ItemInventory ready, bool searched)
         {
+            RefuseIfAttempt();
             contents = ready;
             // Arm re-initialises the interactable as an unsearched container (search label and duration, available).
             Arm(SearchSeconds);

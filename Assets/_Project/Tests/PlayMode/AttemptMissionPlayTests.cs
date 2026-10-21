@@ -99,7 +99,9 @@ namespace Blackglass.Tests
 
             // C takes both medkit lines of container 1 (x1 and x2) in one collect, then uses one medkit.
             var twoLines = director.Current.LootContainers[1];
+            var beforeSearch = session.CommittedEvents;
             SearchNextTo(twoLines, c);
+            Assert.That(session.CommittedEvents, Is.EqualTo(beforeSearch + 1), "a completed search is one committed interaction");
             var items = c.GetComponent<UnitItems>();
             Assert.That(items.TryCollect(twoLines, null).Taken, Is.EqualTo(3));
             c.GetComponent<Health>().TakeDamage(50);

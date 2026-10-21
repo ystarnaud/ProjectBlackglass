@@ -320,6 +320,17 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void An_attempt_container_cannot_be_reinitialized_into_an_unlocked_one()
+        {
+            var m = Fill(TwoMedkits);
+            var before = Contents(m.Container);
+            Assert.Throws<System.InvalidOperationException>(() => m.Container.Initialize(new[] { new LootItemPlan("item.light-vest", 1) }, catalogue));
+            Assert.Throws<System.InvalidOperationException>(() => m.Container.InitializeWith(new ItemInventory(0), searched: true));
+            Assert.That(Contents(m.Container), Is.EqualTo(before));
+            Assert.That(m.Container.Contents.AdditionsLocked, Is.True);
+        }
+
+        [Test]
         public void An_offline_container_still_takes_additions_and_stacks()
         {
             var container = NewContainer();

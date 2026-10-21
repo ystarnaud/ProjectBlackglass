@@ -115,6 +115,16 @@ namespace Blackglass.Tests
             Assert.That((t.Id, t.Version, t.MinOperatives, t.MaxOperatives), Is.EqualTo(("procedural-standard", 1, 1, 3)));
         }
 
+        [Test]
+        public void A_template_spec_refuses_impossible_values()
+        {
+            Assert.Throws<ArgumentException>(() => new MissionTemplateSpec("", 1, 1, 3));
+            Assert.Throws<ArgumentException>(() => new MissionTemplateSpec("procedural-standard", 0, 1, 3));
+            Assert.Throws<ArgumentException>(() => new MissionTemplateSpec("procedural-standard", 1, 0, 3));
+            Assert.Throws<ArgumentException>(() => new MissionTemplateSpec("procedural-standard", 1, 3, 2));
+            Assert.Throws<ArgumentException>(() => new MissionTemplateSpec("procedural-standard", 1, 1, AttemptStart.MaxOperatives + 1));
+        }
+
         [TestCase("mission.standard", 1)]
         [TestCase("procedural-standard", 2)]
         [TestCase("procedural-standard-x", 1)]

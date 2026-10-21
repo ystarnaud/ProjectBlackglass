@@ -9,7 +9,10 @@ namespace Blackglass.Backend.Core
     {
         public MissionTemplateSpec(string id, int version, int minOperatives, int maxOperatives)
         {
-            Id = id ?? throw new ArgumentNullException(nameof(id));
+            if (id == null) throw new ArgumentNullException(nameof(id));
+            if (id.Length == 0 || version < 1 || minOperatives < 1 || maxOperatives < minOperatives || maxOperatives > AttemptStart.MaxOperatives)
+                throw new ArgumentException("A template needs an id, a version of at least 1, and 1 <= min <= max <= " + AttemptStart.MaxOperatives + " operatives.");
+            Id = id;
             Version = version;
             MinOperatives = minOperatives;
             MaxOperatives = maxOperatives;

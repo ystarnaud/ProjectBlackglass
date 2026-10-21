@@ -253,8 +253,12 @@ namespace Blackglass.Tests
             Assert.That(session.Sequence.Committed, Is.EqualTo(before + 1), "a refused request is not an event");
 
             c.GetComponent<Health>().TakeDamage(30);
+            Assert.That(session.Sequence.Committed, Is.EqualTo(before + 2), "damage taken is one state change");
             Assert.That(items.TryUse(kit), Is.True);
-            Assert.That(session.Sequence.Committed, Is.EqualTo(before + 2), "an accepted item use is one event");
+            Assert.That(session.Sequence.Committed, Is.EqualTo(before + 4), "an accepted medkit use: the item use and the healing it caused");
+            c.GetComponent<Health>().TakeDamage(0);
+            Assert.That(session.Sequence.Committed, Is.EqualTo(before + 4), "no change, no event");
+            Assert.That(session.CommittedEvents, Is.EqualTo(session.Sequence.Committed));
         }
 
         [UnityTest]

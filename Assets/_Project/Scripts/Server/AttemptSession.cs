@@ -26,9 +26,8 @@ namespace Blackglass
         int lootTableVersion;
         MissionDirector director;
         readonly List<UnitItems> bound = new List<UnitItems>();
-        readonly List<(UnitAbilities Abilities, Action<AbilityDefinition> Handler)> boundAbilities = new List<(UnitAbilities, Action<AbilityDefinition>)>();
-        readonly List<(Health Health, Action Handler)> boundDeaths = new List<(Health, Action)>();
-        MissionRuntime boundRuntime;
+        // How to unsubscribe every gameplay-event handler Bind added (Unbind runs them).
+        readonly List<Action> unbinders = new List<Action>();
         readonly OutcomeSequence sequence;
 
         /// <summary>The attempt's ledger (null before a successful start).</summary>
@@ -43,12 +42,21 @@ namespace Blackglass
         public ParticipantFacts Facts { get; private set; }
         public ParticipantResult Result { get; private set; }
         /// <summary>
-        /// The attempt's outcomeSequence counter (owner ruling, Track L final rulings §1). Committed gameplay events: an item event
-        /// the ledger applied (collect, use, equip), an accepted ability use, a unit's death, an objective's state change. Refused,
-        /// malformed, unauthorized and no-effect requests never raise these events (UnitItems and UnitAbilities raise them only on
-        /// success; a ledger-refused item event is not counted). The first terminal event (MissionFinished) takes the next number.
+        /// The attempt's outcomeSequence counter (owner ruling, Track L final rulings §1): one per committed authoritative state
+        /// change of the mission, each counted once:
+        /// - a unit's health changes: damage taken, healing received, death (Health.Damaged, Healed, Died; any unit);
+        /// - a resolved basic attack that missed (UnitAttacker.Missed; a hit is counted as the damage it dealt);
+        /// - an accepted ability use (UnitAbilities.Used);
+        /// - an item event the ledger applied: a collect (one per container entry moved), a use, an equip;
+        /// - a completed interaction: a container search or open, a terminal (MissionInteractable.Completed);
+        /// - an objective's state change (MissionRuntime.ObjectiveChanged).
+        /// Orders and movement are intents, counted through what they cause. Refused, malformed, unauthorized and no-effect requests
+        /// raise none of these (every source raises only on success, Health only on a real change), and a ledger-refused item event
+        /// is not counted. The first terminal event (MissionFinished) takes the next number. Read-only outside the assembly.
         /// </summary>
-        public OutcomeSequence Sequence => sequence;
+        internal OutcomeSequence Sequence => sequence;
+        /// <summary>Committed gameplay events so far (to the freeze).</summary>
+        public int CommittedEvents => sequence.Committed;
 
         /// <summary>The plain core, for tests and the fixture export: the runtime is read through the three sources.</summary>
         internal AttemptSession(AttemptStart attempt, LedgerCatalogue catalogue, string buildRevision, ulong layoutHash, int lootTableVersion,
@@ -147,7 +155,7 @@ namespace Blackglass
                 items.EquippedDetail += HandleEquipped;
                 bound.Add(items);
             }
-            // The other committed gameplay events of the outcomeSequence: accepted ability uses, deaths, objective transitions.
+            // The other committed gameplay events of the outcomeSequence (see Sequence).
             foreach (var unit in director.Friendlies.Concat(director.Hostiles))
             {
                 if (unit == null)
@@ -156,18 +164,41 @@ namespace Blackglass
                 {
                     Action<AbilityDefinition> used = _ => CommitGameplayEvent();
                     abilities.Used += used;
-                    boundAbilities.Add((abilities, used));
+                    unbinders.Add(() => { if (abilities != null) abilities.Used -= used; });
+                }
+                if (unit.TryGetComponent<UnitAttacker>(out var attacker))
+                {
+                    Action<Health> missed = _ => CommitGameplayEvent();
+                    attacker.Missed += missed;
+                    unbinders.Add(() => { if (attacker != null) attacker.Missed -= missed; });
                 }
                 if (unit.TryGetComponent<Health>(out var health))
                 {
+                    Action<int> changed = _ => CommitGameplayEvent();
                     Action died = CommitGameplayEvent;
+                    health.Damaged += changed;
+                    health.Healed += changed;
                     health.Died += died;
-                    boundDeaths.Add((health, died));
+                    unbinders.Add(() => { if (health != null) { health.Damaged -= changed; health.Healed -= changed; health.Died -= died; } });
                 }
             }
-            boundRuntime = director.Runtime;
-            if (boundRuntime != null)
-                boundRuntime.ObjectiveChanged += OnObjectiveChanged;
+            var mission = director.Current;
+            var interactables = mission.LootContainers.Select(c => c != null ? c.Interactable : null).Concat(new[] { mission.Terminal, mission.CameraTerminal });
+            foreach (var interactable in interactables)
+            {
+                if (interactable == null)
+                    continue;
+                var item = interactable;
+                Action<MissionInteractable> completed = _ => CommitGameplayEvent();
+                item.Completed += completed;
+                unbinders.Add(() => { if (item != null) item.Completed -= completed; });
+            }
+            var runtime = director.Runtime;
+            if (runtime != null)
+            {
+                runtime.ObjectiveChanged += OnObjectiveChanged;
+                unbinders.Add(() => runtime.ObjectiveChanged -= OnObjectiveChanged);
+            }
             director.MissionFinished += OnMissionFinished;
         }
 
@@ -182,17 +213,9 @@ namespace Blackglass
                     items.EquippedDetail -= HandleEquipped;
                 }
             bound.Clear();
-            foreach (var (abilities, handler) in boundAbilities)
-                if (abilities != null)
-                    abilities.Used -= handler;
-            boundAbilities.Clear();
-            foreach (var (health, handler) in boundDeaths)
-                if (health != null)
-                    health.Died -= handler;
-            boundDeaths.Clear();
-            if (boundRuntime != null)
-                boundRuntime.ObjectiveChanged -= OnObjectiveChanged;
-            boundRuntime = null;
+            foreach (var unbind in unbinders)
+                unbind();
+            unbinders.Clear();
             if (director != null)
                 director.MissionFinished -= OnMissionFinished;
         }
