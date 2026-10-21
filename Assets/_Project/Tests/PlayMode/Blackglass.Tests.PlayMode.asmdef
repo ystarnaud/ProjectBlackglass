@@ -11,7 +11,8 @@
         "Unity.RenderPipelines.Universal.Runtime",
         "Unity.InputSystem",
         "Unity.InputSystem.TestFramework",
-        "UnityEngine.UI"
+        "UnityEngine.UI",
+        "Blackglass.Backend.Core"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
