@@ -48,8 +48,11 @@ namespace Blackglass
         /// - a resolved basic attack that missed (UnitAttacker.Missed; a hit is counted as the damage it dealt);
         /// - an accepted ability use (UnitAbilities.Used);
         /// - an item event the ledger applied: a collect (one per container entry moved), a use, an equip;
-        /// - a completed interaction: a container search or open, a terminal (MissionInteractable.Completed);
+        /// - an interaction's first completion: a container's search, a terminal (MissionInteractable.Completed; a re-open of a
+        ///   searched container changes nothing and is not counted);
         /// - an objective's state change (MissionRuntime.ObjectiveChanged).
+        /// One action can cause several distinct transitions, each counted (a killing blow: damage and death; a medkit: the use and
+        /// the healing; a hack: the interaction and the objective). A collect counts one event per container entry moved.
         /// Orders and movement are intents, counted through what they cause. Refused, malformed, unauthorized and no-effect requests
         /// raise none of these (every source raises only on success, Health only on a real change), and a ledger-refused item event
         /// is not counted. The first terminal event (MissionFinished) takes the next number. Read-only outside the assembly.
@@ -189,7 +192,9 @@ namespace Blackglass
                 if (interactable == null)
                     continue;
                 var item = interactable;
-                Action<MissionInteractable> completed = _ => CommitGameplayEvent();
+                // Only the first completion changes the mission (a container's search, a terminal): a re-open of a searched container
+                // only shows its panel, so it is not an event.
+                Action<MissionInteractable> completed = done => { if (done.CompletionCount == 1) CommitGameplayEvent(); };
                 item.Completed += completed;
                 unbinders.Add(() => { if (item != null) item.Completed -= completed; });
             }

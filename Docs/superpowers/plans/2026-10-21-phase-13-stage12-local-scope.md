@@ -140,10 +140,7 @@ finish through the network client was not tested: the tests end the mission by s
 - The loot table goes to the director only for an attempt, so the `-diagnostic` and `-net` fixture mission is unchanged.
 - An attempt's seed is never logged.
 
-**For the owner to rule:**
-- `outcomeSequence` is provisionally the terminal event's ordinal in the session's events, refused events included.
-- Unknown templates aren't refused yet. The fixture source and export now use `procedural-standard`.
-- There is no deposit refusal in attempt mode: a bypassing addition is a `ledgerMismatch` at the freeze.
+**Ruled by the owner afterwards (see "Final rulings" below):** the `outcomeSequence` definition, the supported templates and removal-only online containers.
 
 **Independent review (2026-10-21):** 0 Critical, 2 Important, 9 Minor.
 - **Fixed, each with a test that failed first or a mutation check:**
@@ -154,7 +151,7 @@ finish through the network client was not tested: the tests end the mission by s
   - Minors 2, 5 and 6;
   - Minor 3 in part: the template id;
   - Minor 8: the gap tests.
-- **Deferred:** the template refusal, the `outcomeSequence` definition, the deposit refusal, and a director-level test of every roll code.
+- **Deferred:** a director-level test of every roll code (the container-level tests cover all four). The template refusal, the `outcomeSequence` definition and the deposit refusal were ruled by the owner and built (see "Final rulings").
 
 **Track N and B24:** unchanged and blocked. B24 remains mandatory and unsatisfied, and Stage 12 is accepted only with B24 and B25.
 Track L's code doesn't depend on any isolation mechanism.
@@ -164,3 +161,45 @@ Track L's code doesn't depend on any isolation mechanism.
 - Backend domain 803/803.
 - The Checkpoint A diagnostic passes (`ServerMissionPlayModeTests`).
 - The changed paths were audited: no offline scene, prefab, HUD, input, package or project setting changed. The only scene change is the regenerated `ServerMission.unity`.
+
+## 6. Final rulings (2026-10-21) and acceptance
+
+The owner approved Track L at `cc5ac6c`, subject to three corrections (decision 051), final verification, an independent review
+and then the merge.
+
+1. **`outcomeSequence`** is the number of the first committed terminal gameplay event (`OutcomeSequence`, `AttemptSession`).
+   - The counter starts at zero and counts each committed authoritative state change once:
+     - health changes: damage, healing and death, for any unit;
+     - a resolved basic-attack miss; a hit counts as its damage;
+     - an accepted ability use;
+     - an item event the ledger applied: a collect per container entry moved, a use, an equip;
+     - an interaction's first completion: a container's search, or a terminal;
+     - an objective transition.
+   - Refused, malformed, duplicate, unauthorized and no-effect requests aren't counted. That includes a re-open of a searched container, a zero change and a ledger-refused item event.
+   - One action can cause several transitions, and each is counted. A killing blow is damage plus a death; a medkit is the use plus the healing.
+   - The terminal event takes the next number, and the freeze keeps it. Nothing afterwards changes the number, the result, the bytes or the hash.
+   - An overflow fails closed: Failed, no bytes, `sequence_overflow`.
+   - Anti-replay sequences are untouched, and manifest-v1 is unchanged.
+2. **Templates:** exactly `procedural-standard:1`, 1 to 3 operatives (`MissionTemplates.Supported`).
+   - `AttemptStart` refuses `unsupported_template` (no fallback) and `unsupported_squad_size` before any generation, ready report or gameplay.
+   - The bootstrap exits 2 with the code.
+   - No HTTP. The backend allowlist is unchanged.
+3. **Online containers are removal-only after the fill** (`ItemInventory.LockAdditions`).
+   - `Add`, `TryAddEntry` and `RoomFor` refuse before any change, so a deposit through `ItemTransfer` moves nothing.
+   - Collection still removes.
+   - An attempt container can't be re-initialized.
+   - Offline inventories never lock, so `ItemInventory.Add` and offline stacking behave as before.
+   - The ledger remains the backstop: an unreported change is still a `ledgerMismatch`.
+
+**Commits:**
+- `ca1005e`: the three corrections.
+- `c813478`: the review follow-ups. The full committed-event set (I-A), a read-only `Sequence`, the locked re-initialization, and template spec validation.
+- A third commit: a re-open isn't counted.
+
+Each correction's tests failed first, or were mutation-checked: removing a correction failed its tests.
+
+**Independent review of the corrections:** 0 Critical, 1 Important (I-A, the counted set narrower than the ruling), 5 Minor.
+- I-A is fixed. Minors 1, 2, 4 and 5 are fixed, and Minor 3 is documented above.
+- A scoped re-check of the fix found 1 Important (a re-open of a searched container was counted) and 2 Minor (documentation). All are fixed: the re-open test failed first.
+- The earlier review's Importants remain closed: the over-capacity bag, the squad size, `squad_not_spawned`, no reroll after an exception, and the release guard.
+- The new `AttemptSourceFactory` seam can't enable a fixture attempt in a release build: the gate is checked first, and the default factory returns null there.

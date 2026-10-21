@@ -102,6 +102,10 @@ namespace Blackglass.Tests
             var beforeSearch = session.CommittedEvents;
             SearchNextTo(twoLines, c);
             Assert.That(session.CommittedEvents, Is.EqualTo(beforeSearch + 1), "a completed search is one committed interaction");
+            Assert.That(twoLines.Interactable.TryBegin(c), Is.True);
+            twoLines.Interactable.Advance(c, 10f); // a re-open of the searched crate: it only shows the panel
+            Assert.That(twoLines.Interactable.CompletionCount, Is.EqualTo(2), "the re-open completed");
+            Assert.That(session.CommittedEvents, Is.EqualTo(beforeSearch + 1), "a re-open changes nothing: not an event");
             var items = c.GetComponent<UnitItems>();
             Assert.That(items.TryCollect(twoLines, null).Taken, Is.EqualTo(3));
             c.GetComponent<Health>().TakeDamage(50);
