@@ -203,3 +203,11 @@ Each correction's tests failed first, or were mutation-checked: removing a corre
 - A scoped re-check of the fix found 1 Important (a re-open of a searched container was counted) and 2 Minor (documentation). All are fixed: the re-open test failed first.
 - The earlier review's Importants remain closed: the over-capacity bag, the squad size, `squad_not_spawned`, no reroll after an exception, and the release guard.
 - The new `AttemptSourceFactory` seam can't enable a fixture attempt in a release build: the gate is checked first, and the default factory returns null there.
+
+**Final validation (2026-10-21, on the exact final implementation tree `f3c6093`):**
+- EditMode 1982/1982 and PlayMode 1457/1457, run one after the other.
+- Backend domain 803/803. Within it, 42/42 for the attempt fixtures, the manifest-v1 golden vectors and the ledger-v1 scenarios.
+- manifest-v1, ledger-v1, the catalogue, `Backend/src` and `Backend/db` are byte-identical to `main`.
+- **The merge brings 140 changed paths:** Track L's scripts, editor tools and tests; the regenerated `ServerMission.unity`; `Backend/contracts/attempt-v1`; the domain test project; the self-test's tools; docs.
+- No prefab, HUD, input, package, project setting or client scene changed.
+- The Checkpoint A diagnostic and the release-build guard tests pass.
