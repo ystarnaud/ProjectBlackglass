@@ -27,6 +27,39 @@ namespace Blackglass.Tests
             Assert.That(ServerBuildInfo.Describe(values), Is.EqualTo("revision=abc123+dirty built=2026-10-11T17:00:00Z buildGuid=g1"));
         }
 
+        const string Revision = "0123456789abcdef0123456789abcdef01234567";
+        const string Tree = "89abcdef0123456789abcdef0123456789abcdef";
+
+        [Test]
+        public void SourceLines_StampExactlyTheCaptureTakenBeforeUnityStarted()
+        {
+            Assert.That(ServerBuildInfo.SourceLines(Revision, Tree, "false"),
+                Is.EqualTo(new[] { "revision=" + Revision, "sourceTree=" + Tree, "dirty=false" }));
+            Assert.That(ServerBuildInfo.SourceLines(Revision, Tree, "true"),
+                Is.EqualTo(new[] { "revision=" + Revision, "sourceTree=" + Tree, "dirty=true" }));
+        }
+
+        [TestCase(null, null, null)]                           // the Editor menu: no capture
+        [TestCase(Revision, Tree, null)]                       // cleanliness missing
+        [TestCase(Revision, Tree, "maybe")]
+        [TestCase("abc1234", Tree, "false")]                   // not a full revision
+        [TestCase("0123456789ABCDEF0123456789abcdef01234567", Tree, "false")]
+        [TestCase(Revision, "", "false")]
+        public void SourceLines_WithoutAValidCapture_AreUnknown_NeverClean(string revision, string tree, string dirty)
+        {
+            Assert.That(ServerBuildInfo.SourceLines(revision, tree, dirty),
+                Is.EqualTo(new[] { "revision=unknown", "sourceTree=unknown", "dirty=unknown" }));
+        }
+
+        [Test]
+        public void TheServerBuild_StampsTheCapture_AndNeverReadsGitItself()
+        {
+            var text = System.IO.File.ReadAllText("Assets/_Project/Editor/Server/ServerBuild.cs");
+            Assert.That(text, Does.Contain("BLACKGLASS_SOURCE_REVISION"));
+            Assert.That(text, Does.Contain("ServerBuildInfo.SourceLines("));
+            Assert.That(text, Does.Not.Contain("status --porcelain"), "the source state is never read while Unity runs");
+        }
+
         [Test]
         public void Describe_WithoutAFile_SaysUnknown()
         {

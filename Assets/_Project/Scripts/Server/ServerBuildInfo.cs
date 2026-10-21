@@ -55,6 +55,29 @@ namespace Blackglass
             return $"revision={revision} built={Value(values, "builtUtc")} buildGuid={Value(values, "buildGuid")}";
         }
 
+        /// <summary>
+        /// The provenance lines of build-info.txt: exactly the source state Tools/build-server.sh captured before Unity started
+        /// (BLACKGLASS_SOURCE_REVISION, _TREE, _DIRTY). Unity rewrites settings it switches and restores during a build, so the
+        /// build never reads git itself. Anything but a full lowercase revision and tree and dirty true or false stamps every
+        /// value unknown, never clean (an Editor-menu build has no capture).
+        /// </summary>
+        public static string[] SourceLines(string revision, string tree, string dirty)
+        {
+            if (!IsObjectId(revision) || !IsObjectId(tree) || (dirty != "true" && dirty != "false"))
+                return new[] { "revision=unknown", "sourceTree=unknown", "dirty=unknown" };
+            return new[] { "revision=" + revision, "sourceTree=" + tree, "dirty=" + dirty };
+        }
+
+        static bool IsObjectId(string value)
+        {
+            if (value == null || value.Length != 40)
+                return false;
+            foreach (var c in value)
+                if (!(c >= '0' && c <= '9') && !(c >= 'a' && c <= 'f'))
+                    return false;
+            return true;
+        }
+
         static string Value(IReadOnlyDictionary<string, string> values, string key) =>
             values != null && values.TryGetValue(key, out var value) && value.Length > 0 ? value : "unknown";
     }

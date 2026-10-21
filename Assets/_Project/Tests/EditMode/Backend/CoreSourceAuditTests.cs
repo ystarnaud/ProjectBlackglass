@@ -47,11 +47,15 @@ namespace Blackglass.Tests
             StringAssert.Contains("\"allowUnsafeCode\":false", text);
         }
 
+        // Stage 11 pinned "not yet"; the outbox self-test (Stage 12 plan, Task 1) adds the first runtime reference. The direction
+        // stays one-way: the gameplay assembly may use the core, and the core references nothing (the test above).
         [Test]
-        public void The_gameplay_assembly_does_not_reference_core_yet()
+        public void Only_the_gameplay_assembly_references_core_and_never_the_reverse()
         {
             var text = File.ReadAllText(Path.Combine(ContractVectors.ProjectRoot, "Assets", "_Project", "Scripts", "Blackglass.asmdef"));
-            StringAssert.DoesNotContain("Blackglass.Backend.Core", text);
+            StringAssert.Contains("\"Blackglass.Backend.Core\"", text);
+            var core = File.ReadAllText(Path.Combine(ContractVectors.ProjectRoot, "Assets", "_Project", "Scripts", "Backend", "Core", "Blackglass.Backend.Core.asmdef"));
+            StringAssert.DoesNotContain("\"Blackglass\"", core);
         }
 
         [Test]

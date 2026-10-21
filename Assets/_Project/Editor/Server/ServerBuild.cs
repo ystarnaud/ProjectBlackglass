@@ -1,12 +1,10 @@
 #if UNITY_EDITOR
 using System;
-using System.Diagnostics;
 using System.IO;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
-using Debug = UnityEngine.Debug;
 
 namespace Blackglass.EditorTools
 {
@@ -105,7 +103,7 @@ namespace Blackglass.EditorTools
                     message = $"the build reported success but {executable} or {data} is missing";
                     return false;
                 }
-                WriteBuildInfo(root, output, summary, fixture);
+                WriteBuildInfo(output, summary, fixture);
                 message = $"variant={(fixture ? "fixture" : "release")} platform={summary.platform} subtarget=Server backend={PlayerSettings.GetScriptingBackend(NamedBuildTarget.Server)} " +
                     FormattableString.Invariant($"sizeMB={summary.totalSize / 1048576d:0.0} seconds={summary.totalTime.TotalSeconds:0} output={output}");
                 return true;
@@ -163,17 +161,19 @@ namespace Blackglass.EditorTools
         }
 
         // LF line endings: the file is read on Linux.
-        static void WriteBuildInfo(string root, string output, BuildSummary summary, bool fixture)
+        static void WriteBuildInfo(string output, BuildSummary summary, bool fixture)
         {
-            var revision = Git(root, "rev-parse HEAD") ?? "unknown";
-            var status = Git(root, "status --porcelain --untracked-files=no");
-            var dirty = status == null ? "unknown" : status.Length > 0 ? "true" : "false";
+            // The source state captured by Tools/build-server.sh before Unity started; never read from git here, because
+            // Unity has already rewritten settings it switches and restores (Stage 12 rulings §1).
+            var source = ServerBuildInfo.SourceLines(Environment.GetEnvironmentVariable("BLACKGLASS_SOURCE_REVISION"),
+                Environment.GetEnvironmentVariable("BLACKGLASS_SOURCE_TREE"), Environment.GetEnvironmentVariable("BLACKGLASS_SOURCE_DIRTY"));
             var lines = new[]
             {
                 "product=" + PlayerSettings.productName,
                 "version=" + PlayerSettings.bundleVersion,
-                "revision=" + revision,
-                "dirty=" + dirty,
+                source[0],
+                source[1],
+                source[2],
                 "builtUtc=" + DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture),
                 "unity=" + Application.unityVersion,
                 "target=StandaloneLinux64",
@@ -183,31 +183,6 @@ namespace Blackglass.EditorTools
                 "buildGuid=" + summary.guid,
             };
             File.WriteAllText(Path.Combine(output, ServerBuildInfo.FileName), string.Join("\n", lines) + "\n");
-        }
-
-        static string Git(string root, string arguments)
-        {
-            try
-            {
-                var info = new ProcessStartInfo("git", arguments)
-                {
-                    WorkingDirectory = root,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                using (var process = Process.Start(info))
-                {
-                    var text = process.StandardOutput.ReadToEnd().Trim();
-                    process.WaitForExit(10000);
-                    return process.ExitCode == 0 ? text : null;
-                }
-            }
-            catch (Exception)
-            {
-                return null;
-            }
         }
     }
 }

@@ -17,6 +17,8 @@ namespace Blackglass
         public const int DefaultStartupTimeoutSeconds = 60;
         public const int DefaultHeartbeatSeconds = 60;
         public const int DefaultNetPort = 7770;
+        /// <summary>The self-test's state directory parent: never the real outbox's.</summary>
+        public const string DefaultSelftestParent = "/var/lib/blackglass-selftest";
 
         /// <summary>The seed to generate; null uses the scene's fixture seed.</summary>
         public int? Seed { get; private set; }
@@ -35,12 +37,19 @@ namespace Blackglass
         public bool NetQuiet { get; private set; }
         /// <summary>-netFixture: the development fixture drives visibility (Editor and fixture builds only; needs -netQuiet).</summary>
         public bool NetFixture { get; private set; }
+        /// <summary>-outboxSelftest publish|hold|resume: run only the Stage 11 outbox self-test (no mission, no network); null
+        /// otherwise. Empty when the self-test was asked for without a phase (it then fails with exit 3).</summary>
+        public string OutboxSelftest { get; private set; }
+        public string SelftestParent { get; private set; } = DefaultSelftestParent;
+        /// <summary>The canonical UUIDv7 naming the self-test's state directory ($STATE_DIRECTORY must be exactly parent/id).</summary>
+        public string SelftestId { get; private set; }
 
         public static ServerOptions Default => new ServerOptions();
 
         public static ServerOptions Parse(IReadOnlyList<string> args, out List<string> warnings)
         {
             var options = new ServerOptions();
+            var selftestOptionSeen = false;
             warnings = new List<string>();
             if (args == null)
                 return options;
@@ -84,6 +93,20 @@ namespace Blackglass
                         if (TryText(args, ref i, warnings, out var tokens))
                             options.NetTokensPath = tokens;
                         break;
+                    case "-outboxSelftest":
+                        // A missing phase still selects the self-test, which then fails: never a mission by accident.
+                        options.OutboxSelftest = TryText(args, ref i, warnings, out var phase) ? phase : string.Empty;
+                        break;
+                    case "-selftestParent":
+                        selftestOptionSeen = true;
+                        if (TryText(args, ref i, warnings, out var parent))
+                            options.SelftestParent = parent;
+                        break;
+                    case "-selftestId":
+                        selftestOptionSeen = true;
+                        if (TryText(args, ref i, warnings, out var selftestId))
+                            options.SelftestId = selftestId;
+                        break;
                     case "-heartbeat":
                         if (TryValue(args, ref i, 0, 3600, warnings, out var heartbeat))
                         {
@@ -95,6 +118,9 @@ namespace Blackglass
                         break;
                 }
             }
+            // A self-test option without -outboxSelftest is a mistyped self-test run: it fails, it never generates a mission.
+            if (options.OutboxSelftest == null && selftestOptionSeen)
+                options.OutboxSelftest = string.Empty;
             return options;
         }
 

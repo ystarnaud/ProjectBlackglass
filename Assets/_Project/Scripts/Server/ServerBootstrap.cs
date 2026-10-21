@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using Blackglass.Backend.Core;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using Debug = UnityEngine.Debug;
@@ -14,6 +16,8 @@ namespace Blackglass
         public const int DiagnosticFailed = 1;
         /// <summary>The mission never became ready: generation failed, the startup deadline passed, or the scene is unwired.</summary>
         public const int StartupFailed = 2;
+        /// <summary>-outboxSelftest: a check failed (Stage 12 plan, Task 1).</summary>
+        public const int SelftestFailed = 3;
     }
 
     /// <summary>
@@ -42,6 +46,7 @@ namespace Blackglass
         bool started;
         bool ready;
         ServerDiagnostic diagnostic;
+        OutboxSelftest selftest;
         double heartbeatStart;
         double nextHeartbeat;
         int heartbeatFrames;
@@ -49,6 +54,10 @@ namespace Blackglass
 
         /// <summary>How the process ends. Application.Quit does nothing in the Editor; tests replace this.</summary>
         internal Action<int> Exit = code => Application.Quit(code);
+        /// <summary>Opens the self-test's outbox directory from $STATE_DIRECTORY; tests replace it with a portable directory.</summary>
+        internal Func<ServerOptions, IOutboxDirectory> OpenOutbox = o => OpenSelftestOutbox(o, Environment.GetEnvironmentVariable("STATE_DIRECTORY"));
+        /// <summary>The effective uid the self-test checks (it refuses root); tests replace it.</summary>
+        internal Func<long> EffectiveUserId = OutboxSelftest.EffectiveUserId;
         internal ServerOptions Options => options;
         internal bool HasExited { get; private set; }
         internal int ExitCode { get; private set; } = -1;
@@ -64,18 +73,28 @@ namespace Blackglass
 
         static double Now => Time.realtimeSinceStartupAsDouble;
 
-        void Start()
+        void Start() => Begin(Environment.GetCommandLineArgs());
+
+        /// <summary>Start's work, from the command line (tests pass their own arguments).</summary>
+        internal void Begin(IReadOnlyList<string> args)
         {
 #if !UNITY_EDITOR
             // One line per log call in the player's stdout; warnings and errors keep their stack traces.
             Application.SetStackTraceLogType(LogType.Log, StackTraceLogType.None);
 #endif
-            options = ServerOptions.Parse(Environment.GetCommandLineArgs(), out var warnings);
+            options = ServerOptions.Parse(args, out var warnings);
             foreach (var warning in warnings)
                 Debug.LogWarning(Prefix + "option ignored: " + warning);
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = options.FrameRate;
             Debug.Log(Prefix + IdentityLine());
+            if (options.OutboxSelftest != null)
+            {
+                // The self-test needs no mission and no network: nothing below runs, -net is never read.
+                Debug.Log(Prefix + "outbox self-test phase=" + options.OutboxSelftest);
+                selftest = new OutboxSelftest(options.OutboxSelftest, () => OpenOutbox(options), EffectiveUserId, line => Debug.Log(line));
+                return;
+            }
             if (director == null || pause == null)
             {
                 Finish(ServerExitCodes.StartupFailed, "the scene's ServerBootstrap is not wired to a MissionDirector and a TacticalPause");
@@ -160,11 +179,22 @@ namespace Blackglass
                 Finish(ServerExitCodes.StartupFailed, "net: " + failure);
         }
 
-        void Update()
+        void Update() => Tick(Now);
+
+        /// <summary>One frame at <paramref name="now"/> (unscaled seconds); Update passes the real clock, tests their own.</summary>
+        internal void Tick(double now)
         {
-            if (HasExited || !started)
+            if (HasExited)
                 return;
-            var now = Now;
+            if (selftest != null)
+            {
+                selftest.Step(now);
+                if (selftest.IsFinished)
+                    Finish(selftest.Passed ? ServerExitCodes.Success : ServerExitCodes.SelftestFailed, selftest.Summary);
+                return;
+            }
+            if (!started)
+                return;
             if (!ready)
             {
                 if (now > startupDeadline)
@@ -200,6 +230,21 @@ namespace Blackglass
             else
                 Debug.LogWarning(line);
             Exit(code);
+        }
+
+        /// <summary>
+        /// The self-test's directory: never under the real outbox's parent (the agent relays from there), then exactly
+        /// <c>parent/id</c> as OutboxLocation checks, opened and checked as the server's outbox is.
+        /// A symbolic-link parent pointing at the real outbox isn't caught by the name check; OutboxLocation's exact-path rule
+        /// and the directory's owner check (the unit's dynamic user, never the agent's) still refuse it.
+        /// </summary>
+        internal static IOutboxDirectory OpenSelftestOutbox(ServerOptions o, string stateDirectory)
+        {
+            const string production = "/var/lib/blackglass-outbox";
+            var parent = (o.SelftestParent ?? string.Empty).TrimEnd('/');
+            if (parent == production || parent.StartsWith(production + "/", StringComparison.Ordinal) || parent.Contains("blackglass-outbox"))
+                throw new OutboxIOException("production_outbox", 0);
+            return OutboxDirectories.OpenForServer(stateDirectory, o.SelftestParent, o.SelftestId);
         }
 
         /// <summary>Per-unit components that only show something (decision 014 debug views, the selection ring, the hit flash).</summary>
