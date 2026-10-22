@@ -254,9 +254,31 @@ namespace Blackglass
             var report = Session.ReadyReport;
             Debug.Log(Prefix + $"ATTEMPT READY attempt={attempt.AttemptId} lines={report.lootPool.Length} lootHash={report.lootHash} layoutHash={report.layoutHash}");
             Debug.Log(Prefix + "attempt ready report " + JsonUtility.ToJson(report));
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+            LogFixtureOperatorAid();
+#endif
             director.MissionFinished += OnAttemptFinished;
             return true;
         }
+
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+        // The loopback fixture checkpoint's operator aid (Editor and fixture builds only): where each hostile starts and where
+        // extraction is, as NetGround points, in the server's log only. Nothing here reaches a client; an operator reads it to
+        // steer an assisted run. The seed is still never logged.
+        void LogFixtureOperatorAid()
+        {
+            var line = new System.Text.StringBuilder("FIXTURE OPERATOR AID (server log only; never sent to a client) extraction=")
+                .Append(NetGround.Format(director.Current.ExtractionZone.position))
+                .Append(FormattableString.Invariant($" radius={MissionContent.ZoneRadius:0.0}"));
+            for (var i = 0; i < director.Hostiles.Count; i++)
+                line.Append(" hostile").Append(i + 1).Append('=').Append(NetGround.Format(director.Hostiles[i].transform.position));
+            Debug.Log(Prefix + line);
+        }
+
+        // The frozen manifest's canonical bytes, once, so an operator can check them against the logged hash (Editor and fixture builds only).
+        void LogFixtureManifest(BuiltManifest manifest) =>
+            Debug.Log(Prefix + "attempt manifest " + System.Text.Encoding.UTF8.GetString(manifest.CanonicalBytes));
+#endif
 
         void OnAttemptFinished(MissionPhase phase)
         {
@@ -265,7 +287,12 @@ namespace Blackglass
                 return;
             var outcome = Session.Outcome;
             Debug.Log(Prefix + $"ATTEMPT FROZEN outcome={(Session.Result != null ? Session.Result.Outcome.ToString() : "none")} build={outcome.Kind} integrity={Session.Facts.Integrity} " +
+                $"outcomeSequence={(outcome.Manifest != null ? outcome.Manifest.Manifest.OutcomeSequence.ToString(System.Globalization.CultureInfo.InvariantCulture) : "none")} " +
                 $"manifestHash={(outcome.Manifest != null ? outcome.Manifest.ManifestHash : "none")} diagnostics={string.Join(",", outcome.Diagnostics)}");
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+            if (outcome.Manifest != null)
+                LogFixtureManifest(outcome.Manifest);
+#endif
         }
 
         void OnDestroy()

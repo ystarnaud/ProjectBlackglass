@@ -92,6 +92,16 @@ namespace Blackglass.Tests
             Assert.That(text.Contains("BuildOptions.Development"), Is.False, "a Development build opens Unity's player connection on every interface");
         }
 
+        // The loopback fixture checkpoint's local Windows build: the same define, never a Development build, ServerMission only.
+        [Test]
+        public void TheLocalFixtureServerBuild_UsesTheDefine_NotADevelopmentBuild()
+        {
+            var text = File.ReadAllText("Assets/_Project/Editor/Server/LocalFixtureServerBuild.cs");
+            Assert.That(text.Contains("extraScriptingDefines = new[] { ServerBuild.FixtureDefine }"), Is.True, "the local build must add the fixture define");
+            Assert.That(text.Contains("BuildOptions.Development"), Is.False, "a Development build opens Unity's player connection on every interface");
+            Assert.That(text.Contains("scenes = new[] { ServerSceneBuilder.ScenePath }"), Is.True, "ServerMission only");
+        }
+
         static string StripLineComment(string line)
         {
             var at = line.IndexOf("//", System.StringComparison.Ordinal);

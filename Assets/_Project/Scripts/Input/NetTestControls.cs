@@ -7,7 +7,8 @@ namespace Blackglass
     /// The net-test client's controls (Input System): WASD steers (sent through NetIntentSender), a click on the ground moves
     /// (Shift queues it), a click on a red unit attacks it, X stops, 1 and 2 pick the unit. Input only requests; every order
     /// is a NetRequest the server may refuse. A ground click first releases any held steering, because CommandableUnit
-    /// drops an order that is accepted while it is steered.
+    /// drops an order that is accepted while it is steered. For an operator-assisted run it also shows the selected unit and
+    /// the ground point under the cursor (NetGround), so a coordinate read from the fixture server's log can be clicked.
     /// </summary>
     public sealed class NetTestControls : MonoBehaviour
     {
@@ -94,6 +95,17 @@ namespace Blackglass
                 var append = Keyboard.current != null && Keyboard.current.shiftKey.isPressed;
                 client.Send(new NetMoveTo(unitId, ray.GetPoint(distance), append));
             }
+        }
+
+        void OnGUI()
+        {
+            if (client == null || client.State != NetClientState.Ready || client.OwnedCount == 0 || viewCamera == null || Mouse.current == null)
+                return;
+            var line = "selected #" + (client.FirstOwnedId + Mathf.Min(selected, client.OwnedCount - 1));
+            var ray = viewCamera.ScreenPointToRay(Mouse.current.position.ReadValue());
+            if (new Plane(Vector3.up, Vector3.zero).Raycast(ray, out var distance))
+                line += "   cursor " + NetGround.Format(ray.GetPoint(distance));
+            GUI.Label(new Rect(10f, 215f, 600f, 24f), line);
         }
     }
 }

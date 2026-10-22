@@ -45,7 +45,7 @@ namespace Blackglass
             if (options.Harness != null)
             {
                 controls.enabled = false;
-                harness.Begin(options.Harness);
+                harness.Begin(options.Harness, options.AssistHostile, options.AssistExtraction);
             }
         }
     }

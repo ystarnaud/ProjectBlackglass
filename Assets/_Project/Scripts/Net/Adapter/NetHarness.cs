@@ -43,7 +43,15 @@ namespace Blackglass
 
         internal void Initialize(NetClient netClient) => client = netClient;
 
-        public void Begin(string role) => StartCoroutine(Run(role));
+        public void Begin(string role) => Begin(role, null, null);
+
+        /// <summary>Starts a role; the `attempt` role also takes the operator's two ground points (NetClientOptions).</summary>
+        public void Begin(string role, Vector3? hostile, Vector3? extraction)
+        {
+            assistHostile = hostile;
+            assistExtraction = extraction;
+            StartCoroutine(Run(role));
+        }
 
         static double Now => Time.realtimeSinceStartupAsDouble;
 
@@ -76,6 +84,9 @@ namespace Blackglass
                     break;
                 case "fixture-denied":
                     yield return FixtureDenied();
+                    break;
+                case "attempt":
+                    yield return Attempt();
                     break;
                 default:
                     Fail("role", "unknown role '" + role + "'");
