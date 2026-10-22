@@ -82,6 +82,7 @@ namespace Blackglass
         {
             if (commandAction != null)
                 commandAction.action.performed -= OnCommand;
+            InputActionUtility.SetEnabled(false, commandAction, pointerAction, queueAction, stopAction, cancelAction, panAction, cycleAction, followAction);
             if (selectAll != null)
             {
                 selectAll.Disable();

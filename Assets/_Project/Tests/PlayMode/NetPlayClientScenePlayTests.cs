@@ -5,6 +5,7 @@ using FishNet.Managing;
 using NUnit.Framework;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.TestTools;
 
@@ -55,6 +56,20 @@ namespace Blackglass.Tests
             var controls = new UnityEditor.SerializedObject(Object.FindObjectsByType<NetPlayControls>(FindObjectsSortMode.None).Single());
             foreach (var field in new[] { "commandAction", "pointerAction", "queueAction", "stopAction", "cancelAction", "panAction", "cycleAction", "followAction" })
                 Assert.That(controls.FindProperty(field).objectReferenceValue, Is.Not.Null, field);
+        }
+
+        // The controls switch the project's shared actions on, so leaving the scene must switch them off again, as every offline
+        // input component does; otherwise they stay live for whatever runs next (later input tests stopped seeing input).
+        [UnityTest]
+        public IEnumerator Leaving_the_scene_switches_off_every_action_the_controls_use()
+        {
+            var controls = new UnityEditor.SerializedObject(Object.FindObjectsByType<NetPlayControls>(FindObjectsSortMode.None).Single());
+            var actions = new[] { "commandAction", "pointerAction", "queueAction", "stopAction", "cancelAction", "panAction", "cycleAction", "followAction" }
+                .Select(field => ((InputActionReference)controls.FindProperty(field).objectReferenceValue).action).ToArray();
+            Assert.That(actions.All(a => a.enabled), Is.True, "the scene switches its actions on");
+            yield return SceneManager.UnloadSceneAsync(scene);
+            foreach (var action in actions)
+                Assert.That(action.enabled, Is.False, action.actionMap.name + "/" + action.name);
         }
     }
 }
