@@ -53,7 +53,8 @@ namespace Blackglass.EditorTools
                 Load<Material>("Assets/_Project/Materials/Ground.mat"), Load<Material>("Assets/_Project/Materials/Obstacle.mat"));
             var controls = holder.AddComponent<NetPlayControls>();
             controls.Initialize(client, camera, cameraRig, map, Action("Commands", "Command"), Action("Commands", "PointerPosition"),
-                Action("Commands", "QueueModifier"), Action("Commands", "Stop"), Action("Commands", "Cancel"), Action("Camera", "Pan"));
+                Action("Commands", "QueueModifier"), Action("Commands", "Stop"), Action("Commands", "Cancel"), Action("Camera", "Pan"),
+                Action("Character", "NextCharacter"), Action("Character", "ToggleFollow"));
             var avatars = holder.AddComponent<NetPlayAvatars>();
             avatars.Initialize(client, null, Load<GameObject>("Assets/Art/Characters/EnemyUnit/Prefabs/EnemyUnit_Visual.prefab"),
                 Load<WeaponVisualAsset>("Assets/_Project/Data/Items/Visuals/RifleVisual.asset"),

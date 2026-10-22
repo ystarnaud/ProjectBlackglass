@@ -60,8 +60,12 @@ namespace Blackglass.Tests
 
         static Vector3 Flat(Vector3 v) => new Vector3(v.x, 0f, v.z);
 
-        [UnityTest]
-        public IEnumerator Wasd_pans_or_steers_never_both()
+        NetPlayControls controls;
+        TacticalCameraController cameraRig;
+
+        // The rig, the drawn map, a camera with the real Pan and Rotate, and the controls with the real Stop, Cancel, Pan,
+        // NextCharacter and ToggleFollow; requests are captured instead of sent.
+        IEnumerator StartClient()
         {
             rig = new NetLoopbackRig();
             yield return rig.Start();
@@ -72,16 +76,57 @@ namespace Blackglass.Tests
             cameraObject = new GameObject("CameraRig");
             var camera = new GameObject("Camera").AddComponent<Camera>();
             camera.transform.SetParent(cameraObject.transform, false);
-            var cameraRig = cameraObject.AddComponent<TacticalCameraController>();
+            cameraRig = cameraObject.AddComponent<TacticalCameraController>();
             var pan = TestControls.Ref(actions, "Camera/Pan");
             cameraRig.Initialize(camera, pan, TestControls.Ref(actions, "Camera/Rotate"), null, null, null);
-            var controls = client.gameObject.AddComponent<NetPlayControls>();
+            controls = client.gameObject.AddComponent<NetPlayControls>();
             controls.Initialize(client, camera, cameraRig, view, null, null, null,
-                TestControls.Ref(actions, "Commands/Stop"), TestControls.Ref(actions, "Commands/Cancel"), pan);
+                TestControls.Ref(actions, "Commands/Stop"), TestControls.Ref(actions, "Commands/Cancel"), pan,
+                TestControls.Ref(actions, "Character/NextCharacter"), TestControls.Ref(actions, "Character/ToggleFollow"));
             controls.Send = r => { sent.Add(r); return (uint)sent.Count; };
             yield return TestWorld.WaitUntil(() => view.Built && controls.Selection.Primary != 0, 10f);
             yield return null;
             sent.Clear();
+        }
+
+        static int UnitOf(NetRequest request) =>
+            request is NetMoveIntent i ? i.UnitId : request is NetMoveTo m ? m.UnitId : request is NetAttack a ? a.UnitId : request is NetStop s ? s.UnitId : -1;
+
+        // Final review I2 and Review Focus 4: the followed operative dies while steered; follow ends, no other operative is
+        // steered in its place, and no request names unit 0.
+        [UnityTest]
+        public IEnumerator Follow_ends_when_the_followed_operative_dies([Values(1, 2)] int selected)
+        {
+            yield return StartClient();
+            if (selected == 2)
+                controls.SelectAllLiving();
+            Assert.That(controls.Selection.Count, Is.EqualTo(selected));
+            var primary = controls.Selection.Primary;
+            yield return Tap(keyboard.fKey);
+            Assert.That(controls.Following, Is.True);
+            Press(keyboard.wKey);
+            for (var i = 0; i < 10; i++)
+                yield return null;
+            Assert.That(sent.OfType<NetMoveIntent>().Any(i => i.UnitId == primary && i.Direction != Vector3.zero), Is.True, "steering");
+            sent.Clear();
+            var unit = rig.Director.Friendlies[primary - rig.Client.FirstOwnedId];
+            Assert.That(rig.Server.Units.IdOf(unit), Is.EqualTo(primary));
+            unit.GetComponent<Health>().TakeDamage(100000);
+            yield return TestWorld.WaitUntil(() => NetClient.VisibleStates().Any(s => s.UnitId == primary && !s.Alive), 5f);
+            for (var i = 0; i < 20; i++)
+                yield return null;
+            Release(keyboard.wKey);
+            yield return null;
+            Assert.That(controls.Following, Is.False, "follow ended with the operative");
+            Assert.That(sent.OfType<NetMoveIntent>(), Is.Empty, "nobody is steered in its place, and the dead get no release");
+            Assert.That(sent.All(r => UnitOf(r) > 0), Is.True, "no request names unit 0");
+        }
+
+        [UnityTest]
+        public IEnumerator Wasd_pans_or_steers_never_both()
+        {
+            yield return StartClient();
+            var client = rig.Client;
             var primary = controls.Selection.Primary;
 
             // Free camera: W pans, and no operative is told anything.

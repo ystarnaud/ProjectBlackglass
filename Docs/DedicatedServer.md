@@ -143,11 +143,11 @@ A human-playable client for the same local fixture attempt. It is local and deve
 
   | Input | Action |
   |---|---|
-  | Left click | select an own operative (Ctrl adds or removes); attack an observed hostile; move to open floor (Shift queues) |
+  | Left click | select an own operative (Shift adds or removes); attack an observed hostile; move to open floor (Shift queues) |
   | X | stop the selection |
   | Tab / Ctrl+A | next operative / all operatives |
   | F | follow the primary operative; WASD then steers it, and the camera stays on it |
-  | Esc | leave follow (the steering is released first) |
+  | Esc | leave follow (the steering is released first); follow also ends if the followed operative dies or another becomes primary |
   | WASD | pan the camera (when not following) |
   | Q/E or right-drag | rotate |
   | Wheel | zoom |

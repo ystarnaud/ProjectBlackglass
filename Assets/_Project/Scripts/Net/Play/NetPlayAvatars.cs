@@ -52,6 +52,15 @@ namespace Blackglass
 
         void OnEnable() => Subscribe();
 
+        // The last-known discs live at the scene root; they go with this component (final review M6).
+        void OnDestroy()
+        {
+            foreach (var marker in markers.Values)
+                if (marker != null)
+                    Destroy(marker);
+            markers.Clear();
+        }
+
         void OnDisable()
         {
             if (subscribed != null)

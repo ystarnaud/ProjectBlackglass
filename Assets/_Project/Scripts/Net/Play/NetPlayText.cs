@@ -40,7 +40,7 @@ namespace Blackglass
             record.Map != null ? null : record.MapProblem != null ? "Map refused: " + record.MapProblem : "No map authorized for this mission";
 
         public const string Help =
-            "Left click: select / move / attack   Shift: queue   X: stop   Tab: next   Ctrl+A: all   F: follow (WASD steers)   Esc: free camera   " +
+            "Left click: select / move / attack   Shift: queue a move, or add/remove an operative   X: stop   Tab: next   Ctrl+A: all   F: follow (WASD steers)   Esc: free camera   " +
             "WASD: pan   Q/E or right-drag: rotate   Wheel: zoom";
     }
 }

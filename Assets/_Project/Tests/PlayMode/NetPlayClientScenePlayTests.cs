@@ -53,7 +53,7 @@ namespace Blackglass.Tests
             foreach (var field in new[] { "visualPrefab", "weapon", "tracerPrefab", "ringMaterial", "markerMaterial" })
                 Assert.That(avatars.FindProperty(field).objectReferenceValue, Is.Not.Null, field);
             var controls = new UnityEditor.SerializedObject(Object.FindObjectsByType<NetPlayControls>(FindObjectsSortMode.None).Single());
-            foreach (var field in new[] { "commandAction", "pointerAction", "queueAction", "stopAction", "cancelAction", "panAction" })
+            foreach (var field in new[] { "commandAction", "pointerAction", "queueAction", "stopAction", "cancelAction", "panAction", "cycleAction", "followAction" })
                 Assert.That(controls.FindProperty(field).objectReferenceValue, Is.Not.Null, field);
         }
     }
