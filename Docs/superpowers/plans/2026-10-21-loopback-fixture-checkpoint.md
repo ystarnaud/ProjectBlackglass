@@ -32,11 +32,11 @@ manifest, and nothing is committed anywhere.
 ## Changes (no new network message, no change to what is replicated)
 
 1. **Operator aid, server log only.** After `ATTEMPT READY`, a fixture attempt in an Editor or fixture build logs
-   `FIXTURE OPERATOR AID (server log only; never sent to a client) extraction=(x, z) radius=2 hostile1=(x, z)`.
+   `FIXTURE OPERATOR AID (server log only; never sent to a client) extraction=x,z radius=2.0 hostile1=x,z`.
    - The code is compiled only under `UNITY_EDITOR || BLACKGLASS_NET_FIXTURE`, and a source audit pins it.
    - The seed is still never logged.
    - In fixture builds, the `ATTEMPT FROZEN` line gains `outcomeSequence=`, and the canonical manifest is logged once.
-2. **Client overlay.** Each own unit's position, each observed hostile's health, and the cursor's ground point `(x, z)`.
+2. **Client overlay.** Each own unit's position, each observed hostile's health, and the cursor's ground point `x,z`; the cursor line (with the selected unit) is drawn by `NetTestControls`, the only place allowed to read the mouse.
    All of this is information the client already holds, shown so an operator can click a known coordinate.
 3. **Scripted assisted client role.** `-netharness attempt -assistHostile x,z -assistExtraction x,z`.
    - It sends only the existing requests, in this order:
@@ -77,14 +77,14 @@ The Unity Editor must be closed for the builds. Run from the repository root in 
      -net -netPort 7770 -netTokens "$(cygpath -w "$HOME/blackglass-local/dev-tokens.txt")" -heartbeat 10 &
    tail -f "$HOME/blackglass-local/server.log" | grep --line-buffered -E "\[Server\]|\[Net\]"
    ```
-4. Wait for `ATTEMPT READY`, `[Net] listening 127.0.0.1:7770` and the `FIXTURE OPERATOR AID` line, and note `hostile1=(x, z)` and
-   `extraction=(x, z)`.
+4. Wait for `ATTEMPT READY`, `[Net] listening 127.0.0.1:7770` and the `FIXTURE OPERATOR AID` line, and note `hostile1=x,z` and
+   `extraction=x,z` (for seed 1: hostile `10.5,4.5`, extraction `-9.5,4.5`; the squad starts near `-8.5,-7.5` and `-5.5,-8.5`).
 5. In a second terminal, start the interactive client:
 
    ```bash
    Builds/NetTestClient/NetTestClient.exe -server 127.0.0.1 -port 7770 -token "$TOKEN" -screen-fullscreen 0 -screen-width 1280 -screen-height 800
    ```
-6. The overlay shows `state Ready`, units `#1` and `#2` with hp and position, and `cursor (x, z)`.
+6. The overlay shows `state Ready`, units `#1` and `#2` with hp, order and position (`at x,z`), and below them `selected #1   cursor x,z`.
    The server logs `client 1 welcomed account=account-a owns=2`.
 7. **Move.**
    - Press 1 and click the ground toward the hostile hint (the camera follows your units, so walk in steps).
