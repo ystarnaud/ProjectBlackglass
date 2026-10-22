@@ -3,7 +3,7 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 Status: **approved by the owner with binding amendments (2026-10-22, "Owner rulings" below); implemented Native. Automated
-validation complete; the owner's playtest is outstanding ("As built" at the end).** Base: `main` at
+validation complete; the owner's playtest passed and the milestone is accepted (2026-10-22; "As built" at the end).** Base: `main` at
 `c061ff9` (the merged loopback fixture checkpoint).
 Branch at execution time: `phase13-visual-net-mission`.
 
@@ -4730,10 +4730,11 @@ No merge or push until the owner accepts the playtest.
 task needs a Unity test run, Unity runs one instance at a time on this low-memory PC, and the tasks build tightly on each
 other's interfaces. Fresh per-task subagents would wait on the same single Unity process.
 
-## As built (2026-10-22, branch `phase13-visual-net-mission`, not merged)
+## As built (2026-10-22, branch `phase13-visual-net-mission`, merged into `main`)
 
-**Implementation and automated validation complete; the owner's player-driven playtest (requirement 9, final acceptance) is
-outstanding.** The automated results below are not a substitute for it.
+**Implementation and automated validation complete; the owner's player-driven playtest (requirement 9, final acceptance)
+passed, and the owner accepted the visual network playtest milestone (2026-10-22).** The automated results below were not a
+substitute for it. B24 and Track N remain open; Stage 12 overall is not complete.
 
 ### Commits (from `c061ff9`)
 
@@ -4788,10 +4789,20 @@ in an offline folder changed (`OfflineSceneGuardTests` pins `ProceduralMission` 
 - **Unassisted automated run** of fixture 03 through the play client's command layer reaches Success with a manifest; it fails
   if the map is withheld. It is not the owner's playtest.
 
-### Owner's playtest (outstanding)
+### Owner's playtest (accepted 2026-10-22)
 
 Run `Tools/run-local-netplay.sh` from a tree holding both builds (or build them first with `Tools/build-local-fixture-server.sh`
 and `Tools/build-netplay-client.sh`). Then: find the hostile using the map; engage it; walk around the obstacles to the green
 extraction zone once the objective opens; see "MISSION SUCCESS" and, after closing the window, the script's
-`ATTEMPT FROZEN outcome=Success` line. No log coordinates, harness, warps or scripted help. Result, in the owner's words:
-_pending_.
+`ATTEMPT FROZEN outcome=Success` line. No log coordinates, harness, warps or scripted help.
+
+Result, as the owner recorded it: the owner completed the first visual network mission playtest successfully. Confirmed:
+- the procedural environment was visible and navigable;
+- operatives could be controlled;
+- the owner clicked an enemy to attack;
+- damage numbers appeared above the enemy;
+- the owner navigated to extraction;
+- the overall visual gameplay experience was reported as substantially better than the earlier debug client.
+
+The owner accepts the visual network playtest milestone and authorized the merge into `main` and a push without force. The
+test evidence and the deferred Minor findings above stand as recorded.
