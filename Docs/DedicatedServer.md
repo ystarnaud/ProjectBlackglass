@@ -119,6 +119,43 @@ This is the loopback fixture checkpoint: an assisted run of fixture attempt 03, 
 - **The end.** The server alone detects the extraction and logs `ATTEMPT FROZEN outcome=Success ... outcomeSequence=N manifestHash=...`, then the canonical manifest (`attempt manifest {...}`). The client is not told the mission ended.
 - **Provenance.** `Tools/build-provenance.sh` refuses this working tree while `.claude/scratchpad` holds nested git worktrees (git lists each as a bare directory, which the content hash can't hash). That refusal is correct and stays. Builds that need the verified stamp are made from a clean `git worktree add --detach <dir> <commit>` outside the repository; the local fixture build's plain git stamp then also reads `dirty=false`.
 
+### Local play client (this PC only, decision 052)
+
+A human-playable client for the same local fixture attempt. It is local and development-only: never deployed, never exposed. Decision 052 has the rules and the blocker.
+
+- **What it is.** `NetPlayClient` (`Assets/_Project/Scenes/NetPlayClient.unity`) shows the real generated environment:
+  - floors, walls, obstacles and closed crates, drawn with the environment theme;
+  - the objectives and the green extraction zone;
+  - the squad and any observed hostile, with the existing character and rifle, a blue (own) or red (hostile) ring, a yellow selection ring, health bars and tracers;
+  - red translucent "? last seen" discs at frozen last-known positions;
+  - a MISSION SUCCESS or MISSION FAILED banner.
+
+  It sends only the four existing requests (move intent, move to, attack, stop) and decides nothing.
+- **What the server sends.** Only Editor and fixture servers (`BLACKGLASS_NET_FIXTURE`) send the briefing, and only when all of these hold:
+  - fog is on, map knowledge is Full and objective knowledge is All;
+  - the mission has no terminal and no cameras;
+  - the connection is welcomed and owns at least one operative.
+
+  The briefing is a whitelisted public map, the known objectives, the mission end, and shots between units the connection already observes. A release server contains none of this code. The server logs `[Net] map projection on floors=N boxes=N containers=N`, or `[Net] map projection off: <reason>`.
+- **Build.** `Tools/build-local-fixture-server.sh`, then `Tools/build-netplay-client.sh` (writes `Builds/NetPlayClient/NetPlayClient.exe`).
+- **Run.** `Tools/run-local-netplay.sh`. It makes a fresh token file under `Builds/LocalNetPlay/`, starts the fixture server with fixture 03 on 127.0.0.1:7770, waits until it listens, then opens the client. Closing the client window stops the server, and the script prints the server's `ATTEMPT FROZEN` line. The token is never printed. The server log still holds the fixture build's `FIXTURE OPERATOR AID` line; a player-driven run must not use it.
+- **Controls.**
+
+  | Input | Action |
+  |---|---|
+  | Left click | select an own operative (Ctrl adds or removes); attack an observed hostile; move to open floor (Shift queues) |
+  | X | stop the selection |
+  | Tab / Ctrl+A | next operative / all operatives |
+  | F | follow the primary operative; WASD then steers it, and the camera stays on it |
+  | Esc | leave follow (the steering is released first) |
+  | WASD | pan the camera (when not following) |
+  | Q/E or right-drag | rotate |
+  | Wheel | zoom |
+
+  There is no tactical pause online. A click on an obstacle does nothing and says "Blocked — pick open floor". A click on a HUD panel does nothing.
+- **Transport check.** `Tools/check-netplay-two-process.sh` runs `NetPlayTwoProcessPlayTests`: the built client, as a separate process, must accept a map at every protocol limit (128 x 128 grid, 1024 floors, 2048 boxes, 64 containers).
+- **Blocker.** The full map is a fingerprint of the seed, from which hidden placements follow (decision 052). It is accepted only for this local playtest, and it blocks public multiplayer or distribution to untrusted clients.
+
 ## Options
 
 | Argument | Default | Range | Meaning |
