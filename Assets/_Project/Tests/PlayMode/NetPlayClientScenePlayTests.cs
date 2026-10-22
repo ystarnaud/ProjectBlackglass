@@ -11,14 +11,35 @@ using UnityEngine.TestTools;
 
 namespace Blackglass.Tests
 {
-    /// <summary>The generated play-client scene holds the play client, wired to real assets, and nothing of the harness or the game.</summary>
-    public class NetPlayClientScenePlayTests
+    /// <summary>
+    /// The generated play-client scene holds the play client, wired to real assets, and nothing of the harness or the game.
+    /// An InputTestFixture, like every scene test whose scene uses the project's shared input asset, and the scene loads inside
+    /// the test and its objects go in the fixture's TearDown: [UnitySetUp] runs before the fixture's Setup and [UnityTearDown]
+    /// after its TearDown, so a scene loaded there gives the shared asset an action state outside the fixture, which later
+    /// input tests then inherit with no devices bound (they stopped seeing input).
+    /// </summary>
+    public class NetPlayClientScenePlayTests : InputTestFixture
     {
         const string ScenePath = "Assets/_Project/Scenes/NetPlayClient.unity";
         Scene scene;
+        InputActionAsset actions;
 
-        [UnitySetUp]
-        public IEnumerator SetUp()
+        public override void Setup()
+        {
+            base.Setup();
+            actions = TestControls.Load();
+        }
+
+        public override void TearDown()
+        {
+            if (scene.isLoaded)
+                foreach (var root in scene.GetRootGameObjects())
+                    Object.DestroyImmediate(root);
+            TestControls.Reset(actions);
+            base.TearDown();
+        }
+
+        IEnumerator LoadScene()
         {
             yield return EditorSceneManager.LoadSceneAsyncInPlayMode(ScenePath, new LoadSceneParameters(LoadSceneMode.Additive));
             scene = SceneManager.GetSceneByPath(ScenePath);
@@ -27,16 +48,17 @@ namespace Blackglass.Tests
         }
 
         [UnityTearDown]
-        public IEnumerator TearDown()
+        public IEnumerator UnloadScene()
         {
             NetManagerFactory.DestroyAll();
             if (scene.isLoaded)
                 yield return SceneManager.UnloadSceneAsync(scene);
         }
 
-        [Test]
-        public void TheScene_HoldsThePlayClient_AndNoHarnessNorGame()
+        [UnityTest]
+        public IEnumerator TheScene_HoldsThePlayClient_AndNoHarnessNorGame()
         {
+            yield return LoadScene();
             var all = scene.GetRootGameObjects().SelectMany(g => g.GetComponentsInChildren<Component>(true)).ToArray();
             foreach (var type in new[] { typeof(NetClient), typeof(NetMapView), typeof(NetPlayAvatars), typeof(NetPlayControls), typeof(NetPlayHud), typeof(NetPlayBootstrap), typeof(TacticalCameraController) })
                 Assert.That(all.Count(c => c != null && c.GetType() == type), Is.EqualTo(1), type.Name);
@@ -44,9 +66,10 @@ namespace Blackglass.Tests
                 Assert.That(all.Any(c => c != null && c.GetType() == type), Is.False, type.Name + " must not be in the play client");
         }
 
-        [Test]
-        public void TheSceneBuilder_WiredEveryAsset()
+        [UnityTest]
+        public IEnumerator TheSceneBuilder_WiredEveryAsset()
         {
+            yield return LoadScene();
             var map = Object.FindObjectsByType<NetMapView>(FindObjectsSortMode.None).Single();
             var serialized = new UnityEditor.SerializedObject(map);
             Assert.That(serialized.FindProperty("theme").objectReferenceValue, Is.Not.Null);
@@ -63,6 +86,7 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator Leaving_the_scene_switches_off_every_action_the_controls_use()
         {
+            yield return LoadScene();
             var controls = new UnityEditor.SerializedObject(Object.FindObjectsByType<NetPlayControls>(FindObjectsSortMode.None).Single());
             var actions = new[] { "commandAction", "pointerAction", "queueAction", "stopAction", "cancelAction", "panAction", "cycleAction", "followAction" }
                 .Select(field => ((InputActionReference)controls.FindProperty(field).objectReferenceValue).action).ToArray();
