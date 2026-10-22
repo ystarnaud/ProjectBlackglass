@@ -17,11 +17,12 @@ namespace Blackglass.Tests
         static readonly string[] GuardedFiles =
         {
             "Assets/_Project/Scripts/Net/Core/NetMapProjection.cs",
+            "Assets/_Project/Scripts/Net/Core/NetShotRelay.cs",
         };
 
         // A use of the feature's server side: the projection, the briefing messages and their encoder, the briefing hook.
         static readonly Regex ServerOnlyUse = new Regex(
-            @"\bNetMapProjection\b|\bNetMapMessage\b|\bNetObjectivesMessage\b|\bNetMissionEndMessage\b|\bNetShotMessage\b|\bNetMapWire\b|\bBriefingMap\b");
+            @"\bNetMapProjection\b|\bNetShotRelay\b|\bNetMapMessage\b|\bNetObjectivesMessage\b|\bNetMissionEndMessage\b|\bNetShotMessage\b|\bNetMapWire\b|\bBriefingMap\b");
 
         // The client side and the declarations: they decode and draw what a server sends, and never send it.
         static bool IsClientSide(string file)
@@ -65,7 +66,7 @@ namespace Blackglass.Tests
             var sends = 0;
             for (var index = 0; index < lines.Length; index++)
             {
-                if (!Regex.IsMatch(lines[index], @"NetMapWire\.ToMessage|\bparticipants\b|\bSendBriefing\b|\bBeginBriefing\b|\bFlushObjectives\b"))
+                if (!Regex.IsMatch(lines[index], @"NetMapWire\.ToMessage|\bparticipants\b|\bSendBriefing\b|\bBeginBriefing\b|\bFlushObjectives\b|\bFlushShots\b|\bOnFired\b|\bshotHandlers\b"))
                     continue;
                 sends++;
                 Assert.That(IsInsideFixtureGuard(lines, index), Is.True, "NetServer.cs line " + (index + 1) + " is outside " + FixtureGuard + ": " + lines[index].Trim());

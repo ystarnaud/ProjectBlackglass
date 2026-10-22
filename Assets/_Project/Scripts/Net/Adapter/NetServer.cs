@@ -61,8 +61,11 @@ namespace Blackglass
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
         // The visual client's briefing (decision 052). Editor and fixture builds only (owner ruling D1).
         readonly HashSet<NetConnection> participants = new HashSet<NetConnection>();
+        readonly NetShotRelay shots = new NetShotRelay();
+        readonly List<(UnitAttacker Attacker, Action<ShotRecord> Handler)> shotHandlers = new List<(UnitAttacker, Action<ShotRecord>)>();
         MissionDirector mission;
         NetMap briefingMap;
+        bool briefingAllowed;
         bool hasTerminal;
         bool hasCameras;
         bool objectivesDirty;
@@ -209,6 +212,8 @@ namespace Blackglass
             var current = director.Current;
             hasTerminal = current.Terminal != null;
             hasCameras = current.Security.HasTerminal || current.Security.Cameras.Count > 0;
+            // The approved profile (owner ruling D1): nothing of the briefing reaches anyone otherwise, not even the end or a shot.
+            briefingAllowed = NetMapProjection.Problem(director.Settings.intelligence, hasTerminal, hasCameras) == null;
             briefingMap = NetMapProjection.Map(current.Layout, current.Loot.Containers.Select(c => c.Tile).ToList(), director.Settings.intelligence,
                 hasTerminal, hasCameras, out var refusal);
             Debug.Log(Prefix + (briefingMap != null
@@ -217,6 +222,15 @@ namespace Blackglass
             if (director.Runtime != null)
                 director.Runtime.ObjectiveChanged += OnObjectiveChanged;
             director.MissionFinished += OnMissionFinished;
+            for (var id = 1; id <= Units.Count; id++)
+            {
+                if (!Units.TryGet(id, out var unit) || !unit.TryGetComponent<UnitAttacker>(out var attacker))
+                    continue;
+                var attackerId = id;   // the loop variable is shared by every iteration's closure
+                Action<ShotRecord> handler = record => OnFired(attackerId, record);
+                attacker.Fired += handler;
+                shotHandlers.Add((attacker, handler));
+            }
         }
 
         void StopBriefing()
@@ -227,11 +241,35 @@ namespace Blackglass
                     mission.Runtime.ObjectiveChanged -= OnObjectiveChanged;
                 mission.MissionFinished -= OnMissionFinished;
             }
+            foreach (var (attacker, handler) in shotHandlers)
+                if (attacker != null)
+                    attacker.Fired -= handler;
+            shotHandlers.Clear();
+            shots.Clear();
             mission = null;
             briefingMap = null;
+            briefingAllowed = false;
             participants.Clear();
             objectivesDirty = false;
         }
+
+        // A resolved basic attack between two registered units; ability shots stay off the wire (Stage 14).
+        void OnFired(int attackerId, ShotRecord record)
+        {
+            if (record.Ability != null || record.Target == null || !record.Target.TryGetComponent<CommandableUnit>(out var target))
+                return;
+            var targetId = Units.IdOf(target);
+            if (targetId != 0)
+                shots.Add(new NetShot(attackerId, targetId, record.Outcome == ShotOutcome.Hit));
+        }
+
+        // After the visibility pass, so this frame's exposure is in force: each shot to the participants that receive both avatars.
+        void FlushShots() =>
+            shots.Flush(participants, Visibility.Replicates, (participant, shot) =>
+            {
+                if (welcomed.TryGetValue(participant, out var target))
+                    manager.ServerManager.Broadcast(target, NetMapWire.ToMessage(shot), false);
+            });
 
         List<NetObjective> CurrentObjectives() =>
             mission != null && mission.Runtime != null
@@ -367,6 +405,9 @@ namespace Blackglass
                 foreach (var change in changes)
                     Publish(change);
             }
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+            FlushShots();
+#endif
             Guard.Tick();
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
             FlushObjectives();
@@ -463,7 +504,7 @@ namespace Blackglass
             Debug.Log(Prefix + FormattableString.Invariant($"client {clientId} welcomed account={Host.AccountOf(clientId)} owns={ownedCount}"));
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
             // The briefing goes only to a connection that owns at least one operative.
-            if (ownedCount > 0 && participants.Add(joined))
+            if (ownedCount > 0 && briefingAllowed && participants.Add(joined))
                 SendBriefing(connection);
 #endif
         }

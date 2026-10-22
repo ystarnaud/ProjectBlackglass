@@ -77,9 +77,11 @@ namespace Blackglass.Tests
             rig.BeginNet(quiet: true);
             yield return rig.Connect(NetLoopbackRig.TokenA);
             yield return new WaitForSecondsRealtime(2f);
-            Assert.That(rig.Client.Record.MapMessages, Is.Zero);
-            Assert.That(rig.Client.Record.ObjectivesMessages, Is.Zero);
             Assert.That(rig.Logs.Any(l => l.Contains("[Net] map projection off: map knowledge Partial")), Is.True);
+            // Owner ruling D1: outside the approved profile nothing of the briefing is sent, not even the end or a shot.
+            yield return DriveShotObjectiveAndEnd();
+            var record = rig.Client.Record;
+            Assert.That((record.MapMessages, record.ObjectivesMessages, record.EndMessages, record.ShotMessages), Is.EqualTo((0, 0, 0, 0)));
         }
 
         // Owner ruling: the largest supported map crosses the real WebSocket transport (here in one process; the two-process
@@ -99,6 +101,32 @@ namespace Blackglass.Tests
             Assert.That(record.Map.Floors, Is.EqualTo(largest.Floors));
             Assert.That(record.Map.Boxes.Select(b => (b.Kind, b.Footprint, b.Rise)), Is.EqualTo(largest.Boxes.Select(b => (b.Kind, b.Footprint, b.Rise))));
             Assert.That(record.Map.Containers, Is.EqualTo(largest.Containers));
+        }
+
+        [UnityTest]
+        public IEnumerator Shots_between_units_the_owner_receives_reach_it_with_both_ids()
+        {
+            rig.BeginNet(quiet: true);
+            yield return rig.Connect(NetLoopbackRig.TokenA);
+            var shots = new System.Collections.Generic.List<NetShot>();
+            rig.Client.ShotReceived += shots.Add;
+            var hostile = rig.Director.Hostiles[0];
+            var friendly = rig.Director.Friendlies[0];
+            var hostileAttacker = hostile.GetComponent<UnitAttacker>();
+            var placed = false;
+            yield return PlaceInSight(friendly, hostileAttacker, ok => placed = ok);
+            Assert.That(placed, Is.True, "an open spot in the hostile's sight");
+            var hostileId = rig.Server.Units.IdOf(hostile);
+            var friendlyId = rig.Server.Units.IdOf(friendly);
+            // Fire only once the squad observes the hostile, so the relay's replication check passes for this connection.
+            yield return TestWorld.WaitUntil(() => NetClient.VisibleStates().Any(s => s.UnitId == hostileId), 10f);
+            Assert.That(friendly.GetComponent<UnitAttacker>().TryAttack(hostile.GetComponent<Health>()), Is.True, "the operative fires");
+            yield return TestWorld.WaitUntil(() => shots.Count == 1, 5f);
+            Assert.That(hostileAttacker.TryAttack(friendly.GetComponent<Health>()), Is.True, "the hostile fires back");
+            yield return TestWorld.WaitUntil(() => shots.Count == 2, 5f);
+            Assert.That(shots.Select(s => (s.AttackerId, s.TargetId)), Is.EqualTo(new[] { (friendlyId, hostileId), (hostileId, friendlyId) }));
+            Assert.That(shots[0].Hit, Is.True, "the quiet server forces the squad's hits");
+            Assert.That(rig.Client.Record.ShotMessages, Is.EqualTo(2));
         }
 
         // Owner ruling: pre-hello, zero-owned and refused connections receive no protected payload.
