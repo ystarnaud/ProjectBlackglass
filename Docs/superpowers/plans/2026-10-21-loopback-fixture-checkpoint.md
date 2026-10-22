@@ -1,6 +1,6 @@
 # Loopback fixture mission checkpoint (local, after Stage 12 Track L)
 
-Status: in progress (2026-10-21). A small local checkpoint authorized by the owner after accepting Track L. It is **not** Stage 13,
+Status: implemented and demonstrated (2026-10-21), awaiting owner review; the player-driven manual run is the owner's. A small local checkpoint authorized by the owner after accepting Track L. It is **not** Stage 13,
 Stage 14, Track N or B24 work. Branch `phase13-loopback-checkpoint` from `main` `139a9a0`. No merge or push without approval.
 
 ## Goal
@@ -35,7 +35,7 @@ manifest, and nothing is committed anywhere.
    `FIXTURE OPERATOR AID (server log only; never sent to a client) extraction=x,z radius=2.0 hostile1=x,z`.
    - The code is compiled only under `UNITY_EDITOR || BLACKGLASS_NET_FIXTURE`, and a source audit pins it.
    - The seed is still never logged.
-   - In fixture builds, the `ATTEMPT FROZEN` line gains `outcomeSequence=`, and the canonical manifest is logged once.
+   - The `ATTEMPT FROZEN` line gains `outcomeSequence=` (every build; only Editor and fixture builds can run an attempt), and in Editor and fixture builds the canonical manifest is logged once.
 2. **Client overlay.** Each own unit's position, each observed hostile's health, and the cursor's ground point `x,z`; the cursor line (with the selected unit) is drawn by `NetTestControls`, the only place allowed to read the mouse.
    All of this is information the client already holds, shown so an operator can click a known coordinate.
 3. **Scripted assisted client role.** `-netharness attempt -assistHostile x,z -assistExtraction x,z`.
@@ -48,7 +48,7 @@ manifest, and nothing is committed anywhere.
 4. **Local Windows fixture server build.** `Tools/build-local-fixture-server.sh` builds `ServerMission` as a Windows 64 player
    with the `BLACKGLASS_NET_FIXTURE` define (non-development, like the Linux fixture build) to `Builds/LocalFixtureServer/`.
    - The demonstration runs two light processes instead of the Editor; the PC has about 2.8 GB free.
-   - The Linux release and fixture builds are unchanged.
+   - `ServerBuild.cs` (the Linux release and fixture builds) is unchanged; a Linux fixture build run with `-attemptFixture` would also log the operator aid and the manifest.
 5. **PlayMode regression test** `AttemptLoopbackPlayTests`: the server scene in the Editor with the real gate (host mode, as
    `NetLoopbackRig`), `-attemptFixture` 03 and `-net` without quiet, the `attempt` role driving the client.
    - It asserts the freeze, a Success outcome, the canonical manifest, `outcomeSequence = committed + 1`, both operatives' equipment
@@ -112,3 +112,38 @@ in snapshot mode, and the server never settles.
   then both full suites once.
 - Unity processes run one at a time; the two players of the demonstration are the only concurrent pair.
 - One independent review at the end.
+
+## Recorded runs and results (2026-10-21)
+
+The local Windows fixture server was built at `47190d8` (stamped `dirty` because of the owner's two settings files and an uncommitted script edit). The client was built at `d3b7f48`. Tokens were a release-format file made by `make-dev-tokens.sh` in the session scratchpad; no token appears in either log.
+
+| Run | What | Result |
+|---|---|---|
+| A | Two processes, windowless scripted client (`-batchmode -nographics -netharness attempt -assistHostile 10.5,4.5 -assistExtraction -9.5,4.5`) | Harness PASS, 9 steps. The server accepted 6 requests and rejected 0 (2 moves toward the hostile, 2 attacks, 2 moves to extraction), and logged `ATTEMPT FROZEN outcome=Success build=Normal integrity=Ok outcomeSequence=8 manifestHash=sha256:24caa6daf0c54bada6d9eab8edd4ad9da1d53b34ad63cbe4253aea3a099ee57b`. Listener: only TCP `127.0.0.1:7770`. |
+| B | The same, client windowed (captured with PrintWindow, client window only) | Harness PASS, `outcomeSequence=8`. The frames show the blue capsules walking, `hostile #3 hp 2/60` in red while both units attack, then the walk to `-9.5,4.5`, then `state Disconnected`. |
+| D | Interactive client, no harness (connect only) | Welcomed `owns=2`. The overlay shows `#1 hp 80/80 None queue 0 at -8.5,-7.5`, `#2 hp 130/130 ... at -5.5,-8.5`, the controls line and `selected #1 cursor x,z`, over a plain grey field: no geometry, no objectives, no extraction marker. |
+
+Run A's evidence:
+- **Manifest hash.** The logged manifest bytes (1113) hash to the logged `manifestHash`.
+- **Ready report.** The logged ready report is byte-identical to the committed `03-seeded-collect-and-use.ready.json`.
+- **Backend judgement.** A throwaway console program in the session scratchpad (not in the repo) ran the backend's real `ReadyReport.Parse`, `ObjectiveList`, `LootPoolValidator`, `LootHash`, `ResultManifest.Parse` and `ManifestValidator` over both files:
+  - no errors;
+  - the bytes are canonical;
+  - the hash is the same.
+- **Manifest content.**
+  - Both operatives are alive, with exactly their snapshot items: C holds `2k` (equipped weapon), `2n` and medkit ×2; D holds `2m` (equipped weapon) and medkit ×1.
+  - Nothing was collected or consumed.
+  - `eliminate` and `extract` are both completed.
+  - `outcomeSequence` is 8 (7 committed events, then the terminal one).
+
+What the hostile did: in every run its `EnemyAI` was enabled and acquired a target (`hostileEngaged=True` in the PlayMode run). The squad, ordered to attack once it was observed, killed it with 3 shots (76 damage, with overkill, against 60 hp) before it fired. So the hostile's normal AI was live and engaging, but no hostile shot was observed in these runs.
+
+Tests on the final code:
+- EditMode 2005/2005 (full, at `27940eb`).
+- PlayMode 1458/1458 (full, at `27940eb`).
+- After the review fixes: the affected PlayMode classes, 19/19 (`AttemptLoopbackPlayTests`, `AttemptNetPlayTests`, `NetHarnessPlayModeTests`, `ServerMissionPlayModeTests`).
+
+Independent review: 0 Critical and 1 Important (the test had no `[Timeout]`; fixed). Minors fixed: a lost-sight race on the first attack and a dead unit on the extraction move, plus doc wording. Minors left open:
+- a hostile that dies while hidden fails the scripted role (rare);
+- hints without `-netharness attempt` are ignored silently;
+- pre-existing: the `options seed=1(fixture)` line prints the scene's default seed, which equals fixture 03's attempt seed.

@@ -38,7 +38,9 @@ namespace Blackglass.Tests
         [UnityTearDown]
         public IEnumerator TearDown() => rig.Stop();
 
-        [UnityTest]
+        // Above the framework's 180 s default: setup (up to 60 s) plus the harness's own waits (about 340 s at worst), so a slow
+        // run ends with the harness's summary, not a generic timeout.
+        [UnityTest, Timeout(420000)]
         public IEnumerator A_scripted_client_plays_the_fixture_attempt_to_extraction_through_the_gate()
         {
             var director = rig.Director;
@@ -86,7 +88,7 @@ namespace Blackglass.Tests
             }
             harness.Begin("attempt", hostilePoint, extractionPoint);
             var runStart = Time.realtimeSinceStartup;
-            while (harness.ExitCode < 0 && Time.realtimeSinceStartup - runStart < 240f)
+            while (harness.ExitCode < 0 && Time.realtimeSinceStartup - runStart < 345f)
             {
                 engaged |= hostileHealth.IsAlive && hostileAi.Target != null;
                 yield return null;

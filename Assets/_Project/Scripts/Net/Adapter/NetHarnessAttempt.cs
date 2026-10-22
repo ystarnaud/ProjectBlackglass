@@ -46,9 +46,8 @@ namespace Blackglass
 
             // 3. Attack it until it dies. While it is observed, a living unit that is not attacking it is ordered to; while it is
             // hidden, such a unit walks to where it was last seen. The hostile's own AI and the squad's autonomy fight as usual.
-            yield return Accepted(Own().Where(u => u.Alive).Select(u => client.Send(new NetAttack(u.UnitId, hostileId))).ToList(), "attack the observed hostile", true);
-            if (Failed)
-                yield break;
+            // Not fatal: the hostile may leave sight before the orders arrive; the loop below re-orders or walks to it.
+            yield return Accepted(Own().Where(u => u.Alive).Select(u => client.Send(new NetAttack(u.UnitId, hostileId))).ToList(), "attack the observed hostile", true, false);
             var deadline = Now + 120d;
             var nextOrders = Now + 1d;
             while (Now < deadline && !HostileDead(hostileId) && Own().Any(u => u.Alive))
@@ -71,7 +70,8 @@ namespace Blackglass
                 yield break;
 
             // 4. Every living unit walks to the operator's extraction point; the server decides the extraction on its own.
-            yield return Accepted(Own().Where(u => u.Alive).Select(u => client.Send(new NetMoveTo(u.UnitId, assistExtraction.Value))).ToList(), "move to extraction", false);
+            // One accepted move is enough (one living operative extracts); a unit may die between the order and its answer.
+            yield return Accepted(Own().Where(u => u.Alive).Select(u => client.Send(new NetMoveTo(u.UnitId, assistExtraction.Value))).ToList(), "move to extraction", true);
             if (Failed)
                 yield break;
             yield return Until(() => Own().Any(u => u.Alive && Flat(u.transform.position - assistExtraction.Value) <= ExtractionReach), 90d);
@@ -81,13 +81,17 @@ namespace Blackglass
             yield return Wait(2d);
         }
 
-        // Waits for every command's answer: all accepted, or with `any` at least one (an attack may race the hostile leaving sight).
-        IEnumerator Accepted(List<uint> commands, string step, bool any)
+        // Waits for every command's answer: all accepted, or with `any` at least one. A step that is not `fatal` only notes a refusal.
+        IEnumerator Accepted(List<uint> commands, string step, bool any, bool fatal = true)
         {
             yield return Until(() => commands.All(c => client.TryGetResult(c, out _)), 5d);
             var reasons = commands.Select(c => client.TryGetResult(c, out var reason) ? reason.ToString() : "no answer").ToList();
             var accepted = reasons.Count(r => r == nameof(NetRejectReason.None));
-            Check(step, commands.Count > 0 && (any ? accepted > 0 : accepted == commands.Count), "answers " + string.Join(", ", reasons));
+            var ok = commands.Count > 0 && (any ? accepted > 0 : accepted == commands.Count);
+            if (ok || fatal)
+                Check(step, ok, "answers " + string.Join(", ", reasons));
+            else
+                Debug.Log(Prefix + step + " refused (not fatal; retried below) answers " + string.Join(", ", reasons));
         }
 
         List<NetUnitState> Own() => States()

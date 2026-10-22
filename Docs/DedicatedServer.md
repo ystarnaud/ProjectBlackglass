@@ -109,7 +109,7 @@ To check that nothing is exposed: `ssh bg-dev-mission01 'ss -lntu | grep -E ":77
 
 ### Local loopback fixture attempt (this PC only)
 
-This is the loopback fixture checkpoint: an assisted run of fixture attempt 03, played to extraction on this PC. It uses no VM, no backend and no Editor. The full procedure, its limits and the recorded run are in `Docs/superpowers/plans/2026-10-21-loopback-fixture-checkpoint.md`. In short:
+This is the loopback fixture checkpoint: an assisted run of fixture attempt 03, played to extraction on this PC. It uses no VM, no backend and no Editor. The full procedure, its limits and the recorded runs are in `Docs/superpowers/plans/2026-10-21-loopback-fixture-checkpoint.md`. In short:
 
 - **Build.** `Tools/build-local-fixture-server.sh` gives `Builds/LocalFixtureServer/BlackglassServer.exe`: ServerMission as a Windows player with the `BLACKGLASS_NET_FIXTURE` define. It is not a Development build, and it is never deployed.
 - **Start the server.** `BlackglassServer.exe -batchmode -nographics -logFile <file> -attemptFixture <repo>/Backend/contracts/attempt-v1/03-seeded-collect-and-use.json -net -netTokens <file>`, without `-netQuiet` or `-netFixture`, so the hostile's AI, the squad's autonomy and the hit rolls are the normal ones.
