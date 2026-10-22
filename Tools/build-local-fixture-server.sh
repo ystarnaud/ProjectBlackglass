@@ -12,16 +12,15 @@ log="$root/Logs/LocalFixtureServerBuild.log"
 mkdir -p "$root_unix/Logs" "$root_unix/Builds"
 rm -rf "$out"
 
-# The source state, captured before Unity starts (as Tools/build-server.sh does) and stamped into build-info.txt.
-provenance="$root_unix/Builds/local-fixture-provenance.txt"
-if ! bash "$root_unix/Tools/build-provenance.sh" capture "$root_unix" "$provenance"; then
-  echo "BUILD FAILED: the source state could not be captured; nothing was built"
-  echo "EXIT=1"
-  exit 1
+# The source revision, read before Unity starts and stamped into build-info.txt. Local only, so a plain git stamp (dirty when
+# anything differs from the commit) rather than Tools/build-provenance.sh's verified capture for deployable builds.
+export BLACKGLASS_SOURCE_REVISION="$(git -C "$root_unix" rev-parse HEAD)"
+export BLACKGLASS_SOURCE_TREE="$(git -C "$root_unix" rev-parse 'HEAD^{tree}')"
+if [ -n "$(git -C "$root_unix" status --porcelain=v1 --untracked-files=no)" ]; then
+  export BLACKGLASS_SOURCE_DIRTY=true
+else
+  export BLACKGLASS_SOURCE_DIRTY=false
 fi
-export BLACKGLASS_SOURCE_REVISION="$(sed -n 's/^revision=//p' "$provenance")"
-export BLACKGLASS_SOURCE_TREE="$(sed -n 's/^sourceTree=//p' "$provenance")"
-export BLACKGLASS_SOURCE_DIRTY="$(sed -n 's/^dirty=//p' "$provenance")"
 echo "source: revision=$BLACKGLASS_SOURCE_REVISION dirty=$BLACKGLASS_SOURCE_DIRTY"
 
 "$unity" -batchmode -quit -projectPath "$root" \
