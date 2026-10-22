@@ -143,6 +143,19 @@ namespace Blackglass.Tests
         }
 
         [UnityTest]
+        public IEnumerator A_click_on_a_hud_panel_sends_nothing()
+        {
+            var target = OpenFloorPoint();
+            cameraRig.FocusOn(target);
+            yield return null;
+            controls.SelectAllLiving();
+            var screen = (Vector2)viewCamera.WorldToScreenPoint(target);
+            controls.Blocks = p => p == screen;
+            controls.CommandAtScreen(screen, false, false);
+            Assert.That(sent, Is.Empty);
+        }
+
+        [UnityTest]
         public IEnumerator Nothing_is_sent_unless_the_client_is_ready()
         {
             controls.SelectAllLiving();
