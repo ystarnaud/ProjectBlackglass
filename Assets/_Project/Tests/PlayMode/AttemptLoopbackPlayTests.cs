@@ -160,6 +160,46 @@ namespace Blackglass.Tests
             Assert.That(session.Sequence.Committed, Is.EqualTo(committed));
         }
 
+        // The hostile's own chance to fire (owner ruling 5): the player only walks the squad toward the hostile's start, through
+        // the gate, and never orders an attack. The AI is not frozen and nothing about combat is changed; companions assist only
+        // against a hostile that is fighting the squad, so the first shot is the hostile's to take. Records whether it resolves.
+        [UnityTest, Timeout(240000)]
+        public IEnumerator The_hostile_fires_on_its_own_at_a_squad_that_only_walks_up()
+        {
+            var director = rig.Director;
+            var hostile = director.Hostiles[0];
+            Assert.That(hostile.GetComponent<EnemyAI>().enabled, Is.True, "the hostile fights through its own AI");
+            var aid = rig.Logs.Single(l => l.Contains("FIXTURE OPERATOR AID"));
+            Assert.That(NetGround.TryParse(aid.Substring(aid.IndexOf("hostile1=") + "hostile1=".Length).Split(' ')[0], out var hostilePoint), Is.True, aid);
+
+            var attacker = hostile.GetComponent<UnitAttacker>();
+            int shots = 0, hits = 0, misses = 0, squadShotsBeforeIt = 0;
+            float? firstShot = null;
+            attacker.Fired += _ => { shots++; firstShot ??= Time.realtimeSinceStartup; };
+            attacker.Attacked += _ => hits++;
+            attacker.Missed += _ => misses++;
+            foreach (var friendly in director.Friendlies)
+                friendly.GetComponent<UnitAttacker>().Fired += _ => { if (shots == 0) squadShotsBeforeIt++; };
+
+            yield return rig.Connect(NetLoopbackRig.TokenA);
+            Assert.That(rig.Client.State, Is.EqualTo(NetClientState.Ready), rig.Client.State + " " + rig.Client.Refusal);
+            var acceptedBefore = rig.Server.Host.Accepted;
+            var moves = Enumerable.Range(0, rig.Client.OwnedCount)
+                .Select(i => rig.Client.Send(new NetMoveTo(rig.Client.FirstOwnedId + i, hostilePoint))).ToList();
+            yield return TestWorld.WaitUntil(() => moves.All(c => rig.Client.TryGetResult(c, out _)), 5f);
+            Assert.That(moves.Select(c => rig.Client.TryGetResult(c, out var reason) ? reason : (NetRejectReason?)null), Is.All.EqualTo(NetRejectReason.None), "the moves pass the gate");
+
+            var start = Time.realtimeSinceStartup;
+            yield return TestWorld.WaitUntil(() => hits + misses > 0 || !hostile.IsAlive || director.Friendlies.All(f => !f.IsAlive), 180f);
+            Debug.Log($"HOSTILE FIRE seconds={Time.realtimeSinceStartup - start:0.0} shots={shots} hits={hits} misses={misses} " +
+                $"squadShotsBeforeIt={squadShotsBeforeIt} firstShotAfter={(firstShot.HasValue ? (firstShot.Value - start).ToString("0.0") : "none")} " +
+                $"state={hostile.GetComponent<EnemyAI>().State} hostileAlive={hostile.IsAlive}");
+            Assert.That(rig.Server.Host.Accepted - acceptedBefore, Is.EqualTo(moves.Count), "only the moves were sent: no attack order");
+            Assert.That(shots, Is.GreaterThan(0), "the hostile fired on its own");
+            Assert.That(hits + misses, Is.GreaterThan(0), "its attack resolved, as a hit or a miss");
+            Assert.That(squadShotsBeforeIt, Is.EqualTo(0), "the squad held fire until the hostile shot (no autonomous first strike)");
+        }
+
         static float Flat(Vector3 v) => new Vector2(v.x, v.z).magnitude;
 
         static long Id(string base58) => Base58Id.TryParse(base58, out var id) ? id : -1;
