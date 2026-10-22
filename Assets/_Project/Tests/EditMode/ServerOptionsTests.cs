@@ -122,6 +122,21 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Describe_InAnAttempt_NamesNoNumericSeed()
+        {
+            // The attempt's seed is a backend secret; the scene's default (or an ignored -seed) is not it, but must not look like it either.
+            var plain = Parse("-attemptFixture", "f.json").Describe(7);
+            var overridden = Parse("-attemptFixture", "f.json", "-seed", "9").Describe(7);
+            Assert.That(plain, Does.StartWith("seed=attempt fps=60 diagnostic=no").And.EndWith(" attempt=fixture"));
+            Assert.That(overridden, Does.StartWith("seed=attempt fps=60"));
+            foreach (var line in new[] { plain, overridden })
+            {
+                Assert.That(line, Does.Not.Match(@"seed=-?\d"));
+                Assert.That(line, Does.Not.Contain("(fixture)").And.Not.Contain("(override)"));
+            }
+        }
+
+        [Test]
         public void With_ReplacesOnlyWhatItIsGiven()
         {
             var options = Parse("-fps", "30").With(diagnostic: true, diagnosticTimeoutSeconds: 5);
