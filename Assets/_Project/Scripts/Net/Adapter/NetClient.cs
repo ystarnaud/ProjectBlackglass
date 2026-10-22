@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using FishNet.Managing;
 using FishNet.Managing.Object;
@@ -55,6 +56,9 @@ namespace Blackglass
         public NetRejectReason LastReject { get; private set; }
         public uint LastRejectCommand { get; private set; }
 
+        /// <summary>A relayed shot (decision 052): both units are avatars this client was sent. Presentation reads it; nothing else.</summary>
+        public event Action<NetShot> ShotReceived;
+
         public bool Connect(string address, ushort port, string clientToken)
         {
             if (State == NetClientState.Connecting || State == NetClientState.Authenticating || State == NetClientState.Ready)
@@ -87,6 +91,10 @@ namespace Blackglass
             client.RegisterBroadcast<NetKnowledgeMessage>(OnKnowledge);
             client.RegisterBroadcast<NetContainerMessage>(OnContainer);
             client.RegisterBroadcast<NetFixtureStepMessage>(OnStep);
+            client.RegisterBroadcast<NetMapMessage>(OnMap);
+            client.RegisterBroadcast<NetObjectivesMessage>(OnObjectives);
+            client.RegisterBroadcast<NetMissionEndMessage>(OnMissionEnd);
+            client.RegisterBroadcast<NetShotMessage>(OnShot);
             State = NetClientState.Connecting;
             if (!client.StartConnection())
             {
@@ -110,6 +118,10 @@ namespace Blackglass
                     client.UnregisterBroadcast<NetKnowledgeMessage>(OnKnowledge);
                     client.UnregisterBroadcast<NetContainerMessage>(OnContainer);
                     client.UnregisterBroadcast<NetFixtureStepMessage>(OnStep);
+                    client.UnregisterBroadcast<NetMapMessage>(OnMap);
+                    client.UnregisterBroadcast<NetObjectivesMessage>(OnObjectives);
+                    client.UnregisterBroadcast<NetMissionEndMessage>(OnMissionEnd);
+                    client.UnregisterBroadcast<NetShotMessage>(OnShot);
                     client.StopConnection();
                 }
                 if (createdManager)
@@ -242,5 +254,32 @@ namespace Blackglass
         }
 
         void OnStep(NetFixtureStepMessage message, Channel channel) => record.Step(Now, message.Step);
+
+        // The briefing (decision 052): each payload is decoded and validated; an invalid one is recorded with its reason and
+        // nothing of it is kept or drawn.
+        void OnMap(NetMapMessage message, Channel channel)
+        {
+            var map = NetMapWire.FromMessage(message, out var problem);
+            record.ReceiveMap(Now, map, problem);
+            if (map == null)
+                Debug.LogWarning("[NetClient] map refused: " + problem);
+        }
+
+        void OnObjectives(NetObjectivesMessage message, Channel channel)
+        {
+            var list = NetMapWire.FromMessage(message, out var problem);
+            record.ReceiveObjectives(Now, list, problem);
+            if (list == null)
+                Debug.LogWarning("[NetClient] objectives refused: " + problem);
+        }
+
+        void OnMissionEnd(NetMissionEndMessage message, Channel channel) => record.ReceiveEnd(Now, (byte)NetMapWire.FromMessage(message));
+
+        void OnShot(NetShotMessage message, Channel channel)
+        {
+            record.ReceiveShot(Now);
+            if (NetMapWire.FromMessage(message, out var shot))
+                ShotReceived?.Invoke(shot);
+        }
     }
 }

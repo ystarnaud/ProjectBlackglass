@@ -53,8 +53,31 @@ namespace Blackglass.Tests
             Assert.That(Broadcasts().Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal), Is.EqualTo(new[]
             {
                 "NetContainerMessage", "NetFixtureMessage", "NetFixtureStepMessage", "NetHelloMessage", "NetKnowledgeMessage",
-                "NetRefusedMessage", "NetRequestMessage", "NetResultMessage", "NetWelcomeMessage",
+                "NetMapMessage", "NetMissionEndMessage", "NetObjectivesMessage", "NetRefusedMessage", "NetRequestMessage",
+                "NetResultMessage", "NetShotMessage", "NetWelcomeMessage",
             }));
+        }
+
+        [Test]
+        public void TheBriefingMessages_NameNoRoomRegionHashAttemptItemLootOrContent()
+        {
+            var forbidden = new[] { "room", "region", "hash", "attempt", "item", "loot", "content", "seed", "spawn", "plan", "layout" };
+            foreach (var type in new[] { typeof(NetMapMessage), typeof(NetRectWire), typeof(NetBoxWire), typeof(NetTileWire),
+                         typeof(NetObjectivesMessage), typeof(NetObjectiveWire), typeof(NetMissionEndMessage), typeof(NetShotMessage) })
+                foreach (var field in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+                    foreach (var bad in forbidden)
+                        Assert.That(field.Name.IndexOf(bad, StringComparison.OrdinalIgnoreCase), Is.LessThan(0), type.Name + "." + field.Name);
+        }
+
+        // Owner ruling: every briefing payload is versioned.
+        [Test]
+        public void TheBriefingMessages_EachCarryAFormatByteFirst()
+        {
+            foreach (var type in new[] { typeof(NetMapMessage), typeof(NetObjectivesMessage), typeof(NetMissionEndMessage), typeof(NetShotMessage) })
+            {
+                var first = type.GetFields(BindingFlags.Instance | BindingFlags.Public).OrderBy(f => f.MetadataToken).First();
+                Assert.That((first.Name, first.FieldType), Is.EqualTo(("Format", typeof(byte))), type.Name);
+            }
         }
 
         [Test]

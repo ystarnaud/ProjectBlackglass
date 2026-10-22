@@ -86,4 +86,79 @@ namespace Blackglass
         public int ContainerId;
         public NetItemWire[] Entries;
     }
+
+    // The visual network client's briefing (decision 052). Sent only by Editor and fixture servers, only for a Full/All
+    // mission, only to a welcomed connection that owns units. Each message opens with its format version (NetMap.Format).
+
+    /// <summary>One floor rectangle of the public map, in tiles.</summary>
+    public struct NetRectWire
+    {
+        public short X;
+        public short Y;
+        public short Width;
+        public short Height;
+    }
+
+    /// <summary>One wall or obstacle box of the public map: Kind is MissionBoxKind + 1 (0 is never valid); Rise in metres.</summary>
+    public struct NetBoxWire
+    {
+        public byte Kind;
+        public short X;
+        public short Y;
+        public short Width;
+        public short Height;
+        public float Rise;
+    }
+
+    /// <summary>One tile of the public map (a closed container: its place only).</summary>
+    public struct NetTileWire
+    {
+        public short X;
+        public short Y;
+    }
+
+    /// <summary>Server to a connection that owns units, once after its welcome: the public map. Nothing else of the generation travels.</summary>
+    public struct NetMapMessage : IBroadcast
+    {
+        public byte Format;
+        public short Width;
+        public short Height;
+        public NetRectWire[] Floors;
+        public NetBoxWire[] Boxes;
+        public NetTileWire[] Containers;
+    }
+
+    /// <summary>One known objective: Kind is a NetObjectiveKind, State an ObjectiveState; Point and Radius for extraction only.</summary>
+    public struct NetObjectiveWire
+    {
+        public byte Kind;
+        public byte State;
+        public string Title;
+        public bool HasPoint;
+        public Vector3 Point;
+        public float Radius;
+    }
+
+    /// <summary>Server to a connection that owns units: the whole known-objective list, at welcome and after every change.</summary>
+    public struct NetObjectivesMessage : IBroadcast
+    {
+        public byte Format;
+        public NetObjectiveWire[] Objectives;
+    }
+
+    /// <summary>Server to a connection that owns units: the mission ended (a NetMissionResult value, 1 or 2).</summary>
+    public struct NetMissionEndMessage : IBroadcast
+    {
+        public byte Format;
+        public byte Result;
+    }
+
+    /// <summary>Server to a connection that receives both units' avatars: one resolved basic attack (Hit false: cover turned it away).</summary>
+    public struct NetShotMessage : IBroadcast
+    {
+        public byte Format;
+        public int AttackerId;
+        public int TargetId;
+        public bool Hit;
+    }
 }

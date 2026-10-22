@@ -1136,3 +1136,42 @@ Design: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` (revision
 - **Implications:**
   - A new template or a change of capacity means updating `MissionTemplates.Supported` together with the backend's row.
   - A future deposit feature needs its own owner decision.
+
+## 052. Development-only public map projection for the visual network client (2026-10-22)
+
+- **Decided (owner rulings, 2026-10-22):**
+  - For a mission with fog on, map knowledge Full and objective knowledge All, and with no terminal and no cameras, the server
+    sends each welcomed connection that owns at least one operative one bounded, whitelisted projection of the public map:
+    - the grid size;
+    - the floor as tile rectangles;
+    - every wall and obstacle box (kind, footprint, height);
+    - the tiles of the closed containers (geometry only: never contents, item definitions, quantities, instance ids or provenance).
+  - It also sends the known objectives (kind, state, title, and the extraction point and radius), the mission result, and each
+    resolved shot between two units the connection already receives. Every other configuration and connection receives nothing.
+  - **Local development only.** The server-side emission of all four messages is compiled only in Editor and fixture builds
+    (`BLACKGLASS_NET_FIXTURE`) and also needs the approved profile above. An ordinary release server never sends them, whatever
+    its mission profile, and no runtime flag can enable them.
+    "Local" means any Editor or fixture build wherever it runs: the Linux `--fixture` server package carries the same define,
+    so it must never run a Full/All mission outside development (checkpoint 1 review M6).
+  - All four messages carry a format version and are validated, bounded, on both sides; a malformed or excessive payload draws
+    nothing.
+  - The client rebuilds a seedless `MissionLayout` from the projection and draws it with the existing environment theme. It has
+    no collider, NavMesh or game rule. No client-to-server message is added.
+- **Why:**
+  - A human cannot evaluate gameplay without the environment, the objectives and the result.
+  - A whitelist keeps the seed, spawns, regions, room graph, hashes, container contents and hostile information off the wire by
+    construction.
+- **Rejected:**
+  - Sending `MissionLayout` wholesale (it carries the seed and the spawns).
+  - Sending the seed so the client regenerates (it reveals everything).
+  - Layout streaming by discovery (out of scope; needed only for map knowledge Partial or None).
+  - Emission from release servers (not until the blocker below is resolved).
+- **Implications:**
+  - Spec §3.12 changes for development builds only: the network client there receives geometry.
+  - **Mandatory blocker before public multiplayer or distribution to untrusted clients:**
+    - the existing fixed-salt deterministic streams derive layout, objective, security and loot information from the same seed;
+    - the geometry is a fingerprint of that 31-bit seed, and the client build contains the generator;
+    - so a full map may enable seed recovery and prediction of otherwise hidden information (hostile spawns, security, loot rolls).
+  - Leaving the numeric seed out of the message is not a security solution. This is accepted only for the local fixture playtest.
+  - This slice changes neither the production generator, nor the backend schema, nor the B25 contracts.
+  - Map knowledge Partial and None, terminals and cameras need their own projection rules later.
