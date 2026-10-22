@@ -66,12 +66,31 @@ namespace Blackglass.Tests
             var sends = 0;
             for (var index = 0; index < lines.Length; index++)
             {
-                if (!Regex.IsMatch(lines[index], @"NetMapWire\.ToMessage|\bparticipants\b|\bSendBriefing\b|\bBeginBriefing\b|\bFlushObjectives\b|\bFlushShots\b|\bOnFired\b|\bshotHandlers\b"))
+                if (!Regex.IsMatch(lines[index], @"NetMapWire\.ToMessage|\bparticipants\b|\bSendBriefing\b|\bBeginBriefing\b|\bFlushObjectives\b|\bFlushShots\b|\bFlushEnd\b|\bpendingEnd\b|\bOnFired\b|\bshotHandlers\b"))
                     continue;
                 sends++;
                 Assert.That(IsInsideFixtureGuard(lines, index), Is.True, "NetServer.cs line " + (index + 1) + " is outside " + FixtureGuard + ": " + lines[index].Trim());
             }
             Assert.That(sends, Is.GreaterThan(8), "the audit must not pass vacuously");
+        }
+
+        // Checkpoint 1 review M5: the guard is only as good as the define's absence from every release input. The fixture build
+        // adds it through extraScriptingDefines alone; no project setting, compiler response file, asmdef or #define may.
+        [Test]
+        public void TheFixtureDefine_IsAbsentFromEveryReleaseInput()
+        {
+            const string Define = "BLACKGLASS_NET_FIXTURE";
+            Assert.That(File.ReadAllText("ProjectSettings/ProjectSettings.asset").Contains(Define), Is.False, "Player Settings define it");
+            var inputs = Directory.GetFiles("Assets", "*.rsp", SearchOption.AllDirectories)
+                .Concat(Directory.GetFiles("Assets", "*.asmdef", SearchOption.AllDirectories)).ToArray();
+            Assert.That(inputs.Length, Is.GreaterThan(3), "the audit must not pass vacuously");
+            foreach (var file in inputs)
+                Assert.That(File.ReadAllText(file).Contains(Define), Is.False, file + " defines it");
+            foreach (var file in Directory.GetFiles("Assets", "*.cs", SearchOption.AllDirectories))
+                Assert.That(Regex.IsMatch(File.ReadAllText(file), @"#\s*define\s+" + Define), Is.False, file + " #defines it");
+            var build = File.ReadAllText("Assets/_Project/Editor/Server/ServerBuild.cs");
+            Assert.That(build.Contains("extraScriptingDefines = fixture ? new[] { FixtureDefine } : null"), Is.True,
+                "the release server build passes no define (only --fixture adds it)");
         }
 
         static string StripLineComment(string line)

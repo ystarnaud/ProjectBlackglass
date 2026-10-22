@@ -47,6 +47,14 @@ namespace Blackglass.Tests
             StringAssert.Contains("floors", NetMapValidation.Problem(new NetMap(128, 128, floors, new List<NetMapBox>(), new List<Vector2Int>())));
         }
 
+        // Checkpoint 1 review M7: x + width must not wrap past int.MaxValue into a passing rectangle.
+        [Test]
+        public void ARectangleWhoseEdgeOverflows_IsRefused()
+        {
+            StringAssert.Contains("outside", NetMapValidation.Problem(Map((f, b, c) => f.Add(new RectInt(1, 6, int.MaxValue, 1)))));
+            StringAssert.Contains("box", NetMapValidation.Problem(Map((f, b, c) => b.Add(new NetMapBox(MissionBoxKind.Crate, new RectInt(2, int.MaxValue, 1, int.MaxValue), 1f)))));
+        }
+
         [Test] public void ABoxOutsideTheGrid_IsRefused() => StringAssert.Contains("box", NetMapValidation.Problem(Map((f, b, c) => b.Add(new NetMapBox(MissionBoxKind.Pillar, new RectInt(9, 7, 2, 2), 3f)))));
         [Test] public void AnUnknownBoxKind_IsRefused() => StringAssert.Contains("kind", NetMapValidation.Problem(Map((f, b, c) => b.Add(new NetMapBox((MissionBoxKind)9, new RectInt(3, 3, 1, 1), 1f)))));
 
@@ -84,7 +92,7 @@ namespace Blackglass.Tests
         [Test]
         public void AnExtractionPointThatIsNotFiniteOrOffTheMap_IsRefused()
         {
-            foreach (var point in new[] { new Vector3(float.NaN, 0f, 0f), new Vector3(300f, 0f, 0f), new Vector3(0f, 50f, 0f) })
+            foreach (var point in new[] { new Vector3(float.NaN, 0f, 0f), new Vector3(300f, 0f, 0f), new Vector3(0f, 0f, 70f), new Vector3(0f, 50f, 0f) })
                 StringAssert.Contains("point", NetMapValidation.Problem(new List<NetObjective> { new NetObjective(NetObjectiveKind.Extraction, ObjectiveState.Active, "Extraction", true, point, 2f) }));
         }
 

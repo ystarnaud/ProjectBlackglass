@@ -41,7 +41,7 @@ namespace Blackglass.Tests
             var layout = rig.Director.Current.Layout;
             Assert.That(record.Map.Floors, Is.EqualTo(layout.FloorRects));
             Assert.That(record.Map.Boxes.Select(b => (b.Kind, b.Footprint, b.Rise)), Is.EqualTo(layout.Boxes.Select(b => (b.Kind, b.Footprint, b.Height))));
-            Assert.That(record.Map.Containers, Is.EqualTo(rig.Director.Current.Loot.Containers.Select(c => c.Tile)));
+            Assert.That(record.Map.Containers, Is.EqualTo(rig.Director.Current.Loot.Containers.Select(c => c.Tile).OrderBy(t => t.y).ThenBy(t => t.x)));
             var types = record.DecodedMessages.Select(d => d.Type).ToList();
             Assert.That(types.IndexOf("NetWelcomeMessage"), Is.LessThan(types.IndexOf("NetMapMessage")), "nothing of the briefing before the welcome");
             Assert.That(record.Objectives.Select(o => (o.Kind, o.State)),
@@ -127,6 +127,52 @@ namespace Blackglass.Tests
             Assert.That(shots.Select(s => (s.AttackerId, s.TargetId)), Is.EqualTo(new[] { (friendlyId, hostileId), (hostileId, friendlyId) }));
             Assert.That(shots[0].Hit, Is.True, "the quiet server forces the squad's hits");
             Assert.That(rig.Client.Record.ShotMessages, Is.EqualTo(2));
+        }
+
+        // Checkpoint 1 review I1: a participant that owns the squad but does not observe the shooting hostile gets no shot. The
+        // fixture source grants sight by verb only (no exposure by firing), so "unobserved while firing" is reachable here.
+        [UnityTest]
+        public IEnumerator A_shot_from_a_hostile_the_owner_does_not_observe_never_reaches_it()
+        {
+            rig.BeginNet(quiet: true, fixture: true);
+            yield return rig.Connect(NetLoopbackRig.TokenA);
+            var record = rig.Client.Record;
+            yield return TestWorld.WaitUntil(() => record.Map != null, 10f);
+            var shots = new System.Collections.Generic.List<NetShot>();
+            rig.Client.ShotReceived += shots.Add;
+            var hostile = rig.Director.Hostiles[0];
+            var friendly = rig.Director.Friendlies[0];
+            var hostileAttacker = hostile.GetComponent<UnitAttacker>();
+            var placed = false;
+            yield return PlaceInSight(friendly, hostileAttacker, ok => placed = ok);
+            Assert.That(placed, Is.True, "an open spot in the hostile's sight");
+            var hostileId = rig.Server.Units.IdOf(hostile);
+            Assert.That(NetClient.VisibleStates().Any(s => s.UnitId == hostileId), Is.False, "the fixture has granted no sight");
+            Assert.That(hostileAttacker.TryAttack(friendly.GetComponent<Health>()), Is.True, "the unobserved hostile fires");
+            for (var frame = 0; frame < 30; frame++)
+                yield return null;
+            Assert.That(record.ShotMessages, Is.Zero, "no shot from a hostile this connection does not observe");
+            Assert.That(shots, Is.Empty);
+
+            rig.Client.SendFixture(NetFixtureVerb.Observe);
+            yield return TestWorld.WaitUntil(() => NetClient.VisibleStates().Any(s => s.UnitId == hostileId), 10f);
+            yield return TestWorld.WaitUntil(() => hostileAttacker.CooldownRemaining <= 0f, 10f);
+            Assert.That(hostileAttacker.TryAttack(friendly.GetComponent<Health>()), Is.True, "the observed hostile fires");
+            yield return TestWorld.WaitUntil(() => shots.Count == 1, 5f);
+            Assert.That((shots[0].AttackerId, shots[0].TargetId), Is.EqualTo((hostileId, rig.Server.Units.IdOf(friendly))));
+            Assert.That(record.ShotMessages, Is.EqualTo(1));
+        }
+
+        [UnityTest]
+        public IEnumerator An_invalid_briefing_map_is_never_sent()
+        {
+            rig.BeginNet(quiet: true);
+            rig.Server.BriefingMap = new NetMap(10, 10, new System.Collections.Generic.List<RectInt> { new RectInt(0, 0, 4, 4), new RectInt(2, 2, 4, 4) },
+                new System.Collections.Generic.List<NetMapBox>(), new System.Collections.Generic.List<Vector2Int>());
+            yield return rig.Connect(NetLoopbackRig.TokenA);
+            yield return TestWorld.WaitUntil(() => rig.Client.Record.Objectives.Count > 0, 10f);
+            yield return new WaitForSecondsRealtime(0.5f);
+            Assert.That(rig.Client.Record.MapMessages, Is.Zero);
         }
 
         // Owner ruling: pre-hello, zero-owned and refused connections receive no protected payload.

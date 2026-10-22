@@ -79,7 +79,7 @@ namespace Blackglass
                 if (!extraction)
                     continue;
                 var p = objective.Point;
-                if (!(Finite(p.x) && Finite(p.y) && Finite(p.z)) || Mathf.Abs(p.x) > NetMap.MaxSide || Mathf.Abs(p.z) > NetMap.MaxSide || Mathf.Abs(p.y) > 10f)
+                if (!(Finite(p.x) && Finite(p.y) && Finite(p.z)) || Mathf.Abs(p.x) > NetMap.MaxSide * 0.5f || Mathf.Abs(p.z) > NetMap.MaxSide * 0.5f || Mathf.Abs(p.y) > 10f)
                     return FormattableString.Invariant($"objective {i} point is not finite or lies off the map");
                 if (!(objective.Radius > 0f && objective.Radius <= NetObjective.MaxRadius))
                     return FormattableString.Invariant($"objective {i} radius outside (0, {NetObjective.MaxRadius}]");

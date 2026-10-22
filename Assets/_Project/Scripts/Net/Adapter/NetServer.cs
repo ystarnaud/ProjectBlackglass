@@ -69,6 +69,7 @@ namespace Blackglass
         bool hasTerminal;
         bool hasCameras;
         bool objectivesDirty;
+        NetMissionResult pendingEnd;
 
         /// <summary>The map the briefing sends, or null when the mission is not projected. Tests replace it (the largest-map
         /// transport proof); there is no command-line option for it.</summary>
@@ -251,6 +252,7 @@ namespace Blackglass
             briefingAllowed = false;
             participants.Clear();
             objectivesDirty = false;
+            pendingEnd = NetMissionResult.None;
         }
 
         // A resolved basic attack between two registered units; ability shots stay off the wire (Stage 14).
@@ -263,7 +265,8 @@ namespace Blackglass
                 shots.Add(new NetShot(attackerId, targetId, record.Outcome == ShotOutcome.Hit));
         }
 
-        // After the visibility pass, so this frame's exposure is in force: each shot to the participants that receive both avatars.
+        // After the visibility pass: each queued shot goes to the participants that receive both avatars as of this pass, then the
+        // queue empties. A shot fired after this frame's pass is judged at the next pass (at most one frame later), never held longer.
         void FlushShots() =>
             shots.Flush(participants, Visibility.Replicates, (participant, shot) =>
             {
@@ -282,7 +285,7 @@ namespace Blackglass
         // Only after the welcome and only to a connection that owns units: the map, the known objectives, and the result if over.
         void SendBriefing(NetworkConnection connection)
         {
-            if (briefingMap != null)
+            if (briefingMap != null && NetMapValidation.Problem(briefingMap) == null)
                 manager.ServerManager.Broadcast(connection, NetMapWire.ToMessage(briefingMap), false);
             var objectives = CurrentObjectives();
             if (objectives.Count > 0)
@@ -309,17 +312,23 @@ namespace Blackglass
 
         void OnObjectiveChanged(MissionObjective objective) => objectivesDirty = true;
 
+        // Only noted here, inside the gameplay event chain; FlushEnd sends it from Update, so a send can never interrupt Finish().
         void OnMissionFinished(MissionPhase phase)
         {
             objectivesDirty = true;
-            var result = ResultOf(phase);
-            if (result == NetMissionResult.None)
+            pendingEnd = ResultOf(phase);
+        }
+
+        void FlushEnd()
+        {
+            if (pendingEnd == NetMissionResult.None)
                 return;
-            var message = NetMapWire.ToMessage(result);
+            var message = NetMapWire.ToMessage(pendingEnd);
+            pendingEnd = NetMissionResult.None;
             foreach (var participant in participants)
                 if (welcomed.TryGetValue(participant, out var target))
                     manager.ServerManager.Broadcast(target, message, false);
-            Debug.Log(Prefix + FormattableString.Invariant($"mission end {phase} sent to {participants.Count} client(s)"));
+            Debug.Log(Prefix + FormattableString.Invariant($"mission end {(NetMissionResult)message.Result} sent to {participants.Count} client(s)"));
         }
 
         // The fixture's hostile is the first one; its walk points are found once, here, and never sent (plan ruling 4).
@@ -411,6 +420,7 @@ namespace Blackglass
             Guard.Tick();
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
             FlushObjectives();
+            FlushEnd();
 #endif
             Host.CollectExpired(now, expired);
             foreach (var clientId in expired)

@@ -6,8 +6,9 @@ namespace Blackglass
 {
     /// <summary>
     /// The frame's resolved basic attacks, relayed after the visibility pass (decision 052): each goes to every connection that
-    /// receives both units' avatars at that moment, and then the queue is empty. A shot never waits for a later frame, so a shot
-    /// from a hostile a connection does not observe never reaches it. Holds no networking type. Editor and fixture builds only
+    /// receives both units' avatars as of that pass, and then the queue is empty. A shot is judged once, at the first pass after it
+    /// was fired (at most one frame later), so a shot from a hostile a connection does not observe then never reaches it. Holds no
+    /// networking type. Editor and fixture builds only
     /// (owner ruling D1).
     /// </summary>
     public sealed class NetShotRelay

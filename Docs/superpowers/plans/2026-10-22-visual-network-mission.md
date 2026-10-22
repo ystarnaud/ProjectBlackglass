@@ -229,7 +229,8 @@ before touching any element, so its work is bounded, and it rejects:
     untargeted records are skipped, since abilities are Stage 14 on the wire.
   - After the frame's visibility pass, each queued shot goes to every welcomed connection for which
     `Visibility.Replicates(connection, attacker) && Visibility.Replicates(connection, target)`; then the queue is emptied.
-  - A shot is never held for a later frame. So a shot from an unobserved hostile is never sent; its victim's health still drops
+  - A shot is judged once, at the first visibility pass after it was fired (at most one frame later; checkpoint 1 review M1).
+    So a shot from a hostile unobserved at that pass is never sent; its victim's health still drops
     through the replicated SyncVar, as today.
   - `Fired` is raised after `Attacked`/`Missed`, and those are what put a firing hostile's exposure in force. So the exposure
     reveal usually lands in the same pass and the shot is shown.

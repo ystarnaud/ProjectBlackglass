@@ -286,12 +286,14 @@ namespace Blackglass
             var record = client.Record;
             var avatars = States().Length;
             detail = avatars + " avatars, " + record.Sightings.Count + " sightings, " + record.LastKnown.Count + " last-known records, " +
-                record.KnowledgeMessages + " knowledge and " + record.ContainerMessages + " container messages";
+                record.KnowledgeMessages + " knowledge, " + record.ContainerMessages + " container, " +
+                (record.MapMessages + record.ObjectivesMessages + record.EndMessages + record.ShotMessages) + " briefing messages";
             var decoded = record.DecodedMessages.Select(d => d.Type).Where(t => !AllowedMessages.Contains(t)).Distinct().ToList();
             var positioned = record.DecodedMessages.Count(d => d.HasPosition);
             detail += ", " + decoded.Count + " unexpected message types, " + positioned + " positioned messages";
             return decoded.Count == 0 && positioned == 0 && avatars == 0 && record.Sightings.Count == 0 && record.LastKnown.Count == 0 && record.KnowledgeMessages == 0
-                && record.ContainerMessages == 0 && record.Contents == null && !record.Truncated;
+                && record.ContainerMessages == 0 && record.Contents == null && !record.Truncated
+                && record.MapMessages == 0 && record.ObjectivesMessages == 0 && record.EndMessages == 0 && record.ShotMessages == 0;
         }
 
         bool CheckBlind(string step) => Check(step, IsBlind(out var detail), detail);

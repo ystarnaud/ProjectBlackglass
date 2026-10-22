@@ -38,15 +38,18 @@ namespace Blackglass
             var boxes = new List<NetMapBox>(layout.Boxes.Count);
             foreach (var box in layout.Boxes)
                 boxes.Add(new NetMapBox(box.Kind, box.Footprint, box.Height));
+            // Canonical row order: the generation order is the loot stream's index, which the client has no use for.
             var tiles = new List<Vector2Int>();
             if (containerTiles != null)
                 tiles.AddRange(containerTiles);
+            tiles.Sort((l, r) => l.y != r.y ? l.y.CompareTo(r.y) : l.x.CompareTo(r.x));
             var map = new NetMap(layout.Width, layout.Height, new List<RectInt>(layout.FloorRects), boxes, tiles);
             refusal = NetMapValidation.Problem(map);
             return refusal == null ? map : null;
         }
 
-        /// <summary>The known objectives in runtime order (goals, then extraction); empty when the configuration is not projected.</summary>
+        /// <summary>The known objectives in runtime order (goals, then extraction); empty when the configuration is not projected
+        /// or the list would fail the client's validation (nothing is better than a list the client must discard).</summary>
         public static List<NetObjective> Objectives(IReadOnlyList<MissionObjective> objectives, IntelligenceSettings settings,
             bool hasTerminal, bool hasCameras)
         {
@@ -64,6 +67,8 @@ namespace Blackglass
                     result.Add(new NetObjective(objective.Type == ObjectiveType.Interact ? NetObjectiveKind.Interact : NetObjectiveKind.Eliminate,
                         objective.State, title, false, Vector3.zero, 0f));
             }
+            if (NetMapValidation.Problem(result) != null)
+                result.Clear();
             return result;
         }
     }

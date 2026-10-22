@@ -119,6 +119,30 @@ namespace Blackglass.Tests
             Assert.That(NetMapProjection.Objectives(goals, Fixture(), false, false).Select(o => o.Kind), Is.EqualTo(new[] { NetObjectiveKind.Extraction }));
         }
 
+        // Checkpoint 1 review M2: the server validates the objective list it would send; an invalid one is not sent at all.
+        [Test]
+        public void AnObjectiveListThatFailsValidation_IsNotProjected()
+        {
+            var goals = new List<MissionObjective> { new ReachZoneObjective("extract", "Extraction", Vector3.zero, NetObjective.MaxRadius + 5f, 1, new List<Health>(), isRequired: false) };
+            Assert.That(NetMapProjection.Objectives(goals, Fixture(), false, false), Is.Empty);
+        }
+
+        // Checkpoint 1 review M10: container tiles go in a canonical (y, x) order, never the generation (loot-stream) order.
+        [Test]
+        public void ContainerTiles_AreSentInRowOrder_NotGenerationOrder()
+        {
+            var layout = FixtureLayout();
+            var floor = new List<Vector2Int>();
+            foreach (var rect in layout.FloorRects)
+                for (var y = rect.yMin; y < rect.yMax && floor.Count < 4; y++)
+                    for (var x = rect.xMin; x < rect.xMax && floor.Count < 4; x++)
+                        floor.Add(new Vector2Int(x, y));
+            var shuffled = new[] { floor[3], floor[0], floor[2], floor[1] };
+            var map = NetMapProjection.Map(layout, shuffled, Fixture(), false, false, out var refusal);
+            Assert.That(refusal, Is.Null);
+            Assert.That(map.Containers, Is.EqualTo(shuffled.OrderBy(t => t.y).ThenBy(t => t.x)));
+        }
+
         [Test]
         public void ALongTitle_IsClippedToTheLimit()
         {

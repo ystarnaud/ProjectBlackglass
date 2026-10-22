@@ -1151,6 +1151,8 @@ Design: `Docs/superpowers/specs/2026-10-14-phase-13-backend-design.md` (revision
   - **Local development only.** The server-side emission of all four messages is compiled only in Editor and fixture builds
     (`BLACKGLASS_NET_FIXTURE`) and also needs the approved profile above. An ordinary release server never sends them, whatever
     its mission profile, and no runtime flag can enable them.
+    "Local" means any Editor or fixture build wherever it runs: the Linux `--fixture` server package carries the same define,
+    so it must never run a Full/All mission outside development (checkpoint 1 review M6).
   - All four messages carry a format version and are validated, bounded, on both sides; a malformed or excessive payload draws
     nothing.
   - The client rebuilds a seedless `MissionLayout` from the projection and draws it with the existing environment theme. It has
