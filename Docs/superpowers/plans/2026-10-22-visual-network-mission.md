@@ -2,7 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: **approved by the owner with binding amendments (2026-10-22, "Owner rulings" below); executing Native.** Base: `main` at
+Status: **approved by the owner with binding amendments (2026-10-22, "Owner rulings" below); implemented Native. Automated
+validation complete; the owner's playtest is outstanding ("As built" at the end).** Base: `main` at
 `c061ff9` (the merged loopback fixture checkpoint).
 Branch at execution time: `phase13-visual-net-mission`.
 
@@ -4728,3 +4729,69 @@ No merge or push until the owner accepts the playtest.
 **Native** (superpowers:executing-plans), with one fresh whole-branch reviewer on the most capable model at the end. Every
 task needs a Unity test run, Unity runs one instance at a time on this low-memory PC, and the tasks build tightly on each
 other's interfaces. Fresh per-task subagents would wait on the same single Unity process.
+
+## As built (2026-10-22, branch `phase13-visual-net-mission`, not merged)
+
+**Implementation and automated validation complete; the owner's player-driven playtest (requirement 9, final acceptance) is
+outstanding.** The automated results below are not a substitute for it.
+
+### Commits (from `c061ff9`)
+
+`2c7f1fa` plan with the owner's rulings · `cb2af72` decision 052 and the bounded types · `ad88bd3` projection whitelist and the
+seedless client layout · `3aebd28` briefing on the wire · `3c6f22e` shot relay · `0fe44b3` checkpoint 1 fixes · `5b7e0c5` map
+view · `1cdff6d` avatars · `5955ef6` controls · `28e32b8` scene, HUD, builds and launchers · `6dd47f3` unassisted mission and the
+offline-scene guard · `e4baae0` docs · `046c3c5` final-review fixes · `2df92bf` controls switch their actions off when disabled ·
+`c72d06f` the scene test loads its scene inside the input test fixture. 94 files, about 10,000 lines added, 7 removed; no file
+in an offline folder changed (`OfflineSceneGuardTests` pins `ProceduralMission` and `Prototype` byte for byte).
+
+### Review checkpoints
+
+- **Checkpoint 1** (independent Opus security review after protocol, serialization, build guards and the projection):
+  0 Critical, 1 Important, 11 Minor. Fixed: I1 (end-to-end test that a shot from a hostile the owner does not observe never
+  reaches it, mutation-proven), M2, M3, M4, M5, M9, M10; M1 and M6 documented. Deferred: M8 (objective title printability;
+  titles are server constants), M11 (reconnect and second-hello tests). Closed before the renderer was connected.
+- **Checkpoint 2** (fresh Opus whole-branch review after the full client): 0 Critical, 2 Important, 9 Minor. Fixed: I1 (device
+  names and hard-coded bindings in the play controls; Tab and F now come from the input asset), I2 (follow survived the
+  followed operative's death; a request could name unit 0; both mutation-proven), M1, M6. Deferred minors: M2 (HUD-blocking
+  lambda untested; objectives panel fixed at 130 px), M3 (no-map camera framing), M4 (remote disconnect untested; banner
+  wording), M5 (Ctrl+A also pans), M7 (per-frame scans of the visible states), M8 (the unassisted test depends on real AI),
+  M9 (follow overrides the pan rather than disabling it; ruling recorded).
+- **After checkpoint 2:** the first full PlayMode run showed 49 offline keyboard-and-mouse failures. Cause: the new scene test
+  loaded `NetPlayClient` from `[UnitySetUp]`, which runs before `InputTestFixture.Setup`, so the shared `BlackglassControls`
+  asset (also the project-wide actions asset) got an action state outside any fixture; later fixtures reused it and it never
+  learned their devices. Fixed in `c72d06f` (reproduction 18/35 → 35/35). `2df92bf` also makes `NetPlayControls.OnDisable`
+  switch its actions off, as every offline input component does.
+
+### Evidence at `c72d06f`
+
+- **Suites, clean worktree** (the owner's two settings files not involved): EditMode **2144/2144** (`main`: 2006);
+  PlayMode **1494 passed, 0 failed, 1 skipped** of 1495 (`main`: 1459). The skipped test is the two-process check, which runs
+  only with the built client (below).
+- **Builds from the same revision** (clean worktree): local fixture server, `dirty=false`, 142.1 MB, `Blackglass.dll` sha256
+  `42fbf36f594f0a6604e3556f346b7b4a5b090fbe1fae5bf441bf7448d1c87d70`; play client, 126 MB, `Blackglass.dll` sha256
+  `d2691e243873d525941f084d9a44494a6601d11cfea90c612d3ee3d34c0af1c8`.
+- **Largest map over the real two-process WebSocket transport:** `Tools/check-netplay-two-process.sh` 1/1; the client
+  process logged `[NetPlay] map accepted floors=1024 boxes=2048 containers=64`.
+- **Release server carries no emission code (D1):** an ordinary release Linux server built locally (never deployed;
+  `Blackglass.dll` sha256 `4c5661b5c87ee2a097ce765444b313392d9ab724b64081ae45fe37d0803b922b`) contains none of
+  `NetMapProjection`, `NetShotRelay`, `BriefingMap`, `SendBriefing`, `BeginBriefing`, `FlushShots`, `FlushObjectives`,
+  `FlushEnd` or the participant set; the fixture server's contains each. The message types and `NetMapWire` (the client half)
+  are in both. `NetMapBuildGuardTests` audits the same in source, including that the fixture define is absent from every
+  release input. The package was marked dirty only by ignored and untracked files (a test-runner scene and old scratchpad
+  renders), with no tracked change.
+- **No payload without admission:** PlayMode tests prove pre-hello, zero-owned and refused connections receive no map,
+  objectives, end or shot, and that a mission with Partial map knowledge sends none of them; EditMode tests prove the
+  projection refuses every profile other than fog on, Full, All, no terminal and no cameras.
+- **Smoke of `Tools/run-local-netplay.sh`:** server `[Net] map projection on floors=5 boxes=19 containers=3` and
+  `[Net] client 1 welcomed account=account-a owns=2`; client `[NetPlay] map accepted floors=5 boxes=19 containers=3`; the token
+  appears 0 times in the server log, the client log and the launcher output. The client was closed without playing.
+- **Unassisted automated run** of fixture 03 through the play client's command layer reaches Success with a manifest; it fails
+  if the map is withheld. It is not the owner's playtest.
+
+### Owner's playtest (outstanding)
+
+Run `Tools/run-local-netplay.sh` from a tree holding both builds (or build them first with `Tools/build-local-fixture-server.sh`
+and `Tools/build-netplay-client.sh`). Then: find the hostile using the map; engage it; walk around the obstacles to the green
+extraction zone once the objective opens; see "MISSION SUCCESS" and, after closing the window, the script's
+`ATTEMPT FROZEN outcome=Success` line. No log coordinates, harness, warps or scripted help. Result, in the owner's words:
+_pending_.
