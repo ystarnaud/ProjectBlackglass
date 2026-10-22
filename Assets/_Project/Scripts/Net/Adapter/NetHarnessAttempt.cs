@@ -47,7 +47,8 @@ namespace Blackglass
             // 3. Attack it until it dies. While it is observed, a living unit that is not attacking it is ordered to; while it is
             // hidden, such a unit walks to where it was last seen. The hostile's own AI and the squad's autonomy fight as usual.
             // Not fatal: the hostile may leave sight before the orders arrive; the loop below re-orders or walks to it.
-            yield return Accepted(Own().Where(u => u.Alive).Select(u => client.Send(new NetAttack(u.UnitId, hostileId))).ToList(), "attack the observed hostile", true, false);
+            var attacks = Own().Where(u => u.Alive).Select(u => client.Send(new NetAttack(u.UnitId, hostileId))).ToList();
+            yield return Accepted(attacks, "attack the observed hostile", true, false);
             var deadline = Now + 120d;
             var nextOrders = Now + 1d;
             while (Now < deadline && !HostileDead(hostileId) && Own().Any(u => u.Alive))
@@ -56,10 +57,13 @@ namespace Blackglass
                 {
                     nextOrders = Now + 1d;
                     var hostile = State(hostileId);
-                    foreach (var unit in Own().Where(u => u.Alive && u.Order != NetOrderKind.Attack))
+                    // The squad's own autonomous attack replicates as Attack too, so until one of this client's attacks is
+                    // accepted every living unit is re-ordered (at most one request per unit per second).
+                    var attackAccepted = AnyAccepted(attacks);
+                    foreach (var unit in Own().Where(u => u.Alive && (u.Order != NetOrderKind.Attack || !attackAccepted)))
                     {
                         if (hostile != null)
-                            client.Send(new NetAttack(unit.UnitId, hostileId));
+                            attacks.Add(client.Send(new NetAttack(unit.UnitId, hostileId)));
                         else if (client.Record.LastKnown.TryGetValue(hostileId, out var seen))
                             client.Send(new NetMoveTo(unit.UnitId, seen));
                     }
@@ -67,6 +71,10 @@ namespace Blackglass
                 yield return null;
             }
             if (!Check("hostile eliminated", HostileDead(hostileId), "the hostile's avatar reports it dead:" + Describe(Own())))
+                yield break;
+            // The player's own attack passed the gate (requirement: a valid attack on an observed hostile), not only the squad's autonomy.
+            yield return Until(() => attacks.All(c => client.TryGetResult(c, out _)), 5d);
+            if (!Check("attack accepted", AnyAccepted(attacks), attacks.Count(c => client.TryGetResult(c, out var r) && r == NetRejectReason.None) + " of " + attacks.Count + " attack requests accepted"))
                 yield break;
 
             // 4. Every living unit walks to the operator's extraction point; the server decides the extraction on its own.
@@ -93,6 +101,8 @@ namespace Blackglass
             else
                 Debug.Log(Prefix + step + " refused (not fatal; retried below) answers " + string.Join(", ", reasons));
         }
+
+        bool AnyAccepted(List<uint> commands) => commands.Any(c => client.TryGetResult(c, out var reason) && reason == NetRejectReason.None);
 
         List<NetUnitState> Own() => States()
             .Where(s => !s.Hostile && s.UnitId >= client.FirstOwnedId && s.UnitId < client.FirstOwnedId + client.OwnedCount)
