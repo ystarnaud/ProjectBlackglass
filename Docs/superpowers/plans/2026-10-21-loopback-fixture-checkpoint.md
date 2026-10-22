@@ -1,7 +1,7 @@
 # Loopback fixture mission checkpoint (local, after Stage 12 Track L)
 
-Status: implemented and demonstrated (2026-10-21), awaiting owner review; the player-driven manual run is the owner's. A small local checkpoint authorized by the owner after accepting Track L. It is **not** Stage 13,
-Stage 14, Track N or B24 work. Branch `phase13-loopback-checkpoint` from `main` `139a9a0`. No merge or push without approval.
+Status: **Assisted automated loopback mission complete. Human-controlled playtest and player-facing online environment remain outstanding.** Accepted by the owner (final rulings 2026-10-22, below) and merged into `main`. Stage 12 overall is not complete: B24 and Track N remain open. A small local checkpoint authorized by the owner after accepting Track L. It is **not** Stage 13,
+Stage 14, Track N or B24 work. Branch `phase13-loopback-checkpoint` from `main` `139a9a0`.
 
 ## Goal
 
@@ -41,7 +41,7 @@ manifest, and nothing is committed anywhere.
 3. **Scripted assisted client role.** `-netharness attempt -assistHostile x,z -assistExtraction x,z`.
    - It sends only the existing requests, in this order:
      1. move both units toward the hostile hint;
-     2. attack the hostile once it is replicated (observed);
+     2. attack the hostile once it is replicated (observed); the role fails unless at least one of its attack requests is accepted by the gate;
      3. after it dies (its avatar reports dead), move both units to the extraction hint;
      4. pass when an own unit stands inside the zone radius.
    - It reads only what the client decoded, plus the two operator coordinates.
@@ -146,4 +146,24 @@ Tests on the final code:
 Independent review: 0 Critical and 1 Important (the test had no `[Timeout]`; fixed). Minors fixed: a lost-sight race on the first attack and a dead unit on the extraction move, plus doc wording. Minors left open:
 - a hostile that dies while hidden fails the scripted role (rare);
 - hints without `-netharness attempt` are ignored silently;
-- pre-existing: the `options seed=1(fixture)` line prints the scene's default seed, which equals fixture 03's attempt seed.
+- pre-existing: the `options seed=1(fixture)` line prints the scene's default seed, which equals fixture 03's attempt seed (fixed by final ruling 1).
+
+## Final rulings and final validation (2026-10-22)
+
+The owner accepted the scripted, assisted, two-process loopback integration test. It proves the authenticated WebSocket gameplay path, authoritative movement and combat, extraction through ordinary network commands and backend-valid manifest generation. It does not prove a human-controlled playtest, a complete gameplay client, or backend HTTP integration.
+
+1. **No numeric seed in attempt mode.** The `options` line of an attempt reads `seed=attempt`; neither the scene's default seed nor an ignored `-seed` is printed. Non-attempt runs are unchanged. Tests: `ServerOptionsTests.Describe_InAnAttempt_NamesNoNumericSeed` (EditMode) and a log check in `AttemptNetPlayTests` (no `seed=<digit>` from the attempt's options line on); both failed first.
+2. **Final suites,** run one after the other in a clean worktree at the final code revision `e43cb45`: EditMode 2006/2006, PlayMode 1459/1459 (949 s). The strict verify afterwards found no tracked change; its only finding was the untracked report files `PresentationPerformanceReportTests` writes into that worktree's own `.claude/scratchpad/phase125/`. The commits after `e43cb45` change documentation only.
+3. **Final binaries and run.** Built from a clean detached worktree at `e43cb45` (no uncommitted files), each build bracketed by `Tools/build-provenance.sh capture` and `verify` (both passed, `dirty=false`):
+   - local fixture server: `build-info.txt` `revision=e43cb45b83cf6f6e2416b636bb9b11fe51a1264c dirty=false variant=local-fixture`; `Blackglass.dll` sha256 `f5e9130321186883b9d4544e834c8b1bab46bb54f5485c5bef2216daa497261e`;
+   - NetTestClient (no embedded stamp; the bracketing capture names `e43cb45`): `Blackglass.dll` sha256 `0b76d16f7bb27d1e3bf9dabd95b49a4840016a0db9d2dd1b2b2bc3554c944c81`. (Both `.exe` files are Unity's identical player stub.)
+   - The separate-process run: server listening only on TCP `127.0.0.1:7770`; client welcomed `owns=2`; harness PASS, 10 steps; all 6 requests accepted (2 moves toward the hostile, 2 attacks, 2 moves to extraction), none refused; `ATTEMPT FROZEN outcome=Success build=Normal integrity=Ok outcomeSequence=8 manifestHash=sha256:0fa8b5583abf910e0009ee777d6a242b32fe052bbfa3ba1ce2107f99dce8b83f`. The 1113 manifest bytes hash to it; the logged ready report is byte-identical to the committed `03-seeded-collect-and-use.ready.json`; the backend's real `ReadyReport`, `ObjectiveList`, `LootPoolValidator`, `LootHash`, `ResultManifest.Parse` and `ManifestValidator` report no errors and the bytes are canonical. The manifest differs from the accepted run's only in `buildRevision` and `serverElapsedMs`. No token in either log.
+4. **Fixture-only logs and the protocol.** A Linux release server built with `Tools/build-server.sh` in the clean worktree at `e43cb45` (`provenance=verified`, `dirty=false`) contains none of `FIXTURE OPERATOR AID`, `attempt manifest `, `LogFixtureOperatorAid`, `LogFixtureManifest` or `FixtureAttemptSource` in any managed assembly, while `ATTEMPT FROZEN`, `seed=attempt` and the release refusal of `-attemptFixture` are present (the fixture build contains the operator aid, as expected). The release package was only built locally, never deployed. Since `main`, no network message, replicated field, gate, session host, admission, token, scene, prefab, settings, package or backend file changed; the server change is log lines only.
+5. **The hostile fires.** `AttemptLoopbackPlayTests.The_hostile_fires_on_its_own_at_a_squad_that_only_walks_up`: the client only moves the squad toward the hostile through the gate (no attack request; the gate's accepted count equals the moves), the AI runs unfrozen and combat is unchanged. The hostile fired on its own about 5 s after the moves and its attack resolved (1 shot, a hit); no squad shot came before it engaged. A mutation check (hostile AI disabled) fails the test with 0 shots in 180 s.
+6. **Review.** A fresh review of everything since the previous review, including the refusal-handling changes, found 0 Critical, 2 Important, 6 Minor. Both Importants are fixed (`e43cb45`):
+   - the attempt role could pass with no attack request accepted (the squad's own autonomous attack also replicates as Attack): the role now re-orders until one of its attacks is accepted and has a step `attack accepted`; the loopback test requires it (failed first);
+   - the hostile-fire test's "squad held fire until the hostile's first shot" was stronger than the game promises (a companion may assist once the hostile has engaged): it now asserts no squad shot before the hostile engaged and only logs shots before its first shot (a loosened assertion; no failing run was possible).
+   The refusal handling itself (non-fatal first attack, `any` on the extraction move) has no race and stays far under the request budget (at most 2 requests a second).
+   Minors left open: the hostile-fire test's 240 s timeout can pre-empt its diagnostic line; its "no attack order" check ignores refused and dropped counts; the loopback test's timeout comment understates setup; the no-seed log check covers only the `seed=` form and lines before the test body; `-seed` with `-attemptFixture` is ignored silently; refusals inside the re-order loop do not reach the harness's failure text.
+
+**Provenance.** `Tools/build-provenance.sh` refuses the main working tree because `.claude/scratchpad/poc` and `.claude/scratchpad/sb` are git worktrees of this repository: `git ls-files --others` lists a nested repository as a bare directory entry, and `sha256sum` refuses a directory, so the capture fails ("content hash failed"). That is the script refusing content it cannot hash, which is correct; it was not changed, and the owner's scratchpad was not touched. A clean `git worktree add --detach` outside the repository captures and verifies normally.
