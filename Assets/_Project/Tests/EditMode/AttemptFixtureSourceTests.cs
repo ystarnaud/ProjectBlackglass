@@ -88,6 +88,29 @@ namespace Blackglass.Tests
             StringAssert.Contains("internal Func<bool> AttemptFixtureAllowed = () => FixtureBuild;", bootstrap);
         }
 
+        // The loopback fixture checkpoint: the operator aid (where the hostile starts, where extraction is) and the logged manifest
+        // exist only in Editor and fixture builds, and only in the server's log.
+        [TestCase("FIXTURE OPERATOR AID")]
+        [TestCase("attempt manifest ")]
+        public void The_fixture_operator_aid_is_compiled_only_into_Editor_and_fixture_builds(string marker)
+        {
+            var bootstrap = File.ReadAllText(Path.Combine(ContractVectors.ProjectRoot, "Assets", "_Project", "Scripts", "Server", "ServerBootstrap.cs"));
+            var at = bootstrap.IndexOf(marker, System.StringComparison.Ordinal);
+            Assert.That(at, Is.GreaterThan(0), "the marker is in the bootstrap");
+            Assert.That(bootstrap.IndexOf(marker, at + 1, System.StringComparison.Ordinal), Is.EqualTo(-1), "written in one place");
+            var opened = bootstrap.LastIndexOf("#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE", at, System.StringComparison.Ordinal);
+            var closed = bootstrap.LastIndexOf("#endif", at, System.StringComparison.Ordinal);
+            var otherwise = bootstrap.LastIndexOf("#else", at, System.StringComparison.Ordinal);
+            Assert.That(opened, Is.GreaterThan(closed), "inside the fixture guard");
+            Assert.That(opened, Is.GreaterThan(otherwise), "not in an #else branch");
+            foreach (Match call in Regex.Matches(bootstrap, @"\bLogFixture\w*\("))
+            {
+                var callOpened = bootstrap.LastIndexOf("#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE", call.Index, System.StringComparison.Ordinal);
+                var callClosed = bootstrap.LastIndexOf("#endif", call.Index, System.StringComparison.Ordinal);
+                Assert.That(callOpened, Is.GreaterThan(callClosed), "every use of " + call.Value + " is guarded too");
+            }
+        }
+
         [Test]
         public void The_server_scene_holds_the_builds_catalogue_version()
         {

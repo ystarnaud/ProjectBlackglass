@@ -1,6 +1,8 @@
 #if UNITY_EDITOR
 using System.Collections;
 using System.IO;
+using System.Linq;
+using System.Text.RegularExpressions;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -35,6 +37,14 @@ namespace Blackglass.Tests
         [UnityTest]
         public IEnumerator The_client_is_welcomed_with_the_snapshot_squad_and_steers_it()
         {
+            // The attempt's seed is never logged, and neither is the scene's default seed in its place. (The rig's own first,
+            // non-attempt mission legitimately logged its seed; only the attempt's lines, from its options line on, are checked.)
+            var logs = rig.Logs.ToList();
+            var attemptLines = logs.Skip(logs.FindLastIndex(l => l.Contains("[Server] options "))).ToList();
+            StringAssert.Contains("[Server] options seed=attempt ", attemptLines[0]);
+            StringAssert.EndsWith(" attempt=fixture", attemptLines[0]);
+            Assert.That(attemptLines.Where(l => Regex.IsMatch(l, @"seed=-?\d")), Is.Empty, "no numeric seed in the attempt's log");
+
             yield return rig.Connect(NetLoopbackRig.TokenA);
             Assert.That(rig.Client.State, Is.EqualTo(NetClientState.Ready), "state " + rig.Client.State + " " + rig.Client.Refusal);
             Assert.That(rig.Client.OwnedCount, Is.EqualTo(2), "C and D");

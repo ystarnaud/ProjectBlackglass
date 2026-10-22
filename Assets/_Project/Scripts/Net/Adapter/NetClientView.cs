@@ -7,7 +7,7 @@ namespace Blackglass
     /// <summary>
     /// What the net-test client shows: a capsule on every replicated avatar (blue for the player's own units, green for other
     /// friendlies, red for hostiles; a grey disc where a hostile was last seen), a top-down camera that frames them, and a text overlay with the connection, the round-trip
-    /// time, the last refused request and each own unit's health and orders. The avatars carry no visuals; the capsules are
+    /// time, the last refused request, each own unit's health, orders and ground point (NetGround), and each observed hostile's health. The avatars carry no visuals; the capsules are
     /// built here, with a material the scene references so a player build always has its shader.
     /// </summary>
     public sealed class NetClientView : MonoBehaviour
@@ -137,12 +137,21 @@ namespace Blackglass
             if (client.LastReject != NetRejectReason.None)
                 text.Append("\nlast refused: ").Append(client.LastReject).Append(" (command ").Append(client.LastRejectCommand).Append(')');
             text.Append("\nlast known: ").Append(client.Record.LastKnown.Count);
-            foreach (var state in NetClient.VisibleStates())
+            var states = NetClient.VisibleStates();
+            states.Sort((a, b) => a.UnitId.CompareTo(b.UnitId));
+            foreach (var state in states)
             {
-                if (state.UnitId < client.FirstOwnedId || state.UnitId >= client.FirstOwnedId + client.OwnedCount)
+                if (state.Hostile || state.UnitId < client.FirstOwnedId || state.UnitId >= client.FirstOwnedId + client.OwnedCount)
                     continue;
                 text.Append("\n#").Append(state.UnitId).Append("  hp ").Append(state.Health).Append('/').Append(state.MaxHealth)
-                    .Append("  ").Append(state.Order).Append("  queue ").Append(state.Queue);
+                    .Append("  ").Append(state.Order).Append("  queue ").Append(state.Queue)
+                    .Append("  at ").Append(NetGround.Format(state.transform.position));
+            }
+            // Only a hostile this client was sent (observed), with the health its avatar already carries.
+            foreach (var state in states)
+            {
+                if (state.Hostile && state.Alive)
+                    text.Append("\nhostile #").Append(state.UnitId).Append("  hp ").Append(state.Health).Append('/').Append(state.MaxHealth);
             }
             text.Append("\nWASD steer   click move (Shift queues)   click a red unit attack   X stop   1 2 pick unit");
             GUI.Label(new Rect(10f, 10f, 900f, 200f), text.ToString());

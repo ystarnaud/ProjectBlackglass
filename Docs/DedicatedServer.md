@@ -107,6 +107,18 @@ Tools/run-net-harness.sh                         # seven roles, two clients at o
 
 To check that nothing is exposed: `ssh bg-dev-mission01 'ss -lntu | grep -E ":7770|:7777"'` must show only `tcp LISTEN ... 127.0.0.1:7770`. To see every socket the server process owns, filter `ss -lntup` by its pid; it must show only that row.
 
+### Local loopback fixture attempt (this PC only)
+
+This is the loopback fixture checkpoint: an assisted run of fixture attempt 03, played to extraction on this PC. It uses no VM, no backend and no Editor. The full procedure, its limits and the recorded runs are in `Docs/superpowers/plans/2026-10-21-loopback-fixture-checkpoint.md`. In short:
+
+- **Build.** `Tools/build-local-fixture-server.sh` gives `Builds/LocalFixtureServer/BlackglassServer.exe`: ServerMission as a Windows player with the `BLACKGLASS_NET_FIXTURE` define. It is not a Development build, and it is never deployed.
+- **Start the server.** `BlackglassServer.exe -batchmode -nographics -logFile <file> -attemptFixture <repo>/Backend/contracts/attempt-v1/03-seeded-collect-and-use.json -net -netTokens <file>`, without `-netQuiet` or `-netFixture`, so the hostile's AI, the squad's autonomy and the hit rolls are the normal ones.
+- **Read the operator aid.** In Editor and fixture builds, the server logs `FIXTURE OPERATOR AID (server log only; never sent to a client) extraction=x,z radius=2.0 hostile1=x,z`. Nothing on the wire says where the hostile or the extraction zone is, so a run is always operator-assisted.
+- **Play by hand.** Use `NetTestClient.exe -token <account-a token>`. The overlay shows each own unit's position, an observed hostile's health and `cursor x,z`, so the operator can click the logged points.
+- **Or run the scripted role.** `NetTestClient.exe ... -netharness attempt -assistHostile x,z -assistExtraction x,z` sends only the existing requests. It moves toward the hostile, attacks it once it is observed (and fails unless at least one of its attack requests is accepted by the gate), then walks to the extraction point.
+- **The end.** The server alone detects the extraction and logs `ATTEMPT FROZEN outcome=Success ... outcomeSequence=N manifestHash=...`, then the canonical manifest (`attempt manifest {...}`). The client is not told the mission ended.
+- **Provenance.** `Tools/build-provenance.sh` refuses this working tree while `.claude/scratchpad` holds nested git worktrees (git lists each as a bare directory, which the content hash can't hash). That refusal is correct and stays. Builds that need the verified stamp are made from a clean `git worktree add --detach <dir> <commit>` outside the repository; the local fixture build's plain git stamp then also reads `dirty=false`.
+
 ## Options
 
 | Argument | Default | Range | Meaning |

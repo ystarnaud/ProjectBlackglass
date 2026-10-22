@@ -207,9 +207,11 @@ namespace Blackglass
             return copy;
         }
 
-        /// <summary>One log line; `fixtureSeed` is the scene's seed, shown when there is no override.</summary>
+        /// <summary>One log line; `fixtureSeed` is the scene's seed, shown when there is no override. An attempt names no number:
+        /// its seed comes from the attempt and is never logged, and neither the scene's seed nor -seed is used.</summary>
         public string Describe(int fixtureSeed) =>
-            FormattableString.Invariant($"seed={Seed ?? fixtureSeed}({(Seed.HasValue ? "override" : "fixture")}) fps={FrameRate} diagnostic={(Diagnostic ? "yes" : "no")} ") +
+            (AttemptFixture != null ? "seed=attempt " : FormattableString.Invariant($"seed={Seed ?? fixtureSeed}({(Seed.HasValue ? "override" : "fixture")}) ")) +
+            FormattableString.Invariant($"fps={FrameRate} diagnostic={(Diagnostic ? "yes" : "no")} ") +
             FormattableString.Invariant($"diagnosticTimeout={DiagnosticTimeoutSeconds}s startupTimeout={StartupTimeoutSeconds}s heartbeat={(HeartbeatSeconds > 0 ? HeartbeatSeconds + "s" : "off")} ") +
             (Net ? FormattableString.Invariant($"net=yes port={NetPort} quiet={(NetQuiet ? "yes" : "no")}") + (NetFixture ? " fixture=yes" : string.Empty) : "net=no") +
             (AttemptFixture != null ? " attempt=fixture" : string.Empty);
