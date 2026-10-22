@@ -8,6 +8,7 @@ using FishNet.Transporting;
 using FishNet.Transporting.UTP;
 using UnityEngine;
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+using System.Linq;
 using UnityEngine.AI;
 #endif
 
@@ -25,7 +26,9 @@ namespace Blackglass
     /// and ends guarded attacks on targets the issuing connection no longer observes.
     ///
     /// With -netFixture (Editor and fixture builds only), the development fixture replaces the squad model as the source.
-    /// Tokens are never logged.
+    /// Editor and fixture builds also brief the visual client (decision 052, owner ruling D1): the public map, the known
+    /// objectives and the mission end, to welcomed connections that own units, for a Full/All mission only. A release build
+    /// contains none of it. Tokens are never logged.
     /// </summary>
     public sealed class NetServer : MonoBehaviour
     {
@@ -54,6 +57,23 @@ namespace Blackglass
         bool FixtureEnabled => fixture != null;
 #else
         bool FixtureEnabled => false;
+#endif
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+        // The visual client's briefing (decision 052). Editor and fixture builds only (owner ruling D1).
+        readonly HashSet<NetConnection> participants = new HashSet<NetConnection>();
+        MissionDirector mission;
+        NetMap briefingMap;
+        bool hasTerminal;
+        bool hasCameras;
+        bool objectivesDirty;
+
+        /// <summary>The map the briefing sends, or null when the mission is not projected. Tests replace it (the largest-map
+        /// transport proof); there is no command-line option for it.</summary>
+        internal NetMap BriefingMap
+        {
+            get => briefingMap;
+            set => briefingMap = value;
+        }
 #endif
 
         internal void Initialize(GameObject avatar, PrefabObjects prefabs, IntelligenceService service)
@@ -145,6 +165,9 @@ namespace Blackglass
                 AttackAccepted = Guard.Accepted,
             };
             Host = new NetSessionHost(Gate, new NetAdmission(entries, director.InstanceId, director.Friendlies.Count));
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+            BeginBriefing(director);
+#endif
             if (options.NetQuiet)
             {
                 ServerDeterminism.Freeze(director, null);
@@ -179,6 +202,88 @@ namespace Blackglass
         }
 
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+        // The public map and known objectives: built once from the ready mission, or refused with a reason (counts only).
+        void BeginBriefing(MissionDirector director)
+        {
+            mission = director;
+            var current = director.Current;
+            hasTerminal = current.Terminal != null;
+            hasCameras = current.Security.HasTerminal || current.Security.Cameras.Count > 0;
+            briefingMap = NetMapProjection.Map(current.Layout, current.Loot.Containers.Select(c => c.Tile).ToList(), director.Settings.intelligence,
+                hasTerminal, hasCameras, out var refusal);
+            Debug.Log(Prefix + (briefingMap != null
+                ? FormattableString.Invariant($"map projection on floors={briefingMap.Floors.Count} boxes={briefingMap.Boxes.Count} containers={briefingMap.Containers.Count}")
+                : "map projection off: " + refusal));
+            if (director.Runtime != null)
+                director.Runtime.ObjectiveChanged += OnObjectiveChanged;
+            director.MissionFinished += OnMissionFinished;
+        }
+
+        void StopBriefing()
+        {
+            if (mission != null)
+            {
+                if (mission.Runtime != null)
+                    mission.Runtime.ObjectiveChanged -= OnObjectiveChanged;
+                mission.MissionFinished -= OnMissionFinished;
+            }
+            mission = null;
+            briefingMap = null;
+            participants.Clear();
+            objectivesDirty = false;
+        }
+
+        List<NetObjective> CurrentObjectives() =>
+            mission != null && mission.Runtime != null
+                ? NetMapProjection.Objectives(mission.Runtime.Objectives, mission.Settings.intelligence, hasTerminal, hasCameras)
+                : new List<NetObjective>();
+
+        static NetMissionResult ResultOf(MissionPhase phase) =>
+            phase == MissionPhase.Success ? NetMissionResult.Success : phase == MissionPhase.Failure ? NetMissionResult.Failure : NetMissionResult.None;
+
+        // Only after the welcome and only to a connection that owns units: the map, the known objectives, and the result if over.
+        void SendBriefing(NetworkConnection connection)
+        {
+            if (briefingMap != null)
+                manager.ServerManager.Broadcast(connection, NetMapWire.ToMessage(briefingMap), false);
+            var objectives = CurrentObjectives();
+            if (objectives.Count > 0)
+                manager.ServerManager.Broadcast(connection, NetMapWire.ToMessage(objectives), false);
+            var result = ResultOf(mission != null ? mission.Phase : MissionPhase.Inactive);
+            if (result != NetMissionResult.None)
+                manager.ServerManager.Broadcast(connection, NetMapWire.ToMessage(result), false);
+        }
+
+        // At most one objectives message per frame, however many objectives changed.
+        void FlushObjectives()
+        {
+            if (!objectivesDirty)
+                return;
+            objectivesDirty = false;
+            var objectives = CurrentObjectives();
+            if (objectives.Count == 0)
+                return;
+            var message = NetMapWire.ToMessage(objectives);
+            foreach (var participant in participants)
+                if (welcomed.TryGetValue(participant, out var target))
+                    manager.ServerManager.Broadcast(target, message, false);
+        }
+
+        void OnObjectiveChanged(MissionObjective objective) => objectivesDirty = true;
+
+        void OnMissionFinished(MissionPhase phase)
+        {
+            objectivesDirty = true;
+            var result = ResultOf(phase);
+            if (result == NetMissionResult.None)
+                return;
+            var message = NetMapWire.ToMessage(result);
+            foreach (var participant in participants)
+                if (welcomed.TryGetValue(participant, out var target))
+                    manager.ServerManager.Broadcast(target, message, false);
+            Debug.Log(Prefix + FormattableString.Invariant($"mission end {phase} sent to {participants.Count} client(s)"));
+        }
+
         // The fixture's hostile is the first one; its walk points are found once, here, and never sent (plan ruling 4).
         string CreateFixture(MissionDirector director)
         {
@@ -238,6 +343,7 @@ namespace Blackglass
             Guard = null;
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
             fixture = null;
+            StopBriefing();
 #endif
         }
 
@@ -262,6 +368,9 @@ namespace Blackglass
                     Publish(change);
             }
             Guard.Tick();
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+            FlushObjectives();
+#endif
             Host.CollectExpired(now, expired);
             foreach (var clientId in expired)
             {
@@ -322,6 +431,7 @@ namespace Blackglass
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
                 if (fixture != null)
                     fixture.Forget(leaving);
+                participants.Remove(leaving);
 #endif
             }
             var account = Host.AccountOf(clientId);
@@ -351,6 +461,11 @@ namespace Blackglass
             // Only now may this client receive anything: its own units at once, hostiles as the projection allows.
             manager.ServerManager.Objects.RebuildObservers(connection);
             Debug.Log(Prefix + FormattableString.Invariant($"client {clientId} welcomed account={Host.AccountOf(clientId)} owns={ownedCount}"));
+#if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
+            // The briefing goes only to a connection that owns at least one operative.
+            if (ownedCount > 0 && participants.Add(joined))
+                SendBriefing(connection);
+#endif
         }
 
         void OnRequest(NetworkConnection connection, NetRequestMessage message, Channel channel)

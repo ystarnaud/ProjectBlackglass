@@ -19,8 +19,17 @@ namespace Blackglass.Tests
             "Assets/_Project/Scripts/Net/Core/NetMapProjection.cs",
         };
 
-        // A use of the server-only types anywhere in the runtime scripts.
-        static readonly Regex ServerOnlyUse = new Regex(@"\bNetMapProjection\b");
+        // A use of the feature's server side: the projection, the briefing messages and their encoder, the briefing hook.
+        static readonly Regex ServerOnlyUse = new Regex(
+            @"\bNetMapProjection\b|\bNetMapMessage\b|\bNetObjectivesMessage\b|\bNetMissionEndMessage\b|\bNetShotMessage\b|\bNetMapWire\b|\bBriefingMap\b");
+
+        // The client side and the declarations: they decode and draw what a server sends, and never send it.
+        static bool IsClientSide(string file)
+        {
+            var name = Path.GetFileName(file);
+            return name == "NetMessages.cs" || name == "NetMapWire.cs" || name == "NetClient.cs" || name == "NetHarnessVisibility.cs" || name == "NetClientRecord.cs"
+                || file.Replace('\\', '/').Contains("/Net/Play/");
+        }
 
         [Test]
         public void TheServerOnlyFiles_OpenWithTheFixtureGuard()
@@ -33,7 +42,7 @@ namespace Blackglass.Tests
         public void TheServerOnlyTypes_AreUsedOnlyInsideTheFixtureGuard()
         {
             var checkedUses = 0;
-            foreach (var file in Directory.GetFiles("Assets/_Project/Scripts", "*.cs", SearchOption.AllDirectories))
+            foreach (var file in Directory.GetFiles("Assets/_Project/Scripts", "*.cs", SearchOption.AllDirectories).Where(f => !IsClientSide(f)))
             {
                 var lines = File.ReadAllLines(file);
                 for (var index = 0; index < lines.Length; index++)
@@ -46,7 +55,22 @@ namespace Blackglass.Tests
                         Path.GetFileName(file) + " line " + (index + 1) + " uses a server-only map type outside " + FixtureGuard + ": " + lines[index].Trim());
                 }
             }
-            Assert.That(checkedUses, Is.GreaterThan(0), "the audit must not pass vacuously");
+            Assert.That(checkedUses, Is.GreaterThan(5), "the audit must not pass vacuously");
+        }
+
+        [Test]
+        public void TheServer_SendsTheBriefingOnlyFromGuardedCode()
+        {
+            var lines = File.ReadAllLines("Assets/_Project/Scripts/Net/Adapter/NetServer.cs");
+            var sends = 0;
+            for (var index = 0; index < lines.Length; index++)
+            {
+                if (!Regex.IsMatch(lines[index], @"NetMapWire\.ToMessage|\bparticipants\b|\bSendBriefing\b|\bBeginBriefing\b|\bFlushObjectives\b"))
+                    continue;
+                sends++;
+                Assert.That(IsInsideFixtureGuard(lines, index), Is.True, "NetServer.cs line " + (index + 1) + " is outside " + FixtureGuard + ": " + lines[index].Trim());
+            }
+            Assert.That(sends, Is.GreaterThan(8), "the audit must not pass vacuously");
         }
 
         static string StripLineComment(string line)

@@ -17,7 +17,8 @@ namespace Blackglass
         static readonly HashSet<string> AllowedMessages = new HashSet<string>
         {
             nameof(NetWelcomeMessage), nameof(NetResultMessage), nameof(NetKnowledgeMessage), nameof(NetFixtureStepMessage),
-            nameof(NetContainerMessage),
+            nameof(NetContainerMessage), nameof(NetMapMessage), nameof(NetObjectivesMessage), nameof(NetMissionEndMessage),
+            nameof(NetShotMessage),
         };
 
         IEnumerator VisibilityA()
