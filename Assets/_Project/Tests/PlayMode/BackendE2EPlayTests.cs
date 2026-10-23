@@ -157,6 +157,7 @@ namespace Blackglass.Tests
         IEnumerator Run(string s, bool outage)
         {
             dir = PathOf(s);
+            Directory.CreateDirectory(dir); // the host may still be verifying the previous scenario
             WriteJson(s + "/unity-waiting.json", new HostInfo());
             yield return WaitForFile(s + "/start.json", 600f);
             var host = JsonUtility.FromJson<HostInfo>(File.ReadAllText(PathOf("host.json")));
