@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-23): Part A (Tasks 0–11) implemented on `phase13-stage13` and stopped at CP3 for the owner's review ("As built" at the end); not merged or pushed. Tasks 12–13 (CP4) not authorized and not run; their environment is prepared in `2026-10-23-phase-13-stage13-cp4-environment-manifest.md`. Revision 1.1; Tasks 0–11 authorized by the owner ("Owner rulings (2026-10-23)").** Revision 1.1 resolves the independent architecture review (0 Critical, 7 Important, 13 Minor; every finding applied, see "Architecture review"). On the local branch `phase13-stage13-plan`, cut from `main` at `08d7d1a` (the visual network mission, accepted). Nothing in this plan has run against a backend or on either VM; the measured numbers are in "As built". The independent architecture review and its resolution are recorded at the end ("Architecture review").
+**Status (2026-10-23): Part A (Tasks 0–11) accepted by the owner at CP3. CP4 (Tasks 12–13) authorized, run once against the real API and one disposable database, and stopped for the owner's review ("As built" and "As built: CP4" at the end); not merged or pushed. Revision 1.1; Tasks 0–11 authorized by the owner ("Owner rulings (2026-10-23)").** Revision 1.1 resolves the independent architecture review (0 Critical, 7 Important, 13 Minor; every finding applied, see "Architecture review"). On the local branch `phase13-stage13-plan`, cut from `main` at `08d7d1a` (the visual network mission, accepted). Nothing in this plan has run against a backend or on either VM; the measured numbers are in "As built". The independent architecture review and its resolution are recorded at the end ("Architecture review").
 
 **Goal:** the Unity mission server, given an attempt id and its attempt-scoped process credential, runs the attempt's whole process-side lifecycle against the existing backend API: register, validate, generate, ready, the per-participant start hold with idempotent start retries, heartbeats, the outcome freeze, the durable outbox write, the bounded `recorded` notice, publication of the ready result whether or not the backend answers, and exit, without polling settlement.
 
@@ -775,3 +775,78 @@ Backend tests run through the documented CET wrapper (`.claude/scratchpad/phase1
 **Deferred minors (owner's call):** the register response vector's loadout is rebuilt from the vector on the backend side; the adapter log-line audit is line-based; the oversize check runs between frames; the PlayMode hold test samples at Holding rather than at the Ready frame; `Release` only clears `Connected`; no guard against an exception inside `Runner.Tick`; the runner EditMode tests are slow (sleep per step); the Stage 14 notes above.
 
 **Outstanding (unchanged):** B24 and Stage 12 Track N (no real Unity mission on `bg-dev-mission01`; the installed template can't host Unity); Stage 14 (ticket admission over `AdmitTicket`, the gate wiring, `NetResultRecordedMessage`, lifting `-net`); decision 052's seed-recovery blocker before public or untrusted clients; CP4 needs the owner's separate authorization.
+
+## As built: CP4 (2026-10-23, Tasks 12–13, owner authorization "Stage 13 CP3 Acceptance and CP4 Authorization"; not merged or pushed)
+
+**Commits after `a9ba0b1`:** `9355558` the safe test-cluster path, `418b987` the harness, `53c34bb` a harness race fix, `83a7ec0` the review fixes. Only test code and `Backend/README.md`. No production code, backend route, store, migration or Unity runtime file changed.
+
+**The mandatory correction** (`Backend/tests/Accounts.Integration.Tests/Support/Cp4Database.cs`):
+- **Separation from the shared fixtures:** CP4 never touches `TestCluster.Instance`, whose start-up drops `bg_t_*` databases older than 2 h and creates or alters `bg_test_outsider`. `TestCluster` and `TestDatabase` are byte-identical.
+- **Before any write:** the cluster's identity is checked: the unchanged `TestCluster.EnsureTestCluster`, exactly `blackglass-test`, PostgreSQL 17, the superuser, and a `system_identifier` equal to `BLACKGLASS_CP4_SYSTEM_ID` (taken from the read-only baseline step). So are the two application roles, which must exist and must not be elevated; CP4 refuses rather than repairs.
+- **What it creates and drops:** one `bg_t_<time>_cp4_<hex>` database, whose name and OID are written to a record at once. Only a database matching that name, OID and cluster is ever dropped. A record left by an earlier run, or an existing database of the same name, is refused.
+- **Tests:** `Unit/Cp4DatabaseSafetyTests` (22, no database; red first) cover every refusal, the "other runs' databases untouched" case, a tampered record, an OID mismatch, and a source audit (no role statement, no wildcard cleanup, one create and one drop). The live run also began with a refusal probe: a wrong identifier was refused and the cluster was unchanged.
+
+**The harness:**
+- `E2E/BackendE2EHost.cs` (opt-in `BLACKGLASS_E2E=1`, `Requires=Postgres`) plays the operator (the real admin stores), the player (dev login, deploy, ticket, receipt over HTTP), the agent (heartbeat, claim, launching, the relay to `POST /agent/v1/results`, exited) and the network (`E2E/LostResponseProxy.cs`, 7 unit tests).
+- `Assets/_Project/Tests/PlayMode/BackendE2EPlayTests.cs` (`[Explicit]`, ignored without `BLACKGLASS_E2E_DIR`) runs the real `-attempt` server: the real `UnityWebRequest` transport, the credential through the credential seam, a portable outbox.
+- `E2E/Cp4EvidenceChecks.cs` (16 unit tests) judges the Unity report, the relay log and the receipt, and fails on any missing fact.
+- The procedure is in `Backend/README.md`, "Stage 13 CP4".
+
+**The run** (10:22–10:26 UTC):
+- **Tunnel:** a CP4-only `ssh -L 127.0.0.1:55432`, after checking that nothing listened there.
+- **Baseline (read-only):** `blackglass-test`, PostgreSQL 17.11, 4 databases, 19 roles, no `_cp4_` database.
+- **Owned database:** `bg_t_20261023102310_cp4_476a03d4` (OID 35874152), migrated to schema 9.
+- **Seed data, in that database only:** the build `editor` allowlisted for `procedural-standard:1` and the repository catalogue, host `cp4-host`, and one new account per scenario (starter operatives and a full wallet of 50).
+- **Where things ran:** the API on an ephemeral `127.0.0.1` port, the relay on another.
+- **Host result:** passed (2 m 19 s).
+- **Unity:** scenario A passed in the first invocation. B failed at once on a harness race (Unity reached B before the host had created `B/`). The test was fixed to create its own directory (`53c34bb`), and B was rerun alone against the same waiting host, where it passed.
+
+**Scenario A, lost start response:** attempt `01a16849-be35-7247-84b1-1fb11a3f08a5`, account `2`, three operatives.
+- **Ticket:** the player minted it through `POST /v1/attempts/{id}/tickets`; the server redeemed it exactly once (`tickets/redeem 200`).
+- **The lost answer:** the backend committed the start at 10:23:52.142 database time. The relay read that answer and dropped it (`200 dropped`). The server stayed paused, with 152 held frames in which no position, health, objective or committed event changed. Its idempotent retry got the stored answer (`200 answered`), and only then did it run.
+- **Unity's transport:** `ConnectionFailed 0`, then `Completed 200`.
+- **Publication:** the notice was sent with `.written` durable and `.ready` absent, and answered `ok`. The `.ready` file was published (1459 bytes, SHA-256 equal to the manifest hash `sha256:44653f7bcb193465650c8957867101cfe507818c4b8fd71cdf11f1da2c336cd0`), and the process exited 0.
+- **Relay:** through `POST /agent/v1/results` with the disposable host's secret: `settled`, then a duplicate relay answered `duplicate`. `exited` answered 200 `{applied:none}`.
+- **Database:**
+  - attempt and participant `settled`, `started_at` unchanged;
+  - one settlement, `success`, recorded hash `matched`;
+  - one submission, received twice;
+  - the ledger: `reserve -10`, `charge 0` (`charge:<attempt>`, the only charge) and `settle 0`, balance 50 → 40, no release or refund.
+- **Receipt:** fetched twice, identical and equal to the stored bytes. It grants 2× `item.light-vest`, item ids 8 and 9, which now exist on that operative and didn't before, plus 150 XP per operative (0 → 150 in the database). Energy cost 10, refunded 0.
+
+**Scenario B, API outage:** attempt `01a1684a-b6a9-723e-9624-3d2489780205`, account `3`.
+- **Outage:** the start was committed (10:24:55.314). The CP4 API was stopped 31 ms after the host saw it; PostgreSQL was never touched. The mission played to extraction during the outage.
+- **Notice:** the result was durable first. Six `recorded` attempts were all refused by the stopped API (`upstream_unreachable`), and the notice gave up after 28.2 s, inside its 30 s bound. The result was published (1358 bytes, `sha256:2052f6388e778a27be0d7052ff99baefb606a040bff84bbd1d8e35bc8687c3d0`), and the process exited 0.
+- **During the outage:** attempt `running`, participant `joined`, no settlement, no void, no refund.
+- **After the restart:** the API came back on the same loopback port. The relay answered `settled`, then `duplicate`. The settlement is `success` with recorded hash `absent` (the notice never reached the backend). The ledger is the same reserve, charge and settle, with one charge. The receipt is twice identical: 1× `item.servo-boots` (item id 17) and 150 XP per operative.
+
+**Cleanup:**
+- The owned database was dropped by name and OID. The host's after-baseline showed 0 differences.
+- An independent read-only baseline taken after the host process ended was identical to the first: the same database and role rows (OIDs and xmins), the same postmaster start time, and no `_cp4_` database.
+- The exchange directory was deleted, with no secret file left in it. The CP4 tunnel (its ssh PID only) was terminated.
+- No listener or process was added compared with before the run. `git status` is unchanged.
+- The redacted evidence (baselines, transcript, scenario rows, receipts, manifests, the relay log) is kept in the SDD workspace.
+
+**Review:** independent, Opus, read-only.
+- **Found:** 0 Critical, 1 Important, 10 Minor. No production code is in the diff, and the safe path meets the correction.
+- **Fixed** (`83a7ec0`, red first):
+  - the Important finding, that the host's durable-before-publication proof could pass with nothing checked;
+  - two Minor findings re-graded Important, of the same kind: the rewards proof could pass with nothing granted, and the ticket redemption was only inferred.
+- **Not rerun:** the live run was not repeated after the fixes, because the owner authorized one CP4 database. The fixed checks pass on the real run's recorded values, which are the passing vectors in `Cp4EvidenceChecksTests`.
+- **Ruling on M3:** the system identifier is pinned from the same tunnel; an independent read would need Docker on the VM, which CP4 forbids.
+- **Deferred minors:**
+  - the database creation and its record are not atomic;
+  - CP4 names match `TestCluster`'s 2-hour stale sweep;
+  - a cleanup failure masks the original error and skips the evidence;
+  - the simulated agent's heartbeat is simpler than the real agent's (`outboxPending` 0), and "no void during the outage" holds partly by construction, because the sweeps live in the stopped API;
+  - the Unity log scan doesn't listen to worker-thread messages;
+  - B stops the API while the start answer may still be in flight;
+  - secrets stay in the private directory if the host is killed.
+
+**Regressions** (final code, run one at a time): PlayMode 1509 passed, 0 failed, 3 skipped (the existing skip, plus the two CP4 tests, which ignore themselves without `BLACKGLASS_E2E_DIR`); backend with no database: domain 810/810, integration 361/361 (316 + 22 + 7 + 16), agent 152/254 (the Windows baseline, unchanged). No Unity runtime or EditMode file changed (EditMode unchanged at 2409).
+
+**Observations:**
+- The VM's clock runs about 1.7 s ahead of the workstation's (the start commit's database time is later than the relay's drop).
+- Gameplay was driven by test hooks: direct damage, warps, and interactables moved next to the unit. This is a lifecycle test, not a gameplay test.
+
+**Outstanding (unchanged):** B24 and Stage 12 Track N, Stage 14, and decision 052's seed-recovery blocker.
