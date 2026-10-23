@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-23): revision 1.1; Tasks 0–11 authorized by the owner ("Owner rulings (2026-10-23)"), Tasks 12–13 not authorized.** Revision 1.1 resolves the independent architecture review (0 Critical, 7 Important, 13 Minor; every finding applied, see "Architecture review"). On the local branch `phase13-stage13-plan`, cut from `main` at `08d7d1a` (the visual network mission, accepted). Nothing here is implemented, no number below is a measurement, and nothing in this plan has run against a backend or on either VM. The independent architecture review and its resolution are recorded at the end ("Architecture review").
+**Status (2026-10-23): Part A (Tasks 0–11) implemented on `phase13-stage13` and stopped at CP3 for the owner's review ("As built" at the end); not merged or pushed. Tasks 12–13 (CP4) not authorized and not run; their environment is prepared in `2026-10-23-phase-13-stage13-cp4-environment-manifest.md`. Revision 1.1; Tasks 0–11 authorized by the owner ("Owner rulings (2026-10-23)").** Revision 1.1 resolves the independent architecture review (0 Critical, 7 Important, 13 Minor; every finding applied, see "Architecture review"). On the local branch `phase13-stage13-plan`, cut from `main` at `08d7d1a` (the visual network mission, accepted). Nothing in this plan has run against a backend or on either VM; the measured numbers are in "As built". The independent architecture review and its resolution are recorded at the end ("Architecture review").
 
 **Goal:** the Unity mission server, given an attempt id and its attempt-scoped process credential, runs the attempt's whole process-side lifecycle against the existing backend API: register, validate, generate, ready, the per-participant start hold with idempotent start retries, heartbeats, the outcome freeze, the durable outbox write, the bounded `recorded` notice, publication of the ready result whether or not the backend answers, and exit, without polling settlement.
 
@@ -148,7 +148,7 @@ Every call keeps its body bytes from the first attempt, so a retry is the same r
 | Backend unreachable during play | Play continues (D-11); heartbeats keep failing quietly; `BackendReachable` false | Possibly `unresponsive`; never a void |
 | Backend unreachable at the freeze | `recorded` gives up after 30 s → publish → exit 0 | The agent relays `.ready` when the backend returns; settles once |
 | Manifest build `Failed` (no bytes) | `failed {"manifest_build_failed"}` (post-start: evidence only), exit 7 | Agent `exited present:false` → protective void, refund |
-| Outbox write `Failed` after 3 resubmissions | `failed {"outbox_write_failed"}`, exit 7 | As above, unless a durable `.written` exists (the agent relays it, A10-D1) |
+| Outbox write `Failed` after 3 resubmissions | `failed {"outbox_failed"}` (as built), exit 7 | As above, unless a durable `.written` exists (the agent relays it, A10-D1) |
 | Outbox `Conflict` (a different result already exists) | Never overwrite; exit 7 | The agent relays what exists; the backend judges it |
 | SIGTERM (the agent's stop after a cancellation or settlement, the operator's emergency stop) | Abort in-flight HTTP; `AllowPublication()` on any `Written` handle (shutdown ends the notice attempt); `Stop(drain)` | The agent relays `.ready` or `.written` |
 
@@ -689,6 +689,12 @@ Stage 14 (`NetTicketAdmission`, ownership lists, new gate requests, `NetResultRe
 
 - **Stage 14:** implement `NetTicketAdmission.Begin/Poll` over `BackendAttemptRunner.AdmitTicket`'s `TicketAdmission` handle (one per client); keep the development map messages out of backend mode even in a fixture build (decision 052); wire `ServerCommandGate`'s start predicate to `ParticipantStartHold`; send `NetResultRecordedMessage` on `ResultSaved`; feed the heartbeat's `connected` from real connections (`Release()` on disconnect); lift the `-net`/`-netTokens` refusal in backend mode with its own tests.
 - **Stage 15:** use `BackendReachable` for the reconnect window and the hard cap; resume tokens after `Started`; give the start hold its own hold reason, distinct from the solo disconnect pause, so one never lifts the other.
+- **Stage 14, from the final review (as built):**
+  - `ResultSaved` fires in the same tick as the exit decision, so `NetResultRecordedMessage` needs a short, bounded flush before `Application.Quit`; publication never waits for it (S13-D2).
+  - `AdmitTicket` is single-slot (one admission in flight, refused `AlreadyConnected` during the ready report and while another is in flight). Before network clients can reach it, Stage 14 adds per-client throttling or queueing so a stream of well-formed bad tickets can't keep the real participant out ("a bad ticket is never a DoS" holds today because `-net` is refused).
+  - `BackendReachable` counts heartbeats only and is false before registration.
+  - No Stage 13 test maps a `Redeemed` admission onto `AdmissionDecision.Admit`: Stage 14 writes that mapping and its test.
+  - `ParticipantStartHold.Release` only clears `Connected` (a start in flight still completes): Stage 14 decides a disconnect before the start.
 - **Part C / Stage 17:** the release launcher passes `-attempt %i -backend http://127.0.0.1:5081` (and `-net -netPort <slot port>` after Stage 14); the template's listener and bind lines are replaced under B24; verify `UnityWebRequest`, SIGTERM and the outbox on Linux Mono inside the real unit.
 
 ---
@@ -721,3 +727,51 @@ Independent reviewer (Opus 5.5, high effort, read-only, 2026-10-23) over revisio
 | M13 Part B secrets under `.claude/` | Outside the repository, mode 600, deleted at teardown (§7, Tasks 11 and 13) |
 
 The reviewer also verified: the route table against the stores; 503 (never 401) during a database outage; the per-attempt rate limit and the safety of retrying 429/408/5xx/timeouts; the S9-B7 interplay of every exit path; the §H order against `OutboxWorker`/`PublicationHandle`; that nothing changes during the hold (`SimulationTime.IsRunning` checks); that a late `ServerClock` restart is safe under V13; the redeemed operative order; `editor` as a valid build revision; the canonical base64url tail set; the assembly layout; the template's inability to host Unity today; and that `JsonUtility`'s request bytes parse strictly.
+
+---
+
+## As built (2026-10-23, branch `phase13-stage13`, Part A only; not merged or pushed)
+
+**Commits** (on top of the plan commits `40a0fdd`, `9665a7f` and the rulings `a1c3b28`): `b2f8d11` T1 · `c1bee87` T2 · `c629734` T3 · `ba5da8c` T5 · `7a4dc2a` T4 · `67a4e32` CP1 fixes · `e4087fa` T7 · `87416c0` T8 · `fb8f665` T9 · `2e92d3a` T6 (options, registration) · `626dda2` T10 (+ T6's bootstrap work) · `1fd0dd6` audit wording · `bb54846` CP2 fixes · `91e43da` CP4 manifest · `45f22a8` final-review fixes · then this documentation.
+
+**Order and deviations (all ledgered as rulings):** Task 5 before Task 4 (the Unity vector test serializes through `ProcessApi`); Tasks 7, 8, 9 before 6 and 10 (the bootstrap's backend mode needs the runner, which needs the hold, heartbeat and publisher); the test-support assembly created with its first file in Task 2; the ready request vector is attempt-v1 fixture 03's ready file, not a copy; `ResultPublisher.Begin` takes the canonical bytes and hash (the runner maps a failed build); the `failed` reason is `outbox_failed`; CP4's scripts replaced by the environment manifest (S13-D3); the transport tests use EditMode `[UnityTest]` (UnityWebRequest needs the editor loop); in backend mode the scene-wiring check runs after the credential check and before the outbox open; a pause lifted during the hold is restored on the next tick and logged; the full PlayMode suite was rerun on the final code (`45f22a8`).
+
+**S13-D11 (loopback HTTP):** passed on 6000.3.25f1 with the owner's settings unchanged: a `UnityWebRequest` POST to `http://127.0.0.1:<port>` completed under `insecureHttpOption: 0`, and the control (`http://192.0.2.1`) was refused as insecure by the same settings, so the loopback pass is Unity's exemption, not an unenforced setting. The Linux player repeats this in Part C.
+
+**D10 (exit codes) against the agent:** the agent forwards any exit code 0–255 unchanged (`MissionHost.Agent/Supervisor.cs`, `ExitedBody`), and the backend stores it as evidence only: S9-B7's proof is the presence of an exit status or signal (`HostStore`), never its value. Codes 4–7 change nothing the agent or backend does; no installed file changed.
+
+**Tests (all on the workstation; Unity runs sequential):**
+
+| Suite | Baseline (Task 0) | Final | New |
+|---|---|---|---|
+| EditMode | 2144 | **2409/2409** (`45f22a8`) | +265 |
+| PlayMode | 1494 + 1 skipped | **1509 passed + 1 skipped / 1510** (`45f22a8`) | +15 (`BackendAttemptPlayTests`) |
+| Backend domain (no database) | 803 | **810/810** | +7 (`ProcessRequestVectorTests`) |
+| Backend integration, no-database tests | 308 | **316/316** | +8 (`ProcessResponseVectorTests`) |
+| Backend agent (Windows) | 152/254 (102 platform-only failures) | 152/254 unchanged | agent untouched |
+
+Backend tests run through the documented CET wrapper (`.claude/scratchpad/phase13/tools/dt.sh`); no database, no VM. The contract vectors are byte-identical to the API's own records under its own serializer options, and the backend's own strict parsers accept every Unity request.
+
+**Start and ticket invariants (evidence):**
+- The mission is paused in the same `OnStateChanged(Ready)` call that begins the session; in PlayMode, 300 held frames change no unit position, no health, no objective state and no committed gameplay event; the pause is restored if anything lifts it during the ready report or the hold.
+- The simulation resumes only from a parsed `200 {started:true}`; every refusal path (`Cancelled`, `DeadlinePassed`, `NotRedeemed`, `WrongSession`, `InvalidState`, 404, the bound, a `started:false` answer) leaves it paused and exits 5 (PlayMode and EditMode).
+- A start is built only from a backend redeem whose account and ordered operatives equal the snapshot (mismatch tests send no start).
+- Every redeem refusal (401, 400, `WrongAttempt`, `WrongSession`, `InvalidState`, give-up, a malformed ticket refused locally with no request) refuses that ticket only; a good ticket afterwards still starts.
+- Backend mode refuses `-net`, `-netTokens`, `-netQuiet`, `-netFixture`, `-seed`, `-diagnostic`, `-outboxSelftest` and `-attemptFixture` before any request; a registration failure exits 4 and never falls back to a fixture.
+
+**Crash and outbox evidence:**
+- `recorded` is sent only once the result is a durable `.written` (checked at send time in EditMode and PlayMode); `.ready` appears only after the notice ended; any answer (200, 401, 409 `ConflictingReport`/`InvalidState`, 404), a lost answer (one identical repeat) or the 30 s bound ends it.
+- An unreachable or silent backend publishes within the bound and exits 0 (EditMode and PlayMode); a heartbeat or `recorded` 401 during publication still publishes, then exits 6.
+- A different result already in the outbox is never overwritten (exit 7, no notice); a failing write is resubmitted three times; a failing publish leaves the complete `.written` for the agent (A10-D1).
+- A quit while notifying, while writing, during a pending resubmission or in the frame a write failed still leaves the result written (and published when the notice can end); a quit while holding leaves nothing.
+- The process never calls a status, receipt or result route (reflection and request-record tests).
+
+**Secrecy:** no credential, ticket or seed in any log line (every PlayMode test's teardown scans for the credential and ticket; a seed of 918273645 is scanned at the hold), exception message, `ExitReason`, `Describe` or problem code; the credential has no public accessor; no option accepts a credential; backend mode never logs the fixture's operator aid or manifest.
+
+**Linux dedicated server (Acceptance 8):** built locally in the clean external worktree at `45f22a8` with `Tools/build-server.sh` (release, Mono, `UNITY_SERVER`): `[ServerBuild] SUCCEEDED`, provenance verified, `binarySha256=61c388a1cd661a6230c857fd66de0cec86a1ec497d5f6df1b7f1d585263be19f`, package `blackglass-server-linux-45f22a8-dirty.tar.gz` (`07671cc6…417b`). The `dirty` stamp is the worktree's known leftovers (an ignored `Assets/InitTestScene….unity` from an earlier test run and test-generated renders under its untracked `.claude/scratchpad`); no tracked change. Never copied to a VM, never run.
+
+**Reviews:** CP1 (adapter): 0 Critical, 3 Important, 12 Minor; all Important fixed test-first (no send after a deadline on a late tick, a real per-request abort, transport exceptions as definitive refusals) plus seven Minor. CP2 (lifecycle): 0 Critical, 1 Important (bootstrap-level tests of the backend startup-failure routing, added), 10 Minor (five fixed). Final whole-branch review: 0 Critical; its Important item was this unfinished Task 11; three Minor re-graded Important by effect and fixed test-first (join windows up to the backend's 3600 s honoured, a quit right after a failed write still writes the result, heartbeats at most 20 s inside the lease).
+
+**Deferred minors (owner's call):** the register response vector's loadout is rebuilt from the vector on the backend side; the adapter log-line audit is line-based; the oversize check runs between frames; the PlayMode hold test samples at Holding rather than at the Ready frame; `Release` only clears `Connected`; no guard against an exception inside `Runner.Tick`; the runner EditMode tests are slow (sleep per step); the Stage 14 notes above.
+
+**Outstanding (unchanged):** B24 and Stage 12 Track N (no real Unity mission on `bg-dev-mission01`; the installed template can't host Unity); Stage 14 (ticket admission over `AdmitTicket`, the gate wiring, `NetResultRecordedMessage`, lifting `-net`); decision 052's seed-recovery blocker before public or untrusted clients; CP4 needs the owner's separate authorization.

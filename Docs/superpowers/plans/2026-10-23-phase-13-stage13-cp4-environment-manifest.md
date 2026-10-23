@@ -13,13 +13,15 @@ One Unity Editor end-to-end run of the Stage 13 process lifecycle against the **
 | PostgreSQL 17 | `bg-dev-services01`, the **existing** `blackglass-test` cluster (Compose project `blackglass-testdb`, `127.0.0.1:55432` on the VM) | Unchanged. Never stopped, restarted or reconfigured. |
 | The tunnel | Workstation → VM | The **existing** documented fallback: `bash Backend/tools/testdb.sh tunnel` (`ssh -N -L 127.0.0.1:55432:127.0.0.1:55432`, the admin alias already used for the integration tests). Only while CP4 runs. |
 | The disposable database | The test cluster | One `bg_t_*` database created by the **existing** integration fixture (`Support/TestCluster`, `TestDatabase`): it refuses any cluster whose `cluster_name` isn't `blackglass-test`, creates only `bg_t_*` databases, migrates with the real migrator, and drops the database on dispose. |
-| The real API | Workstation, in-process, loopback only | The **existing** `Support/ApiServer` (`ServeCommand.StartAsync`, `ASPNETCORE_URLS=http://127.0.0.1:<port>`), never a container, never published. |
-| The E2E host | Workstation | **New (CP4 change 1):** one `[Trait("Requires","Postgres")]`, `[Trait("Category","BackendE2E")]` xUnit test in `Backend/tests/Accounts.Integration.Tests/Unit/` that, only when `BLACKGLASS_E2E=1`, provisions the database, seeds it through the real admin stores (below), starts the API on `127.0.0.1:5090`, writes `e2e.json` and waits for a stop file (bounded, 30 min); on any exit it stops the API and the fixture drops the database. Excluded from `UNIT` and from `vm-test.sh` (it never runs without `BLACKGLASS_E2E=1`). |
-| The Unity side | Workstation, the Editor | **New (CP4 change 2):** `Assets/_Project/Tests/PlayMode/BackendE2EPlayTests.cs`, `[Explicit]`, `[Category("BackendE2E")]`, `Assert.Ignore` without `BLACKGLASS_E2E_CONFIG`. It plays the agent (heartbeat, claim, launching, relay of the `.ready` file, `exited`) and the player (dev login, deploy, ticket, receipt) over `System.Net.Http`, and runs the server in `-attempt` mode in the same Editor through the bootstrap's seams (credential directory, portable outbox; the real `UnityWebRequestTransport` to `127.0.0.1:5090`). |
+| The real API | Workstation, in-process, loopback only | The **existing** `Support/ApiServer` (`ServeCommand.StartAsync`; it binds `http://127.0.0.1:0`, an ephemeral loopback port, which the E2E host writes to `e2e.json`), never a container, never published. |
+| The E2E host | Workstation | **New (CP4 change 1):** one `[Trait("Requires","Postgres")]`, `[Trait("Category","BackendE2E")]` xUnit test in `Backend/tests/Accounts.Integration.Tests/Unit/` that, only when `BLACKGLASS_E2E=1`, provisions the database, seeds it through the real admin stores (below), starts the API on an ephemeral loopback port, writes that base URL into `e2e.json` and waits for a stop file (bounded, 30 min); on any exit it stops the API and the fixture drops the database. Its `Requires=Postgres` trait keeps it out of `UNIT`, and it returns at once without `BLACKGLASS_E2E=1`, so a `vm-test.sh` run never executes it. |
+| The Unity side | Workstation, the Editor | **New (CP4 change 2):** `Assets/_Project/Tests/PlayMode/BackendE2EPlayTests.cs`, `[Explicit]`, `[Category("BackendE2E")]`, `Assert.Ignore` without `BLACKGLASS_E2E_CONFIG`. It plays the agent (heartbeat, claim, launching, relay of the `.ready` file, `exited`) and the player (dev login, deploy, ticket, receipt) over `System.Net.Http`, and runs the server in `-attempt` mode in the same Editor through the bootstrap's seams (credential directory, portable outbox; the real `UnityWebRequestTransport` to the base URL from `e2e.json`). |
 
 Memory: one Unity Editor plus one `dotnet test` process (the API in-process); the two never run a test suite at the same time. Unity runs stay sequential.
 
 ## 3. Seed data (through the real admin stores, inside the disposable database only)
+
+The E2E host calls the stores behind these admin verbs directly (the integration tests' way); the verb names and flags are listed so the operator can read each step as its audited CLI equivalent.
 
 | Step | Store / verb (as `Accounts.Api admin`) | Values |
 |---|---|---|
@@ -31,7 +33,7 @@ Memory: one Unity Editor plus one `dotnet test` process (the API in-process); th
 | Host | `host register --host-id e2e-host --capacity 1 --port-base 7800` | the host secret captured to `e2e.json` only |
 | Build (S13-D4) | `build allow --revision editor --catalogue-version <the repository catalogue's version> --templates procedural-standard:1` | **only** in this disposable database; never in production; no bypass of the allowlist |
 
-Every verb carries `--operator stage13-cp4 --reason "Stage 13 CP4 end-to-end (disposable database)"` and `--yes`.
+Every step records operator `stage13-cp4` and reason "Stage 13 CP4 end-to-end (disposable database)" (the CLI equivalents take `--operator`, `--reason` and `--yes`).
 
 ## 4. Secrets
 
@@ -44,7 +46,7 @@ Every verb carries `--operator stage13-cp4 --reason "Stage 13 CP4 end-to-end (di
 
 1. Confirm the test cluster is up (read-only: the existing integration fixture's `cluster_name` check) — **no `testdb.sh up`/`down`/`destroy`**.
 2. Open the tunnel: `bash Backend/tools/testdb.sh tunnel` (left running in its own terminal).
-3. Start the E2E host: `BLACKGLASS_E2E=1 bash ../.claude/scratchpad/phase13/tools/dt.sh test Backend.sln --filter "Category=BackendE2E"` from `Backend/` (the CET wrapper). It prints the config path and "ready".
+3. Start the E2E host: `BLACKGLASS_E2E=1 dotnet test Backend.sln --filter "Category=BackendE2E"` from `Backend/`. On this workstation plain `dotnet` aborts on the CET quirk, so it runs through the untracked local wrapper `.claude/scratchpad/phase13/tools/dt.sh` (same compiler, wrapper only; not part of the repository). It prints the config path and "ready".
 4. Run Unity: `BLACKGLASS_E2E_CONFIG=<path> Tools/run-tests.sh PlayMode "Blackglass.Tests.BackendE2EPlayTests"` (explicit tests run when named by filter).
 5. Variants run in the same Unity session (the dropping proxy and the API stop/start are driven by the two test processes through the stop/pause files).
 6. Stop the E2E host (stop file) and close the tunnel (Ctrl-C).
@@ -54,7 +56,7 @@ Every verb carries `--operator stage13-cp4 --reason "Stage 13 CP4 end-to-end (di
 | What | How | Verified by |
 |---|---|---|
 | The `bg_t_*` database | dropped by `TestDatabase` on dispose (also on failure) | a read-only query over the tunnel listing `bg_t_%` databases returns none from this run |
-| The API | in-process; ends with the test process | `127.0.0.1:5090` closed (`Test-NetConnection` / a refused connect) |
+| The API | in-process; ends with the test process | the port in `e2e.json` closed (a refused connect) |
 | The tunnel | Ctrl-C | no listener on `127.0.0.1:55432` |
 | `e2e.json`, the credentials directory, the outbox directory | deleted by the tests' teardown | listed absent |
 | The repository | no file written | `git status --short` unchanged except the owner's two settings files and `.claude/` |
@@ -63,7 +65,7 @@ Every verb carries `--operator stage13-cp4 --reason "Stage 13 CP4 end-to-end (di
 
 ## 7. Exact changes CP4 needs (not made in Stage 13's authorized Tasks 0–11)
 
-1. `Backend/tests/Accounts.Integration.Tests/Unit/BackendE2EHost.cs` (the E2E host above; test code only; no backend route, store, migration or parser change).
+1. `Backend/tests/Accounts.Integration.Tests/Unit/BackendE2EHost.cs` (the E2E host above; test code only; no backend route, store, migration or parser change; `ApiServer` unchanged: the ephemeral port is read from the started app).
 2. `Assets/_Project/Tests/PlayMode/BackendE2EPlayTests.cs` and a small test-only `LostResponseProxy` (a loopback TCP relay that drops one `start` answer), `[Explicit]`.
 3. A README section in `Backend/README.md` for the procedure (§5).
 
