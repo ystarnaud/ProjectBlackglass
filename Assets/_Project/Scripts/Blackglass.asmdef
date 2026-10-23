@@ -10,7 +10,8 @@
         "GameKit.Dependencies",
         "FishyUnityTransport",
         "Unity.Networking.Transport",
-        "Blackglass.Backend.Core"
+        "Blackglass.Backend.Core",
+        "Blackglass.Backend.Adapter"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
