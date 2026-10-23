@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-23): revision 1.1, planning only, for the owner's review. Not authorized for implementation.** Revision 1.1 resolves the independent architecture review (0 Critical, 7 Important, 13 Minor; every finding applied, see "Architecture review"). On the local branch `phase13-stage13-plan`, cut from `main` at `08d7d1a` (the visual network mission, accepted). Nothing here is implemented, no number below is a measurement, and nothing in this plan has run against a backend or on either VM. The independent architecture review and its resolution are recorded at the end ("Architecture review").
+**Status (2026-10-23): revision 1.1; Tasks 0–11 authorized by the owner ("Owner rulings (2026-10-23)"), Tasks 12–13 not authorized.** Revision 1.1 resolves the independent architecture review (0 Critical, 7 Important, 13 Minor; every finding applied, see "Architecture review"). On the local branch `phase13-stage13-plan`, cut from `main` at `08d7d1a` (the visual network mission, accepted). Nothing here is implemented, no number below is a measurement, and nothing in this plan has run against a backend or on either VM. The independent architecture review and its resolution are recorded at the end ("Architecture review").
 
 **Goal:** the Unity mission server, given an attempt id and its attempt-scoped process credential, runs the attempt's whole process-side lifecycle against the existing backend API: register, validate, generate, ready, the per-participant start hold with idempotent start retries, heartbeats, the outcome freeze, the durable outbox write, the bounded `recorded` notice, publication of the ready result whether or not the backend answers, and exit, without polling settlement.
 
@@ -153,6 +153,26 @@ Every call keeps its body bytes from the first attempt, so a retry is the same r
 | SIGTERM (the agent's stop after a cancellation or settlement, the operator's emergency stop) | Abort in-flight HTTP; `AllowPublication()` on any `Written` handle (shutdown ends the notice attempt); `Stop(drain)` | The agent relays `.ready` or `.written` |
 
 ---
+
+## Owner rulings (2026-10-23) and the implementation authorization
+
+The owner approved implementation of **Tasks 0–11 only** on `phase13-stage13` (native, sequential, test-first; independent Opus high-effort reviews at CP1, CP2 and CP3; strict Linux build provenance from a clean external worktree, built locally only). **Tasks 12–13 are not authorized:** no connection to the services VM's test cluster, no database, no real API instance, no VM change, no real Unity mission on Linux. Mandatory stop after CP3. The rulings below supersede §4's recommendations where they differ.
+
+| Ruling | Decision |
+|---|---|
+| S13-D1 | **Approved.** The redeem call and a typed `AdmitTicket` entry. A redeem 401 refuses that ticket, never the mission; real credential revocation is still handled through the lifecycle (heartbeat, start, ready, recorded). No production network admission in Stage 13 |
+| S13-D2 | **Approved.** The client's result-saved message is Stage 14's; durable publication never depends on client notification |
+| S13-D3 | **Conditional.** The architecture is approved for later testing but not executed. Task 11 prepares an exact environment and cleanup manifest for CP4 and the owner authorizes it separately |
+| S13-D4 | **Approved with restriction.** Editor integration uses a specifically allowlisted build identity, catalogue and template; no bypass of the backend build allowlist; an arbitrary Editor build is never admitted to production |
+| S13-D5 | **Approved.** `Blackglass.Backend.Adapter` is separate; `Blackglass.Backend.Core` stays library-free |
+| S13-D6 | **Conditional.** Provisional timings bounded, configurable and tested with controlled clocks; backend deadlines and the 30 s `recorded` window preserved. **No timeout may invent evidence of failure or discard a valid result** |
+| S13-D7 | **Approved.** `NotStarted` added without renumbering; fixture behaviour kept; Stage 14 wires the network start gate |
+| S13-D8 | **Approved.** `IAttemptSource` and the fixture behaviour preserved; backend loading is asynchronous and never blocks the main thread with a synchronous network wait |
+| S13-D9 | **Modified.** A technical failure after start is not itself authorization to refund or void. The process reports the failure where it can and exits; the host agent verifies the exit, inspects and relays any durable result and reports complete evidence; only the backend's established infrastructure-void rules refund, and only when positive evidence shows no valid result exists. A backend outage is never void evidence. Defeat, abandonment and disconnection use their own manifests and settlement policies. (In this plan: §3.5's rows for a post-start technical failure describe what the process does, report `failed` as evidence and exit 7; whether anything is voided is the agent's and backend's decision, never the process's.) |
+| S13-D10 | **Approved with restriction.** Exit codes 4–7 added and documented, 0–3 preserved; each code's interaction with the existing agent and failure paths verified (read from `MissionHost.Agent`); no installed infrastructure changed |
+| S13-D11 | **Approved.** `UnityWebRequest` over HTTP to `127.0.0.1` is proven first under the existing Player Settings on this exact Unity version; on failure, stop for the owner. The owner's settings are never changed |
+
+**Additional binding requirements (verbatim intent):** no simulation, enemy AI, objective progress, combat or item mutation before the backend commits the participant's start; no start without a ticket redeemed by the correct backend session; a registration failure never falls back to a development fixture; a bad ticket is never a denial of service against other participants; never log or expose process credentials, join tickets, hidden seeds or retention salts; exact canonical JSON and backend contracts preserved; Stage 11's durable outbox order preserved; a complete `.written` survives process death and stays recoverable by the Stage 10 agent; backend outages never lose durable results; never direct client-side settlement; backend mode refuses `-net`/`-netTokens`; decision 052 stays mandatory (no development map or shot messages in ordinary release builds); B24 unsatisfied, so no real Unity mission on `bg-dev-mission01`.
 
 ## 4. Decisions for the owner
 
