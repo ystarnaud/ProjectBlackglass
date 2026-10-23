@@ -55,6 +55,40 @@ namespace Blackglass.Tests
         static string State(CommandableUnit unit) =>
             $"{unit.CurrentCommand}|{unit.PendingCommands.Count}|{unit.MoveIntent}|{unit.transform.position}";
 
+        // Stage 13 (S13-D7): the start hold's gate half. With no start check every request is judged exactly as before.
+        [Test]
+        public void WithoutAStartCheck_EveryRequestIsJudgedAsBefore()
+        {
+            Assert.That(gate.IsStarted, Is.Null);
+            Assert.That(Send(owner, Steer(idA)).IsAccepted, Is.True);
+        }
+
+        [Test]
+        public void ARequestFromAParticipantWhoHasNotStarted_IsNotStarted()
+        {
+            gate.IsStarted = connection => false;
+            var before = State(friendA);
+            var result = Send(owner, Steer(idA), 1, 1);
+            Assert.That(result.Reason, Is.EqualTo(NetRejectReason.NotStarted));
+            Assert.That(State(friendA), Is.EqualTo(before), "nothing changed");
+            gate.IsStarted = connection => true;
+            Assert.That(Send(owner, Steer(idA), 1, 1).IsAccepted, Is.True, "the not-started request recorded no sequence or command id");
+        }
+
+        [Test]
+        public void AMalformedRequest_IsStillMalformedBeforeTheStartCheck()
+        {
+            gate.IsStarted = connection => false;
+            Assert.That(Send(owner, new RogueRequest()).Reason, Is.EqualTo(NetRejectReason.Malformed));
+        }
+
+        [Test]
+        public void NotStarted_IsAppendedWithoutRenumbering()
+        {
+            Assert.That((int)NetRejectReason.NotStarted, Is.EqualTo((int)NetRejectReason.OrderRefused + 1));
+            Assert.That((int)NetRejectReason.OrderRefused, Is.EqualTo(8));
+        }
+
         [Test]
         public void AMoveForAHostile_IsNotOwner()
         {
