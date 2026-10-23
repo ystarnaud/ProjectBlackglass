@@ -30,8 +30,9 @@ namespace Blackglass.Backend.Adapter
     /// backend's idempotency answers a lost response with the stored result. 2xx succeeds; 401 is Unauthorized; 408, 429, 5xx, a
     /// timeout or no connection is retried with backoff (0.5 s doubling to 8 s, ±20 % jitter; Retry-After honoured up to the cap)
     /// until the deadline, then GaveUp; every other answer (400, 404, 409, 413, 415, 422, 3xx, 403, …, an oversize body, a redirect)
-    /// is a definitive Refused with the ProblemDetails code. Never retries a definitive answer. The owner ticks the transport first,
-    /// then the call; nothing blocks.
+    /// is a definitive Refused with the ProblemDetails code, as is a request the transport could not send ("transport"). Never
+    /// retries a definitive answer, never sends once the deadline has passed (even on a late tick), and never lets an attempt's
+    /// timeout run past it. The owner ticks the transport first, then the call; nothing blocks and nothing throws.
     /// </summary>
     public sealed class BackendCall
     {
@@ -78,6 +79,7 @@ namespace Blackglass.Backend.Adapter
             if (State != CallState.Running) return;
             if (exchange == null)
             {
+                if (now >= deadline) { State = CallState.GaveUp; return; } // a late tick: the bound has passed, never send again
                 if (now >= nextSend) SendNow(now);
                 return;
             }
@@ -87,6 +89,7 @@ namespace Blackglass.Backend.Adapter
             if (done.Outcome == HttpOutcome.Aborted) { State = CallState.GaveUp; return; }
             if (done.Outcome != HttpOutcome.Completed) { Retry(now, null); return; }
             Status = done.Status;
+            if (done.TransportError) { Refuse("transport"); return; }
             if (done.Oversize) { Refuse("oversize"); return; }
             if (done.Redirect) { Refuse("redirect"); return; }
             if (done.Status >= 200 && done.Status < 300) { Body = done.Body ?? new byte[0]; State = CallState.Succeeded; return; }
@@ -95,11 +98,11 @@ namespace Blackglass.Backend.Adapter
             Refuse(CodeOf(done.Body));
         }
 
-        /// <summary>Gives up now: the exchange in flight is aborted by the transport's owner (AbortAll) or simply ignored.</summary>
+        /// <summary>Gives up now: the request in flight is stopped on the wire (the transport aborts it).</summary>
         public void Abort()
         {
             if (State != CallState.Running) return;
-            exchange?.Fail(HttpOutcome.Aborted);
+            if (exchange != null) transport.Abort(exchange);
             exchange = null;
             State = CallState.GaveUp;
         }
@@ -107,7 +110,8 @@ namespace Blackglass.Backend.Adapter
         void SendNow(double now)
         {
             Attempts++;
-            exchange = transport.Send(HttpMethodKind.Post, path, body, Math.Min(policy.AttemptTimeoutSeconds, deadline - now), now);
+            try { exchange = transport.Send(HttpMethodKind.Post, path, body, Math.Min(policy.AttemptTimeoutSeconds, deadline - now), now); }
+            catch (Exception) { exchange = null; Refuse("transport"); } // a transport must not throw; one that does is a definitive refusal
         }
 
         void Refuse(string code)
@@ -121,8 +125,9 @@ namespace Blackglass.Backend.Adapter
             retries++;
             var backoff = Math.Min(policy.MaxBackoffSeconds, policy.InitialBackoffSeconds * Math.Pow(2, retries - 1));
             var delay = backoff * (1 + policy.JitterFraction * (2 * random01() - 1));
+            // Retry-After is a floor (capped), never a way to resend faster than the backoff.
             if (retryAfter != null && int.TryParse(retryAfter.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out var seconds))
-                delay = Math.Min(policy.MaxBackoffSeconds, seconds);
+                delay = Math.Max(delay, Math.Min(policy.MaxBackoffSeconds, seconds));
             nextSend = now + Math.Max(0, delay);
             if (nextSend >= deadline) State = CallState.GaveUp;
         }

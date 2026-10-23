@@ -52,10 +52,12 @@ namespace Blackglass.Backend.Adapter
 
         public static string Route(string attemptId, string tail) => "/server/v1/attempts/" + attemptId + "/" + tail;
 
-        public BackendCall Register(SessionRegisterRequest body, double deadline, double now) => Call("sessions", Json(body), deadline, now);
+        public BackendCall Register(SessionRegisterRequest body, double deadline, double now) =>
+            Call("sessions", Json(body ?? throw new ArgumentNullException(nameof(body))), deadline, now);
 
         /// <summary>The ready report's exact bytes (the same JsonUtility bytes the bootstrap logs), sent unchanged on every retry.</summary>
-        public BackendCall Ready(byte[] readyRequestJson, double deadline, double now) => Call("ready", readyRequestJson, deadline, now);
+        public BackendCall Ready(byte[] readyRequestJson, double deadline, double now) =>
+            Call("ready", readyRequestJson ?? throw new ArgumentNullException(nameof(readyRequestJson)), deadline, now);
 
         public BackendCall Redeem(string processSessionId, string ticket, double deadline, double now)
         {
@@ -70,7 +72,8 @@ namespace Blackglass.Backend.Adapter
             return Call("participants/" + Account(accountId) + "/start", Json(new StartRequest { processSessionId = processSessionId }), deadline, now);
         }
 
-        public BackendCall Heartbeat(ProcessHeartbeatRequest body, double deadline, double now) => Call("heartbeat", Json(body), deadline, now);
+        public BackendCall Heartbeat(ProcessHeartbeatRequest body, double deadline, double now) =>
+            Call("heartbeat", Json(body ?? throw new ArgumentNullException(nameof(body))), deadline, now);
 
         public BackendCall Recorded(string accountId, string manifestHash, double deadline, double now)
         {

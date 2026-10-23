@@ -88,6 +88,14 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void The_credential_is_read_with_one_bounded_read()
+        {
+            // 47 valid bytes followed by more: the reader stops after its bound and refuses, it never reads a stream to its end.
+            WriteFile(Valid + new string('A', 100));
+            Assert.That(Refusal(), Is.EqualTo("malformed"));
+        }
+
+        [Test]
         public void A_large_file_is_refused()
         {
             WriteFile(new string('a', 5000));

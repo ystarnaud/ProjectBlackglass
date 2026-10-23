@@ -36,21 +36,32 @@ namespace Blackglass.Backend.Adapter
         {
             if (string.IsNullOrEmpty(path) || path[0] != '/') throw new ArgumentException("A path starts with '/'.", nameof(path));
             if (jsonBody == null) throw new ArgumentNullException(nameof(jsonBody));
-            var request = new UnityWebRequest(baseUrl + path, UnityWebRequest.kHttpVerbPOST)
-            {
-                uploadHandler = new UploadHandlerRaw(jsonBody) { contentType = "application/json" },
-                downloadHandler = new DownloadHandlerBuffer(),
-                redirectLimit = 0,
-                disposeUploadHandlerOnDispose = true,
-                disposeDownloadHandlerOnDispose = true,
-            };
-            request.SetRequestHeader("Authorization", credential.AuthorizationHeaderValue());
-            request.SetRequestHeader("Content-Type", "application/json");
-            request.SetRequestHeader("Accept", "application/json");
             var exchange = new HttpExchange();
-            var entry = new Live { Exchange = exchange, Request = request, Deadline = now + Math.Max(0.1, timeoutSeconds) };
-            entry.Operation = request.SendWebRequest();
-            live.Add(entry);
+            UnityWebRequest request = null;
+            try
+            {
+                request = new UnityWebRequest(baseUrl + path, UnityWebRequest.kHttpVerbPOST)
+                {
+                    uploadHandler = new UploadHandlerRaw(jsonBody) { contentType = "application/json" },
+                    downloadHandler = new DownloadHandlerBuffer(),
+                    redirectLimit = 0,
+                    disposeUploadHandlerOnDispose = true,
+                    disposeDownloadHandlerOnDispose = true,
+                };
+                request.SetRequestHeader("Authorization", credential.AuthorizationHeaderValue());
+                request.SetRequestHeader("Content-Type", "application/json");
+                request.SetRequestHeader("Accept", "application/json");
+                var entry = new Live { Exchange = exchange, Request = request, Deadline = now + Math.Max(0.1, timeoutSeconds) };
+                entry.Operation = request.SendWebRequest();
+                live.Add(entry);
+            }
+            catch (Exception)
+            {
+                // UnityWebRequest refuses synchronously (insecure HTTP, an invalid URL): no request went out. The exception text is
+                // not kept; it never holds the credential, but nothing needs it either.
+                request?.Dispose();
+                exchange.Complete(0, null, transportError: true);
+            }
             return exchange;
         }
 
@@ -65,6 +76,17 @@ namespace Blackglass.Backend.Adapter
                     live.RemoveAt(i);
                 }
             }
+        }
+
+        public void Abort(HttpExchange exchange)
+        {
+            var index = live.FindIndex(e => ReferenceEquals(e.Exchange, exchange));
+            if (index < 0) return;
+            var entry = live[index];
+            live.RemoveAt(index);
+            entry.Request.Abort();
+            entry.Exchange.Fail(HttpOutcome.Aborted);
+            entry.Request.Dispose();
         }
 
         public void AbortAll()

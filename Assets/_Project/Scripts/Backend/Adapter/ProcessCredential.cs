@@ -45,7 +45,8 @@ namespace Blackglass.Backend.Adapter
                 var info = new FileInfo(path);
                 if ((info.Attributes & (FileAttributes.ReparsePoint | FileAttributes.Directory | FileAttributes.Device)) != 0) { refusal = "not_regular"; return false; }
                 if (info.Length > MaxFileBytes) { refusal = "too_large"; return false; }
-                var bytes = File.ReadAllBytes(path);
+                // One open and one bounded read: at most Length + 1 bytes, whatever the entry turned out to be when it was opened.
+                var bytes = ReadBounded(path, Length + 1);
                 if (!IsWellFormed(bytes)) { refusal = "malformed"; return false; }
                 credential = new ProcessCredential(Encoding.ASCII.GetString(bytes));
                 refusal = null;
@@ -55,6 +56,21 @@ namespace Blackglass.Backend.Adapter
             {
                 refusal = "unreadable";
                 return false;
+            }
+        }
+
+        static byte[] ReadBounded(string path, int max)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.None))
+            {
+                var buffer = new byte[max];
+                var total = 0;
+                int read;
+                while (total < max && (read = stream.Read(buffer, total, max - total)) > 0) total += read;
+                if (total == max) return buffer;
+                var exact = new byte[total];
+                Array.Copy(buffer, exact, total);
+                return exact;
             }
         }
 

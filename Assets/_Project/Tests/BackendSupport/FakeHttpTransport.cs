@@ -20,6 +20,7 @@ namespace Blackglass.Tests
             public byte[] Body;
             public double At;
             public HttpExchange Exchange;
+            public double Timeout;
             public string BodyText => Encoding.UTF8.GetString(Body);
         }
 
@@ -28,7 +29,7 @@ namespace Blackglass.Tests
             public int Status;
             public string Body;
             public string RetryAfter;
-            public bool Drop, Refuse, Oversize, Redirect;
+            public bool Drop, Refuse, Oversize, Redirect, Throw, TransportError;
             public double Delay;
         }
 
@@ -63,16 +64,21 @@ namespace Blackglass.Tests
         public FakeHttpTransport AnswerAlways(string suffix, int status, string body = "{}") { sticky[suffix] = new Script { Status = status, Body = body }; return this; }
         public FakeHttpTransport RefuseAlways(string suffix) { sticky[suffix] = new Script { Refuse = true }; return this; }
         public FakeHttpTransport SilentAlways(string suffix) { sticky[suffix] = new Script { Drop = true }; return this; }
+        public FakeHttpTransport Throw(string suffix) => Queue(suffix, new Script { Throw = true });
+        public FakeHttpTransport TransportError(string suffix) => Queue(suffix, new Script { TransportError = true });
         public FakeHttpTransport Clear(string suffix) { queues.Remove(suffix); sticky.Remove(suffix); return this; }
 
         public HttpExchange Send(HttpMethodKind method, string path, byte[] jsonBody, double timeoutSeconds, double now)
         {
             if (RequiredPrefix != null && !path.StartsWith(RequiredPrefix, StringComparison.Ordinal))
                 throw new InvalidOperationException("A request outside the attempt's routes: " + path);
-            var sent = new Sent { Path = path, Body = (byte[])jsonBody.Clone(), At = now, Exchange = new HttpExchange() };
+            var script = Next(path);
+            if (script != null && script.Throw) throw new InvalidOperationException("the transport refused to send");
+            var sent = new Sent { Path = path, Body = (byte[])jsonBody.Clone(), At = now, Exchange = new HttpExchange(), Timeout = timeoutSeconds };
             Requests.Add(sent);
             OnSend?.Invoke(sent);
-            pending.Add(new Pending { Sent = sent, Script = Next(path), Deadline = now + timeoutSeconds });
+            if (script != null && script.TransportError) { sent.Exchange.Complete(0, null, transportError: true); return sent.Exchange; }
+            pending.Add(new Pending { Sent = sent, Script = script, Deadline = now + timeoutSeconds });
             return sent.Exchange;
         }
 
@@ -95,6 +101,14 @@ namespace Blackglass.Tests
                     pending.RemoveAt(i);
                 }
             }
+        }
+
+        public void Abort(HttpExchange exchange)
+        {
+            if (exchange == null || exchange.IsDone) return;
+            exchange.Fail(HttpOutcome.Aborted);
+            Aborted++;
+            pending.RemoveAll(p => ReferenceEquals(p.Sent.Exchange, exchange));
         }
 
         public void AbortAll()
@@ -130,7 +144,7 @@ namespace Blackglass.Tests
         public static string Route(string path)
         {
             var parts = path.Split('/');
-            if (parts.Length >= 2 && parts[parts.Length - 3] == "participants") return parts[parts.Length - 1];
+            if (parts.Length >= 3 && parts[parts.Length - 3] == "participants") return parts[parts.Length - 1];
             return parts.Length >= 2 && parts[parts.Length - 2] == "tickets" ? "tickets/" + parts[parts.Length - 1] : parts[parts.Length - 1];
         }
     }

@@ -176,8 +176,102 @@ namespace Blackglass.Tests
             Run(call, 0.2);
             call.Abort();
             Assert.That(call.State, Is.EqualTo(CallState.GaveUp));
-            Run(call, 20);
-            Assert.That(transport.Requests.Count, Is.EqualTo(1));
+            Assert.That(transport.Aborted, Is.EqualTo(1), "the request on the wire is aborted, not only forgotten");
+            Assert.That(transport.Requests.Single().Exchange.Outcome, Is.EqualTo(HttpOutcome.Aborted));
+        }
+
+        // CP1 I1: a late tick after the deadline (a main-thread stall during backoff) must never send again.
+        [Test]
+        public void A_late_tick_past_the_deadline_never_sends_again()
+        {
+            transport.RefuseAlways("ready");
+            var call = Start(deadlineIn: 3);
+            Run(call, 0.2);
+            var sent = transport.Requests.Count;
+            now += 10; // the main thread stalled through the rest of the bound
+            transport.Tick(now);
+            call.Tick(now);
+            Assert.That(call.State, Is.EqualTo(CallState.GaveUp));
+            Assert.That(transport.Requests.Count, Is.EqualTo(sent));
+        }
+
+        [Test]
+        public void An_attempts_timeout_never_passes_the_deadline()
+        {
+            transport.SilentAlways("ready");
+            var call = Start(deadlineIn: 4, policy: new RetryPolicy { AttemptTimeoutSeconds = 10 });
+            Run(call, 10);
+            Assert.That(call.State, Is.EqualTo(CallState.GaveUp));
+            Assert.That(transport.Requests.Count, Is.EqualTo(1), "one attempt whose timeout is the time left");
+        }
+
+        // CP1 I3: a transport that throws (an insecure-HTTP refusal, an invalid request) is a definitive refusal, never an exception per frame.
+        [Test]
+        public void A_transport_that_throws_is_a_definitive_refusal()
+        {
+            transport.Throw("ready");
+            BackendCall call = null;
+            Assert.DoesNotThrow(() => call = Start());
+            Assert.DoesNotThrow(() => Run(call, 2));
+            Assert.That(call.State, Is.EqualTo(CallState.Refused));
+            Assert.That(call.ProblemCode, Is.EqualTo("transport"));
+        }
+
+        [Test]
+        public void A_transport_that_throws_on_a_retry_is_a_definitive_refusal()
+        {
+            transport.Answer("ready", 503).Throw("ready");
+            var call = Start();
+            Assert.DoesNotThrow(() => Run(call, 3));
+            Assert.That(call.State, Is.EqualTo(CallState.Refused));
+            Assert.That(call.ProblemCode, Is.EqualTo("transport"));
+            Assert.That(call.Attempts, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void A_transport_error_exchange_is_a_definitive_refusal()
+        {
+            transport.TransportError("ready");
+            var call = Start();
+            Run(call, 2);
+            Assert.That(call.State, Is.EqualTo(CallState.Refused));
+            Assert.That(call.ProblemCode, Is.EqualTo("transport"));
+            Assert.That(call.Attempts, Is.EqualTo(1));
+        }
+
+        // CP1 M1: Retry-After is a floor on the backoff, never a way to resend every frame.
+        [Test]
+        public void Retry_after_zero_never_resends_faster_than_the_backoff()
+        {
+            transport.Answer("ready", 429, "{}", "0").Answer("ready", 429, "{}", "0").Answer("ready", 200);
+            var call = Start();
+            Run(call, 5);
+            Assert.That(call.State, Is.EqualTo(CallState.Succeeded));
+            Assert.That(transport.Requests[1].At - transport.Requests[0].At, Is.EqualTo(0.5).Within(0.11));
+            Assert.That(transport.Requests[2].At - transport.Requests[1].At, Is.EqualTo(1).Within(0.11));
+        }
+
+        [TestCase(408)]
+        [TestCase(500)]
+        [TestCase(502)]
+        [TestCase(504)]
+        public void Other_transient_statuses_are_retried(int status)
+        {
+            transport.Answer("ready", status).Answer("ready", 200);
+            var call = Start();
+            Run(call, 5);
+            Assert.That(call.State, Is.EqualTo(CallState.Succeeded));
+            Assert.That(call.Attempts, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void A_bare_302_is_refused_once()
+        {
+            transport.Answer("ready", 302, "");
+            var call = Start();
+            Run(call, 2);
+            Assert.That(call.State, Is.EqualTo(CallState.Refused));
+            Assert.That(call.Attempts, Is.EqualTo(1));
         }
 
         [Test]

@@ -164,12 +164,14 @@ namespace Blackglass.Tests
         public void Every_timestamp_shape_parses_and_no_other()
         {
             var t = JsonUtility.FromJson<Timestamps>(Vector("timestamps.json"));
-            var first = default(DateTime);
-            foreach (var text in t.valid)
+            var noon = new DateTime(2026, 10, 23, 12, 0, 0, DateTimeKind.Utc);
+            var fractions = new long[] { 0, 1_230_000, 1_234_500, 1_234_560, 1_234_567 }; // the ticks each valid shape encodes
+            Assert.That(t.valid.Length, Is.EqualTo(fractions.Length));
+            for (var i = 0; i < t.valid.Length; i++)
             {
-                Assert.That(ProcessApi.TryParseTimestamp(text, out var utc), Is.True, text);
-                if (first == default) first = utc;
-                Assert.That(utc.Date, Is.EqualTo(first.Date));
+                Assert.That(ProcessApi.TryParseTimestamp(t.valid[i], out var utc), Is.True, t.valid[i]);
+                Assert.That(utc, Is.EqualTo(noon.AddTicks(fractions[i])), t.valid[i]);
+                Assert.That(utc.Kind, Is.EqualTo(DateTimeKind.Utc));
             }
             foreach (var text in t.invalid)
                 Assert.That(ProcessApi.TryParseTimestamp(text, out _), Is.False, text);

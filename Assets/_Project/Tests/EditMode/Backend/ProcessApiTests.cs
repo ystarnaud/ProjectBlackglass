@@ -95,6 +95,10 @@ namespace Blackglass.Tests
             Assert.Throws<ArgumentException>(() => api.Start(Session, "1BukQL", now + 5, now));
             Assert.Throws<ArgumentException>(() => api.Start("not-a-uuid", Account, now + 5, now));
             Assert.Throws<ArgumentException>(() => api.Recorded(Account, "sha256:abc", now + 5, now));
+            Assert.Throws<ArgumentException>(() => api.Recorded("1BukQL", Hash, now + 5, now));
+            Assert.Throws<ArgumentNullException>(() => api.Register(null, now + 5, now));
+            Assert.Throws<ArgumentNullException>(() => api.Heartbeat(null, now + 5, now));
+            Assert.Throws<ArgumentNullException>(() => api.Ready(null, now + 5, now));
             Assert.Throws<ArgumentException>(() => api.Failed(Session, "Start Refused", now + 5, now));
             var e = Assert.Throws<ArgumentException>(() => api.Redeem(Session, Ticket + "A", now + 5, now));
             Assert.That(e.Message, Does.Not.Contain(Ticket));
