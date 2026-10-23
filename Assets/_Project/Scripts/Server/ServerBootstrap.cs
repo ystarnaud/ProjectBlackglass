@@ -108,7 +108,7 @@ namespace Blackglass
         /// <summary>The attempt's outbox: $STATE_DIRECTORY under the production parent, linux-x64 only (Stage 11). Tests replace it with a portable directory.</summary>
         internal Func<string, IOutboxDirectory> OpenAttemptOutbox = attemptId =>
             OutboxDirectories.OpenForServer(Environment.GetEnvironmentVariable(OutboxLocation.StateDirectoryVariable), "/var/lib/blackglass-outbox", attemptId);
-        /// <summary>The HTTP transport (the UnityWebRequest one). Tests replace it with a scripted fake.</summary>
+        /// <summary>The HTTP transport (the adapter's production one). Tests replace it with a scripted fake.</summary>
         internal Func<BackendEndpoint, ProcessCredential, IHttpTransport> TransportFactory = (endpoint, credential) => new UnityWebRequestTransport(endpoint, credential);
         /// <summary>This build's revision for registration: "editor" in the Editor, a stamped well-formed revision in a player, else null (refused).</summary>
         internal Func<string> BackendBuildRevision = StampedBuildRevision;
