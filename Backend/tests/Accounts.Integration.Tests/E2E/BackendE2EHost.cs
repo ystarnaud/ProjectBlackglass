@@ -362,9 +362,7 @@ public sealed class BackendE2EHost
         activeAttempt = null;
         evidence["unity"] = unity;
         Say($"[{s}] the process exited {unity.GetProperty("exitCode").GetInt32()} ({unity.GetProperty("exitReason").GetString()})");
-        Assert.Equal(0, unity.GetProperty("exitCode").GetInt32());
-        Assert.True(unity.GetProperty("heldUnchanged").GetBoolean(), "no gameplay before the confirmed start");
-        Assert.True(unity.GetProperty("writtenBeforeReady").GetBoolean(), "durable before publication");
+        Assert.Empty(Cp4EvidenceChecks.UnityReport(unity, outage)); // exit 0, held unchanged and paused, notice sent after the durable write, loot collected
 
         var ready = x.PathOf($"{s}/outbox/{accountId}.manifest.ready");
         Assert.False(File.Exists(x.PathOf($"{s}/outbox/{accountId}.manifest.written")), "the published result replaced the written one");
@@ -457,22 +455,13 @@ public sealed class BackendE2EHost
         Assert.Equal(-cost, newEntries.Where(e => e[0] != "regen").Sum(e => int.Parse(e[1], CultureInfo.InvariantCulture)));
         Assert.Equal(before.Balance + newEntries.Sum(e => int.Parse(e[1], CultureInfo.InvariantCulture)), after.Balance);
         Assert.Equal(["settled x2"], submissions); // one submission, the duplicate relay counted on it
+        Assert.Empty(Cp4EvidenceChecks.Receipt(Parse(Encoding.UTF8.GetBytes(receiptText)))); // something granted, XP awarded, energy settled
         AssertRewards(Parse(Encoding.UTF8.GetBytes(receiptText)), before, after);
 
-        if (dropStart)
-        {
-            var starts = proxy.Log.Where(e => e.Path == $"/server/v1/attempts/{attempt}/participants/{accountId}/start").ToList();
-            evidence["startRequests"] = starts;
-            Assert.Equal(["200 dropped", "200 answered"], starts.Select(e => $"{e.Status} {e.Outcome}").ToArray());
-            Assert.True(unity.GetProperty("droppedBeforeRunning").GetBoolean(), "the server stayed held until its retry got the committed answer");
-        }
-        else
-        {
-            var recorded = proxy.Log.Where(e => e.Path.EndsWith("/recorded", StringComparison.Ordinal) && e.Path.Contains(attempt, StringComparison.Ordinal)).ToList();
-            evidence["recordedRequests"] = recorded;
-            Assert.All(recorded, e => Assert.Equal("upstream_unreachable", e.Outcome));
-            Assert.InRange(unity.GetProperty("notifyingSeconds").GetDouble(), 0, 35);
-        }
+        // The relay's view: the ticket redeemed once, the start lost then answered (A) or answered (B), the notice answered (A) or
+        // every attempt refused by the stopped API (B).
+        evidence["processRequests"] = proxy.Log.Where(e => e.Path.Contains(attempt, StringComparison.Ordinal)).ToList();
+        Assert.Empty(Cp4EvidenceChecks.RelayLog(proxy.Log, attempt, accountId, dropStart, outage));
         Say($"[{s}] verified: settled once ({settlement.Single().Outcome}, recorded {settlement.Single().RecordedHash}), one charge, no refund, started once, rewards match the receipt");
         return evidence;
     }
