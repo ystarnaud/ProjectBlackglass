@@ -28,5 +28,15 @@ namespace Blackglass
         public double MaxJoinWindowSeconds = 600;
 
         public RetryPolicy Retry => new RetryPolicy { AttemptTimeoutSeconds = RequestTimeoutSeconds };
+
+        public static BackendTimings FromOptions(ServerOptions options) => new BackendTimings
+        {
+            RequestTimeoutSeconds = options.BackendRequestTimeoutSeconds,
+            RegisterBoundSeconds = options.BackendRegisterBoundSeconds,
+            ReadyBoundSeconds = options.BackendReadyBoundSeconds,
+            StartGraceSeconds = options.BackendStartGraceSeconds,
+            HeartbeatSeconds = options.BackendHeartbeatSeconds,
+            RecordedBoundSeconds = options.RecordedBoundSeconds,
+        };
     }
 }

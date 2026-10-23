@@ -45,6 +45,19 @@ namespace Blackglass
         public string SelftestId { get; private set; }
         /// <summary>-attemptFixture &lt;path&gt;: start the authoritative attempt of this attempt-v1 fixture (Editor and fixture builds only; Stage 12).</summary>
         public string AttemptFixture { get; private set; }
+        /// <summary>-attempt &lt;uuid&gt;: run this backend attempt (Stage 13): the credential from $CREDENTIALS_DIRECTORY, never an argument.
+        /// Empty when given without a value (backend mode is then refused, never the plain mission).</summary>
+        public string Attempt { get; private set; }
+        /// <summary>-backend &lt;url&gt;: the backend's loopback address (http://127.0.0.1:5081 through the tunnel on the mission VM).</summary>
+        public string Backend { get; private set; }
+        // Stage 13's provisional backend timings (plan §3.4, owner ruling S13-D6), in seconds, each with a bounded range.
+        public int BackendRequestTimeoutSeconds { get; private set; } = 10;
+        public int BackendRegisterBoundSeconds { get; private set; } = 60;
+        public int BackendReadyBoundSeconds { get; private set; } = 30;
+        public int BackendStartGraceSeconds { get; private set; } = 30;
+        public int BackendHeartbeatSeconds { get; private set; } = 10;
+        /// <summary>§H step 3's bound on the recorded notice.</summary>
+        public int RecordedBoundSeconds { get; private set; } = 30;
 
         public static ServerOptions Default => new ServerOptions();
 
@@ -112,6 +125,31 @@ namespace Blackglass
                     case "-attemptFixture":
                         // A missing path still selects the attempt, which then fails startup: never the plain mission by accident.
                         options.AttemptFixture = TryText(args, ref i, warnings, out var fixture) ? fixture : string.Empty;
+                        break;
+                    case "-attempt":
+                        // A missing id still selects backend mode, which then fails: never the plain mission by accident.
+                        options.Attempt = TryText(args, ref i, warnings, out var attempt) ? attempt : string.Empty;
+                        break;
+                    case "-backend":
+                        options.Backend = TryText(args, ref i, warnings, out var backend) ? backend : string.Empty;
+                        break;
+                    case "-backendRequestTimeout":
+                        if (TryValue(args, ref i, 2, 60, warnings, out var requestTimeout)) options.BackendRequestTimeoutSeconds = requestTimeout;
+                        break;
+                    case "-backendRegisterBound":
+                        if (TryValue(args, ref i, 5, 300, warnings, out var registerBound)) options.BackendRegisterBoundSeconds = registerBound;
+                        break;
+                    case "-backendReadyBound":
+                        if (TryValue(args, ref i, 5, 300, warnings, out var readyBound)) options.BackendReadyBoundSeconds = readyBound;
+                        break;
+                    case "-backendStartGrace":
+                        if (TryValue(args, ref i, 0, 300, warnings, out var startGrace)) options.BackendStartGraceSeconds = startGrace;
+                        break;
+                    case "-backendHeartbeat":
+                        if (TryValue(args, ref i, 2, 30, warnings, out var backendHeartbeat)) options.BackendHeartbeatSeconds = backendHeartbeat;
+                        break;
+                    case "-recordedBound":
+                        if (TryValue(args, ref i, 1, 120, warnings, out var recordedBound)) options.RecordedBoundSeconds = recordedBound;
                         break;
                     case "-heartbeat":
                         if (TryValue(args, ref i, 0, 3600, warnings, out var heartbeat))
@@ -210,10 +248,11 @@ namespace Blackglass
         /// <summary>One log line; `fixtureSeed` is the scene's seed, shown when there is no override. An attempt names no number:
         /// its seed comes from the attempt and is never logged, and neither the scene's seed nor -seed is used.</summary>
         public string Describe(int fixtureSeed) =>
-            (AttemptFixture != null ? "seed=attempt " : FormattableString.Invariant($"seed={Seed ?? fixtureSeed}({(Seed.HasValue ? "override" : "fixture")}) ")) +
+            (AttemptFixture != null || Attempt != null ? "seed=attempt " : FormattableString.Invariant($"seed={Seed ?? fixtureSeed}({(Seed.HasValue ? "override" : "fixture")}) ")) +
             FormattableString.Invariant($"fps={FrameRate} diagnostic={(Diagnostic ? "yes" : "no")} ") +
             FormattableString.Invariant($"diagnosticTimeout={DiagnosticTimeoutSeconds}s startupTimeout={StartupTimeoutSeconds}s heartbeat={(HeartbeatSeconds > 0 ? HeartbeatSeconds + "s" : "off")} ") +
             (Net ? FormattableString.Invariant($"net=yes port={NetPort} quiet={(NetQuiet ? "yes" : "no")}") + (NetFixture ? " fixture=yes" : string.Empty) : "net=no") +
-            (AttemptFixture != null ? " attempt=fixture" : string.Empty);
+            (AttemptFixture != null ? " attempt=fixture" : string.Empty) +
+            (Attempt != null ? " attempt=backend" : string.Empty);
     }
 }
