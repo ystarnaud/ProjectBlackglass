@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Status (2026-10-23): Part A (Tasks 0–11) accepted by the owner at CP3. CP4 (Tasks 12–13) authorized, run once against the real API and one disposable database, and stopped for the owner's review ("As built" and "As built: CP4" at the end); not merged or pushed. Revision 1.1; Tasks 0–11 authorized by the owner ("Owner rulings (2026-10-23)").** Revision 1.1 resolves the independent architecture review (0 Critical, 7 Important, 13 Minor; every finding applied, see "Architecture review"). On the local branch `phase13-stage13-plan`, cut from `main` at `08d7d1a` (the visual network mission, accepted). Nothing in this plan has run against a backend or on either VM; the measured numbers are in "As built". The independent architecture review and its resolution are recorded at the end ("Architecture review").
+**Status (2026-10-23): Stage 13's local implementation and integration accepted by the owner (Part A at CP3, CP4 at final acceptance; "Final acceptance" at the end), merged into `main` with a merge commit and pushed. Part C (the Linux mission host) stays blocked by B24 and Stage 12 Track N.** Revision 1.1; Tasks 0–11 authorized by the owner ("Owner rulings (2026-10-23)").** Revision 1.1 resolves the independent architecture review (0 Critical, 7 Important, 13 Minor; every finding applied, see "Architecture review"). On the local branch `phase13-stage13-plan`, cut from `main` at `08d7d1a` (the visual network mission, accepted). Nothing in this plan has run on either VM; the measured numbers are in "As built" and "As built: CP4". The independent architecture review and its resolution are recorded at the end ("Architecture review").
 
 **Goal:** the Unity mission server, given an attempt id and its attempt-scoped process credential, runs the attempt's whole process-side lifecycle against the existing backend API: register, validate, generate, ready, the per-participant start hold with idempotent start retries, heartbeats, the outcome freeze, the durable outbox write, the bounded `recorded` notice, publication of the ready result whether or not the backend answers, and exit, without polling settlement.
 
@@ -850,3 +850,75 @@ Backend tests run through the documented CET wrapper (`.claude/scratchpad/phase1
 - Gameplay was driven by test hooks: direct damage, warps, and interactables moved next to the unit. This is a lifecycle test, not a gameplay test.
 
 **Outstanding (unchanged):** B24 and Stage 12 Track N, Stage 14, and decision 052's seed-recovery blocker.
+
+## Final acceptance (2026-10-23, owner's "Stage 13 Final Acceptance and Merge Authorization")
+
+**Ruling:** Stage 13's local implementation and integration acceptance is complete. The owner accepted Part A and CP4. Before the merge:
+- **Revisions checked:** `phase13-stage13` was at `f8acb4a`; `main` and `origin/main` were both at `08d7d1a`, which is the merge base. `main` had no new commits.
+- **Diff checked:** the diff against `main` is exactly the reviewed Part A (`40a0fdd`..`a9ba0b1`) plus the CP4 test and documentation additions (`9355558`..`f8acb4a`, 14 files). That is 110 files, with no `Backend/src`, migration, scene, Unity settings or `.claude/` path, and no secret or private address (the only private-range strings are the synthetic `10.0.0.1` refusal vectors).
+
+The branch was then merged into `main` with a merge commit and pushed without force.
+
+**Accepted evidence:**
+- **Suites:**
+  - EditMode 2409/2409.
+  - PlayMode 1509 passed; the existing skip and the two opt-in CP4 tests are skipped in ordinary runs.
+  - Backend domain 810/810; no-database integration 361/361.
+  - Windows agent 152/254; the other 102 need Linux.
+- **Scenario A, lost start response:**
+  - A genuine ticket was minted and redeemed once.
+  - The start was committed before its answer was dropped. Unity stayed held until its idempotent retry got the committed answer.
+  - Exactly one energy charge.
+  - A durable manifest (`sha256:44653f7b…36cd0`) settled exactly once.
+  - The receipt is immutable and correct, and so are the inventory and XP.
+- **Scenario B, API outage:**
+  - The API was stopped after the start commit. Unity kept its result durable, gave up the `recorded` notice within its bound, and published (`sha256:2052f638…87c3d0`).
+  - The outage caused no void and no refund.
+  - After the API came back, the result settled exactly once, with a correct, immutable receipt, inventory and XP.
+- **Cleanup:**
+  - CP4's database was dropped, and the cluster's final snapshot matched its baseline.
+  - Every CP4 process, listener and secret file was removed.
+
+**No post-review live run:** the final assertion fixes (`83a7ec0`) were checked against the one live run's recorded evidence, which serves as the passing vectors in `Cp4EvidenceChecksTests`. No live database run happened after the review. The owner ruled that none is to be made merely to close documentation.
+
+**Not claimed:** Stage 13's acceptance does **not** mean any of the following:
+- Stage 12 is complete;
+- B24 is resolved;
+- real Unity missions are approved on `bg-dev-mission01`;
+- Stage 10's installed agent has been tested with the real Unity server;
+- the player-facing persistent online loop is complete;
+- decision 052's seed-recovery issue is resolved;
+- Phase 13 as a whole is complete.
+
+**Tracked deferred minors.** Each stays open until it is fixed or the owner drops it.
+
+From the CP4 review:
+- **CP4-M5, the 2-hour sweep collision:** CP4's database names (`bg_t_<time>_cp4_<hex>`) match `TestCluster`'s stale `bg_t_*` sweep. An ordinary integration run that starts two or more hours into a CP4-style run would drop CP4's database. Resolve this before any such run can last that long, either with a prefix outside the sweep or an exclusion in it.
+- **CP4-M4, non-atomic creation record:** the database is created before its record is written, so a crash between the two leaves an unrecorded database. Only the sweep would remove it.
+- **CP4-M10, the API-shutdown race:** scenario B stops the API as soon as the host sees the committed start, so the start answer may still be on its way to Unity. Unity's retry would also cover a lost answer.
+- **CP4-M7, agent-test limitations:** the host simulates the agent. Its heartbeat after exit reports `outboxPending` 0 and an empty inventory. "No void during the outage" holds partly by construction, because the backend's sweeps live in the stopped API. The installed agent has never run with the Unity server.
+- **CP4-M11, crash-time credential cleanup:** if the host is killed mid-run, the process credential and ticket files stay in the protected exchange directory until someone deletes them by hand.
+- **CP4-M6:** a cleanup failure masks the original error and skips writing the evidence, and the secret scan is enforced only on success.
+- **CP4-M9:** the Unity log scan doesn't listen to messages from worker threads.
+- **Standing ruling, CP4-M3:** the cluster's system identifier is pinned through the same tunnel as the run. An independent read would need Docker on the services VM, which CP4 forbids.
+
+From Part A (see "As built"):
+- the register response vector's loadout is rebuilt from the vector on the backend side;
+- the adapter log-line audit is line-based;
+- the oversize check runs between frames;
+- the PlayMode hold test samples at Holding rather than at the Ready frame;
+- `Release` only clears `Connected`;
+- nothing guards against an exception inside `Runner.Tick`;
+- the runner's EditMode tests are slow (a sleep per step);
+- the Stage 14 notes.
+
+**Observations:** the VM's clock runs about 1.7 s ahead of the workstation's. CP4's gameplay was driven by test hooks, so it proves the lifecycle, not gameplay.
+
+**Evidence preserved:** the redacted local evidence stays in `.superpowers/sdd/2026-10-23-phase-13-stage13-backend-lifecycle/`, git-ignored and local only. Its `cp4/` folder holds the baselines, transcript, scenario rows, receipts, manifests, outbox hashes, relay log and review package. It is not deleted.
+
+**Outstanding:**
+- Part C (the Linux mission host), blocked by B24 and Stage 12 Track N;
+- Stage 14 (ticket admission over `AdmitTicket`, the gate wiring, `NetResultRecordedMessage`, lifting `-net`);
+- decision 052's seed-recovery blocker.
+
+Each needs the owner's authorization.

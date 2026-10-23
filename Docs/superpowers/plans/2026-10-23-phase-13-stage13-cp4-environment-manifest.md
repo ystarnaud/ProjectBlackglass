@@ -1,6 +1,6 @@
 # Stage 13 CP4: environment and cleanup manifest (prepared, not executed)
 
-**Status (2026-10-23): authorized by the owner and run once; see the plan's "As built: CP4".** It ran with the owner's mandatory correction: a CP4-only safe path to the cluster (`Support/Cp4Database.cs`) instead of `TestCluster`, and a separate tunnel. The .NET host, not Unity, plays the player, the agent and the relay, and secrets stay in its memory instead of `e2e.json`. The text below is the prepared manifest as it stood before authorization. The plan is `2026-10-23-phase-13-stage13-backend-lifecycle.md` (Tasks 12–13).
+**Status (2026-10-23): authorized by the owner, run once and accepted with Stage 13; see the plan's "As built: CP4" and "Final acceptance".** It ran with the owner's mandatory correction: a CP4-only safe path to the cluster (`Support/Cp4Database.cs`) instead of `TestCluster`, and a separate tunnel. The .NET host, not Unity, plays the player, the agent and the relay, and secrets stay in its memory instead of `e2e.json`. The text below is the prepared manifest as it stood before authorization. The plan is `2026-10-23-phase-13-stage13-backend-lifecycle.md` (Tasks 12–13).
 
 ## 1. Purpose
 
