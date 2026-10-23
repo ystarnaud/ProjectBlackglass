@@ -350,6 +350,32 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void The_hold_is_restored_while_the_ready_report_is_in_flight()
+        {
+            transport.Answer("sessions", 200, RegisterAnswer()).SilentAlways("ready").AnswerAlways("heartbeat", 200, "{}");
+            Make();
+            Run(1, () => runner.Phase == RunnerPhase.Generating);
+            host.Pause();
+            runner.MissionReady(attempt, ReadyJson, now);
+            Run(0.2);
+            Assert.That(runner.Phase, Is.EqualTo(RunnerPhase.ReportingReady));
+            host.Resume();
+            Run(0.2);
+            Assert.That(host.IsPaused, Is.True, "the hold covers the ready report too");
+        }
+
+        [Test]
+        public void A_recorded_401_publishes_then_exits_6()
+        {
+            ToRunning();
+            transport.Answer("recorded", 401, "");
+            runner.Frozen(Outcome(), now);
+            Run(10);
+            Assert.That(host.ExitCode, Is.EqualTo(ServerExitCodes.Stopped), host.ExitReason);
+            Assert.That(File.ReadAllBytes(Path.Combine(dir, attempt.AccountId + ".manifest.ready")), Is.EqualTo(Manifest));
+        }
+
+        [Test]
         public void A_heartbeat_401_while_running_stops_with_exit_6_and_no_outcome()
         {
             ToRunning();

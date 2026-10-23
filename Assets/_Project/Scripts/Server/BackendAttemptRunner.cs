@@ -174,6 +174,7 @@ namespace Blackglass
 
         void ReportingReady(double now)
         {
+            KeepHeld(); // the hold starts at the Ready frame, not at the acknowledgement
             ready.Tick(now);
             if (!ready.IsFinished) return;
             var call = ready;
@@ -202,13 +203,16 @@ namespace Blackglass
             }
         }
 
+        void KeepHeld()
+        {
+            if (host.IsPaused) return;
+            host.Pause();
+            host.Log("the hold was lifted by something else before the start commit: paused again");
+        }
+
         void Holding(double now)
         {
-            if (!host.IsPaused)
-            {
-                host.Pause();
-                host.Log("the hold was lifted by something else before the start commit: paused again");
-            }
+            KeepHeld();
             hold.Tick(now);
             if (Phase != RunnerPhase.Holding) return; // Started moved it to Running
             if (hold.State == HoldState.Stopped) { Unauthorized(now); return; }
@@ -220,6 +224,7 @@ namespace Blackglass
         void Publishing(double now)
         {
             publisher.Tick(now);
+            if (publisher.RecordedAnswer == "unauthorized") unauthorizedBeforePublished = true; // the notice met the credential's end
             if (publisher.State == PublisherState.Published)
                 Exit(unauthorizedBeforePublished ? ServerExitCodes.Stopped : ServerExitCodes.Success, "result published" + (unauthorizedBeforePublished ? " after the credential ended" : string.Empty));
             else if (publisher.State == PublisherState.NotPublished)

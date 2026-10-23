@@ -72,6 +72,13 @@ namespace Blackglass
                 recorded.Abort();
                 Notified("aborted");
             }
+            else if (State == PublisherState.Writing && !double.IsNaN(resubmitAt))
+            {
+                // A resubmission was waiting: submit it now, so the result held in memory is written during the drain.
+                resubmitAt = double.NaN;
+                handle = worker.Submit(accountId, bytes, hash);
+                handle.AllowPublication();
+            }
             else if (State == PublisherState.Writing && handle != null)
             {
                 handle.AllowPublication(); // publication follows the write if it completes during the drain

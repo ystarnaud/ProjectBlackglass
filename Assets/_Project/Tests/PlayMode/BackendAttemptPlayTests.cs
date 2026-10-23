@@ -76,6 +76,10 @@ namespace Blackglass.Tests
         public IEnumerator TearDown()
         {
             Application.logMessageReceived -= Capture;
+            // CP2 M5: whatever the test did, no captured line may hold the credential or the ticket.
+            var all = string.Join("\n", logs);
+            var leakedCredential = all.Contains(Credential.Substring(4));
+            var leakedTicket = all.Contains(Ticket);
             if (bootstrap != null && bootstrap.Runner != null) bootstrap.Quit();
             Time.timeScale = 1f;
             if (director != null) director.Clear();
@@ -83,6 +87,88 @@ namespace Blackglass.Tests
             if (scene.isLoaded) yield return SceneManager.UnloadSceneAsync(scene);
             foreach (var path in new[] { credentials, outbox })
                 if (path != null && Directory.Exists(path)) Directory.Delete(path, true);
+            Assert.That(leakedCredential, Is.False, "the process credential reached a log");
+            Assert.That(leakedTicket, Is.False, "a join ticket reached a log");
+        }
+
+        string[] FailedReasons() => transport.To("failed").Select(r => JsonUtility.FromJson<FailedRequest>(r.BodyText).reason).ToArray();
+
+        IEnumerator ToGenerating()
+        {
+            Script();
+            Begin();
+            yield return TestWorld.WaitUntil(() => bootstrap.HasExited || (bootstrap.Runner != null && bootstrap.Runner.Phase == RunnerPhase.Generating), 30f);
+            Assert.That(bootstrap.Runner.Phase, Is.EqualTo(RunnerPhase.Generating), bootstrap.ExitReason);
+        }
+
+        // CP2 I1 (a): a generation failure in backend mode is reported to the backend (failed) and exits 4, never the fixture's exit 2.
+        [UnityTest]
+        public IEnumerator A_generation_failure_reports_failed_once_and_exits_4()
+        {
+            yield return ToGenerating();
+            bootstrap.OnStateChanged(MissionState.Failed);
+            yield return TestWorld.WaitUntil(() => bootstrap.HasExited, 15f);
+            Assert.That(exitCode, Is.EqualTo(ServerExitCodes.BackendRefused), bootstrap.ExitReason);
+            Assert.That(FailedReasons(), Is.EqualTo(new[] { "generation_failed" }));
+        }
+
+        // CP2 I1 (b): the generation deadline, once armed, is reported the same way.
+        [UnityTest]
+        public IEnumerator The_generation_deadline_reports_failed_and_exits_4()
+        {
+            yield return ToGenerating();
+            // Past -startupTimeout (60 s) from the hand-over: the test drives the bootstrap's clock ahead and keeps it there, so the
+            // scripted answer to the failed report (stamped on that clock) arrives.
+            var ahead = Time.realtimeSinceStartupAsDouble + 61;
+            for (var i = 0; i < 200 && !bootstrap.HasExited; i++)
+            {
+                bootstrap.Tick(ahead + i * 0.05);
+                yield return null;
+            }
+            Assert.That(exitCode, Is.EqualTo(ServerExitCodes.BackendRefused), bootstrap.ExitReason);
+            Assert.That(FailedReasons(), Is.EqualTo(new[] { "generation_timeout" }));
+        }
+
+        // CP2 I1 (d): the generation deadline is not armed while registering: a long registration ends as a registration problem.
+        [UnityTest]
+        public IEnumerator The_generation_deadline_waits_for_the_registration()
+        {
+            transport.SilentAlways("sessions");
+            Begin();
+            yield return null;
+            Assert.That(bootstrap.Runner.Phase, Is.EqualTo(RunnerPhase.Registering));
+            bootstrap.Tick(Time.realtimeSinceStartupAsDouble + 61); // past the startup timeout and the 60 s registration bound
+            yield return null;
+            Assert.That(exitCode, Is.EqualTo(ServerExitCodes.BackendRefused));
+            Assert.That(bootstrap.ExitReason, Does.StartWith("register_gave_up"), "a registration problem, never a generation timeout");
+            Assert.That(transport.To("failed"), Is.Empty, "no session yet: nothing to report to");
+        }
+
+        // CP2 I1: a register answer the build refuses (validation in ContinueAttempt) is reported and exits 4, never a fixture fallback.
+        [UnityTest]
+        public IEnumerator A_register_answer_the_build_refuses_reports_failed_and_exits_4()
+        {
+            registered.missionTemplate = new MissionTemplateDto { id = "procedural-standard", version = 99 };
+            Script();
+            Begin();
+            yield return TestWorld.WaitUntil(() => bootstrap.HasExited, 30f);
+            Assert.That(exitCode, Is.EqualTo(ServerExitCodes.BackendRefused), bootstrap.ExitReason);
+            Assert.That(FailedReasons(), Is.EqualTo(new[] { "attempt_refused" }));
+            Assert.That(bootstrap.ExitReason, Does.Contain("unsupported_template"));
+            Assert.That(director.State, Is.Not.EqualTo(MissionState.Ready), "nothing generated");
+        }
+
+        // CP2 M6: backend mode never logs the fixture's operator aid or manifest (decision 052's spirit), even in the Editor.
+        [UnityTest]
+        public IEnumerator Backend_mode_logs_no_fixture_operator_aid_or_manifest()
+        {
+            yield return ToRunning();
+            transport.Answer("recorded", 200, "{\"state\":\"result_pending\"}");
+            Finish();
+            yield return TestWorld.WaitUntil(() => bootstrap.HasExited, 30f);
+            var all = string.Join("\n", logs);
+            Assert.That(all, Does.Not.Contain("FIXTURE OPERATOR AID"));
+            Assert.That(all, Does.Not.Contain("attempt manifest {"));
         }
 
         string RegisterAnswer(int? seed = null)

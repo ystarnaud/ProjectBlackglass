@@ -233,6 +233,22 @@ namespace Blackglass.Tests
         }
 
         [Test]
+        public void Shutdown_during_a_pending_resubmission_still_writes_the_result()
+        {
+            var faulting = new FaultingOutboxDirectory(dir);
+            faulting.Fail("WriteAndSync", "io", 5, times: 1);
+            Make(faulting);
+            publisher.Begin(Account, Bytes, Hash, clock.Now);
+            Run(1, () => false); // the first write fails; a resubmission is pending (2 s later)
+            Assert.That(publisher.State, Is.EqualTo(PublisherState.Writing));
+            publisher.Shutdown();
+            Assert.That(worker.Stop(TimeSpan.FromSeconds(5)), Is.True);
+            var result = File.Exists(Ready) ? Ready : Written;
+            Assert.That(File.Exists(result), Is.True, "the result held in memory reached the outbox before the exit");
+            Assert.That(File.ReadAllBytes(result), Is.EqualTo(Bytes));
+        }
+
+        [Test]
         public void Only_the_recorded_route_is_ever_called()
         {
             Make();

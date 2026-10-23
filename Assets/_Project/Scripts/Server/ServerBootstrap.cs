@@ -392,7 +392,8 @@ namespace Blackglass
             Debug.Log(Prefix + $"ATTEMPT READY attempt={attempt.AttemptId} lines={report.lootPool.Length} lootHash={report.lootHash} layoutHash={report.layoutHash}");
             Debug.Log(Prefix + "attempt ready report " + JsonUtility.ToJson(report));
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
-            LogFixtureOperatorAid();
+            if (options.AttemptFixture != null) // the fixture's operator aid only, never in backend mode (decision 052's spirit)
+                LogFixtureOperatorAid();
 #endif
             director.MissionFinished += OnAttemptFinished;
             Runner?.MissionReady(attempt, JsonUtility.ToJson(report), Now); // the exact bytes logged above, sent unchanged on every retry
@@ -431,7 +432,7 @@ namespace Blackglass
                 $"outcomeSequence={(outcome.Manifest != null ? outcome.Manifest.Manifest.OutcomeSequence.ToString(System.Globalization.CultureInfo.InvariantCulture) : "none")} " +
                 $"manifestHash={(outcome.Manifest != null ? outcome.Manifest.ManifestHash : "none")} diagnostics={string.Join(",", outcome.Diagnostics)}");
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
-            if (outcome.Manifest != null)
+            if (outcome.Manifest != null && options.AttemptFixture != null)
                 LogFixtureManifest(outcome.Manifest);
 #endif
             Runner?.Frozen(outcome, Now);
