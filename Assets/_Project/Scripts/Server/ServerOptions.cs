@@ -146,7 +146,8 @@ namespace Blackglass
                         if (TryValue(args, ref i, 0, 300, warnings, out var startGrace)) options.BackendStartGraceSeconds = startGrace;
                         break;
                     case "-backendHeartbeat":
-                        if (TryValue(args, ref i, 2, 30, warnings, out var backendHeartbeat)) options.BackendHeartbeatSeconds = backendHeartbeat;
+                        // At most 20 s: well inside the backend's 30 s process lease, so a beat plus its latency never lets it lapse.
+                        if (TryValue(args, ref i, 2, 20, warnings, out var backendHeartbeat)) options.BackendHeartbeatSeconds = backendHeartbeat;
                         break;
                     case "-recordedBound":
                         if (TryValue(args, ref i, 1, 120, warnings, out var recordedBound)) options.RecordedBoundSeconds = recordedBound;

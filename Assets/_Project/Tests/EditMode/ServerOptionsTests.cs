@@ -278,6 +278,7 @@ namespace Blackglass.Tests
         [TestCase("-backendStartGrace", "-1", 30)]
         [TestCase("-backendHeartbeat", "1", 10)]
         [TestCase("-backendHeartbeat", "31", 10)]
+        [TestCase("-backendHeartbeat", "21", 10)]
         [TestCase("-recordedBound", "0", 30)]
         [TestCase("-recordedBound", "121", 30)]
         public void ABackendTimingOutOfRange_KeepsItsDefault(string flag, string value, int expected)

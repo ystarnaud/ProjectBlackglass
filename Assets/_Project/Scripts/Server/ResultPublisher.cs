@@ -40,6 +40,8 @@ namespace Blackglass
         /// <summary>A durable .written or .ready exists for the account (whatever happened after).</summary>
         public bool Durable => handle != null && handle.Status.Durable;
         public event Action<string> ResultSaved;
+        /// <summary>The current publication handle's stage (tests and diagnostics); null before Begin.</summary>
+        internal PublicationStage? HandleStage => handle?.Status.Stage;
 
         public void Begin(string account, byte[] canonicalBytes, string manifestHash, double now)
         {
@@ -72,7 +74,7 @@ namespace Blackglass
                 recorded.Abort();
                 Notified("aborted");
             }
-            else if (State == PublisherState.Writing && !double.IsNaN(resubmitAt))
+            else if (State == PublisherState.Writing && (!double.IsNaN(resubmitAt) || WriteFailedUndurably()))
             {
                 // A resubmission was waiting: submit it now, so the result held in memory is written during the drain.
                 resubmitAt = double.NaN;
@@ -83,6 +85,14 @@ namespace Blackglass
             {
                 handle.AllowPublication(); // publication follows the write if it completes during the drain
             }
+        }
+
+        // The write just failed with nothing durable, and Tick has not scheduled the resubmission yet.
+        bool WriteFailedUndurably()
+        {
+            if (handle == null) return false;
+            var status = handle.Status;
+            return (status.Stage == PublicationStage.Failed || status.Stage == PublicationStage.Cancelled) && !status.Durable;
         }
 
         void Writing(double now)

@@ -304,6 +304,26 @@ namespace Blackglass.Tests
             Assert.That(host.Resumes, Is.Zero, "the mission never ran");
         }
 
+        // Final review M1 (re-graded): a backend join window longer than ten minutes (the backend allows up to 3600 s) is honoured,
+        // never cut short by the process (owner ruling S13-D6: backend deadlines preserved).
+        [Test]
+        public void A_long_backend_join_window_is_never_cut_short()
+        {
+            transport.Answer("sessions", 200, RegisterAnswer(launch: "2026-10-23T13:00:00Z")).Answer("ready", 200, ReadyAnswer("2026-10-23T12:20:00Z"))
+                .AnswerAlways("heartbeat", 200, "{}").AnswerAlways("failed", 200, "{}");
+            Make();
+            for (var i = 0; i < 100 && runner.Phase != RunnerPhase.Generating; i++) { now += 0.05; runner.Tick(now); }
+            host.Pause();
+            runner.MissionReady(attempt, ReadyJson, now);
+            for (var i = 0; i < 100 && runner.Phase != RunnerPhase.Holding; i++) { now += 0.05; runner.Tick(now); }
+            Assert.That(runner.Phase, Is.EqualTo(RunnerPhase.Holding));
+            var holdingAt = now;
+            while (now < holdingAt + 1200 + 25 && !runner.HasExited) { now += 1; runner.Tick(now); } // 20 minutes and most of the grace
+            Assert.That(runner.HasExited, Is.False, "still holding inside the backend's 20-minute join window plus grace");
+            while (now < holdingAt + 1200 + 40 && !runner.HasExited) { now += 1; runner.Tick(now); }
+            Assert.That(host.ExitCode, Is.EqualTo(ServerExitCodes.NotStarted));
+        }
+
         [Test]
         public void A_refused_start_reports_failed_and_exits_5_without_ever_running()
         {

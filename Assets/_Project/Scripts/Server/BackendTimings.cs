@@ -24,8 +24,10 @@ namespace Blackglass
         public int OutboxResubmissions = 3;
         public double OutboxResubmitDelaySeconds = 2;
         public double DrainSeconds = 10;
-        /// <summary>The longest join window the process believes from the backend (a far-future stamp is clamped).</summary>
-        public double MaxJoinWindowSeconds = 600;
+        /// <summary>The longest launch or join window the process believes from the backend: the backend's own maximum
+        /// (BLACKGLASS_LAUNCH_DEADLINE_SECONDS and BLACKGLASS_JOIN_DEADLINE_SECONDS allow up to 3600 s), so no configured backend
+        /// deadline is ever cut short; only a corrupt far-future stamp is clamped.</summary>
+        public double MaxJoinWindowSeconds = 3600;
 
         public RetryPolicy Retry => new RetryPolicy { AttemptTimeoutSeconds = RequestTimeoutSeconds };
 

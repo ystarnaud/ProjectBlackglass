@@ -248,6 +248,25 @@ namespace Blackglass.Tests
             Assert.That(File.ReadAllBytes(result), Is.EqualTo(Bytes));
         }
 
+        // Final review M2 (re-graded): a quit in the frame where a write has just failed (no resubmission scheduled yet) still writes
+        // the result held in memory, so a valid outcome is never reported absent.
+        [Test]
+        public void Shutdown_right_after_a_failed_write_still_writes_the_result()
+        {
+            var faulting = new FaultingOutboxDirectory(dir);
+            faulting.Fail("WriteAndSync", "io", 5, times: 1);
+            Make(faulting);
+            publisher.Begin(Account, Bytes, Hash, clock.Now);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            while (publisher.HandleStage != PublicationStage.Failed && watch.Elapsed.TotalSeconds < 5) Thread.Sleep(1); // no Tick: nothing scheduled
+            Assert.That(publisher.HandleStage, Is.EqualTo(PublicationStage.Failed));
+            publisher.Shutdown();
+            Assert.That(worker.Stop(TimeSpan.FromSeconds(5)), Is.True);
+            var result = File.Exists(Ready) ? Ready : Written;
+            Assert.That(File.Exists(result), Is.True);
+            Assert.That(File.ReadAllBytes(result), Is.EqualTo(Bytes));
+        }
+
         [Test]
         public void Only_the_recorded_route_is_ever_called()
         {
