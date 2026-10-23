@@ -4,6 +4,7 @@
     "references": [
         "Blackglass",
         "Blackglass.Backend.Adapter",
+        "Blackglass.Tests.BackendSupport",
         "FishNet.Runtime",
         "FishyUnityTransport",
         "UnityEngine.TestRunner",

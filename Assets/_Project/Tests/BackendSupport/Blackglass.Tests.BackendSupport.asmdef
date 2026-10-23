@@ -1,0 +1,19 @@
+{
+    "name": "Blackglass.Tests.BackendSupport",
+    "rootNamespace": "Blackglass.Tests",
+    "references": [
+        "Blackglass.Backend.Core",
+        "Blackglass.Backend.Adapter"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
