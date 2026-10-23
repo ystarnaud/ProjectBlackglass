@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using Blackglass.Backend.Adapter;
 using Blackglass.Backend.Core;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -18,6 +20,18 @@ namespace Blackglass
         public const int StartupFailed = 2;
         /// <summary>-outboxSelftest: a check failed (Stage 12 plan, Task 1).</summary>
         public const int SelftestFailed = 3;
+        /// <summary>
+        /// Backend mode (Stage 13) ended before any participant started: a refused option, credential, outbox or registration, an invalid
+        /// answer, a validation, generation or ready refusal. Like 5–7, evidence for the agent's exit report only: the agent and the
+        /// backend treat every exit status alike (its presence is the proof of exit, S9-B7), so no code changes what is voided.
+        /// </summary>
+        public const int BackendRefused = 4;
+        /// <summary>Backend mode: no participant's start was committed (the join hold expired, or the start was refused or never answered).</summary>
+        public const int NotStarted = 5;
+        /// <summary>Backend mode: the process credential ended (a 401 on a session call: cancelled, settled or revoked); any durable result was kept.</summary>
+        public const int Stopped = 6;
+        /// <summary>Backend mode: the frozen result could not be published (no manifest bytes, an outbox failure or a conflicting result).</summary>
+        public const int ResultNotPublished = 7;
     }
 
     /// <summary>
@@ -27,7 +41,7 @@ namespace Blackglass
     /// self-check, then either runs the bounded diagnostic (-diagnostic) or logs a heartbeat until the process is stopped.
     /// Holds no game rule: the mission comes from MissionDirector and every order from CommandableUnit.Issue.
     /// </summary>
-    public sealed class ServerBootstrap : MonoBehaviour
+    public sealed class ServerBootstrap : MonoBehaviour, IBackendAttemptHost
     {
         public const string Prefix = "[Server] ";
 
@@ -87,6 +101,20 @@ namespace Blackglass
         internal Func<string, IAttemptSource> AttemptSourceFactory = CreateFixtureSource;
         /// <summary>The running attempt's session (Stage 12), once its mission is ready; null otherwise.</summary>
         public AttemptSession Session { get; private set; }
+        /// <summary>Backend mode's lifecycle (Stage 13, -attempt), null otherwise. Stage 14's ticket admission calls Runner.AdmitTicket.</summary>
+        public BackendAttemptRunner Runner { get; private set; }
+        /// <summary>Where the process credential is: systemd's $CREDENTIALS_DIRECTORY (LoadCredential). Tests replace it with a temp directory.</summary>
+        internal Func<string> CredentialsDirectory = () => Environment.GetEnvironmentVariable("CREDENTIALS_DIRECTORY");
+        /// <summary>The attempt's outbox: $STATE_DIRECTORY under the production parent, linux-x64 only (Stage 11). Tests replace it with a portable directory.</summary>
+        internal Func<string, IOutboxDirectory> OpenAttemptOutbox = attemptId =>
+            OutboxDirectories.OpenForServer(Environment.GetEnvironmentVariable(OutboxLocation.StateDirectoryVariable), "/var/lib/blackglass-outbox", attemptId);
+        /// <summary>The HTTP transport (the adapter's production one). Tests replace it with a scripted fake.</summary>
+        internal Func<BackendEndpoint, ProcessCredential, IHttpTransport> TransportFactory = (endpoint, credential) => new UnityWebRequestTransport(endpoint, credential);
+        /// <summary>This build's revision for registration: "editor" in the Editor, a stamped well-formed revision in a player, else null (refused).</summary>
+        internal Func<string> BackendBuildRevision = StampedBuildRevision;
+        internal Func<DateTime> UtcNow = () => DateTime.UtcNow;
+        OutboxWorker attemptWorker;
+        ServerClock attemptClock;
         internal SquadInventory Inventory => inventory;
 
         internal void Initialize(MissionDirector missionDirector, TacticalPause tacticalPause)
@@ -126,6 +154,12 @@ namespace Blackglass
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = options.FrameRate;
             Debug.Log(Prefix + IdentityLine());
+            if (options.Attempt != null)
+            {
+                // Before the self-test's early return: a backend attempt combined with it is refused, never one of them silently.
+                BeginBackend();
+                return;
+            }
             if (options.OutboxSelftest != null)
             {
                 // The self-test needs no mission and no network: nothing below runs, -net is never read.
@@ -190,37 +224,138 @@ namespace Blackglass
                 Finish(ServerExitCodes.StartupFailed, "attempt: " + problem);
                 return;
             }
+            var refusal = ContinueAttempt(attemptId, response);
+            if (refusal != null)
+                Finish(ServerExitCodes.StartupFailed, refusal);
+        }
+
+        /// <summary>
+        /// The attempt from a register answer, shared by the fixture and backend modes (Stage 12's validation, unchanged): AttemptStart,
+        /// the snapshot squad (roster and inventory), the loot table, and GenerateForAttempt. Null when generation started, else the
+        /// refusal line (nothing generated). The seed is never logged.
+        /// </summary>
+        string ContinueAttempt(string attemptId, SessionRegisterResponse response)
+        {
             if (itemCatalogue == null || lootTable == null || roster == null || inventory == null || progression == null)
-            {
-                Finish(ServerExitCodes.StartupFailed, "attempt: the scene's ServerBootstrap is not wired for attempts (rebuild the server scene)");
-                return;
-            }
+                return "attempt: the scene's ServerBootstrap is not wired for attempts (rebuild the server scene)";
             if (!AttemptStart.TryCreate(attemptId, response, catalogueVersion, id => AttemptSquad.Find(operatives, id) != null,
                     ItemLedgerMapping.Catalogue(itemCatalogue), out var start, out var refusal))
-            {
-                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
-                return;
-            }
+                return "attempt: " + refusal;
             if (!AttemptSquad.TryMembers(start, operatives, progression, out var members, out refusal))
-            {
-                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
-                return;
-            }
+                return "attempt: " + refusal;
             roster.InitializeFromSnapshot(members, progression);
             if (!inventory.InitializeFromSnapshot(itemCatalogue, roster, inventory.Core.BagCapacity, start.Snapshot, out refusal))
-            {
-                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
-                return;
-            }
+                return "attempt: " + refusal;
             director.SetLootTable(lootTable);
             attempt = start;
             if (!director.GenerateForAttempt(start))
+                return "the director refused to generate";
+            Debug.Log(Prefix + $"generating attempt {start.AttemptId} operatives={start.Snapshot.Count} template={start.TemplateId}/{start.TemplateVersion}");
+            return null;
+        }
+
+        /// <summary>
+        /// Backend mode (Stage 13, -attempt): every local check before any request (the option conflicts, the attempt id, the loopback
+        /// endpoint, this build's revision, the credential, the scene, the outbox), then the OutboxWorker and the runner, which registers.
+        /// Any refusal ends the process with exit 4 and no request; a registration failure never falls back to a fixture.
+        /// </summary>
+        void BeginBackend()
+        {
+            Session?.Unbind();
+            Session = null;
+            attempt = null;
+            ready = false;
+            var conflict = BackendConflict(options);
+            if (conflict != null)
             {
-                Finish(ServerExitCodes.StartupFailed, "the director refused to generate");
+                Finish(ServerExitCodes.BackendRefused, "-attempt can't be combined with " + conflict);
                 return;
             }
-            Debug.Log(Prefix + $"generating attempt {start.AttemptId} operatives={start.Snapshot.Count} template={start.TemplateId}/{start.TemplateVersion}");
+            if (!CanonicalIds.IsAttemptId(options.Attempt))
+            {
+                Finish(ServerExitCodes.BackendRefused, "-attempt needs a canonical attempt id");
+                return;
+            }
+            if (!BackendEndpoint.TryParse(options.Backend, out var endpoint, out var endpointRefusal))
+            {
+                Finish(ServerExitCodes.BackendRefused, "-backend: " + endpointRefusal);
+                return;
+            }
+            var revision = BackendBuildRevision();
+            if (revision == null)
+            {
+                Finish(ServerExitCodes.BackendRefused, "backend mode needs a stamped, well-formed build revision");
+                return;
+            }
+            if (!ProcessCredential.TryRead(CredentialsDirectory(), out var credential, out var credentialRefusal))
+            {
+                Finish(ServerExitCodes.BackendRefused, "credential: " + credentialRefusal);
+                return;
+            }
+            if (director == null || pause == null || itemCatalogue == null || lootTable == null || roster == null || inventory == null || progression == null)
+            {
+                Finish(ServerExitCodes.BackendRefused, "attempt: the scene's ServerBootstrap is not wired for attempts (rebuild the server scene)");
+                return;
+            }
+            IOutboxDirectory directory;
+            try { directory = OpenAttemptOutbox(options.Attempt); }
+            catch (Exception e) when (e is OutboxIOException || e is PlatformNotSupportedException || e is IOException || e is UnauthorizedAccessException)
+            {
+                Finish(ServerExitCodes.BackendRefused, "outbox: " + (e is OutboxIOException o ? o.Code : e.GetType().Name));
+                return;
+            }
+            Debug.Log(Prefix + "options " + options.Describe(director.Settings.seed));
+            attemptWorker = new OutboxWorker(directory);
+            var timings = BackendTimings.FromOptions(options);
+            var transport = TransportFactory(endpoint, credential);
+            var api = new ProcessApi(transport, options.Attempt, timings.Retry, BackendRandom.Create());
+            director.StateChanged -= OnStateChanged;
+            director.StateChanged += OnStateChanged;
+            started = true;
+            startupDeadline = double.PositiveInfinity; // the generation deadline starts once registration hands over the answer
+            generation = Stopwatch.StartNew();
+            Debug.Log(Prefix + $"backend attempt {options.Attempt} backend={endpoint.BaseUrl} build={revision} credential=present");
+            Runner = new BackendAttemptRunner(this, transport, api, attemptWorker, timings, revision, catalogueVersion, UtcNow, Now);
         }
+
+        /// <summary>The first option backend mode refuses beside -attempt (Stage 13: -net and the token file are Stage 14's), or null.</summary>
+        internal static string BackendConflict(ServerOptions o)
+        {
+            if (o.AttemptFixture != null) return "-attemptFixture";
+            if (o.OutboxSelftest != null) return "-outboxSelftest";
+            if (o.Diagnostic) return "-diagnostic";
+            if (o.Seed.HasValue) return "-seed";
+            if (o.Net) return "-net";
+            if (o.NetTokensPath != null) return "-netTokens";
+            if (o.NetQuiet) return "-netQuiet";
+            if (o.NetFixture) return "-netFixture";
+            return null;
+        }
+
+        static string StampedBuildRevision()
+        {
+#if UNITY_EDITOR
+            return "editor";
+#else
+            var info = ServerBuildInfo.ReadBesideExecutable();
+            return info != null && info.TryGetValue("revision", out var revision) && CanonicalIds.IsBuildRevision(revision) ? revision : null;
+#endif
+        }
+
+        string IBackendAttemptHost.ContinueAttempt(string attemptId, SessionRegisterResponse response)
+        {
+            var refusal = ContinueAttempt(attemptId, response);
+            if (refusal == null)
+                startupDeadline = Now + options.StartupTimeoutSeconds;
+            return refusal;
+        }
+
+        bool IBackendAttemptHost.IsPaused => pause != null && pause.IsPaused;
+        void IBackendAttemptHost.Pause() => pause.Pause();
+        void IBackendAttemptHost.Resume() => pause.Resume();
+        void IBackendAttemptHost.RestartAttemptClock() => attemptClock?.Restart();
+        void IBackendAttemptHost.Log(string line) => Debug.Log(Prefix + line);
+        void IBackendAttemptHost.Exit(int code, string reason) => Finish(code, reason);
 
         static IAttemptSource CreateFixtureSource(string path)
         {
@@ -245,19 +380,23 @@ namespace Blackglass
         // The attempt's session starts on the ready mission; a refusal ends startup.
         bool BeginSession()
         {
-            Session = AttemptSession.Begin(attempt, director, inventory, ItemLedgerMapping.Catalogue(itemCatalogue), new ServerClock(), BuildRevision(), out var refusal);
+            attemptClock = new ServerClock();
+            Session = AttemptSession.Begin(attempt, director, inventory, ItemLedgerMapping.Catalogue(itemCatalogue), attemptClock, BuildRevision(), out var refusal);
             if (Session == null)
             {
-                Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
+                if (Runner != null) Runner.StartupFailed("session_refused", Now, refusal);
+                else Finish(ServerExitCodes.StartupFailed, "attempt: " + refusal);
                 return false;
             }
             var report = Session.ReadyReport;
             Debug.Log(Prefix + $"ATTEMPT READY attempt={attempt.AttemptId} lines={report.lootPool.Length} lootHash={report.lootHash} layoutHash={report.layoutHash}");
             Debug.Log(Prefix + "attempt ready report " + JsonUtility.ToJson(report));
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
-            LogFixtureOperatorAid();
+            if (options.AttemptFixture != null) // the fixture's operator aid only, never in backend mode (decision 052's spirit)
+                LogFixtureOperatorAid();
 #endif
             director.MissionFinished += OnAttemptFinished;
+            Runner?.MissionReady(attempt, JsonUtility.ToJson(report), Now); // the exact bytes logged above, sent unchanged on every retry
             return true;
         }
 
@@ -284,15 +423,19 @@ namespace Blackglass
         {
             director.MissionFinished -= OnAttemptFinished;
             if (Session == null || Session.Outcome == null)
+            {
+                Runner?.Frozen(null, Now);
                 return;
+            }
             var outcome = Session.Outcome;
             Debug.Log(Prefix + $"ATTEMPT FROZEN outcome={(Session.Result != null ? Session.Result.Outcome.ToString() : "none")} build={outcome.Kind} integrity={Session.Facts.Integrity} " +
                 $"outcomeSequence={(outcome.Manifest != null ? outcome.Manifest.Manifest.OutcomeSequence.ToString(System.Globalization.CultureInfo.InvariantCulture) : "none")} " +
                 $"manifestHash={(outcome.Manifest != null ? outcome.Manifest.ManifestHash : "none")} diagnostics={string.Join(",", outcome.Diagnostics)}");
 #if UNITY_EDITOR || BLACKGLASS_NET_FIXTURE
-            if (outcome.Manifest != null)
+            if (outcome.Manifest != null && options.AttemptFixture != null)
                 LogFixtureManifest(outcome.Manifest);
 #endif
+            Runner?.Frozen(outcome, Now);
         }
 
         void OnDestroy()
@@ -303,19 +446,32 @@ namespace Blackglass
                 director.MissionFinished -= OnAttemptFinished;
             }
             Session?.Unbind();
+            Runner?.Shutdown();
         }
 
-        void OnApplicationQuit() => Debug.Log(Prefix + "quitting");
+        void OnApplicationQuit() => Quit();
+
+        /// <summary>The quit path (SIGTERM from the agent's stop or the operator's emergency stop): backend mode ends its notice, lets a
+        /// durable result publish and drains the outbox. Tests call it directly.</summary>
+        internal void Quit()
+        {
+            Debug.Log(Prefix + "quitting");
+            Runner?.Shutdown();
+        }
 
         internal void OnStateChanged(MissionState state)
         {
             if (state == MissionState.Failed)
             {
-                Finish(ServerExitCodes.StartupFailed, "mission generation failed: " + (director != null ? director.Report.Failure : "no director"));
+                if (Runner != null) Runner.StartupFailed("generation_failed", Now, director != null ? director.Report.Failure : null);
+                else Finish(ServerExitCodes.StartupFailed, "mission generation failed: " + (director != null ? director.Report.Failure : "no director"));
                 return;
             }
             if (state != MissionState.Ready)
                 return;
+            // Backend mode: the start hold begins in this same frame, before any simulation (no AI, no combat, no objective) runs.
+            if (Runner != null)
+                pause.Pause();
             ready = true;
             generation?.Stop();
             DisableUnitViews();
@@ -382,6 +538,17 @@ namespace Blackglass
             }
             if (!started)
                 return;
+            if (Runner != null)
+            {
+                Runner.Tick(now);
+                if (HasExited)
+                    return;
+                if (!ready && now > startupDeadline)
+                    Runner.StartupFailed("generation_timeout", now);
+                else if (ready)
+                    Heartbeat(now);
+                return;
+            }
             if (!ready)
             {
                 if (now > startupDeadline)

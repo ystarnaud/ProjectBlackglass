@@ -3,6 +3,8 @@
     "rootNamespace": "Blackglass.Tests",
     "references": [
         "Blackglass",
+        "Blackglass.Backend.Adapter",
+        "Blackglass.Tests.BackendSupport",
         "FishNet.Runtime",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",

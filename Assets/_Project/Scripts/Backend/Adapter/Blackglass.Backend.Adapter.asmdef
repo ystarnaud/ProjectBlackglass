@@ -1,0 +1,16 @@
+{
+    "name": "Blackglass.Backend.Adapter",
+    "rootNamespace": "Blackglass.Backend.Adapter",
+    "references": [
+        "Blackglass.Backend.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

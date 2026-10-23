@@ -429,6 +429,8 @@ Detailed task plan: `Docs/superpowers/plans/2026-10-14-phase-13-stage1-backend-f
 
 ## Stage 13: server ↔ backend lifecycle in Unity
 
+**Status (2026-10-23): local implementation and integration accepted by the owner, merged into `main` and pushed.** The detailed plan is `2026-10-23-phase-13-stage13-backend-lifecycle.md` (owner rulings S13-D1–S13-D11, "As built", "As built: CP4", "Final acceptance"). Part A (Tasks 0–11) was accepted at CP3. Part B (CP4: one Editor end-to-end run against the real API and a disposable database, per `2026-10-23-phase-13-stage13-cp4-environment-manifest.md`) ran once and was accepted; Part C (the Linux mission host) stays blocked by B24 and Stage 12 Track N. Where the detailed plan differs from this outline, it wins.
+
 **Touches:**
 - `Assets/_Project/Scripts/Backend/Adapter/` (new);
 - `ServerOptions`;

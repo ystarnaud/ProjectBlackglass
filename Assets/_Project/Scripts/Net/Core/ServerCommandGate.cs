@@ -38,6 +38,13 @@ namespace Blackglass
         /// </summary>
         public Action<NetConnection, int, int, UnitCommand> AttackAccepted { get; set; }
 
+        /// <summary>
+        /// The start hold's gate half (Stage 13, spec §7.5): when set, a well-formed request from a connection whose participant the
+        /// backend has not started yet is refused as NotStarted before any other check, recording nothing. Null (every existing path,
+        /// the harness and the fixture) changes nothing. Stage 14 wires it to the participant start hold.
+        /// </summary>
+        public Func<NetConnection, bool> IsStarted { get; set; }
+
         /// <summary>Receives the text of an unexpected exception (the request is then refused as OrderRefused).</summary>
         public Action<string> Log { get; set; }
 
@@ -77,6 +84,8 @@ namespace Blackglass
             if (connection == null || envelope == null || envelope.Request == null || string.IsNullOrEmpty(envelope.AttemptId)
                 || !IsKnownAndFinite(envelope.Request))
                 return Reject(NetRejectReason.Malformed);
+            if (IsStarted != null && !IsStarted(connection))
+                return Reject(NetRejectReason.NotStarted);
             if (!string.Equals(envelope.AttemptId, attemptId, StringComparison.Ordinal))
                 return Reject(NetRejectReason.WrongAttempt);
             if (!connection.IsFresh(envelope.Sequence))

@@ -18,6 +18,8 @@ namespace Blackglass
         WrongSide,
         /// <summary>The request was valid but the existing command path would not carry it out (CommandableUnit.Issue returned false).</summary>
         OrderRefused,
+        /// <summary>The participant's start is not committed by the backend yet (the start hold, Stage 13; appended, nothing renumbered).</summary>
+        NotStarted,
     }
 
     public readonly struct NetResult

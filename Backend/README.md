@@ -481,6 +481,21 @@ Plan: `Docs/superpowers/plans/2026-10-17-phase-13-stage9-settlement.md` (revisio
 - **Mission units (security correction C1):** one template per host slot, `blackglass-mission-NN@<attempt>.service` (`NN` = mission port minus `portBase`), each running as that slot's systemd dynamic user, with systemd's private per-unit outbox. The agent configuration's `portBase` and `localCapacity` must match the host's registration (`port_base`, `capacity` no larger).
 - **Deployment** (`deploy/mission/`): the slot template and its renderer, the broker's socket and service, the agent unit, the polkit rule, users, directories, the root exit recorder and slot guard, the stub mission, the tunnel files, and the publish, install, verify and uninstall scripts. See `deploy/mission/README.md`. **Not installed** until the owner authorizes the Stage 10 infrastructure checkpoint; validated in a disposable systemd container.
 
+## Stage 13 CP4: the Editor end-to-end run (owner-approved runs only)
+The real API in a test process on the PC (127.0.0.1, an ephemeral port), one disposable database on the test cluster through the tunnel, and the Unity Editor's `-attempt` server as the mission process. Plan: `Docs/superpowers/plans/2026-10-23-phase-13-stage13-cp4-environment-manifest.md`.
+- **Pieces:**
+  - `tests/Accounts.Integration.Tests/E2E/BackendE2EHost.cs` plays the operator (seeding through the admin stores), the player (dev login, deploy, ticket, receipt), the agent (heartbeat, claim, launching, the relay to `POST /agent/v1/results`, exited), and the network between the server and the API (`LostResponseProxy`). Scenario A loses the first start answer after the backend committed it; scenario B stops the API after the start and restarts it once the process has published.
+  - `Assets/_Project/Tests/PlayMode/BackendE2EPlayTests.cs` (`[Explicit]`) runs the server with the real `UnityWebRequest` transport and asserts the hold, the outbox order and the exit.
+  - Both are opt-in: the host is skipped without `BLACKGLASS_E2E=1`; the Unity test ignores itself without `BLACKGLASS_E2E_DIR`.
+- **The safe database path** (`Support/Cp4Database.cs`, not `TestCluster`): it checks the cluster's identity first (`cluster_name = blackglass-test`, PostgreSQL 17, the expected `system_identifier`, the superuser) and the two application roles. Then it creates one `bg_t_<time>_cp4_<hex>` database and writes its name and OID to `cp4-database.json`. It drops only a database matching both. It never removes other runs' databases and never creates or changes a role. `Unit/Cp4DatabaseSafetyTests` covers this without a database.
+- **Procedure** (from `Backend/`; plain `dotnet` may need the CET wrapper on the owner's PC):
+  1. Check nothing listens on `127.0.0.1:55432`, then open a tunnel used only by this run: `ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:55432:127.0.0.1:55432 <the services admin alias>`.
+  2. Read the baseline (read-only): `BLACKGLASS_E2E=1 BLACKGLASS_CP4_BASELINE_OUT=<new file> dotnet test tests/Accounts.Integration.Tests --filter "FullyQualifiedName~Cp4_read_only_cluster_baseline"`. Take `identity.systemIdentifier` from it.
+  3. Start the host: `BLACKGLASS_E2E=1 BLACKGLASS_E2E_DIR=<new private directory outside the repository> BLACKGLASS_CP4_SYSTEM_ID=<id> dotnet test tests/Accounts.Integration.Tests --filter "FullyQualifiedName~Cp4_a_lost_start_answer"`.
+  4. Once `<dir>/host.json` exists, run Unity: `BLACKGLASS_E2E_DIR=<dir> Tools/run-tests.sh PlayMode "Blackglass.Tests.BackendE2EPlayTests"`.
+  5. Keep `<dir>/evidence/`, which is redacted: the cluster baselines and differences, the transcript, the scenarios' database rows, receipts, hashes and the relay log. Then delete `<dir>`, repeat step 2 to a new file (no `_cp4_` database may remain), and close the tunnel.
+- **Never:** `testdb.sh up/down/destroy`, `vm-sync.sh`, `vm-test.sh` or Docker for this run; a VM change; the installed accounts API or agent.
+
 ## Restore limits
 Database-level privileges (`CONNECT`, `TEMPORARY`) are not inside a `pg_dump`. A real restore into a new cluster re-runs `initdb/00-roles.sh` first. Stage 17 and Phase 14 write the full recovery runbook.
 

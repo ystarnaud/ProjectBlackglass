@@ -7,7 +7,7 @@ using System;
 // at one boundary. No DTO overrides ToString, so nothing prints a credential or the seed by accident.
 namespace Blackglass.Backend.Core
 {
-    /// <summary>POST /server/v1/session/register: RegisterRequest.Parse.</summary>
+    /// <summary>POST /server/v1/attempts/{aid}/sessions: RegisterRequest.Parse.</summary>
     [Serializable]
     public sealed class SessionRegisterRequest
     {
@@ -107,7 +107,7 @@ namespace Blackglass.Backend.Core
         public string Utility => string.IsNullOrEmpty(utility) ? null : utility;
     }
 
-    /// <summary>POST /server/v1/session/ready: ReadyReport.Parse.</summary>
+    /// <summary>POST /server/v1/attempts/{aid}/ready: ReadyReport.Parse.</summary>
     [Serializable]
     public sealed class ReadyRequest
     {
@@ -141,7 +141,7 @@ namespace Blackglass.Backend.Core
         public string joinDeadline;
     }
 
-    /// <summary>POST /server/v1/session/start: StartRequest.Parse.</summary>
+    /// <summary>POST /server/v1/attempts/{aid}/participants/{acc}/start: StartRequest.Parse.</summary>
     [Serializable]
     public sealed class StartRequest
     {
@@ -155,7 +155,7 @@ namespace Blackglass.Backend.Core
         public string startedAt;
     }
 
-    /// <summary>POST /server/v1/tickets/redeem: RedeemRequest.Parse. The ticket is a credential: never logged.</summary>
+    /// <summary>POST /server/v1/attempts/{aid}/tickets/redeem: RedeemRequest.Parse. The ticket is a credential: never logged.</summary>
     [Serializable]
     public sealed class RedeemRequest
     {
@@ -170,7 +170,7 @@ namespace Blackglass.Backend.Core
         public string[] operativeIds;
     }
 
-    /// <summary>POST /server/v1/session/heartbeat: ProcessHeartbeatRequest.Parse.</summary>
+    /// <summary>POST /server/v1/attempts/{aid}/heartbeat: ProcessHeartbeatRequest.Parse.</summary>
     [Serializable]
     public sealed class ProcessHeartbeatRequest
     {
@@ -186,7 +186,7 @@ namespace Blackglass.Backend.Core
         public bool connected;
     }
 
-    /// <summary>POST .../participants/{account}/recorded: RecordedRequest.Parse (sent only once the result is durable).</summary>
+    /// <summary>POST /server/v1/attempts/{aid}/participants/{acc}/recorded: RecordedRequest.Parse (sent only once the result is durable).</summary>
     [Serializable]
     public sealed class RecordedRequest
     {
@@ -200,7 +200,7 @@ namespace Blackglass.Backend.Core
         public string state;
     }
 
-    /// <summary>POST /server/v1/session/failed: FailedRequest.Parse.</summary>
+    /// <summary>POST /server/v1/attempts/{aid}/failed: FailedRequest.Parse.</summary>
     [Serializable]
     public sealed class FailedRequest
     {

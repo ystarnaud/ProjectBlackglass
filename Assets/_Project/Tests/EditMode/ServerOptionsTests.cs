@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
 
 namespace Blackglass.Tests
@@ -220,6 +221,95 @@ namespace Blackglass.Tests
             Assert.That(Parse("-net").NetFixture, Is.False);
             Assert.That(Parse().With(netFixture: true).NetFixture, Is.True);
             Assert.That(Parse("-netFixture").With(diagnostic: true).NetFixture, Is.True, "untouched values stay as they were");
+        }
+        // Stage 13: the backend attempt mode's options.
+        const string BackendAttempt = "0192f1a4-5c2e-7b1d-9a0e-3f6c1d2b8e41";
+
+        [Test]
+        public void TheBackendOptions_HaveProvisionalDefaults()
+        {
+            var o = Parse();
+            Assert.That(o.Attempt, Is.Null);
+            Assert.That(o.Backend, Is.Null);
+            Assert.That(o.BackendRequestTimeoutSeconds, Is.EqualTo(10));
+            Assert.That(o.BackendRegisterBoundSeconds, Is.EqualTo(60));
+            Assert.That(o.BackendReadyBoundSeconds, Is.EqualTo(30));
+            Assert.That(o.BackendStartGraceSeconds, Is.EqualTo(30));
+            Assert.That(o.BackendHeartbeatSeconds, Is.EqualTo(10));
+            Assert.That(o.RecordedBoundSeconds, Is.EqualTo(30));
+        }
+
+        [Test]
+        public void TheBackendOptions_AreRead()
+        {
+            var o = Parse(out var warnings, "-attempt", BackendAttempt, "-backend", "http://127.0.0.1:5081", "-backendRequestTimeout", "20", "-backendRegisterBound", "90",
+                "-backendReadyBound", "40", "-backendStartGrace", "15", "-backendHeartbeat", "5", "-recordedBound", "60");
+            Assert.That(warnings, Is.Empty);
+            Assert.That(o.Attempt, Is.EqualTo(BackendAttempt));
+            Assert.That(o.Backend, Is.EqualTo("http://127.0.0.1:5081"));
+            Assert.That(o.BackendRequestTimeoutSeconds, Is.EqualTo(20));
+            Assert.That(o.BackendRegisterBoundSeconds, Is.EqualTo(90));
+            Assert.That(o.BackendReadyBoundSeconds, Is.EqualTo(40));
+            Assert.That(o.BackendStartGraceSeconds, Is.EqualTo(15));
+            Assert.That(o.BackendHeartbeatSeconds, Is.EqualTo(5));
+            Assert.That(o.RecordedBoundSeconds, Is.EqualTo(60));
+            var timings = BackendTimings.FromOptions(o);
+            Assert.That(timings.RequestTimeoutSeconds, Is.EqualTo(20));
+            Assert.That(timings.RegisterBoundSeconds, Is.EqualTo(90));
+            Assert.That(timings.ReadyBoundSeconds, Is.EqualTo(40));
+            Assert.That(timings.StartGraceSeconds, Is.EqualTo(15));
+            Assert.That(timings.HeartbeatSeconds, Is.EqualTo(5));
+            Assert.That(timings.RecordedBoundSeconds, Is.EqualTo(60));
+            Assert.That(timings.Retry.AttemptTimeoutSeconds, Is.EqualTo(20));
+        }
+
+        [Test]
+        public void AMissingAttemptId_StillSelectsBackendMode()
+        {
+            Assert.That(Parse(out var warnings, "-attempt").Attempt, Is.EqualTo(string.Empty), "never the plain mission by accident");
+            Assert.That(warnings, Has.Count.EqualTo(1));
+            Assert.That(Parse("-attempt", "-net").Attempt, Is.EqualTo(string.Empty));
+        }
+
+        [TestCase("-backendRequestTimeout", "1", 10)]
+        [TestCase("-backendRequestTimeout", "61", 10)]
+        [TestCase("-backendRegisterBound", "4", 60)]
+        [TestCase("-backendReadyBound", "301", 30)]
+        [TestCase("-backendStartGrace", "-1", 30)]
+        [TestCase("-backendHeartbeat", "1", 10)]
+        [TestCase("-backendHeartbeat", "31", 10)]
+        [TestCase("-backendHeartbeat", "21", 10)]
+        [TestCase("-recordedBound", "0", 30)]
+        [TestCase("-recordedBound", "121", 30)]
+        public void ABackendTimingOutOfRange_KeepsItsDefault(string flag, string value, int expected)
+        {
+            var o = Parse(out var warnings, flag, value);
+            Assert.That(warnings, Has.Count.EqualTo(1));
+            var read = flag == "-backendRequestTimeout" ? o.BackendRequestTimeoutSeconds : flag == "-backendRegisterBound" ? o.BackendRegisterBoundSeconds
+                : flag == "-backendReadyBound" ? o.BackendReadyBoundSeconds : flag == "-backendStartGrace" ? o.BackendStartGraceSeconds
+                : flag == "-backendHeartbeat" ? o.BackendHeartbeatSeconds : o.RecordedBoundSeconds;
+            Assert.That(read, Is.EqualTo(expected));
+        }
+
+        [Test]
+        public void Describe_NamesTheBackendAttemptAndNoSeed()
+        {
+            var text = Parse("-attempt", BackendAttempt, "-backend", "http://127.0.0.1:5081", "-seed", "777").Describe(123);
+            Assert.That(text, Does.Contain("attempt=backend"));
+            Assert.That(text, Does.Contain("seed=attempt"));
+            Assert.That(text, Does.Not.Contain("777"));
+            Assert.That(text, Does.Not.Contain("123"));
+        }
+
+        [Test]
+        public void NoOption_TakesACredentialASecretOrATicket()
+        {
+            var source = System.IO.File.ReadAllText("Assets/_Project/Scripts/Server/ServerOptions.cs");
+            var names = System.Text.RegularExpressions.Regex.Matches(source, "case \"(-[A-Za-z]+)\"").Cast<System.Text.RegularExpressions.Match>().Select(m => m.Groups[1].Value).ToArray();
+            Assert.That(names, Has.Member("-attempt"));
+            Assert.That(names.Where(n => System.Text.RegularExpressions.Regex.IsMatch(n, "credential|secret|ticket|key|password", System.Text.RegularExpressions.RegexOptions.IgnoreCase)), Is.Empty);
+            foreach (var property in typeof(ServerOptions).GetProperties())
+                Assert.That(System.Text.RegularExpressions.Regex.IsMatch(property.Name, "Credential|Secret|Ticket|Password"), Is.False, property.Name);
         }
     }
 }
